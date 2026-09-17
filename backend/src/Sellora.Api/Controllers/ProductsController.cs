@@ -150,6 +150,6 @@ public class ProductsController(SelloraDbContext db) : ControllerBase
     }
 
     private static ProductDetailDto ToDetail(Product p) => new(
-        p.Id, p.Sku, p.Name, p.Category, p.BaseUnitId, p.BaseUnit.ShortCode, p.TaxId, p.Tax.Name,
+        p.Id, p.Sku, p.Name, p.Category, p.BaseUnitId, p.BaseUnit.ShortCode, p.TaxId, p.Tax.Name, p.Tax.RatePercent,
         p.ReorderLevel, p.IsActive, p.SellingModes.Select(m => new SellingModeDto(m.Id, m.Label, m.ConversionFactorToBase, m.IsActive)).ToList());
 }

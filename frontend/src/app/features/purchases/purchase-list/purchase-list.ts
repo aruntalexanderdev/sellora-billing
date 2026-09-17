@@ -1,0 +1,82 @@
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
+import { UiDataTable } from '../../../shared/ui/data-table/data-table';
+import { UiButton } from '../../../shared/ui/button/button';
+import type { DataTableColumn, DataTableRow, DataTableState } from '../../../shared/ui/data-table/data-table.types';
+import { AuthService } from '../../../core/auth/auth.service';
+import { PurchasesService } from '../purchases.service';
+import type { PurchaseListItem } from '../purchases.models';
+
+const COLS: DataTableColumn[] = [
+  { label: 'Purchase No', align: 'left' },
+  { label: 'Supplier', align: 'left' },
+  { label: 'Date', align: 'left' },
+  { label: 'Total', align: 'right' },
+  { label: 'Payment', align: 'left' },
+  { label: 'Status', align: 'left' },
+];
+
+const INR = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
+
+@Component({
+  selector: 'app-purchase-list',
+  standalone: true,
+  imports: [UiDataTable, UiButton],
+  templateUrl: './purchase-list.html',
+  styleUrl: '../../administration/users/user-list/user-list.scss',
+})
+export class PurchaseList implements OnInit {
+  private readonly purchasesService = inject(PurchasesService);
+  private readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
+
+  readonly cols = COLS;
+  readonly search = signal('');
+  readonly state = signal<DataTableState>('loading');
+  readonly items = signal<PurchaseListItem[]>([]);
+  readonly total = signal(0);
+
+  readonly canCreate = computed(() => this.auth.hasPermission('Purchase.Create'));
+
+  readonly rows = computed<DataTableRow[]>(() =>
+    this.items().map((p) => ({
+      cells: [
+        { kind: 'link', text: p.purchaseNo, onClick: () => this.router.navigate(['/purchases', p.id]) },
+        { kind: 'text', text: p.supplierName, weight: '600' },
+        { kind: 'text', text: p.purchaseDate, color: 'var(--color-text-muted)' },
+        { kind: 'text', text: INR(p.grandTotal), align: 'right', weight: '650' },
+        { kind: 'badge', text: p.paymentStatus, tone: p.paymentStatus === 'Paid' ? 'good' : p.paymentStatus === 'PartiallyPaid' ? 'warn' : 'bad' },
+        { kind: 'badge', text: p.status, tone: p.status === 'Completed' ? 'good' : 'mute' },
+      ],
+    })),
+  );
+
+  ngOnInit(): void {
+    this.load();
+  }
+
+  onSearch(value: string): void {
+    this.search.set(value);
+    this.load();
+  }
+
+  retry(): void {
+    this.load();
+  }
+
+  goToCreate(): void {
+    this.router.navigate(['/purchases/new']);
+  }
+
+  private load(): void {
+    this.state.set('loading');
+    this.purchasesService.list({ search: this.search() }).subscribe({
+      next: (res) => {
+        this.items.set(res.items);
+        this.total.set(res.total);
+        this.state.set('ready');
+      },
+      error: () => this.state.set('error'),
+    });
+  }
+}

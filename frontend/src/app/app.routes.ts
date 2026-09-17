@@ -18,6 +18,9 @@ import { SupplierList } from './features/purchases/suppliers/supplier-list/suppl
 import { SupplierForm } from './features/purchases/suppliers/supplier-form/supplier-form';
 import { ProductList } from './features/inventory/products/product-list/product-list';
 import { ProductForm } from './features/inventory/products/product-form/product-form';
+import { PurchaseList } from './features/purchases/purchase-list/purchase-list';
+import { PurchaseForm } from './features/purchases/purchase-form/purchase-form';
+import { PurchaseDetail } from './features/purchases/purchase-detail/purchase-detail';
 import { authGuard, permissionGuard } from './core/auth/auth.guard';
 import { unsavedChangesGuard } from './core/unsaved-changes.guard';
 
@@ -172,6 +175,26 @@ export const routes: Routes = [
         canActivate: [permissionGuard('Inventory.Edit')],
         canDeactivate: [unsavedChangesGuard],
         data: { group: 'Inventory', page: 'Edit product' },
+      },
+
+      {
+        path: 'purchases',
+        component: PurchaseList,
+        canActivate: [permissionGuard('Purchase.View')],
+        data: { group: 'Purchases', page: 'Purchases' },
+      },
+      {
+        path: 'purchases/new',
+        component: PurchaseForm,
+        canActivate: [permissionGuard('Purchase.Create')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Purchases', page: 'New purchase' },
+      },
+      {
+        path: 'purchases/:id',
+        component: PurchaseDetail,
+        canActivate: [permissionGuard('Purchase.View')],
+        data: { group: 'Purchases', page: 'Purchase details' },
       },
     ],
   },

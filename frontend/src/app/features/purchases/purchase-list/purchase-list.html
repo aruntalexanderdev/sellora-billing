@@ -1,0 +1,25 @@
+<div class="page-head">
+  <div>
+    <h1>Purchases</h1>
+    <p>Stock received from suppliers, with payment status.</p>
+  </div>
+  @if (canCreate()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New purchase</ui-button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search purchase no. or supplier…"
+  emptyTitle="No purchases yet"
+  emptyBody="Receive your first delivery to start tracking stock."
+  [emptyAction]="canCreate() ? '+ New purchase' : null"
+  (searchChange)="onSearch($event)"
+  (emptyActionClick)="goToCreate()"
+  (retry)="retry()"
+  [footerText]="total() + ' purchase' + (total() === 1 ? '' : 's')"
+/>

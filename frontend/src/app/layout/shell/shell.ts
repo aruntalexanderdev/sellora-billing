@@ -35,7 +35,10 @@ const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
   },
   {
     label: 'Purchases',
-    items: [{ label: 'Suppliers', routerLink: '/purchases/suppliers', permission: 'Suppliers.View' }],
+    items: [
+      { label: 'Purchases', routerLink: '/purchases', permission: 'Purchase.View' },
+      { label: 'Suppliers', routerLink: '/purchases/suppliers', permission: 'Suppliers.View' },
+    ],
   },
   { label: 'System', items: [{ label: 'UI Kit', routerLink: '/ui-showcase', permission: '' }] },
 ];

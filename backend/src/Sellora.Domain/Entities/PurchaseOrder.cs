@@ -1,0 +1,44 @@
+namespace Sellora.Domain.Entities;
+
+/// <summary>
+/// A purchase is a business transaction, not a plain CRUD record (docx §10, §17): completing one
+/// atomically writes its lines, a batch per line, a stock movement per line, and updates the
+/// product's StockItem — all in one DB transaction.
+/// </summary>
+public class PurchaseOrder
+{
+    public Guid Id { get; set; }
+    public required string PurchaseNo { get; set; }
+
+    public Guid SupplierId { get; set; }
+    public Supplier Supplier { get; set; } = null!;
+
+    public DateOnly PurchaseDate { get; set; }
+    public string? SupplierInvoiceNumber { get; set; }
+    public string? Notes { get; set; }
+
+    public PaymentMethod PaymentMethod { get; set; }
+    public decimal PaidAmount { get; set; }
+
+    public decimal Subtotal { get; set; }
+    public decimal TaxTotal { get; set; }
+    public decimal OtherChargesTotal { get; set; }
+    public decimal DiscountTotal { get; set; }
+    public decimal GrandTotal { get; set; }
+
+    public PurchaseStatus Status { get; set; } = PurchaseStatus.Completed;
+
+    public Guid CreatedByUserId { get; set; }
+    public User CreatedByUser { get; set; } = null!;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? CancelledAt { get; set; }
+
+    public ICollection<PurchaseOrderLine> Lines { get; set; } = new List<PurchaseOrderLine>();
+
+    /// <summary>Due amount is always derived from GrandTotal - PaidAmount, never stored independently (docx §17).</summary>
+    public decimal DueAmount => Math.Max(0, GrandTotal - PaidAmount);
+
+    public PaymentStatus PaymentStatus => PaidAmount <= 0
+        ? PaymentStatus.Due
+        : PaidAmount >= GrandTotal ? PaymentStatus.Paid : PaymentStatus.PartiallyPaid;
+}

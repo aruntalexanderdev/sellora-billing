@@ -16,7 +16,7 @@ public record ProductListItemDto(
 
 public record ProductDetailDto(
     Guid Id, string Sku, string Name, string? Category,
-    Guid BaseUnitId, string BaseUnitLabel, Guid TaxId, string TaxLabel,
+    Guid BaseUnitId, string BaseUnitLabel, Guid TaxId, string TaxLabel, decimal TaxRatePercent,
     decimal ReorderLevel, bool IsActive, IReadOnlyList<SellingModeDto> SellingModes
 );
 

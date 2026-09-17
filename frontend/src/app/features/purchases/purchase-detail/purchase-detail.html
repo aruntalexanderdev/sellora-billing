@@ -1,0 +1,101 @@
+@if (!loading() && purchase(); as p) {
+  <div class="page-head no-print">
+    <div>
+      <h1>{{ p.purchaseNo }}</h1>
+      <p>{{ p.supplierName }} · {{ p.purchaseDate }}</p>
+    </div>
+    <div class="header-actions">
+      <ui-button variant="secondary" (onClick)="print()">Print</ui-button>
+      @if (canEdit() && p.status === 'Completed' && !editing()) {
+        <ui-button variant="secondary" (onClick)="startEdit()">Edit</ui-button>
+      }
+      @if (canCancel() && p.status === 'Completed') {
+        <ui-button variant="destructive" (onClick)="cancelPurchase()">Cancel purchase</ui-button>
+      }
+      <a routerLink="/purchases" class="back-link">Back to list</a>
+    </div>
+  </div>
+
+  <div class="status-row no-print">
+    <ui-badge [text]="p.status" [tone]="p.status === 'Completed' ? 'good' : 'mute'" />
+    <ui-badge [text]="p.paymentStatus" [tone]="p.paymentStatus === 'Paid' ? 'good' : p.paymentStatus === 'PartiallyPaid' ? 'warn' : 'bad'" />
+    @if (p.status === 'Cancelled') {
+      <span class="cancelled-note">Cancelled — stock effects reversed.</span>
+    }
+  </div>
+
+  <div class="detail-card">
+    <div class="lines-table-wrap">
+      <table class="lines-table">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Unit</th>
+            <th class="num">Qty</th>
+            <th class="num">Rate</th>
+            <th class="num">Tax</th>
+            <th class="num">Line total</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (line of p.lines; track line.id) {
+            <tr>
+              <td class="strong">{{ line.productName }}</td>
+              <td>{{ line.sellingModeLabel }} <span class="muted">({{ line.baseQty }} {{ line.baseUnitLabel }})</span></td>
+              <td class="num">{{ line.qty }}</td>
+              <td class="num">{{ INR(line.rate) }}</td>
+              <td class="num">{{ line.taxRatePercent }}%</td>
+              <td class="num strong">{{ INR(line.lineTotal) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="summary-and-payment">
+      <div class="summary-card">
+        <div class="totals-row"><span>Subtotal</span><span>{{ INR(p.subtotal) }}</span></div>
+        <div class="totals-row"><span>Other charges</span><span>{{ INR(p.otherChargesTotal) }}</span></div>
+        <div class="totals-row"><span>Discount</span><span>−{{ INR(p.discountTotal) }}</span></div>
+        <div class="totals-row"><span>Tax</span><span>{{ INR(p.taxTotal) }}</span></div>
+        <div class="totals-row totals-grand"><span>Grand total</span><span>{{ INR(p.grandTotal) }}</span></div>
+      </div>
+
+      <div class="payment-card">
+        @if (!editing()) {
+          <div class="kv-row"><span>Payment method</span><span>{{ p.paymentMethod }}</span></div>
+          <div class="kv-row"><span>Paid</span><span>{{ INR(p.paidAmount) }}</span></div>
+          <div class="kv-row"><span>Due</span><span>{{ INR(p.dueAmount) }}</span></div>
+          <div class="kv-row"><span>Supplier invoice</span><span>{{ p.supplierInvoiceNumber || '—' }}</span></div>
+          <div class="kv-row"><span>Notes</span><span>{{ p.notes || '—' }}</span></div>
+          <div class="kv-row muted-row"><span>Entered by</span><span>{{ p.createdByName }}</span></div>
+        } @else {
+          <form [formGroup]="headerForm" class="edit-form no-print">
+            <label class="field-label">Payment method</label>
+            <select formControlName="paymentMethod" class="field-input">
+              @for (m of paymentMethods; track m) {
+                <option [value]="m">{{ m }}</option>
+              }
+            </select>
+
+            <label class="field-label" style="margin-top: 10px">Paid amount</label>
+            <input type="number" step="0.01" formControlName="paidAmount" class="field-input" />
+
+            <label class="field-label" style="margin-top: 10px">Supplier invoice no.</label>
+            <input type="text" formControlName="supplierInvoiceNumber" class="field-input" />
+
+            <label class="field-label" style="margin-top: 10px">Notes</label>
+            <textarea formControlName="notes" class="field-input" rows="2"></textarea>
+
+            <div class="edit-actions">
+              <ui-button variant="primary" [disabled]="saving()" (onClick)="saveEdit()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
+              <ui-button variant="secondary" (onClick)="cancelEdit()">Cancel</ui-button>
+            </div>
+          </form>
+        }
+      </div>
+    </div>
+  </div>
+} @else if (!loading()) {
+  <div class="not-found">Purchase not found.</div>
+}

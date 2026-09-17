@@ -30,6 +30,7 @@ export interface ProductDetail {
   baseUnitLabel: string;
   taxId: string;
   taxLabel: string;
+  taxRatePercent: number;
   reorderLevel: number;
   isActive: boolean;
   sellingModes: SellingMode[];

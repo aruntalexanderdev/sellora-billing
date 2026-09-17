@@ -1,0 +1,120 @@
+<div class="page-head">
+  <div>
+    <h1>New purchase</h1>
+    <p>Receive goods in purchase units. Stock is converted to the base unit on save.</p>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="form-card">
+    @if (serverError()) {
+      <div class="server-error">{{ serverError() }}</div>
+    }
+
+    <form [formGroup]="form" (ngSubmit)="submit()">
+      <div class="grid-3">
+        <div>
+          <label class="field-label">Supplier</label>
+          <select formControlName="supplierId" class="field-input">
+            <option value="" disabled>Select a supplier…</option>
+            @for (s of suppliers(); track s.id) {
+              <option [value]="s.id">{{ s.name }}</option>
+            }
+          </select>
+          @if (form.get('supplierId')?.touched && form.get('supplierId')?.invalid) {
+            <div class="field-error">Select a supplier.</div>
+          }
+        </div>
+        <div>
+          <label class="field-label">Purchase date</label>
+          <input type="date" formControlName="purchaseDate" class="field-input" />
+        </div>
+        <div>
+          <label class="field-label">Supplier invoice no.</label>
+          <input type="text" formControlName="supplierInvoiceNumber" class="field-input" placeholder="SI-4821" />
+        </div>
+      </div>
+
+      <div class="line-items">
+        <div class="line-header-row">
+          <span class="field-label" style="margin: 0">Items</span>
+          <button type="button" class="add-line-btn" (click)="addLine()">+ Add item</button>
+        </div>
+
+        <div class="lines-grid-head">
+          <span>Product</span>
+          <span>Unit</span>
+          <span>Qty</span>
+          <span>Rate</span>
+          <span>Other</span>
+          <span>Discount</span>
+          <span>Line total</span>
+          <span></span>
+        </div>
+
+        @for (row of lines.controls; track row; let i = $index) {
+          <div class="lines-grid-row" [formGroup]="row">
+            <select formControlName="productId" class="field-input" (change)="onProductChange(row, row.controls.productId.value)">
+              <option value="" disabled>Select…</option>
+              @for (p of products(); track p.id) {
+                <option [value]="p.id">{{ p.name }}</option>
+              }
+            </select>
+
+            <select formControlName="sellingModeId" class="field-input">
+              @if (!productDetail(row.controls.productId.value)) {
+                <option value="">—</option>
+              }
+              @for (m of productDetail(row.controls.productId.value)?.sellingModes; track m.id) {
+                <option [value]="m.id">{{ m.label }}</option>
+              }
+            </select>
+
+            <input type="number" step="0.001" formControlName="qty" class="field-input" />
+            <input type="number" step="0.01" formControlName="rate" class="field-input" />
+            <input type="number" step="0.01" formControlName="otherCharges" class="field-input" />
+            <input type="number" step="0.01" formControlName="discount" class="field-input" />
+
+            <div class="line-total-cell">
+              {{ '₹' + (previews()[i]?.lineTotal ?? 0).toFixed(2) }}
+              <div class="line-total-sub">{{ (previews()[i]?.baseQty ?? 0).toFixed(2) }} {{ previews()[i]?.baseUnitLabel }}</div>
+            </div>
+
+            <button type="button" class="remove-line-btn" (click)="removeLine(i)">✕</button>
+          </div>
+        }
+      </div>
+
+      <div class="totals-and-payment">
+        <div class="totals-card">
+          <div class="totals-row"><span>Subtotal</span><span>₹{{ totals().subtotal.toFixed(2) }}</span></div>
+          <div class="totals-row"><span>Other charges</span><span>₹{{ totals().otherCharges.toFixed(2) }}</span></div>
+          <div class="totals-row"><span>Discount</span><span>−₹{{ totals().discount.toFixed(2) }}</span></div>
+          <div class="totals-row"><span>Tax</span><span>₹{{ totals().tax.toFixed(2) }}</span></div>
+          <div class="totals-row totals-grand"><span>Grand total</span><span>₹{{ totals().grandTotal.toFixed(2) }}</span></div>
+        </div>
+
+        <div class="payment-card">
+          <label class="field-label">Payment method</label>
+          <select formControlName="paymentMethod" class="field-input">
+            @for (m of paymentMethods; track m) {
+              <option [value]="m">{{ m }}</option>
+            }
+          </select>
+
+          <label class="field-label" style="margin-top: 12px">Paid amount</label>
+          <input type="number" step="0.01" formControlName="paidAmount" class="field-input" />
+          <div class="due-line">Due: ₹{{ dueAmount().toFixed(2) }}</div>
+
+          <label class="field-label" style="margin-top: 12px">Notes</label>
+          <textarea formControlName="notes" class="field-input" rows="2"></textarea>
+        </div>
+      </div>
+
+      <div class="actions">
+        <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Receive stock' }}</ui-button>
+        <a routerLink="/purchases" class="cancel-link">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
