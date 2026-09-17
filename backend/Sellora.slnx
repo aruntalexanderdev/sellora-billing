@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Sellora.Api/Sellora.Api.csproj" />
+    <Project Path="src/Sellora.Domain/Sellora.Domain.csproj" />
+    <Project Path="src/Sellora.Infrastructure/Sellora.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Sellora.Tests/Sellora.Tests.csproj" />
+  </Folder>
+</Solution>

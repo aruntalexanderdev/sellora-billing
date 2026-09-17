@@ -1,0 +1,275 @@
+
+Sellora Billing — Phase 1UI/UX Prototype Design Prompt
+Design this as a production-ready business management and billing application prototype.This document is intended to be provided to Claude Design / Claude Code Design workflow.
+1. Objective
+Create the complete Sellora Billing Phase 1 prototype before application coding begins. The prototype must explain and demonstrate the major business workflows, menus, pages, forms, tables, actions, permissions, validation, empty/loading/error/success states, and navigation relationships.Do not create a simple visual mockup. Create a realistic, connected product prototype that a shop/business user can understand and test. The prototype will be reviewed and frozen before backend and Angular development starts.
+2. Product Context
+Sellora Billing is a production-oriented billing and business management platform for retail shops, small businesses, medium businesses, and general trading businesses. Phase 1 focuses on authentication, role-based access, basic masters, inventory, purchasing, sales/billing, and practical reports.The design should prioritize speed, simplicity, clarity, reliability, and real-world shop workflows. Avoid unnecessary enterprise complexity and avoid designing features that are outside Phase 1 unless clearly marked as future scope.
+3. Phase 1 Navigation / Sitemap
+Authentication: Login, Forgot Password, authentication error states.
+Dashboard: available to all authenticated users.
+Administration: Users, Roles, Permissions, Business Settings / Basic Masters.
+Inventory: Stock Overview, Stock Details, Stock Pricing, Stock Adjustments, Stock Movement.
+Purchase: Purchase List, New Purchase, Purchase Details, Edit Purchase.
+Sales & Billing: POS / New Sale, Sales List, Invoice Details.
+Reports: Current Stock, Stock Movement, Purchase Report, Sales Report, Profit / Margin Summary.
+Profile and Logout.
+4. Global UI / UX Requirements
+Desktop-first responsive business application UI; also remain usable on smaller screens.
+Use a professional modern SaaS/business-management visual language.
+Use a persistent left sidebar on desktop with clear active-state navigation.
+Top header should provide page title/breadcrumb context, notifications if useful, user/profile menu, and business context.
+Use cards, tables, drawers/modals, forms, tabs, badges, alerts, confirmation dialogs, pagination, filters, and search where appropriate.
+Keep POS/billing interaction optimized for speed and minimum clicks.
+Use consistent spacing, typography, field sizes, button hierarchy, status badges, icons, and validation patterns across the application.
+Use realistic sample data so the prototype looks like a working product rather than a wireframe.
+Clearly distinguish primary, secondary, destructive, and disabled actions.
+Include loading, empty, validation, permission-denied, success, and error states for major workflows.
+Do not hide important business information behind excessive navigation.
+5. Authentication
+5.1 Login
+Sellora branding/logo.
+Username or email field.
+Password field with show/hide option.
+Remember me option.
+Login button.
+Forgot password link.
+Loading state while authenticating.
+Invalid username/password state.
+Disabled account state.
+General authentication/server error state.
+6. Authorization and Permission Model
+Role-based access control is a core Phase 1 requirement. Every authenticated user has a role. Roles contain permissions. Permissions control both menu visibility and actions. Frontend visibility is only a UX layer; the future backend must independently enforce authorization.
+Dashboard is available to all authenticated users.
+Administrator role has access to Administration and can manage users and role mappings.
+Normal users see only menus/features for which they have permissions.
+Do not design permissions as only module-level flags. Use feature/action-level permissions.
+Examples: Inventory.View, Inventory.Create, Inventory.Edit, Inventory.Adjust, Inventory.Price; Purchase.View, Purchase.Create, Purchase.Edit, Purchase.Cancel; Sales.View, Sales.Create, Sales.Edit, Sales.Cancel; Reports.Stock, Reports.Purchase, Reports.Sales.
+Permissions themselves are system/developer-managed. Administrators map existing permissions to roles; administrators do not create arbitrary permission definitions.
+Prototype at least two roles/users so permission differences can be demonstrated.
+7. Dashboard
+Purpose: answer the question 'What is happening in my business today?' without becoming an overloaded analytics page.
+Summary cards: Today's Sales, Today's Purchases, Current Stock Value, Outstanding Customer Due.
+Optional operational cards: Low Stock Items and Today's Transactions.
+Today's sales summary with amount and transaction count.
+Today's purchase summary with amount and transaction count.
+Low-stock table with item, available quantity, minimum quantity, and status.
+Recent sales table with invoice, customer, amount, time.
+Recent purchases table with purchase number, supplier, amount, time.
+Quick actions where useful, such as New Sale and New Purchase, subject to permissions.
+8. Administration
+8.1 Users
+User list with search, role filter, status filter, pagination.
+Columns: User, Email, Role, Status, Last Login, Created, Actions.
+Actions: View, Edit, Activate/Deactivate, Reset Password.
+Add/Edit User form: First Name, Last Name, Username, Email, Phone, Password/Confirm Password when applicable, Role, Status.
+Show validation for required fields, invalid email, duplicate username/email, password rules, and missing role.
+Show confirmation before deactivation.
+8.2 Roles
+Role list with role name, user count, status, and actions.
+Actions: View, Edit, Duplicate, Activate/Deactivate.
+Create/Edit Role screen with role name, description, status, and permission selection.
+8.3 Role Permission Mapping
+Group permissions by module: Inventory, Purchase, Sales & Billing, Reports, Administration.
+Allow selection of individual actions such as View, Create, Edit, Adjust, Price, Cancel, etc.
+Provide clear Select All / module-level selection only as convenience controls.
+Show a readable summary of selected permissions before saving.
+Include unsaved-change warning where appropriate.
+8.4 Permissions
+Read-only system permission catalogue.
+Display permission code, module, feature/action, and description.
+Do not provide Create/Edit/Delete permission-definition actions.
+8.5 Basic Masters / Settings
+Keep Phase 1 masters small but sufficient to support purchasing, inventory and billing.
+Units: unit name, short code, type/status.
+Taxes: tax name, rate, status.
+Basic business settings required for invoices and application identity.
+9. Inventory
+Inventory is for stock management. Purchase is the normal business transaction through which purchased stock enters inventory. Avoid creating a second purchase workflow inside Inventory.
+9.1 Stock Overview
+Search by item.
+Filters: category if available, stock status, unit.
+Table columns: Item, Unit, Available Quantity, Average Cost, Stock Value, Status, Actions.
+Actions: View, Adjust Stock, Manage Price, Stock History.
+Statuses such as Normal, Low, Out of Stock.
+9.2 Stock Details
+Item summary: current stock, base unit, purchase/average cost, selling price where applicable, tax, stock value.
+Stock movement section showing date, type, quantity, reference.
+Purchase batch section showing batch, purchased quantity, remaining quantity, cost.
+Clearly show the relationship between stock, purchase transactions, sales, and adjustments.
+9.3 Stock Pricing
+The prototype must demonstrate that an item can have purchasing cost information and selling configuration separately. Do not assume one permanent price field is enough.
+Purchase cost / actual cost context.
+Selling mode.
+Selling unit.
+Selling price.
+Applicable tax.
+Multiple selling modes where required.
+Example: Rice 10 KG Bag can be sold as 10 KG Bag, 1 KG, Loose KG, or 500 GM.
+Show how an inactive/old price can remain part of historical data rather than overwriting historical transaction information.
+Price configuration must respect units/conversions and stock availability.
+9.4 Stock Adjustment
+Item selection.
+Adjustment type: Damage, Loss, Correction, Expiry, Opening Stock, etc., as appropriate for Phase 1.
+Quantity and unit.
+Reason/notes.
+Current stock preview.
+Resulting stock preview.
+Confirmation before posting.
+Adjustment must create a traceable stock movement.
+10. Purchase
+Purchase is the primary stock receiving workflow. A completed purchase should result in the purchase transaction, purchase items/cost information, stock movement, inventory update, and payment information being kept consistent as one business transaction.
+10.1 Purchase List
+Search.
+Supplier filter.
+Date range.
+Status filter.
+Pagination.
+Columns: Purchase No, Supplier, Date, Total, Payment Status, Status, Actions.
+Primary action: New Purchase.
+10.2 New Purchase
+Header: Supplier, Purchase Date, Supplier Invoice Number, Payment Status, Notes.
+Item grid: Item, Quantity, Unit, Rate, Tax, Other Charges, Discount if applicable, Line Total.
+Summary: Subtotal, Tax, Other Charges, Discount, Grand Total.
+Payment section: Payment Method, Paid Amount, Due Amount.
+Validation for supplier, item, quantity, unit, rate, and totals.
+Allow multiple purchase items.
+Show confirmation/review state before final save where appropriate.
+Success state should communicate purchase number and stock impact.
+Prototype a realistic example such as purchasing 10 KG of rice.
+10.3 Purchase Details
+Purchase number, supplier, date, status.
+Full item lines and financial totals.
+Payment details.
+Actions subject to permissions: Print, Edit, Cancel.
+Stock impact section.
+Audit/history indication where appropriate.
+11. Sales & Billing
+Sales/Billing is the fastest operational workflow in Phase 1. It should feel like a practical POS rather than a generic CRUD form.
+11.1 POS / New Sale
+Fast item search and barcode-ready search area.
+Selected item/cart grid with Item, Selling Mode, Quantity, Unit Price, Tax, Discount if applicable, Line Total.
+Customer selection with walk-in customer option.
+Show available stock when useful without cluttering the POS.
+Allow selling by different selling modes/units.
+Example: Rice can be selected as 10 KG Bag, 1 KG, Loose KG, or 500 GM.
+Totals: Subtotal, Tax, Discount, Grand Total.
+Payment: method, paid amount, due/change.
+Complete Sale primary action.
+Prevent invalid quantity exceeding available stock according to business rules.
+Success state should show invoice number and payment result.
+11.2 Sales List
+Search invoice/customer.
+Date range.
+Payment status.
+User filter where appropriate.
+Columns: Invoice, Customer, Date, Total, Paid, Due, Status, Actions.
+Actions: View, Print, Cancel, and future Return where scope allows.
+11.3 Invoice Details
+Invoice header and customer.
+Item lines, quantities, selling modes/units, prices, tax, totals.
+Payment information.
+Stock impact section.
+Print-friendly invoice preview/action.
+12. Reports
+Phase 1 reports should be operational and directly useful to the shop owner.
+12.1 Current Stock Report
+Filters: item, category if available, stock status.
+Columns: Item, Unit, Current Quantity, Average Cost, Stock Value, Selling Value where meaningful.
+Export/print can be represented as UI actions if included in Phase 1 design.
+12.2 Stock Movement Report
+Date, Item, Movement Type, Quantity, Reference, User.
+Examples: Purchase +50 KG, Sale -2 KG, Damage -1 KG.
+12.3 Purchase Report
+Date range, supplier, item filters.
+Purchase No, Date, Supplier, Subtotal, Tax, Other Charges, Total, Paid, Due.
+12.4 Sales Report
+Date range, item, user, payment method.
+Invoice, Date, Customer, Subtotal, Tax, Discount, Total, Paid, Due.
+12.5 Profit / Margin Summary
+Sales Revenue.
+Cost of Goods Sold.
+Gross Profit.
+Gross Margin percentage.
+Provide a clear explanation/tooltip of the calculation basis.
+Do not calculate historical profit using only the latest purchase price; the final product must use the approved stock-cost/COGS rule.
+13. End-to-End Prototype Scenario
+The prototype must provide a clickable demonstration of this complete scenario:
+Administrator logs in.
+Administrator creates a role such as Inventory User.
+Administrator maps permissions to the role.
+Administrator creates a user and assigns the role.
+User logs in and sees only permitted menus/actions.
+A basic item/unit/tax setup exists.
+Purchase 10 KG of rice with purchase rate, tax and other amounts.
+Purchase is completed and stock appears in Inventory.
+Stock pricing/selling modes are configured.
+User opens POS, selects a selling mode and sells part of the stock.
+Sale completes and inventory quantity decreases.
+Stock movement shows the purchase and sale movements.
+Purchase and Sales reports show the transactions.
+Profit/margin summary demonstrates the approved cost basis.
+14. Permission Demonstration Scenarios
+Administrator: full access.
+Sales User: Dashboard + Sales/Billing only, with permitted actions.
+Inventory User: Dashboard + Inventory + permitted Purchase/Reports actions.
+Read-only user: can view selected pages but cannot create/edit/cancel.
+When a user lacks a permission, hide the action where appropriate and also provide a clear permission-denied state for direct navigation.
+15. Required UI States
+Initial/loading state.
+Empty list state with useful primary action.
+Validation errors.
+Inline field errors.
+Success notification/state.
+Server/API error state.
+Permission denied state.
+Confirmation modal for destructive actions.
+Disabled button state with meaningful reason where appropriate.
+Unsaved changes warning.
+Pagination/no-more-results state.
+Long names/large numbers and realistic data overflow handling.
+16. Design Quality Requirements
+Do not use placeholder lorem ipsum.
+Use realistic business names, products, invoices, quantities, prices, taxes and dates.
+Use consistent terminology throughout the entire prototype.
+Use INR/₹ examples because the initial target context is suitable for Indian retail/business workflows, while keeping the design extensible.
+Design tables for practical scanning and comparison.
+Use decimal quantities where required, e.g. 0.250 KG / 250 GM.
+Make financial totals visually prominent.
+Make stock quantity and status easy to identify.
+Use accessible contrast, readable font sizes, clear focus/hover/disabled states, and keyboard-friendly controls where practical.
+17. Important Business Rules to Respect in the Prototype
+Purchase and sales are business transactions, not merely CRUD records.
+Stock must remain consistent with purchase, sale and adjustment transactions.
+Historical transaction information must not change simply because a current price changes.
+Different selling units/modes can represent the same underlying stock through unit conversion.
+Selling a partial quantity must reduce stock correctly.
+Stock adjustment must be traceable.
+Permissions are role-based and action-specific.
+Frontend permission checks do not replace backend authorization.
+Monetary values must be represented as precise decimal values in the eventual implementation, not floating point.
+The prototype should expose business rules clearly enough that backend/database design can be created from the approved prototype.
+18. Prototype Completion / Acceptance Checklist
+All Phase 1 menu items have a defined page or explicitly documented reason for not having one.
+All major CRUD/transaction screens have realistic content.
+Authentication flow is represented.
+Role and permission mapping is represented.
+At least two role experiences are demonstrable.
+Purchase → Inventory flow is clickable.
+Inventory → Sales/Billing flow is clickable.
+Sales → Stock movement → Reports relationship is demonstrable.
+Validation, empty, loading, success, error and permission states are represented.
+Navigation and back/return flows are consistent.
+Prototype is suitable for stakeholder/business review.
+Do not start application coding until this prototype is reviewed and frozen.
+19. Design Deliverables
+Complete Phase 1 application shell.
+Complete clickable navigation.
+Desktop primary screens plus responsive considerations.
+All listed pages and important states.
+Reusable visual patterns/components.
+Clear page hierarchy and information architecture.
+A connected end-to-end demo flow.
+Prototype should be organized so approved screens can later be implemented in Angular with minimal interpretation.
+20. Final Instruction to the Design Agent
+Build the Sellora Billing Phase 1 prototype from this specification. First establish the information architecture, application shell, design language, reusable components, and navigation. Then create the complete pages and connect the major workflows.Do not simplify the requested business workflows into generic placeholder CRUD pages. The prototype must communicate how a real shop user purchases stock, manages stock, configures selling prices/modes, sells items, records payment, and reviews operational reports.Do not invent major business features outside this scope. Where a business rule is intentionally not finalized, represent it conservatively and visibly rather than hiding the dependency.The final prototype should be polished enough for a product/business review and should become the visual source of truth for Phase 1 implementation after approval.

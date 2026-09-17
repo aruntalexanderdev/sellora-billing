@@ -1,0 +1,20 @@
+<div class="shell-grid">
+  <app-sidebar [navGroups]="navGroups" />
+
+  <div class="shell-content">
+    <app-header
+      crumbGroup="Overview"
+      crumbPage="Dashboard"
+      userName="Ravi Krishnan"
+      userRole="Administrator"
+      userInitials="RK"
+    />
+
+    <main class="shell-main">
+      <router-outlet />
+    </main>
+  </div>
+</div>
+
+<ui-toast-host />
+<ui-confirm-dialog-host />

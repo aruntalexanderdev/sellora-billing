@@ -1,0 +1,55 @@
+<div class="page-head">
+  <h1>UI Kit</h1>
+  <p>Reusable components ported from the Sellora Billing design prototype. Internal reference — not part of the shop-facing app.</p>
+</div>
+
+<div class="section-grid">
+  <ui-card class="section">
+    <div class="section-title">Buttons</div>
+    <div class="row">
+      <ui-button variant="primary">Save changes</ui-button>
+      <ui-button variant="secondary">Cancel</ui-button>
+      <ui-button variant="destructive">Delete</ui-button>
+      <ui-button variant="primary" [disabled]="true" disabledReason="Requires the Inventory.Create permission">
+        Add product
+      </ui-button>
+    </div>
+  </ui-card>
+
+  <ui-card class="section">
+    <div class="section-title">Badges</div>
+    <div class="row">
+      @for (tone of badgeTones; track tone) {
+        <ui-badge [text]="tone" [tone]="tone" />
+      }
+    </div>
+  </ui-card>
+
+  <ui-card class="section">
+    <div class="section-title">Toast &amp; confirmation dialog</div>
+    <div class="row">
+      <ui-button variant="secondary" (onClick)="showToast()">Show success toast</ui-button>
+      <ui-button variant="destructive" (onClick)="askConfirm()">Deactivate user…</ui-button>
+    </div>
+  </ui-card>
+</div>
+
+<div class="section-title standalone">Data table — required states (docx §15)</div>
+<div class="row state-buttons">
+  <ui-button variant="secondary" (onClick)="setTableState('ready'); restoreRows()">Ready</ui-button>
+  <ui-button variant="secondary" (onClick)="setTableState('loading')">Loading</ui-button>
+  <ui-button variant="secondary" (onClick)="setTableState('error')">Error</ui-button>
+  <ui-button variant="secondary" (onClick)="setEmpty()">Empty</ui-button>
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="tableState()"
+  [showSearch]="true"
+  searchPlaceholder="Search products, SKU or category…"
+  emptyTitle="No products match that search"
+  emptyBody="Clear the search box, or add the product to the catalogue."
+  emptyAction="+ New product"
+  footerText="3 of 3 products"
+/>

@@ -1,0 +1,127 @@
+<div class="dt-root">
+  @if (hasToolbar()) {
+    <div class="dt-toolbar">
+      @if (showSearch()) {
+        <div class="dt-search">
+          <span class="dt-search-icon"></span>
+          <input
+            type="text"
+            class="dt-search-input"
+            [ngModel]="searchValue()"
+            (ngModelChange)="onSearchInput($event)"
+            [placeholder]="searchPlaceholder()"
+          />
+        </div>
+      }
+      @for (f of filters(); track f) {
+        <select class="dt-filter" [ngModel]="f.value" (ngModelChange)="f.onChange($event)">
+          @for (o of f.options; track o) {
+            <option [value]="o">{{ o }}</option>
+          }
+        </select>
+      }
+      <div class="dt-toolbar-spacer"></div>
+      @for (a of toolbarActions(); track a.label) {
+        <button type="button" class="dt-toolbar-action" (click)="a.onClick()">{{ a.label }}</button>
+      }
+    </div>
+  }
+
+  @if (isLoading()) {
+    <div class="dt-loading">
+      @for (s of skeletonRows; track s) {
+        <div class="dt-skeleton-row">
+          <div class="dt-skeleton-cell" style="flex: 2"></div>
+          <div class="dt-skeleton-cell" style="flex: 1"></div>
+          <div class="dt-skeleton-cell" style="flex: 1"></div>
+          <div class="dt-skeleton-cell" style="flex: 1"></div>
+        </div>
+      }
+      <div class="dt-loading-label">
+        <span class="dt-spinner"></span>
+        Loading records…
+      </div>
+    </div>
+  }
+
+  @if (isError()) {
+    <div class="dt-state-panel">
+      <div class="dt-state-icon dt-state-icon--error">!</div>
+      <div class="dt-state-title">Could not load this list</div>
+      <div class="dt-state-body">The server did not respond. Your data is safe — nothing was changed.</div>
+      <button type="button" class="dt-primary-btn" (click)="retry.emit()">Retry</button>
+    </div>
+  }
+
+  @if (isEmpty()) {
+    <div class="dt-state-panel">
+      <div class="dt-state-icon dt-state-icon--empty"></div>
+      <div class="dt-state-title">{{ emptyTitle() }}</div>
+      <div class="dt-state-body">{{ emptyBody() }}</div>
+      @if (emptyAction()) {
+        <button type="button" class="dt-primary-btn" (click)="emptyActionClick.emit()">{{ emptyAction() }}</button>
+      }
+    </div>
+  }
+
+  @if (isReady()) {
+    <div class="dt-scroll">
+      <table class="dt-table">
+        <thead>
+          <tr>
+            @for (c of cols(); track c.label) {
+              <th [style.text-align]="c.align ?? 'left'">{{ c.label }}</th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (r of rows(); track r) {
+            <tr>
+              @for (c of r.cells; track $index) {
+                <td [style.padding-top]="rowPad()" [style.padding-bottom]="rowPad()" [style.text-align]="c.align ?? 'left'">
+                  @switch (c.kind) {
+                    @case ('text') {
+                      <div
+                        class="dt-cell-text"
+                        [style.font-weight]="c.weight ?? '400'"
+                        [style.color]="c.color ?? 'var(--color-text)'"
+                        [style.white-space]="c.wrap ?? 'nowrap'"
+                      >{{ c.text }}</div>
+                      @if (c.sub) {
+                        <div class="dt-cell-sub">{{ c.sub }}</div>
+                      }
+                    }
+                    @case ('badge') {
+                      <ui-badge [text]="c.text" [tone]="c.tone" />
+                    }
+                    @case ('link') {
+                      <button type="button" class="dt-cell-link" (click)="c.onClick()">{{ c.text }}</button>
+                    }
+                    @case ('actions') {
+                      <div class="dt-cell-actions">
+                        @for (a of c.actions; track a.label) {
+                          <button
+                            type="button"
+                            class="dt-cell-action"
+                            [disabled]="a.disabled ?? false"
+                            [title]="a.title ?? a.label"
+                            (click)="a.onClick()"
+                          >{{ a.label }}</button>
+                        }
+                      </div>
+                    }
+                  }
+                </td>
+              }
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    @if (footerText()) {
+      <div class="dt-footer">
+        <div class="dt-footer-text">{{ footerText() }}</div>
+      </div>
+    }
+  }
+</div>

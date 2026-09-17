@@ -1,0 +1,14 @@
+<div class="hd-crumb">
+  <span>{{ crumbGroup() }}</span>
+  <span class="hd-crumb-sep">/</span>
+  <span class="hd-crumb-page">{{ crumbPage() }}</span>
+</div>
+<div class="hd-spacer"></div>
+<div class="hd-user">
+  <div class="hd-avatar">{{ userInitials() }}</div>
+  <div class="hd-user-text">
+    <div class="hd-user-name">{{ userName() }}</div>
+    <div class="hd-user-role">{{ userRole() }}</div>
+  </div>
+</div>
+<button type="button" class="hd-signout" (click)="signOut.emit()">Sign out</button>

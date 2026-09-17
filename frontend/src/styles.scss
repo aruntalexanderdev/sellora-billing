@@ -1,0 +1,105 @@
+/* Design tokens — ported from the Claude Design prototype (Sellora Billing.dc.html) */
+:root {
+  /* surfaces & text */
+  --color-bg: #f4f6f6;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #fcfcfd;
+  --color-text: #16191c;
+  --color-text-muted: #6b7480;
+  --color-text-faint: #7b848f;
+  --color-text-fainter: #8a939e;
+  --color-border: #e3e6e8;
+  --color-border-strong: #d5d9dd;
+  --color-border-subtle: #f1f3f4;
+
+  /* accent (teal) */
+  --color-accent: #0d7f8c;
+  --color-accent-hover: #0a707c;
+  --color-accent-border: #0b6e7a;
+  --color-accent-soft-bg: #e8f2f3;
+  --color-accent-soft-fg: #0b6e7a;
+
+  /* sidebar / dark surface */
+  --color-sidebar-bg: #10262a;
+  --color-sidebar-text: #cddbde;
+  --color-sidebar-muted: #6f9298;
+  --color-sidebar-border: #1d3a3f;
+  --color-sidebar-active-dot: #9fe6ee;
+  --color-sidebar-inactive-dot: #37585d;
+  --color-sidebar-hover: #1a3438;
+
+  /* badge tones: [bg, fg] */
+  --tone-good-bg: #e6f4ec;
+  --tone-good-fg: #0d6b3f;
+  --tone-warn-bg: #fdf3e2;
+  --tone-warn-fg: #8a5200;
+  --tone-bad-bg: #fdecea;
+  --tone-bad-fg: #a3231a;
+  --tone-info-bg: #e8f2f3;
+  --tone-info-fg: #0b6e7a;
+  --tone-mute-bg: #f1f3f4;
+  --tone-mute-fg: #5a636c;
+
+  /* danger / destructive */
+  --color-danger: #b42318;
+  --color-danger-border: #f3c9c3;
+  --color-danger-bg: #fdf2f0;
+  --color-danger-text: #8a2a1e;
+
+  /* radii */
+  --radius-card: 10px;
+  --radius-control: 7px;
+  --radius-sm: 6px;
+  --radius-pill: 999px;
+
+  /* type */
+  --font-sans: Geist, "Helvetica Neue", Helvetica, system-ui, sans-serif;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+input, select, button, textarea {
+  font-family: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 6px;
+  border: 3px solid var(--color-bg);
+}
+
+@keyframes dt-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes sl-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}

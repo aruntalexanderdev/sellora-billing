@@ -1,0 +1,30 @@
+<div class="sb-brand">
+  <div class="sb-logo">S</div>
+  <div>
+    <div class="sb-name">Sellora</div>
+    <div class="sb-tenant">SELLORA MART</div>
+  </div>
+</div>
+
+<nav class="sb-nav">
+  @for (group of navGroups(); track group.label) {
+    <div class="sb-group">
+      <div class="sb-group-label">{{ group.label }}</div>
+      <div class="sb-items">
+        @for (item of group.items; track item.routerLink) {
+          <a
+            class="sb-item"
+            [routerLink]="item.routerLink"
+            routerLinkActive="sb-item--active"
+          >
+            <span class="sb-dot"></span>
+            <span class="sb-item-label">{{ item.label }}</span>
+            @if (item.badge) {
+              <span class="sb-badge">{{ item.badge }}</span>
+            }
+          </a>
+        }
+      </div>
+    </div>
+  }
+</nav>

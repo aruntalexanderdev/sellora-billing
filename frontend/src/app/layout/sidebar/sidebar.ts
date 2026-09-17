@@ -1,0 +1,14 @@
+import { Component, input } from '@angular/core';
+import { RouterLink, RouterLinkActive } from '@angular/router';
+import type { SidebarNavGroup } from './sidebar.types';
+
+@Component({
+  selector: 'app-sidebar',
+  standalone: true,
+  imports: [RouterLink, RouterLinkActive],
+  templateUrl: './sidebar.html',
+  styleUrl: './sidebar.scss',
+})
+export class Sidebar {
+  readonly navGroups = input.required<SidebarNavGroup[]>();
+}
