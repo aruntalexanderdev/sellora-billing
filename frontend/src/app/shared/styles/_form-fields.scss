@@ -1,0 +1,30 @@
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.field-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 650;
+  color: #3d454d;
+  margin-bottom: 6px;
+}
+
+.field-input {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  font-size: 13.5px;
+  background: #fff;
+  color: var(--color-text);
+}
+
+.field-error {
+  font-size: 12px;
+  color: var(--color-danger);
+  margin-top: 5px;
+}

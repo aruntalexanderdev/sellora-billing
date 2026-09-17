@@ -1,0 +1,79 @@
+@use '../../../../shared/styles/page-head';
+@use '../../../../shared/styles/form-fields';
+
+.form-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 22px;
+  max-width: 720px;
+}
+
+.server-error {
+  padding: 11px 13px;
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--color-danger-text);
+}
+
+.modes-section {
+  margin-top: 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.modes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.add-mode-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.modes-hint {
+  font-size: 12px;
+  color: var(--color-text-fainter);
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+.mode-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.remove-mode-btn {
+  padding: 9px 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--color-border-strong);
+  background: #fff;
+  color: var(--color-danger);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.remove-mode-btn:hover {
+  background: var(--color-danger-bg);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+}
+.cancel-link {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}

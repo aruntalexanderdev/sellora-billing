@@ -1,0 +1,185 @@
+using System.Security.Claims;
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Sellora.Api.Contracts;
+using Sellora.Api.Validation;
+using Sellora.Domain.Abstractions;
+using Sellora.Domain.Entities;
+using Sellora.Infrastructure.Data;
+
+namespace Sellora.Api.Controllers;
+
+[ApiController]
+[Route("api/v1/users")]
+public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher) : ControllerBase
+{
+    [HttpGet]
+    [Authorize(Policy = "Users.View")]
+    public async Task<ActionResult<PagedResult<UserListItemDto>>> List(
+        [FromQuery] string? search, [FromQuery] Guid? roleId, [FromQuery] UserStatus? status,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var query = db.Users.Include(u => u.Role).AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim().ToLower();
+            query = query.Where(u =>
+                u.FirstName.ToLower().Contains(s) || u.LastName.ToLower().Contains(s) ||
+                u.Username.ToLower().Contains(s) || u.Email.ToLower().Contains(s));
+        }
+
+        if (roleId is not null) query = query.Where(u => u.RoleId == roleId);
+        if (status is not null) query = query.Where(u => u.Status == status);
+
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .OrderBy(u => u.FirstName).ThenBy(u => u.LastName)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(u => new UserListItemDto(u.Id, u.FirstName, u.LastName, u.Username, u.Email, u.RoleId, u.Role.Name, u.Status, u.LastLoginAt, u.CreatedAt))
+            .ToListAsync(ct);
+
+        return Ok(new PagedResult<UserListItemDto>(items, total, page, pageSize));
+    }
+
+    [HttpGet("{id:guid}")]
+    [Authorize(Policy = "Users.View")]
+    public async Task<ActionResult<UserDetailDto>> Get(Guid id, CancellationToken ct)
+    {
+        var user = await db.Users.Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
+        if (user is null) return NotFound();
+        return Ok(ToDetail(user));
+    }
+
+    [HttpPost]
+    [Authorize(Policy = "Users.Create")]
+    public async Task<ActionResult<UserDetailDto>> Create(CreateUserRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        if (request.Password != request.ConfirmPassword)
+        {
+            ModelState.AddModelError(nameof(request.ConfirmPassword), "Passwords do not match.");
+        }
+        if (!PasswordRules.IsValid(request.Password))
+        {
+            ModelState.AddModelError(nameof(request.Password), PasswordRules.RequirementText);
+        }
+        if (await db.Users.AnyAsync(u => u.Username.ToLower() == request.Username.Trim().ToLower(), ct))
+        {
+            ModelState.AddModelError(nameof(request.Username), "This username is already taken.");
+        }
+        if (await db.Users.AnyAsync(u => u.Email.ToLower() == request.Email.Trim().ToLower(), ct))
+        {
+            ModelState.AddModelError(nameof(request.Email), "This email is already registered.");
+        }
+        if (request.RoleId is null || !await db.Roles.AnyAsync(r => r.Id == request.RoleId, ct))
+        {
+            ModelState.AddModelError(nameof(request.RoleId), "Select a valid role.");
+        }
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            FirstName = request.FirstName.Trim(),
+            LastName = request.LastName.Trim(),
+            Username = request.Username.Trim(),
+            Email = request.Email.Trim(),
+            PhoneNumber = request.PhoneNumber,
+            PasswordHash = passwordHasher.Hash(request.Password),
+            RoleId = request.RoleId!.Value,
+            Status = UserStatus.Invited,
+        };
+
+        db.Users.Add(user);
+        await db.SaveChangesAsync(ct);
+
+        await db.Entry(user).Reference(u => u.Role).LoadAsync(ct);
+        return CreatedAtAction(nameof(Get), new { id = user.Id }, ToDetail(user));
+    }
+
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = "Users.Edit")]
+    public async Task<ActionResult<UserDetailDto>> Update(Guid id, UpdateUserRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        var user = await db.Users.Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
+        if (user is null) return NotFound();
+
+        if (await db.Users.AnyAsync(u => u.Id != id && u.Username.ToLower() == request.Username.Trim().ToLower(), ct))
+        {
+            ModelState.AddModelError(nameof(request.Username), "This username is already taken.");
+        }
+        if (await db.Users.AnyAsync(u => u.Id != id && u.Email.ToLower() == request.Email.Trim().ToLower(), ct))
+        {
+            ModelState.AddModelError(nameof(request.Email), "This email is already registered.");
+        }
+        if (request.RoleId is null || !await db.Roles.AnyAsync(r => r.Id == request.RoleId, ct))
+        {
+            ModelState.AddModelError(nameof(request.RoleId), "Select a valid role.");
+        }
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        user.FirstName = request.FirstName.Trim();
+        user.LastName = request.LastName.Trim();
+        user.Username = request.Username.Trim();
+        user.Email = request.Email.Trim();
+        user.PhoneNumber = request.PhoneNumber;
+        user.RoleId = request.RoleId!.Value;
+
+        await db.SaveChangesAsync(ct);
+        await db.Entry(user).Reference(u => u.Role).LoadAsync(ct);
+        return Ok(ToDetail(user));
+    }
+
+    [HttpPost("{id:guid}/status")]
+    [Authorize(Policy = "Users.Disable")]
+    public async Task<IActionResult> SetStatus(Guid id, SetUserStatusRequest request, CancellationToken ct)
+    {
+        var user = await db.Users.SingleOrDefaultAsync(u => u.Id == id, ct);
+        if (user is null) return NotFound();
+
+        var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
+        if (user.Id == currentUserId && request.Status == UserStatus.Disabled)
+        {
+            return Problem(statusCode: 400, title: "You cannot disable your own account.");
+        }
+
+        user.Status = request.Status;
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/reset-password")]
+    [Authorize(Policy = "Users.ResetPassword")]
+    public async Task<ActionResult<ResetPasswordResponse>> ResetPassword(Guid id, CancellationToken ct)
+    {
+        var user = await db.Users.SingleOrDefaultAsync(u => u.Id == id, ct);
+        if (user is null) return NotFound();
+
+        var temporaryPassword = GenerateTemporaryPassword();
+        user.PasswordHash = passwordHasher.Hash(temporaryPassword);
+        await db.SaveChangesAsync(ct);
+
+        return Ok(new ResetPasswordResponse(temporaryPassword));
+    }
+
+    private static string GenerateTemporaryPassword()
+    {
+        const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+        var bytes = RandomNumberGenerator.GetBytes(12);
+        var chars = bytes.Select(b => alphabet[b % alphabet.Length]).ToArray();
+        return new string(chars);
+    }
+
+    private static UserDetailDto ToDetail(User u) => new(
+        u.Id, u.FirstName, u.LastName, u.Username, u.Email, u.PhoneNumber,
+        u.RoleId, u.Role.Name, u.Status, u.LastLoginAt, u.CreatedAt);
+}

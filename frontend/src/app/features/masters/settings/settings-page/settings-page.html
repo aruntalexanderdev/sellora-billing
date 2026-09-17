@@ -1,0 +1,74 @@
+<div class="page-head">
+  <div>
+    <h1>Business settings</h1>
+    <p>Application identity used on invoices and receipts.</p>
+  </div>
+</div>
+
+@if (!loading()) {
+  <div class="form-card">
+    @if (serverError()) {
+      <div class="server-error">{{ serverError() }}</div>
+    }
+
+    <form [formGroup]="form" (ngSubmit)="submit()">
+      <label class="field-label">Business name</label>
+      <input type="text" formControlName="businessName" class="field-input" />
+      @if (form.get('businessName')?.touched && form.get('businessName')?.invalid) {
+        <div class="field-error">Business name is required.</div>
+      }
+
+      <div class="grid-2" style="margin-top: 16px">
+        <div>
+          <label class="field-label">Address</label>
+          <input type="text" formControlName="addressLine" class="field-input" />
+        </div>
+        <div>
+          <label class="field-label">City</label>
+          <input type="text" formControlName="city" class="field-input" />
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <label class="field-label">State</label>
+          <input type="text" formControlName="state" class="field-input" />
+        </div>
+        <div>
+          <label class="field-label">GSTIN</label>
+          <input type="text" formControlName="gstin" class="field-input" />
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <label class="field-label">Phone</label>
+          <input type="text" formControlName="phone" class="field-input" />
+        </div>
+        <div>
+          <label class="field-label">Email</label>
+          <input type="text" formControlName="email" class="field-input" />
+          @if (form.get('email')?.touched && form.get('email')?.errors?.['email']) {
+            <div class="field-error">Enter a valid email address.</div>
+          }
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <label class="field-label">Invoice prefix</label>
+          <input type="text" formControlName="invoicePrefix" class="field-input" placeholder="INV" />
+          @if (form.get('invoicePrefix')?.touched && form.get('invoicePrefix')?.invalid) {
+            <div class="field-error">Invoice prefix is required.</div>
+          }
+        </div>
+      </div>
+
+      @if (canEdit()) {
+        <div class="actions">
+          <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save settings' }}</ui-button>
+        </div>
+      }
+    </form>
+  </div>
+}

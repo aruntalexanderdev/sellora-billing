@@ -1,0 +1,25 @@
+<div class="page-head">
+  <div>
+    <h1>Products</h1>
+    <p>The master list. Every product has one base unit and one or more units it can be sold in.</p>
+  </div>
+  @if (canCreate()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New product</ui-button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search products, SKU or category…"
+  emptyTitle="No products match that search"
+  emptyBody="Clear the search box, or add the product to the catalogue."
+  [emptyAction]="canCreate() ? '+ New product' : null"
+  (searchChange)="onSearch($event)"
+  (emptyActionClick)="goToCreate()"
+  (retry)="retry()"
+  [footerText]="total() + ' product' + (total() === 1 ? '' : 's')"
+/>

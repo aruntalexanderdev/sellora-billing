@@ -1,0 +1,16 @@
+<div class="page-head">
+  <div>
+    <h1>Permissions</h1>
+    <p>The read-only system permission catalogue. Administrators map these to roles — new permission codes are added by the development team, not through this screen.</p>
+  </div>
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  emptyTitle="No permissions found"
+  emptyBody="This shouldn't happen — the catalogue is seeded at startup."
+  [footerText]="rows().length + ' permissions'"
+  (retry)="retry()"
+/>

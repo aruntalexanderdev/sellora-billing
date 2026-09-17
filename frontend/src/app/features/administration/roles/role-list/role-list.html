@@ -1,0 +1,18 @@
+<div class="page-head">
+  <div>
+    <h1>Roles &amp; permissions</h1>
+    <p>Each role is a set of module permissions. Changes apply to every user holding the role.</p>
+  </div>
+  @if (canCreate()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New role</ui-button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  emptyTitle="No roles yet"
+  emptyBody="Create a role to start mapping permissions."
+  (retry)="retry()"
+/>

@@ -1,0 +1,46 @@
+<div class="page-head">
+  <div>
+    <h1>{{ isEdit() ? 'Edit supplier' : 'New supplier' }}</h1>
+    <p>Suppliers are selected on purchase entries.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error">{{ serverError() }}</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <label class="field-label">Supplier name</label>
+    <input type="text" formControlName="name" class="field-input" />
+    @if (form.get('name')?.touched && form.get('name')?.errors?.['required']) {
+      <div class="field-error">Supplier name is required.</div>
+    }
+    @if (form.get('name')?.errors?.['server']) {
+      <div class="field-error">{{ form.get('name')?.errors?.['server'] }}</div>
+    }
+
+    <div class="grid-2" style="margin-top: 16px">
+      <div>
+        <label class="field-label">City</label>
+        <input type="text" formControlName="city" class="field-input" />
+      </div>
+      <div>
+        <label class="field-label">GSTIN</label>
+        <input type="text" formControlName="gstin" class="field-input" />
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Payment terms</label>
+        <input type="text" formControlName="paymentTerms" class="field-input" placeholder="Net 15" />
+      </div>
+    </div>
+
+    <div class="actions">
+      <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
+      <a routerLink="/purchases/suppliers" class="cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>

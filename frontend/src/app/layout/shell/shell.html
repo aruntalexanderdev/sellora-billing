@@ -1,13 +1,14 @@
 <div class="shell-grid">
-  <app-sidebar [navGroups]="navGroups" />
+  <app-sidebar [navGroups]="navGroups()" />
 
   <div class="shell-content">
     <app-header
-      crumbGroup="Overview"
-      crumbPage="Dashboard"
-      userName="Ravi Krishnan"
-      userRole="Administrator"
-      userInitials="RK"
+      [crumbGroup]="breadcrumb.current().group"
+      [crumbPage]="breadcrumb.current().page"
+      [userName]="currentUser() ? currentUser()!.firstName + ' ' + currentUser()!.lastName : ''"
+      [userRole]="currentUser()?.roleName ?? ''"
+      [userInitials]="userInitials()"
+      (signOut)="signOut()"
     />
 
     <main class="shell-main">

@@ -1,0 +1,62 @@
+<div class="page-head">
+  <div>
+    <h1>{{ isEdit() ? 'Edit role' : 'New role' }}</h1>
+    <p>Select the actions this role can perform in each module.</p>
+  </div>
+</div>
+
+<div class="form-layout">
+  <div class="form-card details-card">
+    @if (serverError()) {
+      <div class="server-error">{{ serverError() }}</div>
+    }
+
+    <form [formGroup]="form" (ngSubmit)="submit()">
+      <label class="field-label">Role name</label>
+      <input type="text" formControlName="name" class="field-input" />
+      @if (form.get('name')?.touched && form.get('name')?.invalid) {
+        <div class="field-error">Role name is required.</div>
+      }
+
+      <label class="field-label" style="margin-top: 14px">Description</label>
+      <textarea formControlName="description" class="field-input" rows="3"></textarea>
+
+      <div class="summary-line">{{ selectedCount() }} of {{ totalCount() }} permissions selected</div>
+
+      <div class="actions">
+        <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save role' }}</ui-button>
+        <a routerLink="/administration/roles" class="cancel-link">Cancel</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="permission-groups">
+    @for (section of moduleSections(); track section.module) {
+      <div class="module-section">
+        <div class="module-title">{{ section.module }}</div>
+        @for (group of section.features; track group.feature) {
+          <div class="module-card">
+            <div class="module-header">
+              <span class="module-name">{{ group.feature }}</span>
+              <label class="select-all">
+                <input type="checkbox" [checked]="isFeatureFullySelected(group)" (change)="toggleFeature(group)" />
+                Select all
+              </label>
+            </div>
+            <div class="module-body">
+              @for (entry of group.entries; track entry.code) {
+                <label class="perm-row">
+                  <input type="checkbox" [checked]="isChecked(entry.code)" (change)="toggle(entry.code)" />
+                  <span class="perm-text">
+                    <span class="perm-action">{{ entry.action }}</span>
+                    <span class="perm-desc">{{ entry.description }}</span>
+                  </span>
+                </label>
+              }
+            </div>
+          </div>
+        }
+      </div>
+    }
+  </div>
+</div>

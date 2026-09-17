@@ -1,0 +1,25 @@
+<div class="page-head">
+  <div>
+    <h1>Suppliers</h1>
+    <p>Vendors you purchase stock from, their GSTIN and payment terms.</p>
+  </div>
+  @if (canCreate()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New supplier</ui-button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search suppliers…"
+  emptyTitle="No suppliers yet"
+  emptyBody="Add the vendors you buy from to start recording purchases."
+  [emptyAction]="canCreate() ? '+ New supplier' : null"
+  (searchChange)="onSearch($event)"
+  (emptyActionClick)="goToCreate()"
+  (retry)="retry()"
+  [footerText]="total() + ' supplier' + (total() === 1 ? '' : 's')"
+/>

@@ -1,0 +1,100 @@
+<div class="page-head">
+  <div>
+    <h1>{{ isEdit() ? 'Edit product' : 'New product' }}</h1>
+    <p>Every product has one base unit and one or more units it can be sold in.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error">{{ serverError() }}</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <div class="grid-2">
+      <div>
+        <label class="field-label">SKU</label>
+        <input type="text" formControlName="sku" class="field-input" placeholder="RICE-BP10" />
+        @if (form.get('sku')?.touched && form.get('sku')?.errors?.['required']) {
+          <div class="field-error">SKU is required.</div>
+        }
+        @if (form.get('sku')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('sku')?.errors?.['server'] }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label">Name</label>
+        <input type="text" formControlName="name" class="field-input" />
+        @if (form.get('name')?.touched && form.get('name')?.invalid) {
+          <div class="field-error">Name is required.</div>
+        }
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Category</label>
+        <input type="text" formControlName="category" class="field-input" placeholder="Grains" />
+      </div>
+      <div>
+        <label class="field-label">Reorder level</label>
+        <input type="number" step="0.001" formControlName="reorderLevel" class="field-input" />
+        @if (form.get('reorderLevel')?.touched && form.get('reorderLevel')?.invalid) {
+          <div class="field-error">Enter a reorder level of 0 or more.</div>
+        }
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Base unit</label>
+        <select formControlName="baseUnitId" class="field-input">
+          <option value="" disabled>Select a unit…</option>
+          @for (u of units(); track u.id) {
+            <option [value]="u.id">{{ u.name }} ({{ u.shortCode }})</option>
+          }
+        </select>
+        @if (form.get('baseUnitId')?.touched && form.get('baseUnitId')?.invalid) {
+          <div class="field-error">Select a base unit.</div>
+        }
+      </div>
+      <div>
+        <label class="field-label">Tax</label>
+        <select formControlName="taxId" class="field-input">
+          <option value="" disabled>Select a tax…</option>
+          @for (t of taxes(); track t.id) {
+            <option [value]="t.id">{{ t.name }}</option>
+          }
+        </select>
+        @if (form.get('taxId')?.touched && form.get('taxId')?.invalid) {
+          <div class="field-error">Select a tax.</div>
+        }
+      </div>
+    </div>
+
+    <div class="modes-section">
+      <div class="modes-header">
+        <span class="field-label" style="margin: 0">Selling modes</span>
+        <button type="button" class="add-mode-btn" (click)="addMode()">+ Add mode</button>
+      </div>
+      <p class="modes-hint">The units this product can be sold in, e.g. "10 kg bag" (factor 10) or "Loose kg" (factor 1), relative to the base unit above.</p>
+
+      @for (mode of sellingModes.controls; track mode; let i = $index) {
+        <div class="mode-row" [formGroup]="mode">
+          <div>
+            <input type="text" formControlName="label" class="field-input" placeholder="10 kg bag" />
+          </div>
+          <div>
+            <input type="number" step="0.001" formControlName="conversionFactorToBase" class="field-input" placeholder="Factor" />
+          </div>
+          <button type="button" class="remove-mode-btn" (click)="removeMode(i)">Remove</button>
+        </div>
+      }
+    </div>
+
+    <div class="actions">
+      <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
+      <a routerLink="/inventory/products" class="cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>

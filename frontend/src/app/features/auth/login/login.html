@@ -1,0 +1,50 @@
+<div class="login-grid">
+  <div class="brand-panel">
+    <div class="brand-mark">
+      <div class="brand-logo">S</div>
+      <div class="brand-name">Sellora</div>
+    </div>
+    <div class="brand-copy">
+      <div class="brand-eyebrow">Billing &amp; Inventory · Phase 1</div>
+      <h1>Purchase, price and sell — in the units your shop actually uses.</h1>
+      <p>Buy rice by the 10&nbsp;kg bag, sell it by the bag or loose by the kilo. Stock, pricing and GST stay consistent across both.</p>
+    </div>
+    <div class="brand-footer">
+      <div>Sellora Mart · Chennai</div>
+      <div>v0.1 · Phase 1</div>
+    </div>
+  </div>
+
+  <div class="form-panel">
+    <div class="form-card">
+      <h2>Sign in</h2>
+      <p class="form-subtitle">Use your account below to continue.</p>
+
+      @if (errorMessage()) {
+        <div class="error-banner">
+          <span class="error-dot">!</span>
+          <span>{{ errorMessage() }}</span>
+        </div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="submit()">
+        <label class="field-label">Email or username</label>
+        <input type="text" formControlName="usernameOrEmail" placeholder="you@selloramart.in" class="field-input" />
+
+        <label class="field-label">Password</label>
+        <input type="password" formControlName="password" placeholder="••••••••" class="field-input" />
+
+        <div class="field-row">
+          <span></span>
+          <a routerLink="/forgot-password" class="forgot-link">Forgot password?</a>
+        </div>
+
+        <button type="submit" class="submit-btn" [disabled]="loading()">
+          {{ loading() ? 'Signing in…' : 'Sign in' }}
+        </button>
+      </form>
+
+      <div class="dev-hint">Dev seed login: admin&#64;selloramart.in / Passw0rd!23</div>
+    </div>
+  </div>
+</div>

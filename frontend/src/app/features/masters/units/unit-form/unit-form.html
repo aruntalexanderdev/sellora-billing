@@ -1,0 +1,50 @@
+<div class="page-head">
+  <div>
+    <h1>{{ isEdit() ? 'Edit unit' : 'New unit' }}</h1>
+    <p>Units drive how products are purchased, stocked and sold.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error">{{ serverError() }}</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Name</label>
+        <input type="text" formControlName="name" class="field-input" placeholder="Kilogram" />
+        @if (form.get('name')?.touched && form.get('name')?.invalid) {
+          <div class="field-error">Name is required.</div>
+        }
+        @if (form.get('name')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('name')?.errors?.['server'] }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label">Short code</label>
+        <input type="text" formControlName="shortCode" class="field-input" placeholder="kg" />
+        @if (form.get('shortCode')?.touched && form.get('shortCode')?.invalid) {
+          <div class="field-error">Short code is required.</div>
+        }
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Type</label>
+        <select formControlName="type" class="field-input">
+          @for (t of unitTypes; track t) {
+            <option [value]="t">{{ t }}</option>
+          }
+        </select>
+      </div>
+    </div>
+
+    <div class="actions">
+      <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
+      <a routerLink="/administration/units" class="cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>

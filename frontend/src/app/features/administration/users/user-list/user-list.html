@@ -1,0 +1,25 @@
+<div class="page-head">
+  <div>
+    <h1>Users</h1>
+    <p>Staff accounts, their assigned role and last sign-in.</p>
+  </div>
+  @if (canCreate()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ Invite user</ui-button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search users…"
+  emptyTitle="No users match"
+  emptyBody="Try a different search, or invite a new staff member."
+  [emptyAction]="canCreate() ? '+ Invite user' : null"
+  (searchChange)="onSearch($event)"
+  (emptyActionClick)="goToCreate()"
+  (retry)="retry()"
+  [footerText]="total() + ' user' + (total() === 1 ? '' : 's')"
+/>

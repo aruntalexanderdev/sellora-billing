@@ -1,0 +1,18 @@
+<div class="page-head">
+  <div>
+    <h1>Taxes</h1>
+    <p>Tax rates applied to products, purchases and sales.</p>
+  </div>
+  @if (canEdit()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New tax</ui-button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  emptyTitle="No taxes yet"
+  emptyBody="Add the tax rates your products and invoices use."
+  (retry)="retry()"
+/>

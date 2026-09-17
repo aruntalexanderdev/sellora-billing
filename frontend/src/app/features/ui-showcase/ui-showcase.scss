@@ -1,18 +1,4 @@
-.page-head {
-  margin-bottom: 20px;
-}
-.page-head h1 {
-  font-size: 23px;
-  font-weight: 650;
-  letter-spacing: -.022em;
-  margin: 0 0 4px;
-}
-.page-head p {
-  font-size: 13.5px;
-  color: var(--color-text-muted);
-  margin: 0;
-  max-width: 640px;
-}
+@use '../../shared/styles/page-head';
 
 .section-grid {
   display: grid;

@@ -7,7 +7,7 @@ export type ButtonVariant = 'primary' | 'secondary' | 'destructive';
   standalone: true,
   template: `
     <button
-      type="button"
+      [type]="type()"
       class="ui-button"
       [class]="variant()"
       [disabled]="disabled()"
@@ -59,6 +59,7 @@ export type ButtonVariant = 'primary' | 'secondary' | 'destructive';
 })
 export class UiButton {
   readonly variant = input<ButtonVariant>('secondary');
+  readonly type = input<'button' | 'submit'>('button');
   readonly disabled = input(false);
   readonly disabledReason = input<string | null>(null);
   readonly onClick = output<MouseEvent>();

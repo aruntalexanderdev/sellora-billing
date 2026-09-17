@@ -1,0 +1,18 @@
+<div class="page-head">
+  <div>
+    <h1>Units</h1>
+    <p>Base units of measure used across products, purchasing and billing.</p>
+  </div>
+  @if (canEdit()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New unit</ui-button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  emptyTitle="No units yet"
+  emptyBody="Add the units your products and purchases are measured in."
+  (retry)="retry()"
+/>

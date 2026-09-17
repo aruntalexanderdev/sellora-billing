@@ -1,0 +1,109 @@
+<div class="page-head">
+  <div>
+    <h1>{{ isEdit() ? 'Edit user' : 'Invite user' }}</h1>
+    <p>Staff accounts sign in with these credentials and inherit their role's permissions.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error">{{ serverError() }}</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <div class="grid-2">
+      <div>
+        <label class="field-label">First name</label>
+        <input type="text" formControlName="firstName" class="field-input" />
+        @if (form.get('firstName')?.touched && form.get('firstName')?.invalid) {
+          <div class="field-error">First name is required.</div>
+        }
+      </div>
+      <div>
+        <label class="field-label">Last name</label>
+        <input type="text" formControlName="lastName" class="field-input" />
+        @if (form.get('lastName')?.touched && form.get('lastName')?.invalid) {
+          <div class="field-error">Last name is required.</div>
+        }
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Username</label>
+        <input type="text" formControlName="username" class="field-input" />
+        @if (form.get('username')?.touched && form.get('username')?.errors?.['required']) {
+          <div class="field-error">Username is required.</div>
+        }
+        @if (form.get('username')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('username')?.errors?.['server'] }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label">Email</label>
+        <input type="text" formControlName="email" class="field-input" />
+        @if (form.get('email')?.touched && form.get('email')?.errors?.['required']) {
+          <div class="field-error">Email is required.</div>
+        }
+        @if (form.get('email')?.touched && form.get('email')?.errors?.['email']) {
+          <div class="field-error">Enter a valid email address.</div>
+        }
+        @if (form.get('email')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('email')?.errors?.['server'] }}</div>
+        }
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Phone</label>
+        <input type="text" formControlName="phoneNumber" class="field-input" />
+      </div>
+      <div>
+        <label class="field-label">Role</label>
+        <select formControlName="roleId" class="field-input">
+          <option value="" disabled>Select a role…</option>
+          @for (r of roles(); track r.id) {
+            <option [value]="r.id">{{ r.name }}</option>
+          }
+        </select>
+        @if (form.get('roleId')?.touched && form.get('roleId')?.invalid) {
+          <div class="field-error">Select a role.</div>
+        }
+        @if (form.get('roleId')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('roleId')?.errors?.['server'] }}</div>
+        }
+      </div>
+    </div>
+
+    @if (!isEdit()) {
+      <div class="grid-2">
+        <div>
+          <label class="field-label">Password</label>
+          <input type="password" formControlName="password" class="field-input" />
+          @if (form.get('password')?.touched && form.get('password')?.errors?.['required']) {
+            <div class="field-error">Password is required.</div>
+          }
+          @if (form.get('password')?.touched && form.get('password')?.errors?.['minlength']) {
+            <div class="field-error">Password must be at least 8 characters.</div>
+          }
+          @if (form.get('password')?.errors?.['server']) {
+            <div class="field-error">{{ form.get('password')?.errors?.['server'] }}</div>
+          }
+        </div>
+        <div>
+          <label class="field-label">Confirm password</label>
+          <input type="password" formControlName="confirmPassword" class="field-input" />
+          @if (form.get('confirmPassword')?.errors?.['mismatch']) {
+            <div class="field-error">Passwords do not match.</div>
+          }
+        </div>
+      </div>
+    }
+
+    <div class="actions">
+      <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
+      <a routerLink="/administration/users" class="cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>
