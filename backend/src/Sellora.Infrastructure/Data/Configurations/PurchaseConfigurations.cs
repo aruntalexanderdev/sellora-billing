@@ -63,6 +63,7 @@ public class PurchaseBatchConfiguration : IEntityTypeConfiguration<PurchaseBatch
         builder.Property(b => b.UnitCost).HasColumnType("numeric(18,4)");
 
         builder.HasOne(b => b.PurchaseOrderLine).WithOne(l => l.Batch).HasForeignKey<PurchaseBatch>(b => b.PurchaseOrderLineId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(b => b.StockAdjustment).WithOne(a => a.Batch).HasForeignKey<PurchaseBatch>(b => b.StockAdjustmentId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(b => b.Product).WithMany().HasForeignKey(b => b.ProductId).OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(b => new { b.ProductId, b.CreatedAt });

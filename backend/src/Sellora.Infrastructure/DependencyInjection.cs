@@ -22,6 +22,7 @@ public static class DependencyInjection
         services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IPurchaseService, PurchaseService>();
+        services.AddScoped<IStockAdjustmentService, StockAdjustmentService>();
 
         return services;
     }

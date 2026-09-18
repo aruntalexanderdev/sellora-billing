@@ -21,6 +21,9 @@ import { ProductForm } from './features/inventory/products/product-form/product-
 import { PurchaseList } from './features/purchases/purchase-list/purchase-list';
 import { PurchaseForm } from './features/purchases/purchase-form/purchase-form';
 import { PurchaseDetail } from './features/purchases/purchase-detail/purchase-detail';
+import { StockOverview } from './features/inventory/stock/stock-overview/stock-overview';
+import { StockDetail } from './features/inventory/stock/stock-detail/stock-detail';
+import { StockAdjustmentForm } from './features/inventory/stock-adjustments/stock-adjustment-form/stock-adjustment-form';
 import { authGuard, permissionGuard } from './core/auth/auth.guard';
 import { unsavedChangesGuard } from './core/unsaved-changes.guard';
 
@@ -175,6 +178,25 @@ export const routes: Routes = [
         canActivate: [permissionGuard('Inventory.Edit')],
         canDeactivate: [unsavedChangesGuard],
         data: { group: 'Inventory', page: 'Edit product' },
+      },
+
+      {
+        path: 'inventory/stock',
+        component: StockOverview,
+        canActivate: [permissionGuard('Inventory.View')],
+        data: { group: 'Inventory', page: 'Stock Overview' },
+      },
+      {
+        path: 'inventory/stock-adjustments/new',
+        component: StockAdjustmentForm,
+        canActivate: [permissionGuard('Inventory.Adjust')],
+        data: { group: 'Inventory', page: 'Adjust Stock' },
+      },
+      {
+        path: 'inventory/stock/:id',
+        component: StockDetail,
+        canActivate: [permissionGuard('Inventory.View')],
+        data: { group: 'Inventory', page: 'Stock Details' },
       },
 
       {

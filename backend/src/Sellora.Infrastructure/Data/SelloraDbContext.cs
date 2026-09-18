@@ -23,6 +23,7 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options) : DbCo
     public DbSet<PurchaseBatch> PurchaseBatches => Set<PurchaseBatch>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
     public DbSet<StockItem> StockItems => Set<StockItem>();
+    public DbSet<StockAdjustment> StockAdjustments => Set<StockAdjustment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

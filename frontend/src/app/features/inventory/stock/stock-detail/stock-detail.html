@@ -1,0 +1,109 @@
+@if (!loading() && detail(); as d) {
+  <div class="page-head">
+    <div>
+      <h1>{{ d.name }}</h1>
+      <p>{{ d.sku }} · {{ d.category || 'Uncategorised' }}</p>
+    </div>
+    <div class="header-actions">
+      @if (canAdjust()) {
+        <ui-button variant="primary" (onClick)="goToAdjust()">Adjust stock</ui-button>
+      }
+      <a routerLink="/inventory/stock" class="back-link">Back to stock overview</a>
+    </div>
+  </div>
+
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="summary-label">On hand</div>
+      <div class="summary-value">{{ d.quantityOnHand.toFixed(2) }} {{ d.baseUnitLabel }}</div>
+      <ui-badge
+        [text]="d.status === 'OutOfStock' ? 'Out of stock' : d.status"
+        [tone]="d.status === 'Normal' ? 'good' : d.status === 'Low' ? 'warn' : 'bad'"
+      />
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Average cost</div>
+      <div class="summary-value">{{ INR(d.averageCost) }} / {{ d.baseUnitLabel }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Stock value</div>
+      <div class="summary-value">{{ INR(d.stockValue) }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Reorder level</div>
+      <div class="summary-value">{{ d.reorderLevel }} {{ d.baseUnitLabel }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Tax</div>
+      <div class="summary-value">{{ d.taxLabel }}</div>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-title">Purchase batches</div>
+      <div class="panel-body">
+        @if (d.batches.length === 0) {
+          <div class="empty-note">No batches yet.</div>
+        }
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th class="num">Purchased</th>
+              <th class="num">Remaining</th>
+              <th class="num">Unit cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (b of d.batches; track b.id) {
+              <tr>
+                <td>{{ b.sourceType }} · {{ b.sourceRefNo }}</td>
+                <td class="num">{{ b.purchasedBaseQty }}</td>
+                <td class="num" [class.depleted]="b.remainingBaseQty === 0">{{ b.remainingBaseQty }}</td>
+                <td class="num">{{ INR(b.unitCost) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Stock movement</div>
+      <div class="panel-body">
+        @if (d.movements.length === 0) {
+          <div class="empty-note">No movements recorded yet.</div>
+        }
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Type</th>
+              <th class="num">Change</th>
+              <th>Reference</th>
+              <th>By</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (m of d.movements; track m.id) {
+              <tr>
+                <td class="muted">{{ m.occurredAt | date: 'd MMM, HH:mm' }}</td>
+                <td>
+                  <ui-badge [text]="m.type" [tone]="m.type === 'Purchase' ? 'info' : m.type === 'Sale' ? 'good' : 'warn'" />
+                </td>
+                <td class="num" [class.positive]="m.quantityBaseUnits > 0" [class.negative]="m.quantityBaseUnits < 0">
+                  {{ m.quantityBaseUnits > 0 ? '+' : '' }}{{ m.quantityBaseUnits }}
+                </td>
+                <td class="muted">{{ m.referenceNo }}</td>
+                <td class="muted">{{ m.userName }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+} @else if (!loading()) {
+  <div class="not-found">Item not found.</div>
+}

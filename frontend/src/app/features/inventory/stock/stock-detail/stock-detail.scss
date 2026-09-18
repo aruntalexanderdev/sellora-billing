@@ -1,0 +1,114 @@
+@use '../../../../shared/styles/page-head';
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.back-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.summary-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 14px 16px;
+}
+.summary-label {
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--color-text-fainter);
+  font-weight: 650;
+  margin-bottom: 8px;
+}
+.summary-value {
+  font-size: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 8px;
+}
+
+.panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 14px;
+  align-items: start;
+}
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.panel-title {
+  padding: 12px 16px;
+  font-size: 13.5px;
+  font-weight: 650;
+  background: var(--color-surface-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.panel-body {
+  overflow-x: auto;
+}
+.empty-note {
+  padding: 20px 16px;
+  font-size: 13px;
+  color: var(--color-text-fainter);
+  text-align: center;
+}
+
+.mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.mini-table th {
+  text-align: left;
+  padding: 8px 14px;
+  font-size: 10.5px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--color-text-fainter);
+  font-weight: 650;
+  border-bottom: 1px solid var(--color-border-subtle);
+  white-space: nowrap;
+}
+.mini-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  white-space: nowrap;
+}
+.mini-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.muted {
+  color: var(--color-text-muted);
+}
+.positive {
+  color: var(--tone-good-fg);
+  font-weight: 600;
+}
+.negative {
+  color: var(--tone-bad-fg);
+  font-weight: 600;
+}
+.depleted {
+  color: var(--color-text-fainter);
+}
+
+.not-found {
+  padding: 40px;
+  text-align: center;
+  color: var(--color-text-muted);
+}

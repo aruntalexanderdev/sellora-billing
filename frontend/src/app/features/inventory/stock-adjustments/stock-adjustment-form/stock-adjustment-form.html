@@ -1,0 +1,86 @@
+<div class="page-head">
+  <div>
+    <h1>Adjust stock</h1>
+    <p>Record damage, loss, correction, expiry or opening stock. Every adjustment is a permanent, traceable entry.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error">{{ serverError() }}</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <label class="field-label">Item</label>
+    <select formControlName="productId" class="field-input" (change)="onProductChange(form.controls.productId.value)">
+      <option value="" disabled>Select an item…</option>
+      @for (p of products(); track p.id) {
+        <option [value]="p.id">{{ p.name }} ({{ p.sku }})</option>
+      }
+    </select>
+    @if (form.get('productId')?.touched && form.get('productId')?.invalid) {
+      <div class="field-error">Select an item.</div>
+    }
+
+    <div class="grid-2" style="margin-top: 16px">
+      <div>
+        <label class="field-label">Adjustment type</label>
+        <select formControlName="type" class="field-input">
+          @for (t of types; track t) {
+            <option [value]="t">{{ t }}</option>
+          }
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Direction</label>
+        <select formControlName="direction" class="field-input">
+          <option value="Decrease">Decrease</option>
+          <option value="Increase">Increase</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Quantity ({{ baseUnitLabel() || 'base unit' }})</label>
+        <input type="number" step="0.001" formControlName="quantityBaseUnits" class="field-input" />
+        @if (form.get('quantityBaseUnits')?.touched && form.get('quantityBaseUnits')?.invalid) {
+          <div class="field-error">Enter a quantity greater than zero.</div>
+        }
+      </div>
+      @if (isIncrease()) {
+        <div>
+          <label class="field-label">Unit cost (₹)</label>
+          <input type="number" step="0.01" formControlName="unitCost" class="field-input" />
+          @if (form.get('unitCost')?.touched && form.get('unitCost')?.invalid) {
+            <div class="field-error">Enter a unit cost for stock being added.</div>
+          }
+        </div>
+      }
+    </div>
+
+    <label class="field-label">Reason / notes</label>
+    <textarea formControlName="reason" class="field-input" rows="2"></textarea>
+
+    @if (currentQty() !== null) {
+      <div class="preview-card">
+        <div class="preview-item">
+          <span class="preview-label">Current stock</span>
+          <span class="preview-value">{{ currentQty()!.toFixed(2) }} {{ baseUnitLabel() }}</span>
+        </div>
+        <span class="preview-arrow">→</span>
+        <div class="preview-item">
+          <span class="preview-label">Resulting stock</span>
+          <span class="preview-value" [class.negative]="(resultingQty() ?? currentQty()!) < currentQty()!">
+            {{ (resultingQty() ?? currentQty())!.toFixed(2) }} {{ baseUnitLabel() }}
+          </span>
+        </div>
+      </div>
+    }
+
+    <div class="actions">
+      <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Posting…' : 'Post adjustment' }}</ui-button>
+      <a routerLink="/inventory/stock" class="cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>

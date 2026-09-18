@@ -184,7 +184,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("PurchaseOrderLineId")
+                    b.Property<Guid?>("PurchaseOrderLineId")
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("PurchasedBaseQty")
@@ -193,12 +193,18 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("RemainingBaseQty")
                         .HasColumnType("numeric(18,3)");
 
+                    b.Property<Guid?>("StockAdjustmentId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("UnitCost")
                         .HasColumnType("numeric(18,4)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("PurchaseOrderLineId")
+                        .IsUnique();
+
+                    b.HasIndex("StockAdjustmentId")
                         .IsUnique();
 
                     b.HasIndex("ProductId", "CreatedAt");
@@ -425,6 +431,64 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("PermissionId");
 
                     b.ToTable("RolePermissions");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockAdjustment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AdjustmentNo")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<decimal>("AfterQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("BeforeQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("QuantityBaseUnits")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal?>("UnitCost")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AdjustmentNo")
+                        .IsUnique();
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("StockAdjustments");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.StockItem", b =>
@@ -687,12 +751,18 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasOne("Sellora.Domain.Entities.PurchaseOrderLine", "PurchaseOrderLine")
                         .WithOne("Batch")
                         .HasForeignKey("Sellora.Domain.Entities.PurchaseBatch", "PurchaseOrderLineId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Sellora.Domain.Entities.StockAdjustment", "StockAdjustment")
+                        .WithOne("Batch")
+                        .HasForeignKey("Sellora.Domain.Entities.PurchaseBatch", "StockAdjustmentId")
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Product");
 
                     b.Navigation("PurchaseOrderLine");
+
+                    b.Navigation("StockAdjustment");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrder", b =>
@@ -779,6 +849,25 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.StockAdjustment", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.StockItem", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.Product", "Product")
@@ -845,6 +934,11 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("RolePermissions");
 
                     b.Navigation("Users");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockAdjustment", b =>
+                {
+                    b.Navigation("Batch");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.User", b =>
