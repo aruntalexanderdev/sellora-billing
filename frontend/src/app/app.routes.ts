@@ -35,6 +35,7 @@ import { StockMovementReport } from './features/reports/stock-movement-report/st
 import { PurchaseReport } from './features/reports/purchase-report/purchase-report';
 import { SalesReport } from './features/reports/sales-report/sales-report';
 import { ProfitSummaryReport } from './features/reports/profit-summary-report/profit-summary-report';
+import { DashboardPage } from './features/dashboard/dashboard-page/dashboard-page';
 import { authGuard, permissionGuard } from './core/auth/auth.guard';
 import { unsavedChangesGuard } from './core/unsaved-changes.guard';
 
@@ -46,7 +47,8 @@ export const routes: Routes = [
     component: Shell,
     canActivate: [authGuard],
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'administration/users' },
+      { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
+      { path: 'dashboard', component: DashboardPage, data: { group: 'Dashboard', page: 'Dashboard' } },
       { path: 'ui-showcase', component: UiShowcase, data: { group: 'System', page: 'UI Kit' } },
       { path: 'permission-denied', component: PermissionDenied, data: { group: 'System', page: 'Permission denied' } },
 

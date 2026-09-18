@@ -1,0 +1,125 @@
+@use '../../../shared/styles/page-head';
+
+.quick-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.dash-state {
+  padding: 40px;
+  text-align: center;
+  color: var(--color-text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.dash-retry {
+  background: none;
+  border: none;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.dash-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.dash-card {
+  padding: 18px 20px;
+}
+.dash-card-label {
+  font-size: 11.5px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--color-text-fainter);
+  font-weight: 650;
+  margin-bottom: 8px;
+}
+.dash-card-value {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+.dash-card-value-warn {
+  color: var(--color-danger);
+}
+.dash-card-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.dash-section {
+  padding: 18px 20px;
+  margin-bottom: 18px;
+}
+.dash-section-head {
+  font-size: 14.5px;
+  font-weight: 650;
+  margin-bottom: 12px;
+}
+.dash-empty {
+  padding: 16px 0;
+  font-size: 13px;
+  color: var(--color-text-fainter);
+  text-align: center;
+}
+
+.dash-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+.dash-two-col .dash-section {
+  margin-bottom: 0;
+}
+
+.dash-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.dash-table th {
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 10.5px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--color-text-fainter);
+  font-weight: 650;
+  border-bottom: 1px solid var(--color-border);
+}
+.dash-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.dash-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.dash-table .strong {
+  font-weight: 600;
+}
+.dash-table .muted {
+  color: var(--color-text-fainter);
+  font-size: 12px;
+}
+.dash-row-link {
+  cursor: pointer;
+}
+.dash-row-link:hover {
+  background: var(--color-surface-subtle);
+}
+
+@media (max-width: 780px) {
+  .dash-two-col {
+    grid-template-columns: 1fr;
+  }
+}

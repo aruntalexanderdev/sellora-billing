@@ -39,7 +39,7 @@ export class Login {
       next: () => {
         this.loading.set(false);
         const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
-        this.router.navigateByUrl(returnUrl || '/administration/users');
+        this.router.navigateByUrl(returnUrl || '/dashboard');
       },
       error: (err: HttpErrorResponse) => {
         this.loading.set(false);

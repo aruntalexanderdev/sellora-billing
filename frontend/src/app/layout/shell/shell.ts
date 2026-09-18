@@ -18,6 +18,7 @@ interface NavItemDef {
 // added once their screens actually exist, rather than showing dead links gated by permissions no
 // screen yet checks.
 const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
+  { label: 'Overview', items: [{ label: 'Dashboard', routerLink: '/dashboard', permission: '' }] },
   {
     label: 'Administration',
     items: [

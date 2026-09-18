@@ -1,0 +1,152 @@
+<div class="page-head">
+  <div>
+    <h1>Dashboard</h1>
+    <p>What's happening in your business today.</p>
+  </div>
+  @if (canCreateSale() || canCreatePurchase()) {
+    <div class="quick-actions">
+      @if (canCreateSale()) {
+        <ui-button variant="primary" (onClick)="goToNewSale()">+ New Sale</ui-button>
+      }
+      @if (canCreatePurchase()) {
+        <ui-button variant="secondary" (onClick)="goToNewPurchase()">+ New Purchase</ui-button>
+      }
+    </div>
+  }
+</div>
+
+@if (loading()) {
+  <div class="dash-state">Loading…</div>
+} @else if (error()) {
+  <div class="dash-state">
+    Could not load the dashboard.
+    <button type="button" class="dash-retry" (click)="retry()">Retry</button>
+  </div>
+} @else if (data(); as d) {
+  @if (!hasAnySection() && !d.lowStockItems) {
+    <div class="dash-state">
+      No summary data to show for your role yet — use the menu to get started.
+    </div>
+  } @else {
+    <div class="dash-cards">
+      @if (d.todaysSales; as s) {
+        <ui-card class="dash-card">
+          <div class="dash-card-label">Today's sales</div>
+          <div class="dash-card-value">{{ INR(s.amount) }}</div>
+          <div class="dash-card-sub">{{ s.transactionCount }} transaction{{ s.transactionCount === 1 ? '' : 's' }}</div>
+        </ui-card>
+      }
+      @if (d.todaysPurchases; as p) {
+        <ui-card class="dash-card">
+          <div class="dash-card-label">Today's purchases</div>
+          <div class="dash-card-value">{{ INR(p.amount) }}</div>
+          <div class="dash-card-sub">{{ p.transactionCount }} transaction{{ p.transactionCount === 1 ? '' : 's' }}</div>
+        </ui-card>
+      }
+      @if (d.currentStockValue !== null) {
+        <ui-card class="dash-card">
+          <div class="dash-card-label">Current stock value</div>
+          <div class="dash-card-value">{{ INR(d.currentStockValue) }}</div>
+        </ui-card>
+      }
+      @if (d.outstandingCustomerDue !== null) {
+        <ui-card class="dash-card">
+          <div class="dash-card-label">Outstanding customer due</div>
+          <div class="dash-card-value" [class.dash-card-value-warn]="d.outstandingCustomerDue > 0">{{ INR(d.outstandingCustomerDue) }}</div>
+        </ui-card>
+      }
+    </div>
+
+    @if (d.lowStockItems) {
+      <ui-card class="dash-section">
+        <div class="dash-section-head">Low stock items</div>
+        @if (d.lowStockItems.length === 0) {
+          <div class="dash-empty">Nothing is low on stock right now.</div>
+        } @else {
+          <table class="dash-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th class="num">Available qty</th>
+                <th class="num">Minimum qty</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (item of d.lowStockItems; track item.productId) {
+                <tr [routerLink]="['/inventory/stock', item.productId]" class="dash-row-link">
+                  <td class="strong">{{ item.name }}</td>
+                  <td class="num">{{ item.quantityOnHand }} {{ item.baseUnitLabel }}</td>
+                  <td class="num">{{ item.reorderLevel }} {{ item.baseUnitLabel }}</td>
+                  <td><ui-badge [text]="item.status === 'OutOfStock' ? 'Out of stock' : item.status" [tone]="item.status === 'Low' ? 'warn' : 'bad'" /></td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </ui-card>
+    }
+
+    <div class="dash-two-col">
+      @if (d.recentSales) {
+        <ui-card class="dash-section">
+          <div class="dash-section-head">Recent sales</div>
+          @if (d.recentSales.length === 0) {
+            <div class="dash-empty">No sales recorded yet.</div>
+          } @else {
+            <table class="dash-table">
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th>Customer</th>
+                  <th class="num">Amount</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (s of d.recentSales; track s.id) {
+                  <tr [routerLink]="['/sales', s.id]" class="dash-row-link">
+                    <td class="strong">{{ s.invoiceNo }}</td>
+                    <td>{{ s.customerName }}</td>
+                    <td class="num">{{ INR(s.grandTotal) }}</td>
+                    <td class="muted">{{ formatTime(s.createdAt) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </ui-card>
+      }
+
+      @if (d.recentPurchases) {
+        <ui-card class="dash-section">
+          <div class="dash-section-head">Recent purchases</div>
+          @if (d.recentPurchases.length === 0) {
+            <div class="dash-empty">No purchases recorded yet.</div>
+          } @else {
+            <table class="dash-table">
+              <thead>
+                <tr>
+                  <th>Purchase No</th>
+                  <th>Supplier</th>
+                  <th class="num">Amount</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (p of d.recentPurchases; track p.id) {
+                  <tr [routerLink]="['/purchases', p.id]" class="dash-row-link">
+                    <td class="strong">{{ p.purchaseNo }}</td>
+                    <td>{{ p.supplierName }}</td>
+                    <td class="num">{{ INR(p.grandTotal) }}</td>
+                    <td class="muted">{{ formatTime(p.createdAt) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </ui-card>
+      }
+    </div>
+  }
+}

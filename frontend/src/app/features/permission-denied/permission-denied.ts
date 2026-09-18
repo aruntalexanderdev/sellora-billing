@@ -18,6 +18,6 @@ export class PermissionDenied {
   readonly permission = this.route.snapshot.queryParamMap.get('permission');
 
   goToDashboard(): void {
-    this.router.navigateByUrl('/administration/users');
+    this.router.navigateByUrl('/dashboard');
   }
 }
