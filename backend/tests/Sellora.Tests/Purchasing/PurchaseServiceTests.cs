@@ -17,7 +17,7 @@ public class PurchaseServiceTests
         return new SelloraDbContext(options);
     }
 
-    private sealed record Fixture(SelloraDbContext Db, PurchaseService Service, Supplier Supplier, Product Product, ProductSellingMode Bag, Guid UserId);
+    private sealed record Fixture(SelloraDbContext Db, PurchaseService Service, Supplier Supplier, Product Product, ProductSellingMode Bag, ProductSellingMode LooseKg, Guid UserId);
 
     private static async Task<Fixture> SeedAsync()
     {
@@ -38,12 +38,14 @@ public class PurchaseServiceTests
             TaxId = tax.Id, Tax = tax, ReorderLevel = 100,
         };
         var bag = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = product.Id, Label = "10 kg bag", ConversionFactorToBase = 10m };
+        var looseKg = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = product.Id, Label = "Loose kg", ConversionFactorToBase = 1m };
         product.SellingModes.Add(bag);
+        product.SellingModes.Add(looseKg);
 
         db.AddRange(role, user, unit, tax, supplier, product);
         await db.SaveChangesAsync();
 
-        return new Fixture(db, new PurchaseService(db), supplier, product, bag, user.Id);
+        return new Fixture(db, new PurchaseService(db), supplier, product, bag, looseKg, user.Id);
     }
 
     private static CreatePurchaseInput BuildInput(Fixture f, decimal qty, decimal rate, decimal otherCharges = 0, decimal discount = 0) =>
@@ -100,6 +102,31 @@ public class PurchaseServiceTests
         var stockItem = await f.Db.StockItems.SingleAsync(s => s.ProductId == f.Product.Id);
         Assert.Equal(400m, stockItem.QuantityOnHand);
         Assert.Equal(59m, stockItem.AverageCost);
+    }
+
+    [Fact]
+    public async Task CreatePurchaseAsync_TwoLinesForSameNewProduct_CreatesOneStockItemWithCombinedQtyAndWeightedCost()
+    {
+        var f = await SeedAsync();
+
+        // First-ever purchase of this product, split across two lines/selling modes in one purchase —
+        // regression test for the "StockItem already tracked" bug when no StockItem row exists yet.
+        var input = new CreatePurchaseInput(f.Supplier.Id, new DateOnly(2026, 9, 18), null, null, PaymentMethod.Cash, 0,
+            [
+                new PurchaseLineInput(f.Product.Id, f.Bag.Id, 10, 580, 0, 0),      // 100 kg @ 58/kg
+                new PurchaseLineInput(f.Product.Id, f.LooseKg.Id, 100, 70, 0, 0),  // 100 kg @ 70/kg
+            ]);
+
+        var purchase = await f.Service.CreatePurchaseAsync(input, f.UserId);
+
+        Assert.Equal(2, purchase.Lines.Count);
+
+        var stockItem = await f.Db.StockItems.SingleAsync(s => s.ProductId == f.Product.Id);
+        Assert.Equal(200m, stockItem.QuantityOnHand);
+        Assert.Equal(64m, stockItem.AverageCost); // (100*58 + 100*70) / 200 = 64
+
+        var batches = await f.Db.PurchaseBatches.Where(b => b.ProductId == f.Product.Id).ToListAsync();
+        Assert.Equal(2, batches.Count); // one batch per line, never merged
     }
 
     [Fact]

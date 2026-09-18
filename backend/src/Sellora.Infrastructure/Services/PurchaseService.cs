@@ -211,7 +211,8 @@ public class PurchaseService(SelloraDbContext db) : IPurchaseService
             UserId = userId,
         });
 
-        var stockItem = await db.StockItems.SingleOrDefaultAsync(s => s.ProductId == line.ProductId, ct);
+        var stockItem = db.StockItems.Local.FirstOrDefault(s => s.ProductId == line.ProductId)
+            ?? await db.StockItems.SingleOrDefaultAsync(s => s.ProductId == line.ProductId, ct);
         if (stockItem is null)
         {
             stockItem = new StockItem { ProductId = line.ProductId, QuantityOnHand = 0, AverageCost = 0 };
