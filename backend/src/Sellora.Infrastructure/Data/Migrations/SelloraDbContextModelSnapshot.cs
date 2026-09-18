@@ -433,6 +433,39 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("RolePermissions");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.SellingPrice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("EffectiveFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("EffectiveTo")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("Price")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("ProductSellingModeId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("ProductSellingModeId", "EffectiveFrom");
+
+                    b.ToTable("SellingPrices");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.StockAdjustment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -847,6 +880,25 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("Permission");
 
                     b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SellingPrice", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.ProductSellingMode", "ProductSellingMode")
+                        .WithMany()
+                        .HasForeignKey("ProductSellingModeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("ProductSellingMode");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.StockAdjustment", b =>

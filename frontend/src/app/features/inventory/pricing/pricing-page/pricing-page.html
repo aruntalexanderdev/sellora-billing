@@ -1,0 +1,102 @@
+<div class="page-head">
+  <div>
+    <h1>Stock &amp; pricing</h1>
+    <p>Set the selling price per unit this product can be sold in. Loose and packed sales draw from the same stock.</p>
+  </div>
+</div>
+
+<div class="table-card">
+  <div class="toolbar">
+    <div class="search-box">
+      <input
+        type="text"
+        [value]="search()"
+        (input)="onSearch($event)"
+        placeholder="Search products, SKU or category…"
+        class="search-input"
+      />
+    </div>
+  </div>
+
+  @if (loading()) {
+    <div class="empty-note">Loading…</div>
+  } @else if (rows().length === 0) {
+    <div class="empty-note">No products match that search.</div>
+  } @else {
+    <div class="table-wrap">
+      <table class="pricing-table">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Selling mode</th>
+            <th class="num">Cost / unit</th>
+            <th class="num">Sell price</th>
+            <th class="num">Margin</th>
+            <th>Tax</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.sellingModeId) {
+            <tr>
+              <td>
+                <div class="product-name">{{ row.productName }}</div>
+                <div class="product-sku">{{ row.productSku }}</div>
+              </td>
+              <td class="muted">{{ row.sellingModeLabel }}</td>
+              <td class="num muted">{{ INR(row.costPerUnit) }}</td>
+              <td class="num">
+                <input
+                  type="number"
+                  step="0.01"
+                  class="price-input"
+                  [value]="row.currentPrice ?? ''"
+                  [disabled]="savingModeId() === row.sellingModeId"
+                  (change)="onPriceChange(row, $event)"
+                  placeholder="Set price"
+                />
+              </td>
+              <td class="num" [class.warn-margin]="row.marginPercent !== null && row.marginPercent < 10">
+                {{ row.marginPercent !== null ? row.marginPercent + '%' : '—' }}
+              </td>
+              <td class="muted">{{ row.taxLabel }}</td>
+              <td class="actions-cell">
+                <button type="button" class="history-btn" (click)="viewHistory(row)">History</button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>
+
+@if (historyRow(); as hr) {
+  <div class="backdrop" (click)="closeHistory()">
+    <div class="history-panel" (click)="$event.stopPropagation()">
+      <div class="history-title">{{ hr.productName }} · {{ hr.sellingModeLabel }}</div>
+      <div class="history-subtitle">Price history — old prices are kept, never overwritten.</div>
+
+      @if (historyLoading()) {
+        <div class="empty-note">Loading…</div>
+      } @else if (historyEntries().length === 0) {
+        <div class="empty-note">No price has been set yet.</div>
+      } @else {
+        <div class="history-list">
+          @for (entry of historyEntries(); track entry.id) {
+            <div class="history-row">
+              <span class="history-price">{{ INR(entry.price) }}</span>
+              <span class="history-range">
+                {{ entry.effectiveFrom | date: 'd MMM y, HH:mm' }}
+                →
+                {{ entry.effectiveTo ? (entry.effectiveTo | date: 'd MMM y, HH:mm') : 'current' }}
+              </span>
+            </div>
+          }
+        </div>
+      }
+
+      <button type="button" class="close-btn" (click)="closeHistory()">Close</button>
+    </div>
+  </div>
+}

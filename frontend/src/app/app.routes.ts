@@ -24,6 +24,7 @@ import { PurchaseDetail } from './features/purchases/purchase-detail/purchase-de
 import { StockOverview } from './features/inventory/stock/stock-overview/stock-overview';
 import { StockDetail } from './features/inventory/stock/stock-detail/stock-detail';
 import { StockAdjustmentForm } from './features/inventory/stock-adjustments/stock-adjustment-form/stock-adjustment-form';
+import { PricingPage } from './features/inventory/pricing/pricing-page/pricing-page';
 import { authGuard, permissionGuard } from './core/auth/auth.guard';
 import { unsavedChangesGuard } from './core/unsaved-changes.guard';
 
@@ -197,6 +198,13 @@ export const routes: Routes = [
         component: StockDetail,
         canActivate: [permissionGuard('Inventory.View')],
         data: { group: 'Inventory', page: 'Stock Details' },
+      },
+
+      {
+        path: 'inventory/pricing',
+        component: PricingPage,
+        canActivate: [permissionGuard('Inventory.Price')],
+        data: { group: 'Inventory', page: 'Stock & Pricing' },
       },
 
       {

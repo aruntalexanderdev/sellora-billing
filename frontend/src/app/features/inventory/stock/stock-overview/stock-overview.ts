@@ -37,6 +37,7 @@ export class StockOverview implements OnInit {
   readonly total = signal(0);
 
   readonly canAdjust = computed(() => this.auth.hasPermission('Inventory.Adjust'));
+  readonly canPrice = computed(() => this.auth.hasPermission('Inventory.Price'));
 
   readonly rows = computed<DataTableRow[]>(() =>
     this.items().map((p) => ({
@@ -53,9 +54,14 @@ export class StockOverview implements OnInit {
         },
         {
           kind: 'actions',
-          actions: this.canAdjust()
-            ? [{ label: 'Adjust', onClick: () => this.router.navigate(['/inventory/stock-adjustments/new'], { queryParams: { productId: p.productId } }) }]
-            : [],
+          actions: [
+            ...(this.canAdjust()
+              ? [{ label: 'Adjust', onClick: () => this.router.navigate(['/inventory/stock-adjustments/new'], { queryParams: { productId: p.productId } }) }]
+              : []),
+            ...(this.canPrice()
+              ? [{ label: 'Price', onClick: () => this.router.navigate(['/inventory/pricing'], { queryParams: { search: p.sku } }) }]
+              : []),
+          ],
         },
       ],
     })),
