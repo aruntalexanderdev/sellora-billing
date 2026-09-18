@@ -5,6 +5,7 @@ namespace Sellora.Api.Contracts;
 public record SellingModeDto(Guid Id, string Label, decimal ConversionFactorToBase, bool IsActive);
 
 public record SellingModeInput(
+    Guid? Id,
     [Required, MaxLength(60)] string Label,
     [Range(0.001, double.MaxValue)] decimal ConversionFactorToBase
 );

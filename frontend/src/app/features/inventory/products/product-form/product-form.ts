@@ -3,6 +3,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormArray, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 
 type ModeGroup = FormGroup<{
+  id: FormControl<string | null>;
   label: FormControl<string>;
   conversionFactorToBase: FormControl<number | null>;
 }>;
@@ -77,7 +78,7 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
             reorderLevel: p.reorderLevel,
           });
           for (const mode of p.sellingModes) {
-            this.sellingModes.push(this.buildModeGroup(mode.label, mode.conversionFactorToBase));
+            this.sellingModes.push(this.buildModeGroup(mode.id, mode.label, mode.conversionFactorToBase));
           }
         },
       });
@@ -86,10 +87,11 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
     }
   }
 
-  private buildModeGroup(label = '', factor: number | null = null): ModeGroup {
-    return this.fb.nonNullable.group({
-      label: [label, Validators.required],
-      conversionFactorToBase: [factor, [Validators.required, Validators.min(0.001)]],
+  private buildModeGroup(id: string | null = null, label = '', factor: number | null = null): ModeGroup {
+    return this.fb.group({
+      id: this.fb.control(id),
+      label: this.fb.nonNullable.control(label, Validators.required),
+      conversionFactorToBase: this.fb.control(factor, [Validators.required, Validators.min(0.001)]),
     });
   }
 
@@ -124,7 +126,7 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
       baseUnitId: v.baseUnitId,
       taxId: v.taxId,
       reorderLevel: v.reorderLevel,
-      sellingModes: v.sellingModes.map((m) => ({ label: m.label, conversionFactorToBase: m.conversionFactorToBase! })),
+      sellingModes: v.sellingModes.map((m) => ({ id: m.id, label: m.label, conversionFactorToBase: m.conversionFactorToBase! })),
     };
 
     const request$ = this.isEdit() ? this.productsService.update(this.productId!, request) : this.productsService.create(request);

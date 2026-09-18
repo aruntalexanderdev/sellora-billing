@@ -6,6 +6,7 @@ export interface SellingMode {
 }
 
 export interface SellingModeInput {
+  id: string | null;
   label: string;
   conversionFactorToBase: number;
 }
