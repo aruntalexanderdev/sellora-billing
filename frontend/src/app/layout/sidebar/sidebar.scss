@@ -8,11 +8,31 @@
   height: 100vh;
   overflow-y: auto;
   min-width: 0;
+
+  // A slim, low-contrast scrollbar that reads as part of the dark sidebar chrome instead of
+  // the app's default light-page scrollbar (10px wide, bordered to match a light background).
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-sidebar-muted) transparent;
+}
+:host::-webkit-scrollbar {
+  width: 6px;
+}
+:host::-webkit-scrollbar-track {
+  background: transparent;
+}
+:host::-webkit-scrollbar-thumb {
+  background: var(--color-sidebar-muted);
+  opacity: .5;
+  border-radius: 3px;
+  border: none;
 }
 
 @media (min-width: 901px) {
   :host {
-    overflow: hidden;
+    // Only the horizontal axis needs clipping, to hide content spilling out while the parent
+    // grid column animates its width down to 0 on collapse — vertical scroll must stay enabled
+    // so a nav list taller than the viewport can still be reached.
+    overflow-x: hidden;
     transition: opacity .15s ease;
   }
   :host:not(.sb-open) {
