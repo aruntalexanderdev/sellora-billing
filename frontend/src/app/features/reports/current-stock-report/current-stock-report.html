@@ -1,0 +1,21 @@
+<div class="page-head">
+  <div>
+    <h1>Current stock report</h1>
+    <p>Available quantity, cost and selling value for every product, as of right now.</p>
+  </div>
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search items…"
+  [filters]="filters()"
+  emptyTitle="No items match these filters"
+  emptyBody="Clear the search or filters to see the full stock position."
+  (searchChange)="onSearch($event)"
+  (retry)="retry()"
+  [footerText]="total() + ' item' + (total() === 1 ? '' : 's')"
+/>

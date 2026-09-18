@@ -30,6 +30,11 @@ import { CustomerForm } from './features/sales/customers/customer-form/customer-
 import { Pos } from './features/sales/pos/pos';
 import { SalesList } from './features/sales/sales-list/sales-list';
 import { SalesDetail } from './features/sales/sales-detail/sales-detail';
+import { CurrentStockReport } from './features/reports/current-stock-report/current-stock-report';
+import { StockMovementReport } from './features/reports/stock-movement-report/stock-movement-report';
+import { PurchaseReport } from './features/reports/purchase-report/purchase-report';
+import { SalesReport } from './features/reports/sales-report/sales-report';
+import { ProfitSummaryReport } from './features/reports/profit-summary-report/profit-summary-report';
 import { authGuard, permissionGuard } from './core/auth/auth.guard';
 import { unsavedChangesGuard } from './core/unsaved-changes.guard';
 
@@ -271,6 +276,37 @@ export const routes: Routes = [
         component: SalesDetail,
         canActivate: [permissionGuard('Sales.View')],
         data: { group: 'Sales & Billing', page: 'Invoice details' },
+      },
+
+      {
+        path: 'reports/stock',
+        component: CurrentStockReport,
+        canActivate: [permissionGuard('Reports.Stock')],
+        data: { group: 'Reports', page: 'Current Stock' },
+      },
+      {
+        path: 'reports/stock-movement',
+        component: StockMovementReport,
+        canActivate: [permissionGuard('Reports.Movement')],
+        data: { group: 'Reports', page: 'Stock Movement' },
+      },
+      {
+        path: 'reports/purchases',
+        component: PurchaseReport,
+        canActivate: [permissionGuard('Reports.Purchase')],
+        data: { group: 'Reports', page: 'Purchase Report' },
+      },
+      {
+        path: 'reports/sales',
+        component: SalesReport,
+        canActivate: [permissionGuard('Reports.Sales')],
+        data: { group: 'Reports', page: 'Sales Report' },
+      },
+      {
+        path: 'reports/profit',
+        component: ProfitSummaryReport,
+        canActivate: [permissionGuard('Reports.Profit')],
+        data: { group: 'Reports', page: 'Profit / Margin Summary' },
       },
     ],
   },

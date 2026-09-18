@@ -1,0 +1,60 @@
+<div class="page-head">
+  <div>
+    <h1>Profit / margin summary</h1>
+    <p>Gross margin on completed sales, using the actual FIFO cost of goods sold — not the latest purchase price.</p>
+  </div>
+</div>
+
+<div class="report-filters">
+  <div class="report-filter-field">
+    <label class="report-filter-label">From</label>
+    <input type="date" class="report-filter-input" [value]="dateFrom()" (change)="onDateFromChange($any($event.target).value)" />
+  </div>
+  <div class="report-filter-field">
+    <label class="report-filter-label">To</label>
+    <input type="date" class="report-filter-input" [value]="dateTo()" (change)="onDateToChange($any($event.target).value)" />
+  </div>
+  @if (hasDateFilter()) {
+    <button type="button" class="report-filter-clear" (click)="clearDates()">Clear dates</button>
+  }
+</div>
+
+@if (loading()) {
+  <div class="profit-state">Loading…</div>
+} @else if (error()) {
+  <div class="profit-state">
+    Could not load this report.
+    <button type="button" class="report-filter-clear" (click)="retry()">Retry</button>
+  </div>
+} @else if (summary(); as s) {
+  <div class="profit-cards">
+    <ui-card class="profit-card">
+      <div class="profit-card-label">Sales revenue</div>
+      <div class="profit-card-value">{{ INR(s.salesRevenue) }}</div>
+    </ui-card>
+    <ui-card class="profit-card">
+      <div class="profit-card-label">Cost of goods sold</div>
+      <div class="profit-card-value">{{ INR(s.costOfGoodsSold) }}</div>
+    </ui-card>
+    <ui-card class="profit-card profit-card-highlight">
+      <div class="profit-card-label">Gross profit</div>
+      <div class="profit-card-value">{{ INR(s.grossProfit) }}</div>
+    </ui-card>
+    <ui-card class="profit-card profit-card-highlight">
+      <div class="profit-card-label">Gross margin</div>
+      <div class="profit-card-value">{{ s.grossMarginPercent === null ? '—' : s.grossMarginPercent + '%' }}</div>
+    </ui-card>
+  </div>
+
+  <div class="profit-meta">{{ s.invoiceCount }} completed invoice{{ s.invoiceCount === 1 ? '' : 's' }} in this range.</div>
+
+  <div class="profit-basis" tabindex="0">
+    <span class="profit-basis-icon">i</span>
+    <div class="profit-basis-text">
+      <strong>Calculation basis:</strong> Sales revenue is the taxable value actually charged — net of
+      discount, excluding tax collected on the government's behalf. Cost of goods sold is the real,
+      FIFO-consumed landed cost recorded on each sale line, not the latest purchase price. Cancelled
+      invoices are excluded from both figures.
+    </div>
+  </div>
+}

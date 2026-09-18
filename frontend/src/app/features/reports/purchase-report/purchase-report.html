@@ -1,0 +1,44 @@
+<div class="page-head no-print">
+  <div>
+    <h1>Purchase report</h1>
+    <p>Every purchase order with its financial breakdown and payment status.</p>
+  </div>
+  <button type="button" class="report-print-btn" (click)="print()">Print</button>
+</div>
+
+<div class="report-filters no-print">
+  <div class="report-filter-field">
+    <label class="report-filter-label">From</label>
+    <input type="date" class="report-filter-input" [value]="dateFrom()" (change)="onDateFromChange($any($event.target).value)" />
+  </div>
+  <div class="report-filter-field">
+    <label class="report-filter-label">To</label>
+    <input type="date" class="report-filter-input" [value]="dateTo()" (change)="onDateToChange($any($event.target).value)" />
+  </div>
+  @if (hasDateFilter()) {
+    <button type="button" class="report-filter-clear" (click)="clearDates()">Clear dates</button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search purchase no., supplier or item…"
+  emptyTitle="No purchases match these filters"
+  emptyBody="Clear the search or date range to see all purchases."
+  (searchChange)="onSearch($event)"
+  (retry)="retry()"
+  [footerText]="total() + ' purchase' + (total() === 1 ? '' : 's')"
+/>
+
+@if (items().length > 0) {
+  <div class="report-totals-bar">
+    <div><span>Subtotal</span><strong>₹{{ totals().subtotal.toLocaleString('en-IN') }}</strong></div>
+    <div><span>Tax</span><strong>₹{{ totals().tax.toLocaleString('en-IN') }}</strong></div>
+    <div><span>Grand total</span><strong>₹{{ totals().grandTotal.toLocaleString('en-IN') }}</strong></div>
+    <div><span>Due</span><strong>₹{{ totals().due.toLocaleString('en-IN') }}</strong></div>
+  </div>
+}

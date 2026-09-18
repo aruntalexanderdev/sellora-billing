@@ -1,0 +1,45 @@
+<div class="page-head">
+  <div>
+    <h1>Stock movement report</h1>
+    <p>Every purchase, sale and adjustment that changed stock, in one ledger.</p>
+  </div>
+</div>
+
+<div class="report-filters">
+  <div class="report-filter-field">
+    <label class="report-filter-label">From</label>
+    <input
+      type="date"
+      class="report-filter-input"
+      [value]="dateFrom()"
+      (change)="onDateFromChange($any($event.target).value)"
+    />
+  </div>
+  <div class="report-filter-field">
+    <label class="report-filter-label">To</label>
+    <input
+      type="date"
+      class="report-filter-input"
+      [value]="dateTo()"
+      (change)="onDateToChange($any($event.target).value)"
+    />
+  </div>
+  @if (hasDateFilter()) {
+    <button type="button" class="report-filter-clear" (click)="clearDates()">Clear dates</button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search item, SKU or reference…"
+  [filters]="filters()"
+  emptyTitle="No movements match these filters"
+  emptyBody="Clear the search, type or date range to see the full ledger."
+  (searchChange)="onSearch($event)"
+  (retry)="retry()"
+  [footerText]="total() + ' movement' + (total() === 1 ? '' : 's')"
+/>

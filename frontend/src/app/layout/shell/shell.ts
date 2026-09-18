@@ -52,6 +52,16 @@ const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
       { label: 'Customers', routerLink: '/sales/customers', permission: 'Customers.View' },
     ],
   },
+  {
+    label: 'Reports',
+    items: [
+      { label: 'Current Stock', routerLink: '/reports/stock', permission: 'Reports.Stock' },
+      { label: 'Stock Movement', routerLink: '/reports/stock-movement', permission: 'Reports.Movement' },
+      { label: 'Purchase Report', routerLink: '/reports/purchases', permission: 'Reports.Purchase' },
+      { label: 'Sales Report', routerLink: '/reports/sales', permission: 'Reports.Sales' },
+      { label: 'Profit / Margin', routerLink: '/reports/profit', permission: 'Reports.Profit' },
+    ],
+  },
   { label: 'System', items: [{ label: 'UI Kit', routerLink: '/ui-showcase', permission: '' }] },
 ];
 
