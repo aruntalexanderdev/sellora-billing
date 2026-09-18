@@ -1,0 +1,70 @@
+@if (!loading() && invoice(); as i) {
+  <div class="page-head no-print">
+    <div>
+      <h1>{{ i.invoiceNo }}</h1>
+      <p>{{ i.customerName }} · {{ i.invoiceDate }}</p>
+    </div>
+    <div class="header-actions">
+      <ui-button variant="secondary" (onClick)="print()">Print</ui-button>
+      @if (canCancel() && i.status === 'Completed') {
+        <ui-button variant="destructive" (onClick)="cancelSale()">Cancel sale</ui-button>
+      }
+      <a routerLink="/sales" class="back-link">Back to list</a>
+    </div>
+  </div>
+
+  <div class="status-row no-print">
+    <ui-badge [text]="i.status" [tone]="i.status === 'Completed' ? 'good' : 'mute'" />
+    <ui-badge [text]="i.paymentStatus" [tone]="i.paymentStatus === 'Paid' ? 'good' : i.paymentStatus === 'PartiallyPaid' ? 'warn' : 'bad'" />
+    @if (i.status === 'Cancelled') {
+      <span class="cancelled-note">Cancelled — stock effects reversed.</span>
+    }
+  </div>
+
+  <div class="detail-card">
+    <div class="lines-table-wrap">
+      <table class="lines-table">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Selling mode</th>
+            <th class="num">Qty</th>
+            <th class="num">Unit price</th>
+            <th class="num">Tax</th>
+            <th class="num">Line total</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (line of i.lines; track line.id) {
+            <tr>
+              <td class="strong">{{ line.productName }}</td>
+              <td>{{ line.sellingModeLabel }} <span class="muted">({{ line.baseQty }} {{ line.baseUnitLabel }})</span></td>
+              <td class="num">{{ line.qty }}</td>
+              <td class="num">{{ INR(line.unitPrice) }}</td>
+              <td class="num">{{ line.taxRatePercent }}%</td>
+              <td class="num strong">{{ INR(line.lineTotal) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="summary-and-payment">
+      <div class="summary-card">
+        <div class="totals-row"><span>Subtotal</span><span>{{ INR(i.subtotal) }}</span></div>
+        <div class="totals-row"><span>Discount</span><span>−{{ INR(i.discountTotal) }}</span></div>
+        <div class="totals-row"><span>Tax</span><span>{{ INR(i.taxTotal) }}</span></div>
+        <div class="totals-row totals-grand"><span>Grand total</span><span>{{ INR(i.grandTotal) }}</span></div>
+      </div>
+
+      <div class="payment-card">
+        <div class="kv-row"><span>Payment method</span><span>{{ i.paymentMethod }}</span></div>
+        <div class="kv-row"><span>Paid</span><span>{{ INR(i.paidAmount) }}</span></div>
+        <div class="kv-row"><span>Due</span><span>{{ INR(i.dueAmount) }}</span></div>
+        <div class="kv-row muted-row"><span>Billed by</span><span>{{ i.createdByName }}</span></div>
+      </div>
+    </div>
+  </div>
+} @else if (!loading()) {
+  <div class="not-found">Sale not found.</div>
+}

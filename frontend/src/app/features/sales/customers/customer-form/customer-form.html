@@ -1,0 +1,39 @@
+<div class="page-head">
+  <div>
+    <h1>{{ isEdit() ? 'Edit customer' : 'New customer' }}</h1>
+    <p>Customers are selected on POS sales.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error">{{ serverError() }}</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <label class="field-label">Customer name</label>
+    <input type="text" formControlName="name" class="field-input" />
+    @if (form.get('name')?.touched && form.get('name')?.errors?.['required']) {
+      <div class="field-error">Customer name is required.</div>
+    }
+    @if (form.get('name')?.errors?.['server']) {
+      <div class="field-error">{{ form.get('name')?.errors?.['server'] }}</div>
+    }
+
+    <div class="grid-2" style="margin-top: 16px">
+      <div>
+        <label class="field-label">Phone</label>
+        <input type="text" formControlName="phone" class="field-input" placeholder="+91 98765 43210" />
+      </div>
+      <div>
+        <label class="field-label">Address</label>
+        <input type="text" formControlName="address" class="field-input" />
+      </div>
+    </div>
+
+    <div class="actions">
+      <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
+      <a routerLink="/sales/customers" class="cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>

@@ -25,6 +25,11 @@ import { StockOverview } from './features/inventory/stock/stock-overview/stock-o
 import { StockDetail } from './features/inventory/stock/stock-detail/stock-detail';
 import { StockAdjustmentForm } from './features/inventory/stock-adjustments/stock-adjustment-form/stock-adjustment-form';
 import { PricingPage } from './features/inventory/pricing/pricing-page/pricing-page';
+import { CustomerList } from './features/sales/customers/customer-list/customer-list';
+import { CustomerForm } from './features/sales/customers/customer-form/customer-form';
+import { Pos } from './features/sales/pos/pos';
+import { SalesList } from './features/sales/sales-list/sales-list';
+import { SalesDetail } from './features/sales/sales-detail/sales-detail';
 import { authGuard, permissionGuard } from './core/auth/auth.guard';
 import { unsavedChangesGuard } from './core/unsaved-changes.guard';
 
@@ -225,6 +230,47 @@ export const routes: Routes = [
         component: PurchaseDetail,
         canActivate: [permissionGuard('Purchase.View')],
         data: { group: 'Purchases', page: 'Purchase details' },
+      },
+
+      {
+        path: 'sales/customers',
+        component: CustomerList,
+        canActivate: [permissionGuard('Customers.View')],
+        data: { group: 'Sales & Billing', page: 'Customers' },
+      },
+      {
+        path: 'sales/customers/new',
+        component: CustomerForm,
+        canActivate: [permissionGuard('Customers.Create')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Sales & Billing', page: 'New customer' },
+      },
+      {
+        path: 'sales/customers/:id/edit',
+        component: CustomerForm,
+        canActivate: [permissionGuard('Customers.Edit')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Sales & Billing', page: 'Edit customer' },
+      },
+
+      {
+        path: 'sales/new',
+        component: Pos,
+        canActivate: [permissionGuard('Sales.Create')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Sales & Billing', page: 'New sale' },
+      },
+      {
+        path: 'sales',
+        component: SalesList,
+        canActivate: [permissionGuard('Sales.View')],
+        data: { group: 'Sales & Billing', page: 'Sales' },
+      },
+      {
+        path: 'sales/:id',
+        component: SalesDetail,
+        canActivate: [permissionGuard('Sales.View')],
+        data: { group: 'Sales & Billing', page: 'Invoice details' },
       },
     ],
   },

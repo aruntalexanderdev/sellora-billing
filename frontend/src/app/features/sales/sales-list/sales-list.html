@@ -1,0 +1,25 @@
+<div class="page-head">
+  <div>
+    <h1>Sales</h1>
+    <p>Invoices billed at POS, with payment status.</p>
+  </div>
+  @if (canCreate()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New sale</ui-button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search invoice no. or customer…"
+  emptyTitle="No sales yet"
+  emptyBody="Complete your first sale at POS to see it here."
+  [emptyAction]="canCreate() ? '+ New sale' : null"
+  (searchChange)="onSearch($event)"
+  (emptyActionClick)="goToCreate()"
+  (retry)="retry()"
+  [footerText]="total() + ' invoice' + (total() === 1 ? '' : 's')"
+/>

@@ -67,6 +67,38 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("BusinessSettings");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.Customer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsWalkIn")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name");
+
+                    b.ToTable("Customers");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.Permission", b =>
                 {
                     b.Property<Guid>("Id")
@@ -431,6 +463,157 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("PermissionId");
 
                     b.ToTable("RolePermissions");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("DiscountTotal")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("GrandTotal")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateOnly>("InvoiceDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("InvoiceNo")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<decimal>("PaidAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("PaymentMethod")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TaxTotal")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("InvoiceNo")
+                        .IsUnique();
+
+                    b.ToTable("SalesInvoices");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("BaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("ConversionFactorToBase")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("CostOfGoodsSold")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal>("Discount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal>("LineTotal")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Qty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<Guid>("SalesInvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SellingModeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("TaxId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("TaxRatePercent")
+                        .HasColumnType("numeric(6,3)");
+
+                    b.Property<decimal>("TaxableValue")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("SalesInvoiceId");
+
+                    b.HasIndex("SellingModeId");
+
+                    b.HasIndex("TaxId");
+
+                    b.ToTable("SalesInvoiceLines");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLineBatchConsumption", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PurchaseBatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("QtyBaseUnits")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<Guid>("SalesInvoiceLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PurchaseBatchId");
+
+                    b.HasIndex("SalesInvoiceLineId");
+
+                    b.ToTable("SalesInvoiceLineBatchConsumptions");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.SellingPrice", b =>
@@ -882,6 +1065,79 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoice", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("Customer");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLine", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.SalesInvoice", "SalesInvoice")
+                        .WithMany("Lines")
+                        .HasForeignKey("SalesInvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.ProductSellingMode", "SellingMode")
+                        .WithMany()
+                        .HasForeignKey("SellingModeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Tax", "Tax")
+                        .WithMany()
+                        .HasForeignKey("TaxId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("SalesInvoice");
+
+                    b.Navigation("SellingMode");
+
+                    b.Navigation("Tax");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLineBatchConsumption", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.PurchaseBatch", "PurchaseBatch")
+                        .WithMany()
+                        .HasForeignKey("PurchaseBatchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.SalesInvoiceLine", "SalesInvoiceLine")
+                        .WithMany("BatchConsumptions")
+                        .HasForeignKey("SalesInvoiceLineId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PurchaseBatch");
+
+                    b.Navigation("SalesInvoiceLine");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.SellingPrice", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
@@ -986,6 +1242,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("RolePermissions");
 
                     b.Navigation("Users");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoice", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLine", b =>
+                {
+                    b.Navigation("BatchConsumptions");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.StockAdjustment", b =>

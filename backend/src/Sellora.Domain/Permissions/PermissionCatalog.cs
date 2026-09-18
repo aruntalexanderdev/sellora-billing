@@ -51,6 +51,12 @@ public static class PermissionCatalog
         new("Purchase.Edit", "Purchase", "Edit", "Edit draft purchase orders."),
         new("Purchase.Cancel", "Purchase", "Cancel", "Cancel a completed purchase order."),
 
+        // Sales & Billing — Customers
+        new("Customers.View", "Sales", "View", "View the customer list."),
+        new("Customers.Create", "Sales", "Create", "Add new customers."),
+        new("Customers.Edit", "Sales", "Edit", "Edit customer details."),
+        new("Customers.Disable", "Sales", "Disable", "Activate or deactivate a customer."),
+
         // Sales & Billing
         new("Sales.View", "Sales", "View", "View sales invoices."),
         new("Sales.Create", "Sales", "Create", "Create sales through POS billing."),

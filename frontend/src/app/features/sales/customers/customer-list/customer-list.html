@@ -1,0 +1,25 @@
+<div class="page-head">
+  <div>
+    <h1>Customers</h1>
+    <p>Customers billed at POS, including the walk-in default.</p>
+  </div>
+  @if (canCreate()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New customer</ui-button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search customers…"
+  emptyTitle="No customers yet"
+  emptyBody="Add a customer, or bill walk-in customers directly from POS."
+  [emptyAction]="canCreate() ? '+ New customer' : null"
+  (searchChange)="onSearch($event)"
+  (emptyActionClick)="goToCreate()"
+  (retry)="retry()"
+  [footerText]="total() + ' customer' + (total() === 1 ? '' : 's')"
+/>

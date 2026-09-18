@@ -26,6 +26,7 @@ public static class DbSeeder
         var taxes = await SeedTaxesAsync(db, ct);
         await SeedSuppliersAsync(db, ct);
         await SeedProductsAsync(db, units, taxes, ct);
+        await SeedCustomersAsync(db, ct);
     }
 
     private static async Task SeedPermissionsAsync(SelloraDbContext db, CancellationToken ct)
@@ -210,6 +211,28 @@ public static class DbSeeder
                 });
             }
             db.Products.Add(product);
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    private static readonly (string Name, string Phone, string Address)[] CustomerSeed =
+    [
+        ("Meena Kumari", "+91 98765 43210", "12 Gandhi Nagar, Chennai"),
+        ("Suresh Enterprises", "+91 98407 11223", "45 Anna Nagar, Chennai"),
+    ];
+
+    private static async Task SeedCustomersAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        if (!await db.Customers.AnyAsync(c => c.IsWalkIn, ct))
+        {
+            db.Customers.Add(new Customer { Id = Guid.NewGuid(), Name = "Walk-in Customer", IsWalkIn = true });
+        }
+
+        var existingNames = await db.Customers.Select(c => c.Name).ToListAsync(ct);
+        foreach (var (name, phone, address) in CustomerSeed)
+        {
+            if (existingNames.Contains(name)) continue;
+            db.Customers.Add(new Customer { Id = Guid.NewGuid(), Name = name, Phone = phone, Address = address });
         }
         await db.SaveChangesAsync(ct);
     }

@@ -15,6 +15,7 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options) : DbCo
     public DbSet<Tax> Taxes => Set<Tax>();
     public DbSet<BusinessSettings> BusinessSettings => Set<BusinessSettings>();
     public DbSet<Supplier> Suppliers => Set<Supplier>();
+    public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductSellingMode> ProductSellingModes => Set<ProductSellingMode>();
 
@@ -25,6 +26,10 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options) : DbCo
     public DbSet<StockItem> StockItems => Set<StockItem>();
     public DbSet<StockAdjustment> StockAdjustments => Set<StockAdjustment>();
     public DbSet<SellingPrice> SellingPrices => Set<SellingPrice>();
+
+    public DbSet<SalesInvoice> SalesInvoices => Set<SalesInvoice>();
+    public DbSet<SalesInvoiceLine> SalesInvoiceLines => Set<SalesInvoiceLine>();
+    public DbSet<SalesInvoiceLineBatchConsumption> SalesInvoiceLineBatchConsumptions => Set<SalesInvoiceLineBatchConsumption>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

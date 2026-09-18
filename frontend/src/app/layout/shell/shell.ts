@@ -14,9 +14,9 @@ interface NavItemDef {
   permission: string;
 }
 
-// Only routes that exist today are listed here. Modules from later phases (Inventory, Purchases,
-// Sales & Billing, Reports, Dashboard) are added once their screens actually exist, rather than
-// showing dead links gated by permissions no screen yet checks.
+// Only routes that exist today are listed here. Modules from later phases (Reports, Dashboard) are
+// added once their screens actually exist, rather than showing dead links gated by permissions no
+// screen yet checks.
 const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
   {
     label: 'Administration',
@@ -42,6 +42,14 @@ const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
     items: [
       { label: 'Purchases', routerLink: '/purchases', permission: 'Purchase.View' },
       { label: 'Suppliers', routerLink: '/purchases/suppliers', permission: 'Suppliers.View' },
+    ],
+  },
+  {
+    label: 'Sales & Billing',
+    items: [
+      { label: 'New Sale', routerLink: '/sales/new', permission: 'Sales.Create' },
+      { label: 'Sales', routerLink: '/sales', permission: 'Sales.View' },
+      { label: 'Customers', routerLink: '/sales/customers', permission: 'Customers.View' },
     ],
   },
   { label: 'System', items: [{ label: 'UI Kit', routerLink: '/ui-showcase', permission: '' }] },
