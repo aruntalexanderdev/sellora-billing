@@ -64,6 +64,23 @@
         </div>
       </div>
 
+      <div class="grid-2">
+        <div>
+          <label class="field-label">Base currency</label>
+          <select formControlName="baseCurrencyId" class="field-input">
+            @for (c of currencies(); track c.id) {
+              @if (c.isActive || c.id === form.controls.baseCurrencyId.value) {
+                <option [value]="c.id">{{ c.code }} — {{ c.name }}</option>
+              }
+            }
+          </select>
+          <div class="field-hint">Reports, stock valuation and sales are all expressed in this currency.</div>
+          @if (form.get('baseCurrencyId')?.errors?.['server']) {
+            <div class="field-error">{{ form.get('baseCurrencyId')?.errors?.['server'] }}</div>
+          }
+        </div>
+      </div>
+
       @if (canEdit()) {
         <div class="actions">
           <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save settings' }}</ui-button>

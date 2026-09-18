@@ -34,9 +34,10 @@ public class SalesServiceTests
         };
         var unit = new Unit { Id = Guid.NewGuid(), Name = "Kilogram", ShortCode = "kg", Type = UnitType.Weight };
         var tax = new Tax { Id = Guid.NewGuid(), Name = "GST 5%", RatePercent = 5m };
-        var supplier = new Supplier { Id = Guid.NewGuid(), Name = "Annapoorna Traders" };
+        var inr = new Currency { Id = Guid.NewGuid(), Code = "INR", Name = "Indian Rupee", Symbol = "₹" };
+        var supplier = new Supplier { Id = Guid.NewGuid(), Name = "Annapoorna Traders", CurrencyId = inr.Id };
         var customer = new Customer { Id = Guid.NewGuid(), Name = "Walk-in Customer", IsWalkIn = true };
-        var settings = new BusinessSettings { Id = Guid.NewGuid(), BusinessName = "Sellora Mart", InvoicePrefix = "INV" };
+        var settings = new BusinessSettings { Id = Guid.NewGuid(), BusinessName = "Sellora Mart", InvoicePrefix = "INV", BaseCurrencyId = inr.Id };
         var product = new Product
         {
             Id = Guid.NewGuid(), Sku = "RICE-BP10", Name = "Ponni Rice", BaseUnitId = unit.Id, BaseUnit = unit,
@@ -47,10 +48,10 @@ public class SalesServiceTests
         product.SellingModes.Add(bag);
         product.SellingModes.Add(looseKg);
 
-        db.AddRange(role, user, unit, tax, supplier, customer, settings, product);
+        db.AddRange(role, user, unit, tax, inr, supplier, customer, settings, product);
         await db.SaveChangesAsync();
 
-        return new Fixture(db, new SalesService(db), new PurchaseService(db), supplier, customer, product, bag, looseKg, user.Id);
+        return new Fixture(db, new SalesService(db), new PurchaseService(db, new ExchangeRateService(db)), supplier, customer, product, bag, looseKg, user.Id);
     }
 
     private static Task<PurchaseOrder> PurchaseAsync(Fixture f, decimal bags, decimal ratePerBag) =>

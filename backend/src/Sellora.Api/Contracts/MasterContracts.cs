@@ -20,7 +20,8 @@ public record UpsertTaxRequest(
 
 public record BusinessSettingsDto(
     Guid Id, string BusinessName, string? AddressLine, string? City, string? State,
-    string? Gstin, string? Phone, string? Email, string InvoicePrefix
+    string? Gstin, string? Phone, string? Email, string InvoicePrefix,
+    Guid BaseCurrencyId, string BaseCurrencyCode, string BaseCurrencySymbol
 );
 
 public record UpdateBusinessSettingsRequest(
@@ -31,7 +32,8 @@ public record UpdateBusinessSettingsRequest(
     [MaxLength(20)] string? Gstin,
     [MaxLength(30)] string? Phone,
     [EmailAddress, MaxLength(200)] string? Email,
-    [Required, MaxLength(10)] string InvoicePrefix
+    [Required, MaxLength(10)] string InvoicePrefix,
+    [Required] Guid? BaseCurrencyId
 );
 
 public record SetActiveRequest(bool IsActive);

@@ -24,6 +24,15 @@
     }
   </div>
 
+  @if (p.currencyCode !== p.baseCurrencyCode) {
+    <div class="fx-card">
+      <div><span class="fx-label">Original amount</span><strong>{{ original(p.originalGrandTotal) }} {{ p.currencyCode }}</strong></div>
+      <div><span class="fx-label">Exchange rate used</span><strong>1 {{ p.currencyCode }} = {{ p.baseCurrencySymbol }}{{ p.exchangeRateToBase }}</strong></div>
+      <div><span class="fx-label">Base currency value</span><strong>{{ base(p.grandTotal) }} {{ p.baseCurrencyCode }}</strong></div>
+      <div class="fx-note">Rate captured when this purchase was saved. Amounts below are in {{ p.baseCurrencyCode }}.</div>
+    </div>
+  }
+
   <div class="detail-card">
     <div class="lines-table-wrap">
       <table class="lines-table">
@@ -43,9 +52,9 @@
               <td class="strong">{{ line.productName }}</td>
               <td>{{ line.sellingModeLabel }} <span class="muted">({{ line.baseQty }} {{ line.baseUnitLabel }})</span></td>
               <td class="num">{{ line.qty }}</td>
-              <td class="num">{{ INR(line.rate) }}</td>
+              <td class="num">{{ base(line.rate) }}</td>
               <td class="num">{{ line.taxRatePercent }}%</td>
-              <td class="num strong">{{ INR(line.lineTotal) }}</td>
+              <td class="num strong">{{ base(line.lineTotal) }}</td>
             </tr>
           }
         </tbody>
@@ -54,18 +63,18 @@
 
     <div class="summary-and-payment">
       <div class="summary-card">
-        <div class="totals-row"><span>Subtotal</span><span>{{ INR(p.subtotal) }}</span></div>
-        <div class="totals-row"><span>Other charges</span><span>{{ INR(p.otherChargesTotal) }}</span></div>
-        <div class="totals-row"><span>Discount</span><span>−{{ INR(p.discountTotal) }}</span></div>
-        <div class="totals-row"><span>Tax</span><span>{{ INR(p.taxTotal) }}</span></div>
-        <div class="totals-row totals-grand"><span>Grand total</span><span>{{ INR(p.grandTotal) }}</span></div>
+        <div class="totals-row"><span>Subtotal</span><span>{{ base(p.subtotal) }}</span></div>
+        <div class="totals-row"><span>Other charges</span><span>{{ base(p.otherChargesTotal) }}</span></div>
+        <div class="totals-row"><span>Discount</span><span>−{{ base(p.discountTotal) }}</span></div>
+        <div class="totals-row"><span>Tax</span><span>{{ base(p.taxTotal) }}</span></div>
+        <div class="totals-row totals-grand"><span>Grand total</span><span>{{ base(p.grandTotal) }}</span></div>
       </div>
 
       <div class="payment-card">
         @if (!editing()) {
           <div class="kv-row"><span>Payment method</span><span>{{ p.paymentMethod }}</span></div>
-          <div class="kv-row"><span>Paid</span><span>{{ INR(p.paidAmount) }}</span></div>
-          <div class="kv-row"><span>Due</span><span>{{ INR(p.dueAmount) }}</span></div>
+          <div class="kv-row"><span>Paid</span><span>{{ base(p.paidAmount) }}</span></div>
+          <div class="kv-row"><span>Due</span><span>{{ base(p.dueAmount) }}</span></div>
           <div class="kv-row"><span>Supplier invoice</span><span>{{ p.supplierInvoiceNumber || '—' }}</span></div>
           <div class="kv-row"><span>Notes</span><span>{{ p.notes || '—' }}</span></div>
           <div class="kv-row muted-row"><span>Entered by</span><span>{{ p.createdByName }}</span></div>

@@ -28,7 +28,7 @@ public class SuppliersController(SelloraDbContext db) : ControllerBase
 
         var total = await query.CountAsync(ct);
         var items = await query.OrderBy(x => x.Name).Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(x => new SupplierDto(x.Id, x.Name, x.City, x.Gstin, x.PaymentTerms, x.IsActive))
+            .Select(x => new SupplierDto(x.Id, x.Name, x.City, x.Gstin, x.PaymentTerms, x.IsActive, x.CurrencyId, x.Currency.Code, x.Currency.Symbol))
             .ToListAsync(ct);
 
         return Ok(new PagedResult<SupplierDto>(items, total, page, pageSize));
@@ -38,7 +38,7 @@ public class SuppliersController(SelloraDbContext db) : ControllerBase
     [Authorize(Policy = "Suppliers.View")]
     public async Task<ActionResult<SupplierDto>> Get(Guid id, CancellationToken ct)
     {
-        var supplier = await db.Suppliers.SingleOrDefaultAsync(x => x.Id == id, ct);
+        var supplier = await db.Suppliers.Include(x => x.Currency).SingleOrDefaultAsync(x => x.Id == id, ct);
         return supplier is null ? NotFound() : Ok(SupplierMapping.ToDto(supplier));
     }
 
@@ -54,9 +54,16 @@ public class SuppliersController(SelloraDbContext db) : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var supplier = new Supplier { Id = Guid.NewGuid(), Name = request.Name.Trim(), City = request.City, Gstin = request.Gstin, PaymentTerms = request.PaymentTerms };
+        if (!await ValidateCurrencyAsync(request.CurrencyId!.Value, currentCurrencyId: null, ct)) return ValidationProblem(ModelState);
+
+        var supplier = new Supplier
+        {
+            Id = Guid.NewGuid(), Name = request.Name.Trim(), City = request.City, Gstin = request.Gstin,
+            PaymentTerms = request.PaymentTerms, CurrencyId = request.CurrencyId!.Value,
+        };
         db.Suppliers.Add(supplier);
         await db.SaveChangesAsync(ct);
+        await db.Entry(supplier).Reference(x => x.Currency).LoadAsync(ct);
 
         return CreatedAtAction(nameof(Get), new { id = supplier.Id }, SupplierMapping.ToDto(supplier));
     }
@@ -67,7 +74,7 @@ public class SuppliersController(SelloraDbContext db) : ControllerBase
     {
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
-        var supplier = await db.Suppliers.SingleOrDefaultAsync(x => x.Id == id, ct);
+        var supplier = await db.Suppliers.Include(x => x.Currency).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (supplier is null) return NotFound();
 
         if (await db.Suppliers.AnyAsync(x => x.Id != id && x.Name.ToLower() == request.Name.Trim().ToLower(), ct))
@@ -76,11 +83,15 @@ public class SuppliersController(SelloraDbContext db) : ControllerBase
             return ValidationProblem(ModelState);
         }
 
+        if (!await ValidateCurrencyAsync(request.CurrencyId!.Value, supplier.CurrencyId, ct)) return ValidationProblem(ModelState);
+
         supplier.Name = request.Name.Trim();
         supplier.City = request.City;
         supplier.Gstin = request.Gstin;
         supplier.PaymentTerms = request.PaymentTerms;
+        supplier.CurrencyId = request.CurrencyId!.Value;
         await db.SaveChangesAsync(ct);
+        await db.Entry(supplier).Reference(x => x.Currency).LoadAsync(ct);
 
         return Ok(SupplierMapping.ToDto(supplier));
     }
@@ -95,5 +106,23 @@ public class SuppliersController(SelloraDbContext db) : ControllerBase
         supplier.IsActive = request.IsActive;
         await db.SaveChangesAsync(ct);
         return NoContent();
+    }
+
+    // A currency must exist and be active to be newly assigned; a supplier that already uses a since-
+    // deactivated currency can still be edited without being forced to switch.
+    private async Task<bool> ValidateCurrencyAsync(Guid currencyId, Guid? currentCurrencyId, CancellationToken ct)
+    {
+        var currency = await db.Currencies.SingleOrDefaultAsync(c => c.Id == currencyId, ct);
+        if (currency is null)
+        {
+            ModelState.AddModelError(nameof(UpsertSupplierRequest.CurrencyId), "Select a valid currency.");
+            return false;
+        }
+        if (!currency.IsActive && currency.Id != currentCurrencyId)
+        {
+            ModelState.AddModelError(nameof(UpsertSupplierRequest.CurrencyId), "This currency is inactive.");
+            return false;
+        }
+        return true;
     }
 }

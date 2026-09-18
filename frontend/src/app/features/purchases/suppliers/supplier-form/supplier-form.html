@@ -36,6 +36,24 @@
         <label class="field-label">Payment terms</label>
         <input type="text" formControlName="paymentTerms" class="field-input" placeholder="Net 15" />
       </div>
+      <div>
+        <label class="field-label">Currency</label>
+        <select formControlName="currencyId" class="field-input">
+          <option value="" disabled>Select a currency…</option>
+          @for (c of currencies(); track c.id) {
+            @if (isSelectable(c)) {
+              <option [value]="c.id">{{ c.code }} — {{ c.name }}</option>
+            }
+          }
+        </select>
+        <div class="field-hint">Default currency for new purchases from this supplier.</div>
+        @if (form.get('currencyId')?.touched && form.get('currencyId')?.errors?.['required']) {
+          <div class="field-error">Select a currency.</div>
+        }
+        @if (form.get('currencyId')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('currencyId')?.errors?.['server'] }}</div>
+        }
+      </div>
     </div>
 
     <div class="actions">

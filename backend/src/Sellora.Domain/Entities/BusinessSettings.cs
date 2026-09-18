@@ -12,4 +12,8 @@ public class BusinessSettings
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public required string InvoicePrefix { get; set; }
+
+    /// <summary>The single currency all reports, stock valuation and sales are expressed in.</summary>
+    public Guid BaseCurrencyId { get; set; }
+    public Currency BaseCurrency { get; set; } = null!;
 }

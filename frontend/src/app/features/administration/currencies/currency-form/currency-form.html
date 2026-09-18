@@ -1,0 +1,68 @@
+<div class="page-head">
+  <div>
+    <h1>{{ isEdit() ? 'Edit currency' : 'New currency' }}</h1>
+    <p>Use the ISO 4217 code, e.g. USD, EUR, AED.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error">{{ serverError() }}</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Code</label>
+        <input type="text" formControlName="code" class="field-input" placeholder="USD" maxlength="3" style="text-transform: uppercase" />
+        @if (form.get('code')?.touched && form.get('code')?.errors?.['required']) {
+          <div class="field-error">Currency code is required.</div>
+        }
+        @if (form.get('code')?.touched && form.get('code')?.errors?.['pattern']) {
+          <div class="field-error">Enter a 3-letter ISO 4217 code.</div>
+        }
+        @if (form.get('code')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('code')?.errors?.['server'] }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label">Name</label>
+        <input type="text" formControlName="name" class="field-input" placeholder="US Dollar" />
+        @if (form.get('name')?.touched && form.get('name')?.errors?.['required']) {
+          <div class="field-error">Name is required.</div>
+        }
+        @if (form.get('name')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('name')?.errors?.['server'] }}</div>
+        }
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Symbol</label>
+        <input type="text" formControlName="symbol" class="field-input" placeholder="$" maxlength="8" />
+        @if (form.get('symbol')?.touched && form.get('symbol')?.errors?.['required']) {
+          <div class="field-error">Symbol is required.</div>
+        }
+        @if (form.get('symbol')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('symbol')?.errors?.['server'] }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label">Decimal places</label>
+        <input type="number" step="1" min="0" max="6" formControlName="decimalPrecision" class="field-input" />
+        @if (form.get('decimalPrecision')?.touched && (form.get('decimalPrecision')?.errors?.['required'] || form.get('decimalPrecision')?.errors?.['min'] || form.get('decimalPrecision')?.errors?.['max'])) {
+          <div class="field-error">Enter a whole number from 0 to 6.</div>
+        }
+        @if (form.get('decimalPrecision')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('decimalPrecision')?.errors?.['server'] }}</div>
+        }
+      </div>
+    </div>
+
+    <div class="actions">
+      <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
+      <a routerLink="/administration/currencies" class="cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>

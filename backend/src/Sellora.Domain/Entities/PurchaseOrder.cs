@@ -17,6 +17,17 @@ public class PurchaseOrder
     public string? SupplierInvoiceNumber { get; set; }
     public string? Notes { get; set; }
 
+    /// <summary>The transaction currency, snapshotted from the supplier when the purchase was saved.</summary>
+    public Guid CurrencyId { get; set; }
+    public Currency Currency { get; set; } = null!;
+
+    /// <summary>Base-currency units per 1 unit of <see cref="Currency"/>, captured at save time — never recomputed.</summary>
+    public decimal ExchangeRateToBase { get; set; } = 1m;
+
+    /// <summary>The purchase total in the original transaction currency. Every other monetary field on this
+    /// purchase and its lines is already in the business base currency.</summary>
+    public decimal OriginalGrandTotal { get; set; }
+
     public PaymentMethod PaymentMethod { get; set; }
     public decimal PaidAmount { get; set; }
 

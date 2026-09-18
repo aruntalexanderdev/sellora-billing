@@ -1,0 +1,18 @@
+<div class="page-head">
+  <div>
+    <h1>Currencies</h1>
+    <p>Currencies the business can transact in. Inactive currencies can't be chosen for new suppliers or purchases but stay on historical records.</p>
+  </div>
+  @if (canEdit()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New currency</ui-button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  emptyTitle="No currencies yet"
+  emptyBody="Add the currencies your suppliers invoice in."
+  (retry)="retry()"
+/>

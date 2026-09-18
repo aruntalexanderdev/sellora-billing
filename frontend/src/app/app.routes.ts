@@ -15,6 +15,10 @@ import { UnitForm } from './features/masters/units/unit-form/unit-form';
 import { TaxList } from './features/masters/taxes/tax-list/tax-list';
 import { TaxForm } from './features/masters/taxes/tax-form/tax-form';
 import { SettingsPage } from './features/masters/settings/settings-page/settings-page';
+import { CurrencyList } from './features/administration/currencies/currency-list/currency-list';
+import { CurrencyForm } from './features/administration/currencies/currency-form/currency-form';
+import { ExchangeRateList } from './features/administration/exchange-rates/exchange-rate-list/exchange-rate-list';
+import { ExchangeRateForm } from './features/administration/exchange-rates/exchange-rate-form/exchange-rate-form';
 import { SupplierList } from './features/purchases/suppliers/supplier-list/supplier-list';
 import { SupplierForm } from './features/purchases/suppliers/supplier-form/supplier-form';
 import { ProductList } from './features/inventory/products/product-list/product-list';
@@ -143,6 +147,48 @@ export const routes: Routes = [
         canActivate: [permissionGuard('Masters.Edit')],
         canDeactivate: [unsavedChangesGuard],
         data: { group: 'Administration', page: 'Edit tax' },
+      },
+
+      {
+        path: 'administration/currencies',
+        component: CurrencyList,
+        canActivate: [permissionGuard('Masters.View')],
+        data: { group: 'Administration', page: 'Currencies' },
+      },
+      {
+        path: 'administration/currencies/new',
+        component: CurrencyForm,
+        canActivate: [permissionGuard('Masters.Edit')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Administration', page: 'New currency' },
+      },
+      {
+        path: 'administration/currencies/:id/edit',
+        component: CurrencyForm,
+        canActivate: [permissionGuard('Masters.Edit')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Administration', page: 'Edit currency' },
+      },
+
+      {
+        path: 'administration/exchange-rates',
+        component: ExchangeRateList,
+        canActivate: [permissionGuard('Masters.View')],
+        data: { group: 'Administration', page: 'Exchange rates' },
+      },
+      {
+        path: 'administration/exchange-rates/new',
+        component: ExchangeRateForm,
+        canActivate: [permissionGuard('Masters.Edit')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Administration', page: 'New exchange rate' },
+      },
+      {
+        path: 'administration/exchange-rates/:id/edit',
+        component: ExchangeRateForm,
+        canActivate: [permissionGuard('Masters.Edit')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Administration', page: 'Edit exchange rate' },
       },
 
       {

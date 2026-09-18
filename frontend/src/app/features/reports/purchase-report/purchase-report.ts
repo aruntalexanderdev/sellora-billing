@@ -17,6 +17,10 @@ const COLS: DataTableColumn[] = [
 ];
 
 const INR = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
+
+// Report totals are always in the base currency; a foreign purchase also shows what it was invoiced in.
+const originalAmount = (code: string, original: number, baseTotal: number) =>
+  original === baseTotal ? undefined : `${code} ${original.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const PAGE_SIZE = 20;
 
 @Component({
@@ -61,7 +65,7 @@ export class PurchaseReport implements OnInit {
         { kind: 'text', text: INR(p.subtotal), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(p.taxTotal), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(p.otherChargesTotal), align: 'right', color: 'var(--color-text-muted)' },
-        { kind: 'text', text: INR(p.grandTotal), align: 'right', weight: '650' },
+        { kind: 'text', text: INR(p.grandTotal), sub: originalAmount(p.currencyCode, p.originalGrandTotal, p.grandTotal), align: 'right', weight: '650' },
         { kind: 'text', text: INR(p.paidAmount), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(p.dueAmount), align: 'right', color: p.dueAmount > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)' },
       ],

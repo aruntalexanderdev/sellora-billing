@@ -21,10 +21,11 @@ public static class DbSeeder
         var adminRole = await SeedAdministratorRoleAsync(db, ct);
         await SeedAdminUserAsync(db, adminRole, passwordHasher, ct);
 
-        await SeedBusinessSettingsAsync(db, ct);
+        var currencies = await SeedCurrenciesAsync(db, ct);
+        await SeedBusinessSettingsAsync(db, currencies["INR"], ct);
         var units = await SeedUnitsAsync(db, ct);
         var taxes = await SeedTaxesAsync(db, ct);
-        await SeedSuppliersAsync(db, ct);
+        await SeedSuppliersAsync(db, currencies, ct);
         await SeedProductsAsync(db, units, taxes, ct);
         await SeedCustomersAsync(db, ct);
     }
@@ -87,7 +88,35 @@ public static class DbSeeder
         await db.SaveChangesAsync(ct);
     }
 
-    private static async Task SeedBusinessSettingsAsync(SelloraDbContext db, CancellationToken ct)
+    // INR is inserted by the AddMultiCurrency migration (so it exists in every environment); this only
+    // adds a demo foreign currency and rate so multi-currency purchasing is usable in a fresh dev database.
+    private static async Task<Dictionary<string, Currency>> SeedCurrenciesAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        var existing = await db.Currencies.ToListAsync(ct);
+        if (!existing.Any(c => c.Code == "USD"))
+        {
+            var usd = new Currency { Id = Guid.NewGuid(), Code = "USD", Name = "US Dollar", Symbol = "$", DecimalPrecision = 2 };
+            db.Currencies.Add(usd);
+            existing.Add(usd);
+        }
+        await db.SaveChangesAsync(ct);
+
+        var usdCurrency = existing.Single(c => c.Code == "USD");
+        if (!await db.ExchangeRates.AnyAsync(r => r.CurrencyId == usdCurrency.Id, ct))
+        {
+            var admin = await db.Users.SingleAsync(u => u.Email == SeedAdminEmail, ct);
+            db.ExchangeRates.Add(new ExchangeRate
+            {
+                Id = Guid.NewGuid(), CurrencyId = usdCurrency.Id, RateToBase = 83.20m,
+                EffectiveDate = new DateOnly(2026, 9, 1), CreatedByUserId = admin.Id,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
+        return existing.ToDictionary(c => c.Code);
+    }
+
+    private static async Task SeedBusinessSettingsAsync(SelloraDbContext db, Currency baseCurrency, CancellationToken ct)
     {
         if (await db.BusinessSettings.AnyAsync(ct)) return;
 
@@ -102,6 +131,7 @@ public static class DbSeeder
             Phone = "+91 44 4567 8900",
             Email = "contact@selloramart.in",
             InvoicePrefix = "INV",
+            BaseCurrencyId = baseCurrency.Id,
         });
         await db.SaveChangesAsync(ct);
     }
@@ -149,21 +179,26 @@ public static class DbSeeder
         return existing.ToDictionary(t => t.RatePercent);
     }
 
-    private static readonly (string Name, string City, string Gstin, string Terms)[] SupplierSeed =
+    private static readonly (string Name, string City, string? Gstin, string Terms, string CurrencyCode)[] SupplierSeed =
     [
-        ("Annapoorna Traders", "Chennai", "33AABCA1234F1Z5", "Net 15"),
-        ("Kaveri Agro Mills", "Tiruchirappalli", "33AAECK5678L1ZQ", "Net 30"),
-        ("Sri Balaji Oils", "Coimbatore", "33AAFCS9012M1ZB", "Advance"),
-        ("Madurai Spice Co.", "Madurai", "33AAGCM3456N1ZC", "Net 15"),
+        ("Annapoorna Traders", "Chennai", "33AABCA1234F1Z5", "Net 15", "INR"),
+        ("Kaveri Agro Mills", "Tiruchirappalli", "33AAECK5678L1ZQ", "Net 30", "INR"),
+        ("Sri Balaji Oils", "Coimbatore", "33AAFCS9012M1ZB", "Advance", "INR"),
+        ("Madurai Spice Co.", "Madurai", "33AAGCM3456N1ZC", "Net 15", "INR"),
+        ("Global Ingredients Inc.", "Chicago", null, "Net 30", "USD"),
     ];
 
-    private static async Task SeedSuppliersAsync(SelloraDbContext db, CancellationToken ct)
+    private static async Task SeedSuppliersAsync(SelloraDbContext db, Dictionary<string, Currency> currencies, CancellationToken ct)
     {
         var existingNames = await db.Suppliers.Select(s => s.Name).ToListAsync(ct);
-        foreach (var (name, city, gstin, terms) in SupplierSeed)
+        foreach (var (name, city, gstin, terms, currencyCode) in SupplierSeed)
         {
             if (existingNames.Contains(name)) continue;
-            db.Suppliers.Add(new Supplier { Id = Guid.NewGuid(), Name = name, City = city, Gstin = gstin, PaymentTerms = terms });
+            db.Suppliers.Add(new Supplier
+            {
+                Id = Guid.NewGuid(), Name = name, City = city, Gstin = gstin, PaymentTerms = terms,
+                CurrencyId = currencies[currencyCode].Id,
+            });
         }
         await db.SaveChangesAsync(ct);
     }

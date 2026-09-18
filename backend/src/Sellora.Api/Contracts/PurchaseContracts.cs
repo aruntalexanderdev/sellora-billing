@@ -5,7 +5,8 @@ namespace Sellora.Api.Contracts;
 
 public record PurchaseListItemDto(
     Guid Id, string PurchaseNo, string SupplierName, DateOnly PurchaseDate,
-    decimal GrandTotal, PaymentStatus PaymentStatus, PurchaseStatus Status
+    decimal GrandTotal, PaymentStatus PaymentStatus, PurchaseStatus Status,
+    string CurrencyCode, decimal OriginalGrandTotal
 );
 
 public record PurchaseLineDto(
@@ -21,6 +22,8 @@ public record PurchaseDetailDto(
     decimal PaidAmount, decimal DueAmount, PaymentStatus PaymentStatus,
     decimal Subtotal, decimal TaxTotal, decimal OtherChargesTotal, decimal DiscountTotal, decimal GrandTotal,
     PurchaseStatus Status, string CreatedByName, DateTimeOffset CreatedAt, DateTimeOffset? CancelledAt,
+    Guid CurrencyId, string CurrencyCode, string CurrencySymbol, decimal ExchangeRateToBase, decimal OriginalGrandTotal,
+    string BaseCurrencyCode, string BaseCurrencySymbol,
     IReadOnlyList<PurchaseLineDto> Lines
 );
 

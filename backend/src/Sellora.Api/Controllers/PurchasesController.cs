@@ -43,7 +43,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             .Select(p => new PurchaseListItemDto(
                 p.Id, p.PurchaseNo, p.Supplier.Name, p.PurchaseDate, p.GrandTotal,
                 p.PaidAmount <= 0 ? PaymentStatus.Due : p.PaidAmount >= p.GrandTotal ? PaymentStatus.Paid : PaymentStatus.PartiallyPaid,
-                p.Status))
+                p.Status, p.Currency.Code, p.OriginalGrandTotal))
             .ToListAsync(ct);
 
         return Ok(new PagedResult<PurchaseListItemDto>(items, total, page, pageSize));
@@ -55,12 +55,16 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
     {
         var purchase = await db.PurchaseOrders
             .Include(p => p.Supplier)
+            .Include(p => p.Currency)
             .Include(p => p.CreatedByUser)
             .Include(p => p.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.BaseUnit)
             .Include(p => p.Lines).ThenInclude(l => l.SellingMode)
             .SingleOrDefaultAsync(p => p.Id == id, ct);
 
-        return purchase is null ? NotFound() : Ok(ToDetail(purchase));
+        if (purchase is null) return NotFound();
+
+        var baseCurrency = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);
+        return Ok(ToDetail(purchase, baseCurrency));
     }
 
     [HttpPost]
@@ -130,12 +134,14 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         }
     }
 
-    private static PurchaseDetailDto ToDetail(PurchaseOrder p) => new(
+    private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency) => new(
         p.Id, p.PurchaseNo, p.SupplierId, p.Supplier.Name, p.PurchaseDate,
         p.SupplierInvoiceNumber, p.Notes, p.PaymentMethod,
         p.PaidAmount, p.DueAmount, p.PaymentStatus,
         p.Subtotal, p.TaxTotal, p.OtherChargesTotal, p.DiscountTotal, p.GrandTotal,
         p.Status, $"{p.CreatedByUser.FirstName} {p.CreatedByUser.LastName}", p.CreatedAt, p.CancelledAt,
+        p.CurrencyId, p.Currency.Code, p.Currency.Symbol, p.ExchangeRateToBase, p.OriginalGrandTotal,
+        baseCurrency.Code, baseCurrency.Symbol,
         p.Lines.Select(l => new PurchaseLineDto(
             l.Id, l.ProductId, l.Product.Name, l.SellingModeId, l.SellingMode.Label,
             l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Rate,

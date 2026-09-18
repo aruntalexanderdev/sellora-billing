@@ -165,7 +165,8 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(p => new PurchaseReportRowDto(
                 p.Id, p.PurchaseNo, p.PurchaseDate, p.Supplier.Name,
-                p.Subtotal, p.TaxTotal, p.OtherChargesTotal, p.GrandTotal, p.PaidAmount, p.DueAmount, p.Status))
+                p.Subtotal, p.TaxTotal, p.OtherChargesTotal, p.GrandTotal, p.PaidAmount, p.DueAmount, p.Status,
+                p.Currency.Code, p.OriginalGrandTotal))
             .ToListAsync(ct);
 
         return Ok(new PagedResult<PurchaseReportRowDto>(items, total, page, pageSize));

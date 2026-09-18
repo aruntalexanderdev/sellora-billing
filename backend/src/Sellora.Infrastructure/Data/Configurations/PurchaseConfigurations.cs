@@ -20,12 +20,16 @@ public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder
             builder.Property(money).HasColumnType("numeric(18,2)");
         }
 
+        builder.Property(p => p.ExchangeRateToBase).HasColumnType("numeric(18,6)");
+        builder.Property(p => p.OriginalGrandTotal).HasColumnType("numeric(18,4)");
+
         builder.Ignore(p => p.DueAmount);
         builder.Ignore(p => p.PaymentStatus);
 
         builder.HasIndex(p => p.PurchaseNo).IsUnique();
 
         builder.HasOne(p => p.Supplier).WithMany().HasForeignKey(p => p.SupplierId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(p => p.Currency).WithMany().HasForeignKey(p => p.CurrencyId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(p => p.CreatedByUser).WithMany().HasForeignKey(p => p.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
     }
 }

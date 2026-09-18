@@ -5,6 +5,9 @@ export interface SupplierItem {
   gstin: string | null;
   paymentTerms: string | null;
   isActive: boolean;
+  currencyId: string;
+  currencyCode: string;
+  currencySymbol: string;
 }
 
 export interface UpsertSupplierRequest {
@@ -12,4 +15,5 @@ export interface UpsertSupplierRequest {
   city?: string | null;
   gstin?: string | null;
   paymentTerms?: string | null;
+  currencyId: string;
 }

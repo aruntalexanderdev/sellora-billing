@@ -5,6 +5,8 @@ import { UiButton } from '../../../../shared/ui/button/button';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { SettingsService } from '../settings.service';
+import { CurrenciesService } from '../../../administration/currencies/currencies.service';
+import type { CurrencyItem } from '../../../administration/currencies/currencies.models';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 
@@ -18,6 +20,7 @@ import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 export class SettingsPage implements OnInit, HasUnsavedChanges {
   private readonly fb = inject(FormBuilder);
   private readonly settingsService = inject(SettingsService);
+  private readonly currenciesService = inject(CurrenciesService);
   private readonly toast = inject(ToastService);
   private readonly auth = inject(AuthService);
 
@@ -32,7 +35,10 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
     phone: [''],
     email: ['', Validators.email],
     invoicePrefix: ['', Validators.required],
+    baseCurrencyId: ['', Validators.required],
   });
+
+  readonly currencies = signal<CurrencyItem[]>([]);
 
   readonly loading = signal(true);
   readonly saving = signal(false);
@@ -44,6 +50,9 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
   }
 
   ngOnInit(): void {
+    // Only active currencies can be chosen; the current base stays listed even if it were ever inactive.
+    this.currenciesService.list().subscribe({ next: (list) => this.currencies.set(list) });
+
     this.settingsService.get().subscribe({
       next: (s) => {
         this.form.patchValue({
@@ -55,6 +64,7 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
           phone: s.phone ?? '',
           email: s.email ?? '',
           invoicePrefix: s.invoicePrefix,
+          baseCurrencyId: s.baseCurrencyId,
         });
         if (!this.canEdit()) this.form.disable();
         this.loading.set(false);
@@ -80,6 +90,17 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
       error: (err: HttpErrorResponse) => {
         this.saving.set(false);
         const problem = err.error as ApiProblem | undefined;
+        if (problem?.errors) {
+          let matched = false;
+          for (const [field, messages] of Object.entries(problem.errors)) {
+            const control = this.form.get(field.charAt(0).toLowerCase() + field.slice(1));
+            if (control) {
+              control.setErrors({ server: messages[0] });
+              matched = true;
+            }
+          }
+          if (matched) return;
+        }
         this.serverError.set(problem?.title ?? 'Something went wrong.');
       },
     });

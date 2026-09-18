@@ -1,0 +1,56 @@
+<div class="page-head">
+  <div>
+    <h1>{{ isEdit() ? 'Edit exchange rate' : 'New exchange rate' }}</h1>
+    <p>How many {{ baseCode() || 'base currency' }} units equal 1 unit of the foreign currency, from the effective date onward.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error">{{ serverError() }}</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <label class="field-label">Currency</label>
+    <select formControlName="currencyId" class="field-input">
+      <option value="" disabled>Select a currency…</option>
+      @for (c of currencies(); track c.id) {
+        <option [value]="c.id">{{ c.code }} — {{ c.name }}</option>
+      }
+    </select>
+    @if (form.get('currencyId')?.touched && form.get('currencyId')?.errors?.['required']) {
+      <div class="field-error">Select a currency.</div>
+    }
+    @if (form.get('currencyId')?.errors?.['server']) {
+      <div class="field-error">{{ form.get('currencyId')?.errors?.['server'] }}</div>
+    }
+
+    <div class="grid-2" style="margin-top: 16px">
+      <div>
+        <label class="field-label">Rate (1 {{ selectedCode() || 'unit' }} = {{ baseSymbol() }}?)</label>
+        <input type="number" step="0.000001" formControlName="rateToBase" class="field-input" placeholder="83.20" />
+        @if (form.get('rateToBase')?.touched && (form.get('rateToBase')?.errors?.['required'] || form.get('rateToBase')?.errors?.['min'])) {
+          <div class="field-error">Enter a rate greater than zero.</div>
+        }
+        @if (form.get('rateToBase')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('rateToBase')?.errors?.['server'] }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label">Effective from</label>
+        <input type="date" formControlName="effectiveDate" class="field-input" />
+        @if (form.get('effectiveDate')?.touched && form.get('effectiveDate')?.errors?.['required']) {
+          <div class="field-error">Effective date is required.</div>
+        }
+        @if (form.get('effectiveDate')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('effectiveDate')?.errors?.['server'] }}</div>
+        }
+      </div>
+    </div>
+
+    <div class="actions">
+      <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
+      <a routerLink="/administration/exchange-rates" class="cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>

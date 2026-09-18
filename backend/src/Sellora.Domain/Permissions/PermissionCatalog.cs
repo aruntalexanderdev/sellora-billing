@@ -29,8 +29,8 @@ public static class PermissionCatalog
         new("Permissions.View", "Administration", "View", "View the read-only system permission catalogue."),
 
         // Administration — Basic Masters / Settings
-        new("Masters.View", "Administration", "View", "View units, taxes and business settings."),
-        new("Masters.Edit", "Administration", "Edit", "Edit units, taxes and business settings."),
+        new("Masters.View", "Administration", "View", "View units, taxes, currencies, exchange rates and business settings."),
+        new("Masters.Edit", "Administration", "Edit", "Edit units, taxes, currencies, exchange rates and business settings."),
 
         // Inventory
         new("Inventory.View", "Inventory", "View", "View stock overview, details and movement."),

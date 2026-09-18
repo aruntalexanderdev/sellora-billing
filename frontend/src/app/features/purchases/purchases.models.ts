@@ -10,6 +10,8 @@ export interface PurchaseListItem {
   grandTotal: number;
   paymentStatus: PaymentStatus;
   status: PurchaseStatus;
+  currencyCode: string;
+  originalGrandTotal: number;
 }
 
 export interface PurchaseLine {
@@ -52,6 +54,13 @@ export interface PurchaseDetail {
   createdByName: string;
   createdAt: string;
   cancelledAt: string | null;
+  currencyId: string;
+  currencyCode: string;
+  currencySymbol: string;
+  exchangeRateToBase: number;
+  originalGrandTotal: number;
+  baseCurrencyCode: string;
+  baseCurrencySymbol: string;
   lines: PurchaseLine[];
 }
 

@@ -44,6 +44,8 @@ const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
       { label: 'Permissions', routerLink: '/administration/permissions', permission: 'Permissions.View' },
       { label: 'Units', routerLink: '/administration/units', permission: 'Masters.View' },
       { label: 'Taxes', routerLink: '/administration/taxes', permission: 'Masters.View' },
+      { label: 'Currencies', routerLink: '/administration/currencies', permission: 'Masters.View' },
+      { label: 'Exchange Rates', routerLink: '/administration/exchange-rates', permission: 'Masters.View' },
       { label: 'Business Settings', routerLink: '/administration/settings', permission: 'Masters.View' },
     ],
   },

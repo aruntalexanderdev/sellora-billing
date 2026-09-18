@@ -8,6 +8,9 @@ export interface BusinessSettings {
   phone: string | null;
   email: string | null;
   invoicePrefix: string;
+  baseCurrencyId: string;
+  baseCurrencyCode: string;
+  baseCurrencySymbol: string;
 }
 
 export interface UpdateBusinessSettingsRequest {
@@ -19,4 +22,5 @@ export interface UpdateBusinessSettingsRequest {
   phone?: string | null;
   email?: string | null;
   invoicePrefix: string;
+  baseCurrencyId: string;
 }

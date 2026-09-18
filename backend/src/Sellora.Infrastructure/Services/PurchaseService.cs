@@ -6,7 +6,7 @@ using Sellora.Infrastructure.Data;
 
 namespace Sellora.Infrastructure.Services;
 
-public class PurchaseService(SelloraDbContext db) : IPurchaseService
+public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeRateService) : IPurchaseService
 {
     public async Task<PurchaseOrder> CreatePurchaseAsync(CreatePurchaseInput input, Guid createdByUserId, CancellationToken ct = default)
     {
@@ -24,11 +24,23 @@ public class PurchaseService(SelloraDbContext db) : IPurchaseService
 
         var purchaseNo = await NextPurchaseNoAsync(ct);
 
+        // The supplier's *current* currency becomes this purchase's own snapshot; the rate is resolved for
+        // the purchase date and stored on the purchase so later changes to the rate master never touch it.
+        var transactionCurrency = await db.Currencies.SingleAsync(c => c.Id == supplier.CurrencyId, ct);
+        if (!transactionCurrency.IsActive)
+        {
+            throw new DomainValidationException("SupplierId", $"This supplier's currency ({transactionCurrency.Code}) is inactive. Update the supplier's currency before purchasing from them.");
+        }
+        var rateToBase = await exchangeRateService.ResolveRateToBaseAsync(supplier.CurrencyId, input.PurchaseDate, ct);
+        var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+
         var purchase = new PurchaseOrder
         {
             Id = Guid.NewGuid(),
             PurchaseNo = purchaseNo,
             SupplierId = supplier.Id,
+            CurrencyId = supplier.CurrencyId,
+            ExchangeRateToBase = rateToBase,
             PurchaseDate = input.PurchaseDate,
             SupplierInvoiceNumber = input.SupplierInvoiceNumber,
             Notes = input.Notes,
@@ -38,17 +50,18 @@ public class PurchaseService(SelloraDbContext db) : IPurchaseService
             CreatedByUserId = createdByUserId,
         };
 
-        decimal subtotal = 0, taxTotal = 0, otherChargesTotal = 0, discountTotal = 0;
+        decimal subtotal = 0, taxTotal = 0, otherChargesTotal = 0, discountTotal = 0, originalGrandTotal = 0;
 
         foreach (var lineInput in input.Lines)
         {
-            var line = await BuildLineAsync(purchase, lineInput, ct);
+            var (line, lineSubtotal, originalLineTotal) = await BuildLineAsync(purchase, lineInput, rateToBase, basePrecision, ct);
             purchase.Lines.Add(line);
 
-            subtotal += lineInput.Qty * lineInput.Rate;
+            subtotal += lineSubtotal;
             taxTotal += line.TaxAmount;
             otherChargesTotal += line.OtherCharges;
             discountTotal += line.Discount;
+            originalGrandTotal += originalLineTotal;
 
             await ApplyPurchaseLineToStockAsync(line, purchaseNo, createdByUserId, ct);
         }
@@ -58,6 +71,7 @@ public class PurchaseService(SelloraDbContext db) : IPurchaseService
         purchase.OtherChargesTotal = otherChargesTotal;
         purchase.DiscountTotal = discountTotal;
         purchase.GrandTotal = subtotal + otherChargesTotal - discountTotal + taxTotal;
+        purchase.OriginalGrandTotal = Math.Round(originalGrandTotal, transactionCurrency.DecimalPrecision, MidpointRounding.AwayFromZero);
 
         db.PurchaseOrders.Add(purchase);
         await db.SaveChangesAsync(ct);
@@ -133,7 +147,13 @@ public class PurchaseService(SelloraDbContext db) : IPurchaseService
         return $"PUR-{count + 1:D4}";
     }
 
-    private async Task<PurchaseOrderLine> BuildLineAsync(PurchaseOrder purchase, PurchaseLineInput input, CancellationToken ct)
+    // Returns the line with every monetary field in the business base currency, plus the line's pre-tax
+    // subtotal (also base currency) for the header, and the line total in the original transaction
+    // currency for the purchase's OriginalGrandTotal. The user's rate/charges/discount are entered in the
+    // transaction currency; a real conversion (rate != 1) rounds each converted component to the base
+    // currency's precision so header totals always equal the sum of their lines.
+    private async Task<(PurchaseOrderLine Line, decimal Subtotal, decimal OriginalLineTotal)> BuildLineAsync(
+        PurchaseOrder purchase, PurchaseLineInput input, decimal rateToBase, int basePrecision, CancellationToken ct)
     {
         if (input.Qty <= 0)
         {
@@ -160,13 +180,22 @@ public class PurchaseService(SelloraDbContext db) : IPurchaseService
 
         var tax = await db.Taxes.SingleAsync(t => t.Id == product.TaxId, ct);
 
+        decimal ToBase(decimal amount) => rateToBase == 1m ? amount : Math.Round(amount * rateToBase, basePrecision, MidpointRounding.AwayFromZero);
+
         var baseQty = input.Qty * sellingMode.ConversionFactorToBase;
-        var taxableValue = input.Qty * input.Rate + input.OtherCharges - input.Discount;
+
+        var subtotal = ToBase(input.Qty * input.Rate);
+        var otherCharges = ToBase(input.OtherCharges);
+        var discount = ToBase(input.Discount);
+        var taxableValue = subtotal + otherCharges - discount;
         var taxAmount = taxableValue * tax.RatePercent / 100;
         var lineTotal = taxableValue + taxAmount;
         var unitCost = baseQty > 0 ? taxableValue / baseQty : 0;
 
-        return new PurchaseOrderLine
+        var originalTaxable = input.Qty * input.Rate + input.OtherCharges - input.Discount;
+        var originalLineTotal = originalTaxable + originalTaxable * tax.RatePercent / 100;
+
+        var line = new PurchaseOrderLine
         {
             Id = Guid.NewGuid(),
             PurchaseOrderId = purchase.Id,
@@ -175,16 +204,18 @@ public class PurchaseService(SelloraDbContext db) : IPurchaseService
             Qty = input.Qty,
             ConversionFactorToBase = sellingMode.ConversionFactorToBase,
             BaseQty = baseQty,
-            Rate = input.Rate,
+            Rate = rateToBase == 1m ? input.Rate : Math.Round(input.Rate * rateToBase, 4, MidpointRounding.AwayFromZero),
             TaxId = tax.Id,
             TaxRatePercent = tax.RatePercent,
-            OtherCharges = input.OtherCharges,
-            Discount = input.Discount,
+            OtherCharges = otherCharges,
+            Discount = discount,
             TaxableValue = taxableValue,
             TaxAmount = taxAmount,
             LineTotal = lineTotal,
             UnitCost = unitCost,
         };
+
+        return (line, subtotal, originalLineTotal);
     }
 
     private async Task ApplyPurchaseLineToStockAsync(PurchaseOrderLine line, string purchaseNo, Guid userId, CancellationToken ct)

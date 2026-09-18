@@ -43,6 +43,8 @@ export interface PurchaseReportRow {
   paidAmount: number;
   dueAmount: number;
   status: PurchaseStatus;
+  currencyCode: string;
+  originalGrandTotal: number;
 }
 
 export interface SalesReportRow {

@@ -1,0 +1,20 @@
+<div class="page-head">
+  <div>
+    <h1>Exchange rates</h1>
+    <p>
+      Managed, date-effective rates to the base currency{{ baseCode() ? ' (' + baseCode() + ')' : '' }}. A purchase uses the latest rate effective on or before its date and keeps that rate permanently — changing a rate here never alters saved purchases.
+    </p>
+  </div>
+  @if (canEdit()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New rate</ui-button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  emptyTitle="No exchange rates yet"
+  emptyBody="Add a rate for each foreign currency you purchase in."
+  (retry)="retry()"
+/>

@@ -8,4 +8,8 @@ public class Supplier
     public string? Gstin { get; set; }
     public string? PaymentTerms { get; set; }
     public bool IsActive { get; set; } = true;
+
+    /// <summary>Default currency for new purchases from this supplier. Saved purchases keep their own snapshot.</summary>
+    public Guid CurrencyId { get; set; }
+    public Currency Currency { get; set; } = null!;
 }

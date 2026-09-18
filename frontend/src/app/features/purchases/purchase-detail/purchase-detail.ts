@@ -11,7 +11,7 @@ import { PurchasesService } from '../purchases.service';
 import type { PurchaseDetail as PurchaseDetailModel, PaymentMethod } from '../purchases.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
 
-const INR = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const FORMAT = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 @Component({
   selector: 'app-purchase-detail',
@@ -29,7 +29,10 @@ export class PurchaseDetail implements OnInit {
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
 
-  readonly INR = INR;
+  // Every stored amount on a purchase is in the business base currency; only OriginalGrandTotal is in
+  // the purchase's own transaction currency.
+  readonly base = (n: number) => (this.purchase()?.baseCurrencySymbol ?? '₹') + FORMAT(n);
+  readonly original = (n: number) => (this.purchase()?.currencySymbol ?? '') + FORMAT(n);
   readonly paymentMethods: PaymentMethod[] = ['Cash', 'Upi', 'Card', 'Credit', 'BankTransfer'];
 
   readonly purchase = signal<PurchaseDetailModel | null>(null);

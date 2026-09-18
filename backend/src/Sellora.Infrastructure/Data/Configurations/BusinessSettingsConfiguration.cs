@@ -17,5 +17,7 @@ public class BusinessSettingsConfiguration : IEntityTypeConfiguration<BusinessSe
         builder.Property(s => s.Gstin).HasMaxLength(20);
         builder.Property(s => s.Phone).HasMaxLength(30);
         builder.Property(s => s.Email).HasMaxLength(200);
+
+        builder.HasOne(s => s.BaseCurrency).WithMany().HasForeignKey(s => s.BaseCurrencyId).OnDelete(DeleteBehavior.Restrict);
     }
 }

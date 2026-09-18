@@ -144,3 +144,34 @@
     padding: 14px;
   }
 }
+
+.fx-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  padding: 14px 18px;
+  margin-bottom: 14px;
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+
+  > div {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  strong {
+    font-size: 15px;
+  }
+}
+.fx-label {
+  font-size: 11.5px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.fx-note {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}

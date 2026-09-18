@@ -14,5 +14,7 @@ public class SupplierConfiguration : IEntityTypeConfiguration<Supplier>
         builder.Property(s => s.Gstin).HasMaxLength(20);
         builder.Property(s => s.PaymentTerms).HasMaxLength(40);
         builder.HasIndex(s => s.Name);
+
+        builder.HasOne(s => s.Currency).WithMany().HasForeignKey(s => s.CurrencyId).OnDelete(DeleteBehavior.Restrict);
     }
 }

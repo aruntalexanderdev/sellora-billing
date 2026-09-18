@@ -13,6 +13,7 @@ const COLS: DataTableColumn[] = [
   { label: 'Supplier', align: 'left' },
   { label: 'City', align: 'left' },
   { label: 'Terms', align: 'left' },
+  { label: 'Currency', align: 'left' },
   { label: 'Status', align: 'left' },
   { label: '', align: 'right' },
 ];
@@ -52,6 +53,7 @@ export class SupplierList implements OnInit {
         { kind: 'text', text: s.name, sub: s.gstin ?? undefined, weight: '600' },
         { kind: 'text', text: s.city ?? '—', color: 'var(--color-text-muted)' },
         { kind: 'text', text: s.paymentTerms ?? '—', color: 'var(--color-text-muted)' },
+        { kind: 'text', text: s.currencyCode, color: 'var(--color-text-muted)' },
         { kind: 'badge', text: s.isActive ? 'Active' : 'Inactive', tone: s.isActive ? 'good' : 'mute' },
         {
           kind: 'actions',

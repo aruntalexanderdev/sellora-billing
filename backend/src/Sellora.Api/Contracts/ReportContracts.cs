@@ -17,7 +17,8 @@ public record StockMovementReportRowDto(
 public record PurchaseReportRowDto(
     Guid Id, string PurchaseNo, DateOnly PurchaseDate, string SupplierName,
     decimal Subtotal, decimal TaxTotal, decimal OtherChargesTotal, decimal GrandTotal,
-    decimal PaidAmount, decimal DueAmount, PurchaseStatus Status
+    decimal PaidAmount, decimal DueAmount, PurchaseStatus Status,
+    string CurrencyCode, decimal OriginalGrandTotal
 );
 
 public record SalesReportRowDto(

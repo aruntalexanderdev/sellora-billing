@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
+import { merge } from 'rxjs';
 import { FormArray, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { UiButton } from '../../../shared/ui/button/button';
@@ -8,6 +9,8 @@ import { ToastService } from '../../../shared/ui/toast/toast.service';
 import { PurchasesService } from '../purchases.service';
 import { SuppliersService } from '../suppliers/suppliers.service';
 import { ProductsService } from '../../inventory/products/products.service';
+import { ExchangeRatesService } from '../../administration/exchange-rates/exchange-rates.service';
+import type { ResolvedExchangeRate } from '../../administration/exchange-rates/exchange-rates.models';
 import type { SupplierItem } from '../suppliers/suppliers.models';
 import type { ProductDetail } from '../../inventory/products/products.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
@@ -45,6 +48,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
   private readonly purchasesService = inject(PurchasesService);
   private readonly suppliersService = inject(SuppliersService);
   private readonly productsService = inject(ProductsService);
+  private readonly exchangeRatesService = inject(ExchangeRatesService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
 
@@ -99,7 +103,30 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
     return { subtotal, otherCharges, discount, tax, grandTotal: subtotal + otherCharges - discount + tax };
   });
 
-  readonly dueAmount = computed(() => Math.max(0, this.totals().grandTotal - (this.paidAmountValue() ?? 0)));
+  private readonly supplierIdValue = toSignal(this.form.controls.supplierId.valueChanges, { initialValue: '' });
+
+  // Rates, charges and discounts are entered in the supplier's currency; the backend derives the
+  // currency and exchange rate itself on save, so this is only a preview of what will be recorded.
+  readonly selectedSupplier = computed(() => this.suppliers().find((s) => s.id === this.supplierIdValue()));
+  readonly currencySymbol = computed(() => this.selectedSupplier()?.currencySymbol ?? '₹');
+  readonly resolvedRate = signal<ResolvedExchangeRate | null>(null);
+  readonly rateError = signal<string | null>(null);
+
+  readonly isForeign = computed(() => {
+    const supplier = this.selectedSupplier();
+    const rate = this.resolvedRate();
+    return !!supplier && !!rate && rate.baseCurrencyCode !== supplier.currencyCode;
+  });
+
+  readonly baseGrandTotal = computed(() => this.totals().grandTotal * (this.resolvedRate()?.rateToBase ?? 1));
+  readonly baseSymbol = computed(() => this.resolvedRate()?.baseCurrencySymbol ?? this.currencySymbol());
+
+  // Payment is recorded in the business base currency, alongside the base-currency grand total.
+  readonly paymentSymbol = computed(() => (this.isForeign() ? this.baseSymbol() : this.currencySymbol()));
+  readonly dueAmount = computed(() => {
+    const total = this.isForeign() ? this.baseGrandTotal() : this.totals().grandTotal;
+    return Math.max(0, total - (this.paidAmountValue() ?? 0));
+  });
 
   readonly submitDisabledReason = computed(() =>
     this.linesValue().length === 0 ? 'Add at least one item before receiving stock.' : null,
@@ -119,6 +146,24 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
       next: (res) => this.products.set(res.items.filter((p) => p.isActive).map((p) => ({ id: p.id, name: p.name, sku: p.sku }))),
     });
     this.addLine();
+
+    merge(this.form.controls.supplierId.valueChanges, this.form.controls.purchaseDate.valueChanges).subscribe(() => this.refreshRate());
+  }
+
+  private refreshRate(): void {
+    const supplier = this.suppliers().find((s) => s.id === this.form.controls.supplierId.value);
+    const date = this.form.controls.purchaseDate.value;
+    this.resolvedRate.set(null);
+    this.rateError.set(null);
+    if (!supplier || !date) return;
+
+    this.exchangeRatesService.resolve(supplier.currencyId, date).subscribe({
+      next: (rate) => this.resolvedRate.set(rate),
+      error: (err: HttpErrorResponse) => {
+        const problem = err.error as ApiProblem | undefined;
+        this.rateError.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Could not look up the exchange rate.');
+      },
+    });
   }
 
   productDetail(productId: string): ProductDetail | undefined {
@@ -204,7 +249,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
         error: (err: HttpErrorResponse) => {
           this.saving.set(false);
           const problem = err.error as ApiProblem | undefined;
-          this.serverError.set(problem?.title ?? Object.values(problem?.errors ?? {})[0]?.[0] ?? 'Something went wrong.');
+          this.serverError.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Something went wrong.');
         },
       });
   }

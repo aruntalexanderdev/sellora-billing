@@ -5,6 +5,9 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { SuppliersService } from '../suppliers.service';
+import { CurrenciesService } from '../../../administration/currencies/currencies.service';
+import type { CurrencyItem } from '../../../administration/currencies/currencies.models';
+
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 
@@ -18,6 +21,7 @@ import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 export class SupplierForm implements OnInit, HasUnsavedChanges {
   private readonly fb = inject(FormBuilder);
   private readonly suppliersService = inject(SuppliersService);
+  private readonly currenciesService = inject(CurrenciesService);
   private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -30,7 +34,11 @@ export class SupplierForm implements OnInit, HasUnsavedChanges {
     city: [''],
     gstin: [''],
     paymentTerms: [''],
+    currencyId: ['', Validators.required],
   });
+
+  readonly currencies = signal<CurrencyItem[]>([]);
+  private supplierCurrencyId: string | null = null;
 
   readonly saving = signal(false);
   readonly serverError = signal<string | null>(null);
@@ -41,12 +49,27 @@ export class SupplierForm implements OnInit, HasUnsavedChanges {
   }
 
   ngOnInit(): void {
+    this.currenciesService.list().subscribe({
+      next: (list) => {
+        this.currencies.set(list);
+        // New suppliers default to the business base currency.
+        if (!this.isEdit()) this.form.patchValue({ currencyId: list.find((c) => c.isBase)?.id ?? '' }, { emitEvent: false });
+      },
+    });
+
     if (this.isEdit()) {
       this.suppliersService.get(this.supplierId!).subscribe({
-        next: (s) =>
-          this.form.patchValue({ name: s.name, city: s.city ?? '', gstin: s.gstin ?? '', paymentTerms: s.paymentTerms ?? '' }),
+        next: (s) => {
+          this.supplierCurrencyId = s.currencyId;
+          this.form.patchValue({ name: s.name, city: s.city ?? '', gstin: s.gstin ?? '', paymentTerms: s.paymentTerms ?? '', currencyId: s.currencyId });
+        },
       });
     }
+  }
+
+  // A supplier already on a since-deactivated currency keeps it listed so the form can still be saved.
+  isSelectable(c: CurrencyItem): boolean {
+    return c.isActive || c.id === this.supplierCurrencyId;
   }
 
   submit(): void {

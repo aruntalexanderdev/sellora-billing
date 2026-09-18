@@ -32,6 +32,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
 
+                    b.Property<Guid>("BaseCurrencyId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("BusinessName")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -64,7 +67,44 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BaseCurrencyId");
+
                     b.ToTable("BusinessSettings");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.Currency", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<int>("DecimalPrecision")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("Symbol")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("Currencies");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Customer", b =>
@@ -97,6 +137,37 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("Name");
 
                     b.ToTable("Customers");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ExchangeRate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("EffectiveDate")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("RateToBase")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("CurrencyId", "EffectiveDate")
+                        .IsUnique();
+
+                    b.ToTable("ExchangeRates");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Permission", b =>
@@ -259,8 +330,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("CreatedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("DiscountTotal")
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("ExchangeRateToBase")
+                        .HasColumnType("numeric(18,6)");
 
                     b.Property<decimal>("GrandTotal")
                         .HasColumnType("numeric(18,2)");
@@ -268,6 +345,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<decimal>("OriginalGrandTotal")
+                        .HasColumnType("numeric(18,4)");
 
                     b.Property<decimal>("OtherChargesTotal")
                         .HasColumnType("numeric(18,2)");
@@ -309,6 +389,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("CurrencyId");
 
                     b.HasIndex("PurchaseNo")
                         .IsUnique();
@@ -782,6 +864,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
 
+                    b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Gstin")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
@@ -799,6 +884,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(40)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CurrencyId");
 
                     b.HasIndex("Name");
 
@@ -926,6 +1013,36 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.BusinessSettings", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Currency", "BaseCurrency")
+                        .WithMany()
+                        .HasForeignKey("BaseCurrencyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("BaseCurrency");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ExchangeRate", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Currency", "Currency")
+                        .WithMany()
+                        .HasForeignKey("CurrencyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("Currency");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.Product", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.Unit", "BaseUnit")
@@ -989,6 +1106,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.Currency", "Currency")
+                        .WithMany()
+                        .HasForeignKey("CurrencyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Sellora.Domain.Entities.Supplier", "Supplier")
                         .WithMany()
                         .HasForeignKey("SupplierId")
@@ -996,6 +1119,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("CreatedByUser");
+
+                    b.Navigation("Currency");
 
                     b.Navigation("Supplier");
                 });
@@ -1204,6 +1329,17 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("Product");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.Supplier", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Currency", "Currency")
+                        .WithMany()
+                        .HasForeignKey("CurrencyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Currency");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.User", b =>
