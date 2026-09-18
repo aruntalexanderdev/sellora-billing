@@ -74,6 +74,17 @@ export class UnitForm implements OnInit, HasUnsavedChanges {
       error: (err: HttpErrorResponse) => {
         this.saving.set(false);
         const problem = err.error as ApiProblem | undefined;
+        if (problem?.errors) {
+          let matched = false;
+          for (const [field, messages] of Object.entries(problem.errors)) {
+            const control = this.form.get(field.charAt(0).toLowerCase() + field.slice(1));
+            if (control) {
+              control.setErrors({ server: messages[0] });
+              matched = true;
+            }
+          }
+          if (matched) return;
+        }
         this.serverError.set(problem?.title ?? Object.values(problem?.errors ?? {})[0]?.[0] ?? 'Something went wrong.');
       },
     });

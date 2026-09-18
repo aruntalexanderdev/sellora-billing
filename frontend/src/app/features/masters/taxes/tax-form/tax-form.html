@@ -15,7 +15,7 @@
       <div>
         <label class="field-label">Name</label>
         <input type="text" formControlName="name" class="field-input" placeholder="GST 5%" />
-        @if (form.get('name')?.touched && form.get('name')?.invalid) {
+        @if (form.get('name')?.touched && form.get('name')?.errors?.['required']) {
           <div class="field-error">Name is required.</div>
         }
         @if (form.get('name')?.errors?.['server']) {

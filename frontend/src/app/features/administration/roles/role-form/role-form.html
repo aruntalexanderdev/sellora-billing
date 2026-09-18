@@ -14,8 +14,11 @@
     <form [formGroup]="form" (ngSubmit)="submit()">
       <label class="field-label">Role name</label>
       <input type="text" formControlName="name" class="field-input" />
-      @if (form.get('name')?.touched && form.get('name')?.invalid) {
+      @if (form.get('name')?.touched && form.get('name')?.errors?.['required']) {
         <div class="field-error">Role name is required.</div>
+      }
+      @if (form.get('name')?.errors?.['server']) {
+        <div class="field-error">{{ form.get('name')?.errors?.['server'] }}</div>
       }
 
       <label class="field-label" style="margin-top: 14px">Description</label>

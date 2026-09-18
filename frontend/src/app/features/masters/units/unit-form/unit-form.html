@@ -15,7 +15,7 @@
       <div>
         <label class="field-label">Name</label>
         <input type="text" formControlName="name" class="field-input" placeholder="Kilogram" />
-        @if (form.get('name')?.touched && form.get('name')?.invalid) {
+        @if (form.get('name')?.touched && form.get('name')?.errors?.['required']) {
           <div class="field-error">Name is required.</div>
         }
         @if (form.get('name')?.errors?.['server']) {
@@ -25,8 +25,11 @@
       <div>
         <label class="field-label">Short code</label>
         <input type="text" formControlName="shortCode" class="field-input" placeholder="kg" />
-        @if (form.get('shortCode')?.touched && form.get('shortCode')?.invalid) {
+        @if (form.get('shortCode')?.touched && form.get('shortCode')?.errors?.['required']) {
           <div class="field-error">Short code is required.</div>
+        }
+        @if (form.get('shortCode')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('shortCode')?.errors?.['server'] }}</div>
         }
       </div>
     </div>
