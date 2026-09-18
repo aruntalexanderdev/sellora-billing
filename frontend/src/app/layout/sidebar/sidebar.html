@@ -14,8 +14,8 @@
         @for (item of group.items; track item.routerLink) {
           <a
             class="sb-item"
+            [class.sb-item--active]="item.routerLink === activeLink()"
             [routerLink]="item.routerLink"
-            routerLinkActive="sb-item--active"
             (click)="closeRequested.emit()"
           >
             <span class="sb-dot"></span>
