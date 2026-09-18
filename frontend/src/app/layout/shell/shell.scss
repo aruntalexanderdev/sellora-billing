@@ -10,6 +10,15 @@
   min-height: 100vh;
 }
 
+@media (min-width: 901px) {
+  .shell-grid {
+    transition: grid-template-columns .2s ease;
+  }
+  .shell-grid.sidebar-collapsed {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+}
+
 .shell-content {
   min-width: 0;
   display: flex;

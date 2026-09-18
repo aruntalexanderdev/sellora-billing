@@ -65,6 +65,15 @@ export class AuthService {
     return this.session()?.refreshToken ?? null;
   }
 
+  /** Patches the cached session's user fields (e.g. after a self-service username change) without a full re-login. */
+  updateCurrentUser(patch: Partial<AuthenticatedUser>): void {
+    const session = this.session();
+    if (!session) return;
+    const updated: StoredSession = { ...session, user: { ...session.user, ...patch } };
+    this.session.set(updated);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  }
+
   private persist(res: AuthResponse): void {
     const stored: StoredSession = { accessToken: res.accessToken, refreshToken: res.refreshToken, user: res.user };
     this.session.set(stored);

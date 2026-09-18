@@ -81,8 +81,12 @@
   margin-bottom: 0;
 }
 
+.dash-table-scroll {
+  overflow-x: auto;
+}
 .dash-table {
   width: 100%;
+  min-width: 480px;
   border-collapse: collapse;
   font-size: 13px;
 }
@@ -95,6 +99,7 @@
   color: var(--color-text-fainter);
   font-weight: 650;
   border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
 }
 .dash-table td {
   padding: 10px;

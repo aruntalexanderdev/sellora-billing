@@ -5,8 +5,26 @@ import { Header } from '../header/header';
 import { UiToastHost } from '../../shared/ui/toast/toast-host';
 import { UiConfirmDialogHost } from '../../shared/ui/confirm-dialog/confirm-dialog-host';
 import { AuthService } from '../../core/auth/auth.service';
-import { BreadcrumbService } from '../../core/breadcrumb.service';
 import type { SidebarNavGroup } from '../sidebar/sidebar.types';
+
+const SIDEBAR_STORAGE_KEY = 'sellora.sidebarOpen';
+const DESKTOP_BREAKPOINT = 900;
+
+function isDesktopWidth(): boolean {
+  return window.innerWidth >= DESKTOP_BREAKPOINT;
+}
+
+// On desktop the sidebar defaults to whatever the user last chose (persisted, "stick" vs
+// collapsed). On mobile it always starts closed — the drawer is an overlay, not a fixed pane.
+function readInitialSidebarOpen(): boolean {
+  if (!isDesktopWidth()) return false;
+  try {
+    const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    return stored === null ? true : stored === 'true';
+  } catch {
+    return true;
+  }
+}
 
 interface NavItemDef {
   label: string;
@@ -14,9 +32,8 @@ interface NavItemDef {
   permission: string;
 }
 
-// Only routes that exist today are listed here. Modules from later phases (Reports, Dashboard) are
-// added once their screens actually exist, rather than showing dead links gated by permissions no
-// screen yet checks.
+// Only routes that exist today are listed here, rather than showing dead links gated by
+// permissions no screen yet checks.
 const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
   { label: 'Overview', items: [{ label: 'Dashboard', routerLink: '/dashboard', permission: '' }] },
   {
@@ -76,7 +93,6 @@ const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
 export class Shell {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
-  readonly breadcrumb = inject(BreadcrumbService);
 
   readonly currentUser = this.auth.currentUser;
   readonly userInitials = computed(() => {
@@ -91,14 +107,28 @@ export class Shell {
     })).filter((g) => g.items.length > 0),
   );
 
-  readonly sidebarOpen = signal(false);
+  readonly sidebarOpen = signal(readInitialSidebarOpen());
 
   toggleSidebar(): void {
-    this.sidebarOpen.update((v) => !v);
+    const desktop = isDesktopWidth();
+    this.sidebarOpen.update((v) => {
+      const next = !v;
+      if (desktop) this.persistSidebarPreference(next);
+      return next;
+    });
   }
 
   closeSidebar(): void {
     this.sidebarOpen.set(false);
+    if (isDesktopWidth()) this.persistSidebarPreference(false);
+  }
+
+  private persistSidebarPreference(open: boolean): void {
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(open));
+    } catch {
+      // per-viewer convenience only — safe to ignore storage failures
+    }
   }
 
   signOut(): void {

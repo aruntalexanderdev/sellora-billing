@@ -7,6 +7,17 @@
   top: 0;
   height: 100vh;
   overflow-y: auto;
+  min-width: 0;
+}
+
+@media (min-width: 901px) {
+  :host {
+    overflow: hidden;
+    transition: opacity .15s ease;
+  }
+  :host:not(.sb-open) {
+    opacity: 0;
+  }
 }
 
 @media (max-width: 900px) {

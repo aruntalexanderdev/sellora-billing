@@ -122,3 +122,9 @@ textarea.field-input {
   margin-top: 2px;
   line-height: 1.4;
 }
+
+@media (max-width: 780px) {
+  .form-layout {
+    grid-template-columns: 1fr;
+  }
+}

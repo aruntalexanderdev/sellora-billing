@@ -36,3 +36,13 @@ public record UpdateUserRequest(
 public record SetUserStatusRequest(UserStatus Status);
 
 public record ResetPasswordResponse(string TemporaryPassword);
+
+public record UpdateOwnUsernameRequest(
+    [Required, MaxLength(60)] string Username
+);
+
+public record ChangeOwnPasswordRequest(
+    [Required] string CurrentPassword,
+    [Required, MinLength(8)] string NewPassword,
+    [Required] string ConfirmPassword
+);

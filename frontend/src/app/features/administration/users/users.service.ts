@@ -49,4 +49,12 @@ export class UsersService {
   resetPassword(id: string): Observable<{ temporaryPassword: string }> {
     return this.http.post<{ temporaryPassword: string }>(`${BASE_URL}/${id}/reset-password`, {});
   }
+
+  updateOwnUsername(username: string): Observable<UserDetail> {
+    return this.http.put<UserDetail>(`${BASE_URL}/me/username`, { username });
+  }
+
+  changeOwnPassword(request: { currentPassword: string; newPassword: string; confirmPassword: string }): Observable<void> {
+    return this.http.post<void>(`${BASE_URL}/me/change-password`, request);
+  }
 }

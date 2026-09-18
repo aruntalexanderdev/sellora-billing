@@ -1,4 +1,4 @@
-<div class="shell-grid">
+<div class="shell-grid" [class.sidebar-collapsed]="!sidebarOpen()">
   @if (sidebarOpen()) {
     <div class="shell-backdrop" (click)="closeSidebar()"></div>
   }
@@ -7,8 +7,6 @@
 
   <div class="shell-content">
     <app-header
-      [crumbGroup]="breadcrumb.current().group"
-      [crumbPage]="breadcrumb.current().page"
       [userName]="currentUser() ? currentUser()!.firstName + ' ' + currentUser()!.lastName : ''"
       [userRole]="currentUser()?.roleName ?? ''"
       [userInitials]="userInitials()"

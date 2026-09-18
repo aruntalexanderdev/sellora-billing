@@ -13,7 +13,7 @@
 }
 
 .hd-menu-btn {
-  display: none;
+  display: flex;
   flex: none;
   flex-direction: column;
   justify-content: center;
@@ -26,6 +26,9 @@
   cursor: pointer;
   padding: 0 7px;
 }
+.hd-menu-btn:hover {
+  background: #f4f6f7;
+}
 .hd-menu-btn span {
   display: block;
   height: 2px;
@@ -34,9 +37,6 @@
 }
 
 @media (max-width: 900px) {
-  .hd-menu-btn {
-    display: flex;
-  }
   :host {
     padding: 0 16px;
     gap: 10px;
@@ -46,21 +46,6 @@
   }
 }
 
-.hd-crumb {
-  font-size: 13px;
-  color: var(--color-text-fainter);
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-}
-.hd-crumb-sep {
-  color: #c4cad0;
-}
-.hd-crumb-page {
-  color: var(--color-text);
-  font-weight: 600;
-}
 
 .hd-spacer {
   flex: 1;

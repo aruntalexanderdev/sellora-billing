@@ -9,8 +9,6 @@ import { RouterLink } from '@angular/router';
   styleUrl: './header.scss',
 })
 export class Header {
-  readonly crumbGroup = input('');
-  readonly crumbPage = input('');
   readonly userName = input('');
   readonly userRole = input('');
   readonly userInitials = input('');

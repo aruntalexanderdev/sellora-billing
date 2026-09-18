@@ -63,26 +63,28 @@
         @if (d.lowStockItems.length === 0) {
           <div class="dash-empty">Nothing is low on stock right now.</div>
         } @else {
-          <table class="dash-table">
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th class="num">Available qty</th>
-                <th class="num">Minimum qty</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (item of d.lowStockItems; track item.productId) {
-                <tr [routerLink]="['/inventory/stock', item.productId]" class="dash-row-link">
-                  <td class="strong">{{ item.name }}</td>
-                  <td class="num">{{ item.quantityOnHand }} {{ item.baseUnitLabel }}</td>
-                  <td class="num">{{ item.reorderLevel }} {{ item.baseUnitLabel }}</td>
-                  <td><ui-badge [text]="item.status === 'OutOfStock' ? 'Out of stock' : item.status" [tone]="item.status === 'Low' ? 'warn' : 'bad'" /></td>
+          <div class="dash-table-scroll">
+            <table class="dash-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th class="num">Available qty</th>
+                  <th class="num">Minimum qty</th>
+                  <th>Status</th>
                 </tr>
-              }
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                @for (item of d.lowStockItems; track item.productId) {
+                  <tr [routerLink]="['/inventory/stock', item.productId]" class="dash-row-link">
+                    <td class="strong">{{ item.name }}</td>
+                    <td class="num">{{ item.quantityOnHand }} {{ item.baseUnitLabel }}</td>
+                    <td class="num">{{ item.reorderLevel }} {{ item.baseUnitLabel }}</td>
+                    <td><ui-badge [text]="item.status === 'OutOfStock' ? 'Out of stock' : item.status" [tone]="item.status === 'Low' ? 'warn' : 'bad'" /></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
         }
       </ui-card>
     }
@@ -94,26 +96,28 @@
           @if (d.recentSales.length === 0) {
             <div class="dash-empty">No sales recorded yet.</div>
           } @else {
-            <table class="dash-table">
-              <thead>
-                <tr>
-                  <th>Invoice</th>
-                  <th>Customer</th>
-                  <th class="num">Amount</th>
-                  <th>Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (s of d.recentSales; track s.id) {
-                  <tr [routerLink]="['/sales', s.id]" class="dash-row-link">
-                    <td class="strong">{{ s.invoiceNo }}</td>
-                    <td>{{ s.customerName }}</td>
-                    <td class="num">{{ INR(s.grandTotal) }}</td>
-                    <td class="muted">{{ formatTime(s.createdAt) }}</td>
+            <div class="dash-table-scroll">
+              <table class="dash-table">
+                <thead>
+                  <tr>
+                    <th>Invoice</th>
+                    <th>Customer</th>
+                    <th class="num">Amount</th>
+                    <th>Time</th>
                   </tr>
-                }
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  @for (s of d.recentSales; track s.id) {
+                    <tr [routerLink]="['/sales', s.id]" class="dash-row-link">
+                      <td class="strong">{{ s.invoiceNo }}</td>
+                      <td>{{ s.customerName }}</td>
+                      <td class="num">{{ INR(s.grandTotal) }}</td>
+                      <td class="muted">{{ formatTime(s.createdAt) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
           }
         </ui-card>
       }
@@ -124,26 +128,28 @@
           @if (d.recentPurchases.length === 0) {
             <div class="dash-empty">No purchases recorded yet.</div>
           } @else {
-            <table class="dash-table">
-              <thead>
-                <tr>
-                  <th>Purchase No</th>
-                  <th>Supplier</th>
-                  <th class="num">Amount</th>
-                  <th>Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (p of d.recentPurchases; track p.id) {
-                  <tr [routerLink]="['/purchases', p.id]" class="dash-row-link">
-                    <td class="strong">{{ p.purchaseNo }}</td>
-                    <td>{{ p.supplierName }}</td>
-                    <td class="num">{{ INR(p.grandTotal) }}</td>
-                    <td class="muted">{{ formatTime(p.createdAt) }}</td>
+            <div class="dash-table-scroll">
+              <table class="dash-table">
+                <thead>
+                  <tr>
+                    <th>Purchase No</th>
+                    <th>Supplier</th>
+                    <th class="num">Amount</th>
+                    <th>Time</th>
                   </tr>
-                }
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  @for (p of d.recentPurchases; track p.id) {
+                    <tr [routerLink]="['/purchases', p.id]" class="dash-row-link">
+                      <td class="strong">{{ p.purchaseNo }}</td>
+                      <td>{{ p.supplierName }}</td>
+                      <td class="num">{{ INR(p.grandTotal) }}</td>
+                      <td class="muted">{{ formatTime(p.createdAt) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
           }
         </ui-card>
       }

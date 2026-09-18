@@ -134,3 +134,13 @@
     display: none !important;
   }
 }
+
+@media (max-width: 700px) {
+  .header-actions {
+    flex-wrap: wrap;
+  }
+  .summary-and-payment {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+}

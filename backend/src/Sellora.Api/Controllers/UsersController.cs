@@ -47,6 +47,62 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         return Ok(new PagedResult<UserListItemDto>(items, total, page, pageSize));
     }
 
+    /// <summary>Self-service username change — any authenticated user may rename their own account.
+    /// Distinct from the admin-only Users.Edit flow, which edits other users.</summary>
+    [HttpPut("me/username")]
+    [Authorize]
+    public async Task<ActionResult<UserDetailDto>> UpdateOwnUsername(UpdateOwnUsernameRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
+
+        if (await db.Users.AnyAsync(u => u.Id != currentUserId && u.Username.ToLower() == request.Username.Trim().ToLower(), ct))
+        {
+            ModelState.AddModelError(nameof(request.Username), "This username is already taken.");
+            return ValidationProblem(ModelState);
+        }
+
+        var user = await db.Users.Include(u => u.Role).SingleAsync(u => u.Id == currentUserId, ct);
+        user.Username = request.Username.Trim();
+        await db.SaveChangesAsync(ct);
+
+        return Ok(ToDetail(user));
+    }
+
+    /// <summary>Self-service password change — requires the caller's current password. Distinct from the
+    /// admin-only Users.ResetPassword flow, which resets another user's password to a temporary one.</summary>
+    [HttpPost("me/change-password")]
+    [Authorize]
+    public async Task<IActionResult> ChangeOwnPassword(ChangeOwnPasswordRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        if (request.NewPassword != request.ConfirmPassword)
+        {
+            ModelState.AddModelError(nameof(request.ConfirmPassword), "Passwords do not match.");
+        }
+        if (!PasswordRules.IsValid(request.NewPassword))
+        {
+            ModelState.AddModelError(nameof(request.NewPassword), PasswordRules.RequirementText);
+        }
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
+        var user = await db.Users.SingleAsync(u => u.Id == currentUserId, ct);
+
+        if (!passwordHasher.Verify(request.CurrentPassword, user.PasswordHash))
+        {
+            ModelState.AddModelError(nameof(request.CurrentPassword), "Current password is incorrect.");
+            return ValidationProblem(ModelState);
+        }
+
+        user.PasswordHash = passwordHasher.Hash(request.NewPassword);
+        await db.SaveChangesAsync(ct);
+
+        return NoContent();
+    }
+
     [HttpGet("{id:guid}")]
     [Authorize(Policy = "Users.View")]
     public async Task<ActionResult<UserDetailDto>> Get(Guid id, CancellationToken ct)

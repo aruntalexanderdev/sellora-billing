@@ -13,8 +13,68 @@
       <div class="profile-role"><ui-badge [text]="u.roleName" tone="info" /></div>
 
       <div class="profile-kv">
-        <div class="kv-row"><span>Username</span><span>{{ u.username }}</span></div>
+        <div class="kv-row">
+          <span>Username</span>
+          @if (!editingUsername()) {
+            <span class="kv-value-row">
+              {{ u.username }}
+              <button type="button" class="link-btn" (click)="startEditUsername()">Edit</button>
+            </span>
+          }
+        </div>
+        @if (editingUsername()) {
+          <form [formGroup]="usernameForm" (ngSubmit)="saveUsername()" class="inline-edit-form">
+            <input type="text" formControlName="username" class="field-input" />
+            @if (usernameForm.controls.username.touched && usernameForm.controls.username.errors?.['required']) {
+              <div class="field-error">Username is required.</div>
+            }
+            @if (usernameForm.controls.username.errors?.['server']) {
+              <div class="field-error">{{ usernameForm.controls.username.errors?.['server'] }}</div>
+            }
+            <div class="inline-edit-actions">
+              <ui-button type="submit" variant="primary" [disabled]="savingUsername()">{{ savingUsername() ? 'Saving…' : 'Save' }}</ui-button>
+              <ui-button type="button" variant="secondary" (onClick)="cancelEditUsername()">Cancel</ui-button>
+            </div>
+          </form>
+        }
         <div class="kv-row"><span>Email</span><span>{{ u.email }}</span></div>
+      </div>
+
+      <div class="profile-kv">
+        @if (!changingPassword()) {
+          <button type="button" class="link-btn link-btn-block" (click)="startChangePassword()">Change password</button>
+        } @else {
+          <form [formGroup]="passwordForm" (ngSubmit)="savePassword()" class="inline-edit-form">
+            @if (passwordServerError()) {
+              <div class="server-error">{{ passwordServerError() }}</div>
+            }
+            <label class="field-label">Current password</label>
+            <input type="password" formControlName="currentPassword" class="field-input" />
+            @if (passwordForm.controls.currentPassword.errors?.['server']) {
+              <div class="field-error">{{ passwordForm.controls.currentPassword.errors?.['server'] }}</div>
+            }
+
+            <label class="field-label" style="margin-top: 10px">New password</label>
+            <input type="password" formControlName="newPassword" class="field-input" />
+            @if (passwordForm.controls.newPassword.touched && passwordForm.controls.newPassword.errors?.['minlength']) {
+              <div class="field-error">At least 8 characters, including a letter and a number.</div>
+            }
+            @if (passwordForm.controls.newPassword.errors?.['server']) {
+              <div class="field-error">{{ passwordForm.controls.newPassword.errors?.['server'] }}</div>
+            }
+
+            <label class="field-label" style="margin-top: 10px">Confirm new password</label>
+            <input type="password" formControlName="confirmPassword" class="field-input" />
+            @if (passwordForm.controls.confirmPassword.errors?.['mismatch']) {
+              <div class="field-error">Passwords do not match.</div>
+            }
+
+            <div class="inline-edit-actions">
+              <ui-button type="submit" variant="primary" [disabled]="savingPassword()">{{ savingPassword() ? 'Saving…' : 'Update password' }}</ui-button>
+              <ui-button type="button" variant="secondary" (onClick)="cancelChangePassword()">Cancel</ui-button>
+            </div>
+          </form>
+        }
       </div>
     </ui-card>
 

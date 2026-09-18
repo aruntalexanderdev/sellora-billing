@@ -177,3 +177,16 @@
   color: var(--color-text-fainter);
   text-align: center;
 }
+
+@media (max-width: 780px) {
+  .login-grid {
+    grid-template-columns: 1fr;
+  }
+  .brand-panel {
+    display: none;
+  }
+  .form-panel {
+    padding: 32px 20px;
+    min-height: 100vh;
+  }
+}
