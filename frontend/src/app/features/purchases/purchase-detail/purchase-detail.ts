@@ -64,7 +64,7 @@ export class PurchaseDetail implements OnInit {
           supplierInvoiceNumber: p.supplierInvoiceNumber ?? '',
           notes: p.notes ?? '',
           paymentMethod: p.paymentMethod,
-          paidAmount: p.paidAmount,
+          paidAmount: p.originalPaidAmount,
         });
         this.loading.set(false);
       },
@@ -82,7 +82,7 @@ export class PurchaseDetail implements OnInit {
       supplierInvoiceNumber: p.supplierInvoiceNumber ?? '',
       notes: p.notes ?? '',
       paymentMethod: p.paymentMethod,
-      paidAmount: p.paidAmount,
+      paidAmount: p.originalPaidAmount,
     });
     this.editing.set(false);
   }

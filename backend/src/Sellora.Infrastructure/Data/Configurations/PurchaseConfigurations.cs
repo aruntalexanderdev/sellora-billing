@@ -22,6 +22,8 @@ public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder
 
         builder.Property(p => p.ExchangeRateToBase).HasColumnType("numeric(18,6)");
         builder.Property(p => p.OriginalGrandTotal).HasColumnType("numeric(18,4)");
+        builder.Property(p => p.OriginalPaidAmount).HasColumnType("numeric(18,4)");
+        builder.Ignore(p => p.OriginalDueAmount);
 
         builder.Ignore(p => p.DueAmount);
         builder.Ignore(p => p.PaymentStatus);

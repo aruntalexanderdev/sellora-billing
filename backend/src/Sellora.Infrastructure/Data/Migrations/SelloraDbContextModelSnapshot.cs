@@ -349,6 +349,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("OriginalGrandTotal")
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<decimal>("OriginalPaidAmount")
+                        .HasColumnType("numeric(18,4)");
+
                     b.Property<decimal>("OtherChargesTotal")
                         .HasColumnType("numeric(18,2)");
 

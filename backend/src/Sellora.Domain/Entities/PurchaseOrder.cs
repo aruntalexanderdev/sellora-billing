@@ -29,7 +29,13 @@ public class PurchaseOrder
     public decimal OriginalGrandTotal { get; set; }
 
     public PaymentMethod PaymentMethod { get; set; }
+
+    /// <summary>Amount paid, in the business base currency (compared against <see cref="GrandTotal"/>).</summary>
     public decimal PaidAmount { get; set; }
+
+    /// <summary>The same payment as entered, in the purchase's transaction currency. Kept alongside
+    /// <see cref="PaidAmount"/> so the supplier-currency figure is never lost to the conversion.</summary>
+    public decimal OriginalPaidAmount { get; set; }
 
     public decimal Subtotal { get; set; }
     public decimal TaxTotal { get; set; }
@@ -48,6 +54,9 @@ public class PurchaseOrder
 
     /// <summary>Due amount is always derived from GrandTotal - PaidAmount, never stored independently (docx §17).</summary>
     public decimal DueAmount => Math.Max(0, GrandTotal - PaidAmount);
+
+    /// <summary>Remaining due in the transaction currency, derived from the original totals.</summary>
+    public decimal OriginalDueAmount => Math.Max(0, OriginalGrandTotal - OriginalPaidAmount);
 
     public PaymentStatus PaymentStatus => PaidAmount <= 0
         ? PaymentStatus.Due

@@ -20,3 +20,12 @@ public sealed record CreatePurchaseInput(
     decimal PaidAmount,
     IReadOnlyList<PurchaseLineInput> Lines
 );
+
+/// <summary>Editable header fields of a saved purchase. <see cref="PaidAmount"/> is in the purchase's own
+/// transaction currency (the supplier currency it was created in).</summary>
+public sealed record UpdatePurchaseHeaderInput(
+    string? SupplierInvoiceNumber,
+    string? Notes,
+    PaymentMethod PaymentMethod,
+    decimal PaidAmount
+);

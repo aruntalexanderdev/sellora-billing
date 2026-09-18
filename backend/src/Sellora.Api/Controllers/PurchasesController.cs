@@ -97,26 +97,23 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
     {
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
-        var purchase = await db.PurchaseOrders.SingleOrDefaultAsync(p => p.Id == id, ct);
-        if (purchase is null) return NotFound();
+        try
+        {
+            var purchase = await purchaseService.UpdateHeaderAsync(
+                id, new UpdatePurchaseHeaderInput(request.SupplierInvoiceNumber, request.Notes, request.PaymentMethod, request.PaidAmount), ct);
+            if (purchase is null) return NotFound();
 
-        if (purchase.Status == PurchaseStatus.Cancelled)
-        {
-            return Problem(statusCode: 400, title: "This purchase is cancelled and cannot be edited.");
+            return await Get(id, ct);
         }
-        if (request.PaidAmount > purchase.GrandTotal)
+        catch (DomainValidationException ex) when (ex.Field == "Status")
         {
-            ModelState.AddModelError(nameof(request.PaidAmount), "Paid amount cannot exceed the grand total.");
+            return Problem(statusCode: 400, title: ex.Message);
+        }
+        catch (DomainValidationException ex)
+        {
+            ModelState.AddModelError(ex.Field, ex.Message);
             return ValidationProblem(ModelState);
         }
-
-        purchase.SupplierInvoiceNumber = request.SupplierInvoiceNumber;
-        purchase.Notes = request.Notes;
-        purchase.PaymentMethod = request.PaymentMethod;
-        purchase.PaidAmount = request.PaidAmount;
-
-        await db.SaveChangesAsync(ct);
-        return await Get(id, ct);
     }
 
     [HttpPost("{id:guid}/cancel")]
@@ -140,7 +137,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         p.PaidAmount, p.DueAmount, p.PaymentStatus,
         p.Subtotal, p.TaxTotal, p.OtherChargesTotal, p.DiscountTotal, p.GrandTotal,
         p.Status, $"{p.CreatedByUser.FirstName} {p.CreatedByUser.LastName}", p.CreatedAt, p.CancelledAt,
-        p.CurrencyId, p.Currency.Code, p.Currency.Symbol, p.ExchangeRateToBase, p.OriginalGrandTotal,
+        p.CurrencyId, p.Currency.Code, p.Currency.Symbol, p.ExchangeRateToBase, p.OriginalGrandTotal, p.OriginalPaidAmount, p.OriginalDueAmount,
         baseCurrency.Code, baseCurrency.Symbol,
         p.Lines.Select(l => new PurchaseLineDto(
             l.Id, l.ProductId, l.Product.Name, l.SellingModeId, l.SellingMode.Label,

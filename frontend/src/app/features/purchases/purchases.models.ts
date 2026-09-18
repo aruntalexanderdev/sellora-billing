@@ -59,6 +59,8 @@ export interface PurchaseDetail {
   currencySymbol: string;
   exchangeRateToBase: number;
   originalGrandTotal: number;
+  originalPaidAmount: number;
+  originalDueAmount: number;
   baseCurrencyCode: string;
   baseCurrencySymbol: string;
   lines: PurchaseLine[];

@@ -23,6 +23,7 @@ public record PurchaseDetailDto(
     decimal Subtotal, decimal TaxTotal, decimal OtherChargesTotal, decimal DiscountTotal, decimal GrandTotal,
     PurchaseStatus Status, string CreatedByName, DateTimeOffset CreatedAt, DateTimeOffset? CancelledAt,
     Guid CurrencyId, string CurrencyCode, string CurrencySymbol, decimal ExchangeRateToBase, decimal OriginalGrandTotal,
+    decimal OriginalPaidAmount, decimal OriginalDueAmount,
     string BaseCurrencyCode, string BaseCurrencySymbol,
     IReadOnlyList<PurchaseLineDto> Lines
 );

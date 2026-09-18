@@ -155,11 +155,28 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
   readonly baseGrandTotal = computed(() => this.previews().reduce((sum, p) => sum + p.baseTotal, 0));
   readonly baseSymbol = computed(() => this.resolvedRate()?.baseCurrencySymbol ?? this.currencySymbol());
 
-  // Payment is recorded in the business base currency, alongside the base-currency grand total.
-  readonly paymentSymbol = computed(() => (this.isForeign() ? this.baseSymbol() : this.currencySymbol()));
-  readonly dueAmount = computed(() => {
-    const total = this.isForeign() ? this.baseGrandTotal() : this.totals().grandTotal;
-    return Math.max(0, total - (this.paidAmountValue() ?? 0));
+  // The payment is entered in the supplier's currency (its code labels the field), so that is also the
+  // payment currency by default. The server converts it and is authoritative; this only previews the
+  // same steps: a payment that clears the whole total books the exact base total, otherwise the paid
+  // amount is converted at the resolved rate and rounded to the base currency's precision.
+  readonly paymentCode = computed(() => this.selectedSupplier()?.currencyCode ?? this.resolvedRate()?.baseCurrencyCode ?? 'INR');
+  readonly baseCode = computed(() => this.resolvedRate()?.baseCurrencyCode ?? this.paymentCode());
+
+  private readonly paidInPaymentCurrency = computed(() => {
+    const paid = this.paidAmountValue() ?? 0;
+    return this.isForeign() ? roundTo(paid, this.selectedSupplier()?.currencyDecimalPrecision ?? 2) : paid;
+  });
+
+  readonly dueInPaymentCurrency = computed(() => Math.max(0, this.totals().grandTotal - this.paidInPaymentCurrency()));
+
+  readonly dueInBaseCurrency = computed(() => {
+    if (!this.isForeign()) return this.dueInPaymentCurrency();
+    const paid = this.paidInPaymentCurrency();
+    const paidBase =
+      paid >= this.totals().grandTotal
+        ? this.baseGrandTotal()
+        : roundTo(paid * (this.resolvedRate()?.rateToBase ?? 1), this.resolvedRate()?.baseCurrencyDecimalPrecision ?? 2);
+    return Math.max(0, this.baseGrandTotal() - paidBase);
   });
 
   readonly submitDisabledReason = computed(() =>
