@@ -239,6 +239,114 @@ public class MultiCurrencyPurchaseTests
     }
 
     [Fact]
+    public async Task AddPaymentAsync_BaseCurrency_HundredWithSixtyPaid_AllowsExactlyTheRemainingForty()
+    {
+        var f = await SeedAsync();
+        var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m, 60m), f.UserId);
+        Assert.Equal(40m, purchase.DueAmount);
+
+        var over = await Assert.ThrowsAsync<DomainValidationException>(
+            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(40.01m, PaymentMethod.Upi, 40m)));
+        Assert.Equal("Amount", over.Field);
+
+        var paid = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(40m, PaymentMethod.Upi, 40m));
+        Assert.Equal(100m, paid!.PaidAmount);
+        Assert.Equal(0m, paid.DueAmount);
+        Assert.Equal(PaymentStatus.Paid, paid.PaymentStatus);
+        Assert.Equal(PaymentMethod.Upi, paid.PaymentMethod);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(-0.01)]
+    public async Task AddPaymentAsync_ZeroOrNegativeAmount_IsRejected(double amount)
+    {
+        var f = await SeedAsync();
+        var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m, 60m), f.UserId);
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(
+            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput((decimal)amount, PaymentMethod.Cash, 40m)));
+        Assert.Equal("Amount", ex.Field);
+        Assert.Equal(60m, (await f.Db.PurchaseOrders.AsNoTracking().SingleAsync(p => p.Id == purchase.Id)).PaidAmount);
+    }
+
+    [Fact]
+    public async Task AddPaymentAsync_FullyPaidPurchase_IsRejected()
+    {
+        var f = await SeedAsync();
+        var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m, 100m), f.UserId);
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(
+            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(1m, PaymentMethod.Cash, 0m)));
+        Assert.Equal("Amount", ex.Field);
+    }
+
+    [Fact]
+    public async Task AddPaymentAsync_ForeignPurchase_AccumulatesInBothCurrenciesAndSettlesExactly()
+    {
+        var f = await SeedAsync();
+        var purchase = await f.Purchases.CreatePurchaseAsync(Input(f, f.UsdSupplier, new DateOnly(2026, 9, 5), 10, 100m), f.UserId); // USD 1,000 = INR 83,200
+
+        var first = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(400m, PaymentMethod.Cash, 1000m));
+        Assert.Equal(400m, first!.OriginalPaidAmount);
+        Assert.Equal(33280m, first.PaidAmount);
+        Assert.Equal(600m, first.OriginalDueAmount);
+        Assert.Equal(49920m, first.DueAmount);
+
+        var second = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(300m, PaymentMethod.BankTransfer, 600m));
+        Assert.Equal(700m, second!.OriginalPaidAmount);
+        Assert.Equal(58240m, second.PaidAmount);
+        Assert.Equal(300m, second.OriginalDueAmount);
+        Assert.Equal(24960m, second.DueAmount);
+        Assert.Equal(PaymentStatus.PartiallyPaid, second.PaymentStatus);
+
+        var third = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(300m, PaymentMethod.Cash, 300m));
+        Assert.Equal(83200m, third!.PaidAmount);
+        Assert.Equal(0m, third.DueAmount);
+        Assert.Equal(0m, third.OriginalDueAmount);
+        Assert.Equal(PaymentStatus.Paid, third.PaymentStatus);
+    }
+
+    [Fact]
+    public async Task AddPaymentAsync_ForeignPurchase_PaymentAboveDueIsRejected()
+    {
+        var f = await SeedAsync();
+        var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.UsdSupplier, new DateOnly(2026, 9, 5), 10, 100m, 400m), f.UserId);
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(
+            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(600.01m, PaymentMethod.Cash, 600m)));
+        Assert.Equal("Amount", ex.Field);
+    }
+
+    [Fact]
+    public async Task AddPaymentAsync_DuplicateSubmission_IsAppliedOnlyOnce()
+    {
+        var f = await SeedAsync();
+        var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m, 0m), f.UserId);
+        var request = new AddPurchasePaymentInput(30m, PaymentMethod.Cash, 100m);
+
+        await f.Purchases.AddPaymentAsync(purchase.Id, request);
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Purchases.AddPaymentAsync(purchase.Id, request));
+
+        Assert.Equal("ExpectedDue", ex.Field);
+        Assert.Equal(30m, (await f.Db.PurchaseOrders.AsNoTracking().SingleAsync(p => p.Id == purchase.Id)).PaidAmount);
+    }
+
+    [Fact]
+    public async Task AddPaymentAsync_CancelledPurchase_IsRejected_AndUnknownIdReturnsNull()
+    {
+        var f = await SeedAsync();
+        var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m, 0m), f.UserId);
+        await f.Purchases.CancelPurchaseAsync(purchase.Id);
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(
+            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(10m, PaymentMethod.Cash, 100m)));
+        Assert.Equal("Status", ex.Field);
+        Assert.Null(await f.Purchases.AddPaymentAsync(Guid.NewGuid(), new AddPurchasePaymentInput(10m, PaymentMethod.Cash, 0m)));
+    }
+
+    [Fact]
     public async Task CreatePurchaseAsync_BaseCurrencySupplier_UsesRateOfOne()
     {
         var f = await SeedAsync();

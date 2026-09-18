@@ -63,6 +63,8 @@ export interface PurchaseDetail {
   originalDueAmount: number;
   baseCurrencyCode: string;
   baseCurrencySymbol: string;
+  currencyDecimalPrecision: number;
+  baseCurrencyDecimalPrecision: number;
   lines: PurchaseLine[];
 }
 
@@ -90,4 +92,10 @@ export interface UpdatePurchaseHeaderRequest {
   notes?: string | null;
   paymentMethod: PaymentMethod;
   paidAmount: number;
+}
+
+export interface AddPurchasePaymentRequest {
+  amount: number;
+  paymentMethod: PaymentMethod;
+  expectedDue: number;
 }

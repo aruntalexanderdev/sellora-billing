@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { UiButton } from '../../../shared/ui/button/button';
 import { UiBadge } from '../../../shared/ui/badge/badge';
@@ -10,6 +11,11 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { PurchasesService } from '../purchases.service';
 import type { PurchaseDetail as PurchaseDetailModel, PaymentMethod } from '../purchases.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
+
+const roundTo = (n: number, places: number) => {
+  const f = 10 ** places;
+  return (Math.sign(n) * Math.round(Math.abs(n) * f + Number.EPSILON)) / f;
+};
 
 const FORMAT = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -43,6 +49,54 @@ export class PurchaseDetail implements OnInit {
   readonly canEdit = computed(() => this.auth.hasPermission('Purchase.Edit'));
   readonly canCancel = computed(() => this.auth.hasPermission('Purchase.Cancel'));
 
+  // ---- Pay (an additional payment against the outstanding due) ----
+  readonly paying = signal(false);
+  readonly paySaving = signal(false);
+  readonly payError = signal<string | null>(null);
+  private payRequested = this.route.snapshot.queryParamMap.get('pay') !== null;
+
+  readonly canPay = computed(() => {
+    const p = this.purchase();
+    return this.canEdit() && !!p && p.status === 'Completed' && p.originalDueAmount > 0;
+  });
+
+  private readonly precision = () => this.purchase()?.currencyDecimalPrecision ?? 2;
+
+  // Must be more than zero once rounded to the purchase currency's precision, and no more than the due.
+  private readonly positiveAmount = (c: AbstractControl): ValidationErrors | null =>
+    c.value == null || c.value === '' || roundTo(Number(c.value), this.precision()) > 0 ? null : { positive: true };
+  private readonly withinDue = (c: AbstractControl): ValidationErrors | null => {
+    const due = this.purchase()?.originalDueAmount ?? 0;
+    return c.value == null || c.value === '' || roundTo(Number(c.value), this.precision()) <= due ? null : { exceedsDue: true };
+  };
+
+  readonly payForm = this.fb.nonNullable.group({
+    amount: [null as number | null, [Validators.required, this.positiveAmount, this.withinDue]],
+    paymentMethod: ['Cash' as PaymentMethod, Validators.required],
+  });
+  private readonly payAmount = toSignal(this.payForm.controls.amount.valueChanges, { initialValue: null as number | null });
+
+  readonly payStep = computed(() => String(1 / 10 ** (this.purchase()?.currencyDecimalPrecision ?? 2)));
+
+  // Previews what the server will record, using the same steps: the amount is added to what was already
+  // paid, a payment that clears the whole invoice books the exact base total, otherwise the running paid
+  // amount is converted at the purchase's captured rate. The response from the server is authoritative.
+  readonly afterPayment = computed(() => {
+    const p = this.purchase();
+    if (!p) return null;
+    const amount = roundTo(this.payAmount() ?? 0, p.currencyDecimalPrecision);
+    const paidOriginal = p.originalPaidAmount + amount;
+    const foreign = p.exchangeRateToBase !== 1;
+    let paidBase = paidOriginal;
+    if (foreign) {
+      paidBase = paidOriginal >= p.originalGrandTotal ? p.grandTotal : roundTo(paidOriginal * p.exchangeRateToBase, p.baseCurrencyDecimalPrecision);
+    }
+    return {
+      dueOriginal: Math.max(0, p.originalGrandTotal - paidOriginal),
+      dueBase: Math.max(0, p.grandTotal - paidBase),
+    };
+  });
+
   readonly headerForm = this.fb.nonNullable.group({
     supplierInvoiceNumber: [''],
     notes: [''],
@@ -67,12 +121,68 @@ export class PurchaseDetail implements OnInit {
           paidAmount: p.originalPaidAmount,
         });
         this.loading.set(false);
+
+        // Arriving from the list's Pay action opens the payment panel straight away.
+        if (this.payRequested) {
+          this.payRequested = false;
+          if (this.canPay()) this.openPay();
+        }
       },
       error: () => this.loading.set(false),
     });
   }
 
+  openPay(): void {
+    if (!this.canPay()) return;
+    this.payError.set(null);
+    this.payForm.reset({ amount: null, paymentMethod: this.purchase()!.paymentMethod });
+    this.editing.set(false);
+    this.paying.set(true);
+  }
+
+  closePay(): void {
+    this.paying.set(false);
+    this.payError.set(null);
+    this.router.navigate([], { queryParams: { pay: null }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
+
+  submitPay(): void {
+    // A second click while the first request is in flight must not send a second payment.
+    if (this.paySaving()) return;
+    this.payError.set(null);
+    this.payForm.controls.amount.updateValueAndValidity();
+    if (this.payForm.invalid) {
+      this.payForm.markAllAsTouched();
+      return;
+    }
+
+    const p = this.purchase()!;
+    const v = this.payForm.getRawValue();
+    this.paySaving.set(true);
+    this.purchasesService
+      .addPayment(p.id, { amount: v.amount!, paymentMethod: v.paymentMethod, expectedDue: p.originalDueAmount })
+      .subscribe({
+        next: (updated) => {
+          this.paySaving.set(false);
+          this.purchase.set(updated);
+          this.headerForm.patchValue({ paymentMethod: updated.paymentMethod, paidAmount: updated.originalPaidAmount });
+          this.toast.show(
+            updated.originalDueAmount > 0
+              ? `Payment recorded · ${this.original(updated.originalDueAmount)} still due.`
+              : `${updated.purchaseNo} is fully paid.`,
+          );
+          this.closePay();
+        },
+        error: (err: HttpErrorResponse) => {
+          this.paySaving.set(false);
+          const problem = err.error as ApiProblem | undefined;
+          this.payError.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Could not record this payment.');
+        },
+      });
+  }
+
   startEdit(): void {
+    this.paying.set(false);
     this.editing.set(true);
   }
 

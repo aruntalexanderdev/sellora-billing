@@ -111,6 +111,63 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         return purchase;
     }
 
+    public async Task<PurchaseOrder?> AddPaymentAsync(Guid purchaseOrderId, AddPurchasePaymentInput input, CancellationToken ct = default)
+    {
+        // FOR UPDATE serialises concurrent payments on the same purchase, so the due they are checked
+        // against cannot go stale between the read and the save. The in-memory test provider has neither
+        // transactions nor row locks, hence the relational check.
+        var relational = db.Database.IsRelational();
+        await using var transaction = relational ? await db.Database.BeginTransactionAsync(ct) : null;
+
+        var purchase = relational
+            ? await db.PurchaseOrders
+                .FromSqlInterpolated($"SELECT * FROM \"PurchaseOrders\" WHERE \"Id\" = {purchaseOrderId} FOR UPDATE")
+                .SingleOrDefaultAsync(ct)
+            : await db.PurchaseOrders.SingleOrDefaultAsync(p => p.Id == purchaseOrderId, ct);
+        if (purchase is null) return null;
+
+        var currency = await db.Currencies.SingleAsync(c => c.Id == purchase.CurrencyId, ct);
+        var precision = currency.DecimalPrecision;
+        var foreign = purchase.ExchangeRateToBase != 1m;
+        decimal InPurchaseCurrency(decimal amount) => foreign ? Math.Round(amount, precision, MidpointRounding.AwayFromZero) : amount;
+
+        if (purchase.Status == PurchaseStatus.Cancelled)
+        {
+            throw new DomainValidationException("Status", "This purchase is cancelled and cannot be paid.");
+        }
+
+        var due = InPurchaseCurrency(purchase.OriginalDueAmount);
+        if (due <= 0)
+        {
+            throw new DomainValidationException("Amount", "This purchase is already fully paid.");
+        }
+
+        var amount = InPurchaseCurrency(input.Amount);
+        if (amount <= 0)
+        {
+            throw new DomainValidationException("Amount", "Payment amount must be greater than zero.");
+        }
+        if (InPurchaseCurrency(input.ExpectedDue) != due)
+        {
+            throw new DomainValidationException("ExpectedDue", $"The amount due has changed to {due.ToString($"F{precision}")}. Reload the purchase and try again.");
+        }
+        if (amount > due)
+        {
+            throw new DomainValidationException("Amount", $"Payment cannot exceed the outstanding due of {due.ToString($"F{precision}")} {currency.Code}.");
+        }
+
+        var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+
+        purchase.PaymentMethod = input.PaymentMethod;
+        ApplyPayment(purchase, purchase.OriginalPaidAmount + amount, precision, basePrecision);
+
+        await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
+
+        purchase.Currency = currency;
+        return purchase;
+    }
+
     // The one place a payment is converted. The amount is entered in the transaction currency and kept
     // as entered (OriginalPaidAmount); PaidAmount is its base-currency equivalent at the purchase's captured
     // rate. A payment that clears the whole original total is booked as exactly the base grand total, so
@@ -126,9 +183,16 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         var original = Math.Round(amount, transactionPrecision, MidpointRounding.AwayFromZero);
         purchase.OriginalPaidAmount = original;
-        purchase.PaidAmount = original >= purchase.OriginalGrandTotal
-            ? purchase.GrandTotal
-            : Math.Round(original * purchase.ExchangeRateToBase, basePrecision, MidpointRounding.AwayFromZero);
+        if (original >= purchase.OriginalGrandTotal)
+        {
+            purchase.PaidAmount = purchase.GrandTotal;
+            return;
+        }
+
+        // Rounding to the base precision must never make a part-payment look like a full one.
+        var converted = Math.Round(original * purchase.ExchangeRateToBase, basePrecision, MidpointRounding.AwayFromZero);
+        var oneBaseUnit = 1m / (decimal)Math.Pow(10, basePrecision);
+        purchase.PaidAmount = converted >= purchase.GrandTotal && purchase.GrandTotal > 0 ? purchase.GrandTotal - oneBaseUnit : converted;
     }
 
     public async Task CancelPurchaseAsync(Guid purchaseOrderId, CancellationToken ct = default)

@@ -6,6 +6,9 @@
     </div>
     <div class="header-actions">
       <ui-button variant="secondary" (onClick)="print()">Print</ui-button>
+      @if (canPay() && !paying() && !editing()) {
+        <ui-button variant="primary" (onClick)="openPay()">Pay</ui-button>
+      }
       @if (canEdit() && p.status === 'Completed' && !editing()) {
         <ui-button variant="secondary" (onClick)="startEdit()">Edit</ui-button>
       }
@@ -30,6 +33,65 @@
       <div><span class="fx-label">Exchange rate used</span><strong>1 {{ p.currencyCode }} = {{ p.baseCurrencySymbol }}{{ p.exchangeRateToBase }}</strong></div>
       <div><span class="fx-label">Base currency value</span><strong>{{ base(p.grandTotal) }} {{ p.baseCurrencyCode }}</strong></div>
       <div class="fx-note">Rate captured when this purchase was saved. Amounts below are in {{ p.baseCurrencyCode }}.</div>
+    </div>
+  }
+
+  @if (paying()) {
+    <div class="pay-card no-print">
+      <div class="pay-head">
+        <strong>Pay {{ p.purchaseNo }}</strong>
+        <span class="pay-due">
+          Due ({{ p.currencyCode }}): {{ original(p.originalDueAmount) }} · Due ({{ p.baseCurrencyCode }}): {{ base(p.dueAmount) }}
+        </span>
+      </div>
+
+      <form [formGroup]="payForm" (ngSubmit)="submitPay()">
+        <div class="pay-grid">
+          <div>
+            <label class="field-label">Payment amount ({{ p.currencyCode }})</label>
+            <input
+              type="number"
+              [attr.step]="payStep()"
+              min="0"
+              [attr.max]="p.originalDueAmount"
+              formControlName="amount"
+              class="field-input"
+              placeholder="Up to {{ p.originalDueAmount }}"
+            />
+            @if (payForm.controls.amount.touched && payForm.controls.amount.errors?.['required']) {
+              <div class="field-error">Enter the amount being paid.</div>
+            }
+            @if (payForm.controls.amount.errors?.['positive']) {
+              <div class="field-error">Payment must be greater than zero.</div>
+            }
+            @if (payForm.controls.amount.errors?.['exceedsDue']) {
+              <div class="field-error">Payment can't exceed the outstanding {{ original(p.originalDueAmount) }}.</div>
+            }
+          </div>
+          <div>
+            <label class="field-label">Payment method</label>
+            <select formControlName="paymentMethod" class="field-input">
+              @for (m of paymentMethods; track m) {
+                <option [value]="m">{{ m }}</option>
+              }
+            </select>
+          </div>
+        </div>
+
+        @if (afterPayment(); as after) {
+          <div class="pay-preview">
+            After this payment — Due ({{ p.currencyCode }}): {{ original(after.dueOriginal) }} · Due ({{ p.baseCurrencyCode }}): {{ base(after.dueBase) }}
+          </div>
+        }
+        @if (payError()) {
+          <div class="field-error">{{ payError() }}</div>
+        }
+
+        <div class="edit-actions">
+          <ui-button type="submit" variant="primary" [disabled]="paySaving()">{{ paySaving() ? 'Recording…' : 'Record payment' }}</ui-button>
+          <ui-button variant="secondary" (onClick)="closePay()">Cancel</ui-button>
+        </div>
+      </form>
     </div>
   }
 

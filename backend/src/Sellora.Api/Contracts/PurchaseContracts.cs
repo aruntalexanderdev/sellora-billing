@@ -24,7 +24,7 @@ public record PurchaseDetailDto(
     PurchaseStatus Status, string CreatedByName, DateTimeOffset CreatedAt, DateTimeOffset? CancelledAt,
     Guid CurrencyId, string CurrencyCode, string CurrencySymbol, decimal ExchangeRateToBase, decimal OriginalGrandTotal,
     decimal OriginalPaidAmount, decimal OriginalDueAmount,
-    string BaseCurrencyCode, string BaseCurrencySymbol,
+    string BaseCurrencyCode, string BaseCurrencySymbol, int CurrencyDecimalPrecision, int BaseCurrencyDecimalPrecision,
     IReadOnlyList<PurchaseLineDto> Lines
 );
 
@@ -52,4 +52,10 @@ public record UpdatePurchaseHeaderRequest(
     [MaxLength(500)] string? Notes,
     PaymentMethod PaymentMethod,
     [Range(0, double.MaxValue)] decimal PaidAmount
+);
+
+public record AddPurchasePaymentRequest(
+    [Range(0.000001, 999999999)] decimal Amount,
+    PaymentMethod PaymentMethod,
+    [Range(0, 999999999)] decimal ExpectedDue
 );

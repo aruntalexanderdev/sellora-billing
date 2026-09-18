@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import type { PagedResult } from '../../core/api.models';
 import type {
+  AddPurchasePaymentRequest,
   CreatePurchaseRequest,
   PurchaseDetail,
   PurchaseListItem,
@@ -43,6 +44,10 @@ export class PurchasesService {
 
   updateHeader(id: string, request: UpdatePurchaseHeaderRequest): Observable<PurchaseDetail> {
     return this.http.put<PurchaseDetail>(`${BASE_URL}/${id}`, request);
+  }
+
+  addPayment(id: string, request: AddPurchasePaymentRequest): Observable<PurchaseDetail> {
+    return this.http.post<PurchaseDetail>(`${BASE_URL}/${id}/payments`, request);
   }
 
   cancel(id: string): Observable<void> {

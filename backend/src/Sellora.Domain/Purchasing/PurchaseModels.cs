@@ -29,3 +29,12 @@ public sealed record UpdatePurchaseHeaderInput(
     PaymentMethod PaymentMethod,
     decimal PaidAmount
 );
+
+/// <summary>An additional payment against a saved purchase's outstanding due. <see cref="Amount"/> and
+/// <see cref="ExpectedDue"/> are in the purchase's transaction currency; ExpectedDue is the due amount the
+/// caller saw, so a duplicate or stale submission is rejected instead of being applied twice.</summary>
+public sealed record AddPurchasePaymentInput(
+    decimal Amount,
+    PaymentMethod PaymentMethod,
+    decimal ExpectedDue
+);

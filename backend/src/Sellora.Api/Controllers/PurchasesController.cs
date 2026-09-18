@@ -116,6 +116,31 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         }
     }
 
+    [HttpPost("{id:guid}/payments")]
+    [Authorize(Policy = "Purchase.Edit")]
+    public async Task<ActionResult<PurchaseDetailDto>> AddPayment(Guid id, AddPurchasePaymentRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        try
+        {
+            var purchase = await purchaseService.AddPaymentAsync(
+                id, new AddPurchasePaymentInput(request.Amount, request.PaymentMethod, request.ExpectedDue), ct);
+            if (purchase is null) return NotFound();
+
+            return await Get(id, ct);
+        }
+        catch (DomainValidationException ex) when (ex.Field == "Status")
+        {
+            return Problem(statusCode: 400, title: ex.Message);
+        }
+        catch (DomainValidationException ex)
+        {
+            ModelState.AddModelError(ex.Field, ex.Message);
+            return ValidationProblem(ModelState);
+        }
+    }
+
     [HttpPost("{id:guid}/cancel")]
     [Authorize(Policy = "Purchase.Cancel")]
     public async Task<IActionResult> Cancel(Guid id, CancellationToken ct)
@@ -138,7 +163,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         p.Subtotal, p.TaxTotal, p.OtherChargesTotal, p.DiscountTotal, p.GrandTotal,
         p.Status, $"{p.CreatedByUser.FirstName} {p.CreatedByUser.LastName}", p.CreatedAt, p.CancelledAt,
         p.CurrencyId, p.Currency.Code, p.Currency.Symbol, p.ExchangeRateToBase, p.OriginalGrandTotal, p.OriginalPaidAmount, p.OriginalDueAmount,
-        baseCurrency.Code, baseCurrency.Symbol,
+        baseCurrency.Code, baseCurrency.Symbol, p.Currency.DecimalPrecision, baseCurrency.DecimalPrecision,
         p.Lines.Select(l => new PurchaseLineDto(
             l.Id, l.ProductId, l.Product.Name, l.SellingModeId, l.SellingMode.Label,
             l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Rate,

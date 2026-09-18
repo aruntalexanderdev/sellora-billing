@@ -14,6 +14,7 @@ const COLS: DataTableColumn[] = [
   { label: 'Total', align: 'right' },
   { label: 'Payment', align: 'left' },
   { label: 'Status', align: 'left' },
+  { label: '', align: 'right' },
 ];
 
 const INR = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
@@ -38,6 +39,7 @@ export class PurchaseList implements OnInit {
   readonly total = signal(0);
 
   readonly canCreate = computed(() => this.auth.hasPermission('Purchase.Create'));
+  readonly canPay = computed(() => this.auth.hasPermission('Purchase.Edit'));
   readonly hasMore = computed(() => this.page() * 20 < this.total());
 
   readonly rows = computed<DataTableRow[]>(() =>
@@ -55,6 +57,14 @@ export class PurchaseList implements OnInit {
         },
         { kind: 'badge', text: p.paymentStatus, tone: p.paymentStatus === 'Paid' ? 'good' : p.paymentStatus === 'PartiallyPaid' ? 'warn' : 'bad' },
         { kind: 'badge', text: p.status, tone: p.status === 'Completed' ? 'good' : 'mute' },
+        {
+          kind: 'actions',
+          // Only a live purchase that still has something outstanding can be paid.
+          actions:
+            this.canPay() && p.status === 'Completed' && p.paymentStatus !== 'Paid'
+              ? [{ label: 'Pay', onClick: () => this.router.navigate(['/purchases', p.id], { queryParams: { pay: 1 } }) }]
+              : [],
+        },
       ],
     })),
   );
