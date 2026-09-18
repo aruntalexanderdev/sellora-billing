@@ -22,4 +22,7 @@
   (emptyActionClick)="goToCreate()"
   (retry)="retry()"
   [footerText]="total() + ' user' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
 />

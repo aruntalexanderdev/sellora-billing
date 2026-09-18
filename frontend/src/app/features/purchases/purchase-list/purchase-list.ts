@@ -32,11 +32,13 @@ export class PurchaseList implements OnInit {
 
   readonly cols = COLS;
   readonly search = signal('');
+  readonly page = signal(1);
   readonly state = signal<DataTableState>('loading');
   readonly items = signal<PurchaseListItem[]>([]);
   readonly total = signal(0);
 
   readonly canCreate = computed(() => this.auth.hasPermission('Purchase.Create'));
+  readonly hasMore = computed(() => this.page() * 20 < this.total());
 
   readonly rows = computed<DataTableRow[]>(() =>
     this.items().map((p) => ({
@@ -57,6 +59,12 @@ export class PurchaseList implements OnInit {
 
   onSearch(value: string): void {
     this.search.set(value);
+    this.page.set(1);
+    this.load();
+  }
+
+  onPageChange(page: number): void {
+    this.page.set(page);
     this.load();
   }
 
@@ -70,7 +78,7 @@ export class PurchaseList implements OnInit {
 
   private load(): void {
     this.state.set('loading');
-    this.purchasesService.list({ search: this.search() }).subscribe({
+    this.purchasesService.list({ search: this.search(), page: this.page() }).subscribe({
       next: (res) => {
         this.items.set(res.items);
         this.total.set(res.total);

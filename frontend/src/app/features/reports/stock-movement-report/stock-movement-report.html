@@ -42,4 +42,7 @@
   (searchChange)="onSearch($event)"
   (retry)="retry()"
   [footerText]="total() + ' movement' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
 />

@@ -16,6 +16,7 @@ const COLS: DataTableColumn[] = [
 
 const INR = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
 const ALL = 'All';
+const PAGE_SIZE = 20;
 
 @Component({
   selector: 'app-current-stock-report',
@@ -32,9 +33,12 @@ export class CurrentStockReport implements OnInit {
   readonly category = signal(ALL);
   readonly status = signal<'All' | StockStatus>(ALL);
   readonly categories = signal<string[]>([]);
+  readonly page = signal(1);
   readonly state = signal<DataTableState>('loading');
   readonly items = signal<CurrentStockReportRow[]>([]);
   readonly total = signal(0);
+
+  readonly hasMore = computed(() => this.page() * PAGE_SIZE < this.total());
 
   readonly filters = computed<DataTableFilter[]>(() => [
     { value: this.category(), options: [ALL, ...this.categories()], onChange: (v) => this.onCategoryChange(v) },
@@ -66,16 +70,24 @@ export class CurrentStockReport implements OnInit {
 
   onSearch(value: string): void {
     this.search.set(value);
+    this.page.set(1);
     this.load();
   }
 
   onCategoryChange(value: string): void {
     this.category.set(value);
+    this.page.set(1);
     this.load();
   }
 
   onStatusChange(value: 'All' | StockStatus): void {
     this.status.set(value);
+    this.page.set(1);
+    this.load();
+  }
+
+  onPageChange(page: number): void {
+    this.page.set(page);
     this.load();
   }
 
@@ -92,7 +104,8 @@ export class CurrentStockReport implements OnInit {
         search: this.search(),
         category: category === ALL ? undefined : category,
         status: status === ALL ? undefined : status,
-        pageSize: 100,
+        page: this.page(),
+        pageSize: PAGE_SIZE,
       })
       .subscribe({
         next: (res) => {

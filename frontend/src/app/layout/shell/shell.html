@@ -1,5 +1,9 @@
 <div class="shell-grid">
-  <app-sidebar [navGroups]="navGroups()" />
+  @if (sidebarOpen()) {
+    <div class="shell-backdrop" (click)="closeSidebar()"></div>
+  }
+
+  <app-sidebar [navGroups]="navGroups()" [open]="sidebarOpen()" (closeRequested)="closeSidebar()" />
 
   <div class="shell-content">
     <app-header
@@ -9,6 +13,7 @@
       [userRole]="currentUser()?.roleName ?? ''"
       [userInitials]="userInitials()"
       (signOut)="signOut()"
+      (menuToggle)="toggleSidebar()"
     />
 
     <main class="shell-main">

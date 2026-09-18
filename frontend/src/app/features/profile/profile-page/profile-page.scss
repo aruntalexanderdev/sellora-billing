@@ -1,0 +1,96 @@
+@use '../../../shared/styles/page-head';
+
+.profile-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.profile-card {
+  padding: 22px;
+}
+
+.profile-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--color-accent-soft-bg);
+  color: var(--color-accent-soft-fg);
+  font-size: 20px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+.profile-name {
+  font-size: 17px;
+  font-weight: 650;
+  margin-bottom: 8px;
+}
+.profile-role {
+  margin-bottom: 18px;
+}
+
+.profile-kv {
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 14px;
+}
+.kv-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding: 6px 0;
+}
+.kv-row span:first-child {
+  color: var(--color-text-muted);
+}
+.kv-row span:last-child {
+  font-weight: 600;
+  text-align: right;
+  word-break: break-word;
+}
+
+.profile-section-head {
+  font-size: 14.5px;
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+.profile-section-note {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  margin: 0 0 16px;
+}
+
+.perm-group {
+  margin-bottom: 16px;
+}
+.perm-module {
+  font-size: 11px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--color-text-fainter);
+  font-weight: 650;
+  margin-bottom: 8px;
+}
+.perm-codes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.perm-chip {
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  font-weight: 600;
+}
+
+@media (max-width: 780px) {
+  .profile-layout {
+    grid-template-columns: 1fr;
+  }
+}

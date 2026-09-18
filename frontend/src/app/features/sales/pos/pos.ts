@@ -129,6 +129,12 @@ export class Pos implements OnInit, HasUnsavedChanges {
 
   readonly hasStockError = computed(() => this.previews().some((p) => p.exceedsStock));
 
+  readonly completeSaleDisabledReason = computed(() => {
+    if (this.linesValue().length === 0) return 'Add at least one item to the cart first.';
+    if (this.hasStockError()) return 'Reduce quantity — not enough stock for one or more items.';
+    return null;
+  });
+
   readonly totals = computed(() => {
     const rows = this.linesValue();
     const previews = this.previews();

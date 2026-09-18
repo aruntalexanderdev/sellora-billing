@@ -18,4 +18,7 @@
   (searchChange)="onSearch($event)"
   (retry)="retry()"
   [footerText]="total() + ' item' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
 />

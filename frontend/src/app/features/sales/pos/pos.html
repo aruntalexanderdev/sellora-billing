@@ -134,7 +134,12 @@
       </div>
 
       <div class="actions">
-        <ui-button type="submit" variant="primary" [disabled]="saving() || lines.length === 0">
+        <ui-button
+          type="submit"
+          variant="primary"
+          [disabled]="saving() || !!completeSaleDisabledReason()"
+          [disabledReason]="completeSaleDisabledReason()"
+        >
           {{ saving() ? 'Completing…' : 'Complete sale' }}
         </ui-button>
         <a routerLink="/sales" class="cancel-link">Cancel</a>

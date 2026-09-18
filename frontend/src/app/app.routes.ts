@@ -4,6 +4,7 @@ import { UiShowcase } from './features/ui-showcase/ui-showcase';
 import { Login } from './features/auth/login/login';
 import { ForgotPassword } from './features/auth/forgot-password/forgot-password';
 import { PermissionDenied } from './features/permission-denied/permission-denied';
+import { ProfilePage } from './features/profile/profile-page/profile-page';
 import { UserList } from './features/administration/users/user-list/user-list';
 import { UserForm } from './features/administration/users/user-form/user-form';
 import { RoleList } from './features/administration/roles/role-list/role-list';
@@ -50,6 +51,7 @@ export const routes: Routes = [
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
       { path: 'dashboard', component: DashboardPage, data: { group: 'Dashboard', page: 'Dashboard' } },
       { path: 'ui-showcase', component: UiShowcase, data: { group: 'System', page: 'UI Kit' } },
+      { path: 'profile', component: ProfilePage, data: { group: 'Account', page: 'My Profile' } },
       { path: 'permission-denied', component: PermissionDenied, data: { group: 'System', page: 'Permission denied' } },
 
       {

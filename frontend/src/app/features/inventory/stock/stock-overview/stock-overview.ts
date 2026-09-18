@@ -17,6 +17,7 @@ const COLS: DataTableColumn[] = [
 ];
 
 const INR = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
+const PAGE_SIZE = 20;
 
 @Component({
   selector: 'app-stock-overview',
@@ -32,12 +33,15 @@ export class StockOverview implements OnInit {
 
   readonly cols = COLS;
   readonly search = signal('');
+  readonly page = signal(1);
   readonly state = signal<DataTableState>('loading');
   readonly items = signal<StockOverviewItem[]>([]);
   readonly total = signal(0);
 
   readonly canAdjust = computed(() => this.auth.hasPermission('Inventory.Adjust'));
   readonly canPrice = computed(() => this.auth.hasPermission('Inventory.Price'));
+
+  readonly hasMore = computed(() => this.page() * PAGE_SIZE < this.total());
 
   readonly rows = computed<DataTableRow[]>(() =>
     this.items().map((p) => ({
@@ -73,6 +77,12 @@ export class StockOverview implements OnInit {
 
   onSearch(value: string): void {
     this.search.set(value);
+    this.page.set(1);
+    this.load();
+  }
+
+  onPageChange(page: number): void {
+    this.page.set(page);
     this.load();
   }
 
@@ -82,7 +92,7 @@ export class StockOverview implements OnInit {
 
   private load(): void {
     this.state.set('loading');
-    this.stockService.overview({ search: this.search() }).subscribe({
+    this.stockService.overview({ search: this.search(), page: this.page(), pageSize: PAGE_SIZE }).subscribe({
       next: (res) => {
         this.items.set(res.items);
         this.total.set(res.total);

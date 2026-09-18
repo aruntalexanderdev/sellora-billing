@@ -118,9 +118,18 @@
         </tbody>
       </table>
     </div>
-    @if (footerText()) {
+    @if (footerText() || showPagination()) {
       <div class="dt-footer">
         <div class="dt-footer-text">{{ footerText() }}</div>
+        @if (showPagination()) {
+          <div class="dt-pagination">
+            <button type="button" class="dt-page-btn" [disabled]="page() <= 1" (click)="goPrevPage()">Previous</button>
+            <span class="dt-page-label">Page {{ page() }}</span>
+            <button type="button" class="dt-page-btn" [disabled]="!hasMore()" (click)="goNextPage()">
+              {{ hasMore() ? 'Next' : 'No more results' }}
+            </button>
+          </div>
+        }
       </div>
     }
   }

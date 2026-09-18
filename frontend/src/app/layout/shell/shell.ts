@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
 import { Sidebar } from '../sidebar/sidebar';
 import { Header } from '../header/header';
@@ -90,6 +90,16 @@ export class Shell {
       items: g.items.filter((it) => !it.permission || this.auth.hasPermission(it.permission)),
     })).filter((g) => g.items.length > 0),
   );
+
+  readonly sidebarOpen = signal(false);
+
+  toggleSidebar(): void {
+    this.sidebarOpen.update((v) => !v);
+  }
+
+  closeSidebar(): void {
+    this.sidebarOpen.set(false);
+  }
 
   signOut(): void {
     this.auth.logout();

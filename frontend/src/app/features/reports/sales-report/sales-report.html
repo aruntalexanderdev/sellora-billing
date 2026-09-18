@@ -33,14 +33,17 @@
   (searchChange)="onSearch($event)"
   (retry)="retry()"
   [footerText]="total() + ' invoice' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
 />
 
 @if (items().length > 0) {
   <div class="report-totals-bar">
-    <div><span>Subtotal</span><strong>₹{{ totals().subtotal.toLocaleString('en-IN') }}</strong></div>
-    <div><span>Tax</span><strong>₹{{ totals().tax.toLocaleString('en-IN') }}</strong></div>
-    <div><span>Discount</span><strong>₹{{ totals().discount.toLocaleString('en-IN') }}</strong></div>
-    <div><span>Grand total</span><strong>₹{{ totals().grandTotal.toLocaleString('en-IN') }}</strong></div>
-    <div><span>Due</span><strong>₹{{ totals().due.toLocaleString('en-IN') }}</strong></div>
+    <div><span>Subtotal{{ isPartialTotals() ? ' (this page)' : '' }}</span><strong>₹{{ totals().subtotal.toLocaleString('en-IN') }}</strong></div>
+    <div><span>Tax{{ isPartialTotals() ? ' (this page)' : '' }}</span><strong>₹{{ totals().tax.toLocaleString('en-IN') }}</strong></div>
+    <div><span>Discount{{ isPartialTotals() ? ' (this page)' : '' }}</span><strong>₹{{ totals().discount.toLocaleString('en-IN') }}</strong></div>
+    <div><span>Grand total{{ isPartialTotals() ? ' (this page)' : '' }}</span><strong>₹{{ totals().grandTotal.toLocaleString('en-IN') }}</strong></div>
+    <div><span>Due{{ isPartialTotals() ? ' (this page)' : '' }}</span><strong>₹{{ totals().due.toLocaleString('en-IN') }}</strong></div>
   </div>
 }

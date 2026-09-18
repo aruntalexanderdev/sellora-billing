@@ -14,6 +14,7 @@ const COLS: DataTableColumn[] = [
 ];
 
 const ALL = 'All';
+const PAGE_SIZE = 20;
 
 @Component({
   selector: 'app-stock-movement-report',
@@ -30,11 +31,13 @@ export class StockMovementReport implements OnInit {
   readonly type = signal<'All' | StockMovementType>(ALL);
   readonly dateFrom = signal('');
   readonly dateTo = signal('');
+  readonly page = signal(1);
   readonly state = signal<DataTableState>('loading');
   readonly items = signal<StockMovementReportRow[]>([]);
   readonly total = signal(0);
 
   readonly hasDateFilter = computed(() => !!this.dateFrom() || !!this.dateTo());
+  readonly hasMore = computed(() => this.page() * PAGE_SIZE < this.total());
 
   readonly filters = computed<DataTableFilter[]>(() => [
     { value: this.type(), options: [ALL, 'Purchase', 'Sale', 'Adjustment'], onChange: (v) => this.onTypeChange(v as 'All' | StockMovementType) },
@@ -69,27 +72,37 @@ export class StockMovementReport implements OnInit {
 
   onSearch(value: string): void {
     this.search.set(value);
+    this.page.set(1);
     this.load();
   }
 
   onTypeChange(value: 'All' | StockMovementType): void {
     this.type.set(value);
+    this.page.set(1);
     this.load();
   }
 
   onDateFromChange(value: string): void {
     this.dateFrom.set(value);
+    this.page.set(1);
     this.load();
   }
 
   onDateToChange(value: string): void {
     this.dateTo.set(value);
+    this.page.set(1);
     this.load();
   }
 
   clearDates(): void {
     this.dateFrom.set('');
     this.dateTo.set('');
+    this.page.set(1);
+    this.load();
+  }
+
+  onPageChange(page: number): void {
+    this.page.set(page);
     this.load();
   }
 
@@ -106,7 +119,8 @@ export class StockMovementReport implements OnInit {
         type: type === ALL ? undefined : type,
         dateFrom: this.dateFrom() || undefined,
         dateTo: this.dateTo() || undefined,
-        pageSize: 100,
+        page: this.page(),
+        pageSize: PAGE_SIZE,
       })
       .subscribe({
         next: (res) => {

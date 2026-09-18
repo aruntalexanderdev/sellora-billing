@@ -4,6 +4,7 @@ import { UiDataTable } from '../../../../shared/ui/data-table/data-table';
 import { UiButton } from '../../../../shared/ui/button/button';
 import type { DataTableColumn, DataTableRow, DataTableState } from '../../../../shared/ui/data-table/data-table.types';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
+import { ConfirmDialogService } from '../../../../shared/ui/confirm-dialog/confirm-dialog.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { SuppliersService } from '../suppliers.service';
 import type { SupplierItem } from '../suppliers.models';
@@ -16,6 +17,8 @@ const COLS: DataTableColumn[] = [
   { label: '', align: 'right' },
 ];
 
+const PAGE_SIZE = 20;
+
 @Component({
   selector: 'app-supplier-list',
   standalone: true,
@@ -26,11 +29,13 @@ const COLS: DataTableColumn[] = [
 export class SupplierList implements OnInit {
   private readonly suppliersService = inject(SuppliersService);
   private readonly toast = inject(ToastService);
+  private readonly confirm = inject(ConfirmDialogService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
 
   readonly cols = COLS;
   readonly search = signal('');
+  readonly page = signal(1);
   readonly state = signal<DataTableState>('loading');
   readonly items = signal<SupplierItem[]>([]);
   readonly total = signal(0);
@@ -38,6 +43,8 @@ export class SupplierList implements OnInit {
   readonly canCreate = computed(() => this.auth.hasPermission('Suppliers.Create'));
   readonly canEdit = computed(() => this.auth.hasPermission('Suppliers.Edit'));
   readonly canDisable = computed(() => this.auth.hasPermission('Suppliers.Disable'));
+
+  readonly hasMore = computed(() => this.page() * PAGE_SIZE < this.total());
 
   readonly rows = computed<DataTableRow[]>(() =>
     this.items().map((s) => ({
@@ -65,6 +72,12 @@ export class SupplierList implements OnInit {
 
   onSearch(value: string): void {
     this.search.set(value);
+    this.page.set(1);
+    this.load();
+  }
+
+  onPageChange(page: number): void {
+    this.page.set(page);
     this.load();
   }
 
@@ -78,7 +91,7 @@ export class SupplierList implements OnInit {
 
   private load(): void {
     this.state.set('loading');
-    this.suppliersService.list(this.search()).subscribe({
+    this.suppliersService.list({ search: this.search(), page: this.page(), pageSize: PAGE_SIZE }).subscribe({
       next: (res) => {
         this.items.set(res.items);
         this.total.set(res.total);
@@ -89,12 +102,25 @@ export class SupplierList implements OnInit {
   }
 
   private toggle(s: SupplierItem): void {
-    this.suppliersService.setActive(s.id, !s.isActive).subscribe({
-      next: () => {
-        this.toast.show(`${s.name} ${s.isActive ? 'deactivated' : 'activated'}.`);
-        this.load();
-      },
-      error: (err) => this.toast.show(err.error?.title ?? 'Could not update this supplier.'),
-    });
+    const disabling = s.isActive;
+    this.confirm
+      .ask({
+        title: disabling ? `Deactivate ${s.name}?` : `Activate ${s.name}?`,
+        body: disabling
+          ? 'This supplier will no longer be selectable on new purchases. This can be reversed later.'
+          : 'This supplier will be selectable on new purchases again.',
+        confirmLabel: disabling ? 'Deactivate' : 'Activate',
+        destructive: disabling,
+      })
+      .then((confirmed) => {
+        if (!confirmed) return;
+        this.suppliersService.setActive(s.id, !s.isActive).subscribe({
+          next: () => {
+            this.toast.show(`${s.name} ${disabling ? 'deactivated' : 'activated'}.`);
+            this.load();
+          },
+          error: (err) => this.toast.show(err.error?.title ?? 'Could not update this supplier.'),
+        });
+      });
   }
 }

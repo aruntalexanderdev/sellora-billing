@@ -183,6 +183,7 @@
   font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 320px;
 }
 .dt-cell-sub {
   font-size: 12px;
@@ -191,6 +192,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 320px;
 }
 .dt-cell-link {
   background: none;
@@ -242,4 +244,34 @@
 .dt-footer-text {
   font-size: 12.5px;
   color: var(--color-text-muted);
+}
+
+.dt-pagination {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dt-page-label {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.dt-page-btn {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  background: #fff;
+  color: #2b3238;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dt-page-btn:hover:not(:disabled) {
+  background: #f4f6f7;
+}
+.dt-page-btn:disabled {
+  cursor: not-allowed;
+  opacity: .55;
 }

@@ -101,6 +101,10 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
 
   readonly dueAmount = computed(() => Math.max(0, this.totals().grandTotal - (this.paidAmountValue() ?? 0)));
 
+  readonly submitDisabledReason = computed(() =>
+    this.linesValue().length === 0 ? 'Add at least one item before receiving stock.' : null,
+  );
+
   readonly saving = signal(false);
   readonly serverError = signal<string | null>(null);
   private saved = false;

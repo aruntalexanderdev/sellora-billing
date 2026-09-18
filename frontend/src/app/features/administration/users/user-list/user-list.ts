@@ -36,12 +36,14 @@ export class UserList implements OnInit {
 
   readonly cols = COLS;
   readonly search = signal('');
+  readonly page = signal(1);
   readonly state = signal<DataTableState>('loading');
   readonly items = signal<UserListItem[]>([]);
   readonly total = signal(0);
   readonly roles = signal<RoleListItem[]>([]);
 
   readonly canCreate = computed(() => this.auth.hasPermission('Users.Create'));
+  readonly hasMore = computed(() => this.page() * 20 < this.total());
   readonly canEdit = computed(() => this.auth.hasPermission('Users.Edit'));
   readonly canDisable = computed(() => this.auth.hasPermission('Users.Disable'));
   readonly canResetPassword = computed(() => this.auth.hasPermission('Users.ResetPassword'));
@@ -74,6 +76,12 @@ export class UserList implements OnInit {
 
   onSearch(value: string): void {
     this.search.set(value);
+    this.page.set(1);
+    this.load();
+  }
+
+  onPageChange(page: number): void {
+    this.page.set(page);
     this.load();
   }
 
@@ -87,7 +95,7 @@ export class UserList implements OnInit {
 
   private load(): void {
     this.state.set('loading');
-    this.usersService.list({ search: this.search() }).subscribe({
+    this.usersService.list({ search: this.search(), page: this.page() }).subscribe({
       next: (res) => {
         this.items.set(res.items);
         this.total.set(res.total);

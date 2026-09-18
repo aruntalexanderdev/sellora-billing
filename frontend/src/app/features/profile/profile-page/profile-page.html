@@ -1,0 +1,36 @@
+@if (user(); as u) {
+  <div class="page-head">
+    <div>
+      <h1>My profile</h1>
+      <p>Your account details and the permissions your role grants you.</p>
+    </div>
+  </div>
+
+  <div class="profile-layout">
+    <ui-card class="profile-card">
+      <div class="profile-avatar">{{ initials() }}</div>
+      <div class="profile-name">{{ u.firstName }} {{ u.lastName }}</div>
+      <div class="profile-role"><ui-badge [text]="u.roleName" tone="info" /></div>
+
+      <div class="profile-kv">
+        <div class="kv-row"><span>Username</span><span>{{ u.username }}</span></div>
+        <div class="kv-row"><span>Email</span><span>{{ u.email }}</span></div>
+      </div>
+    </ui-card>
+
+    <ui-card class="profile-card profile-permissions">
+      <div class="profile-section-head">Permissions ({{ u.permissions.length }})</div>
+      <p class="profile-section-note">Granted by your role. Ask an administrator to change them.</p>
+      @for (group of permissionsByModule(); track group.module) {
+        <div class="perm-group">
+          <div class="perm-module">{{ group.module }}</div>
+          <div class="perm-codes">
+            @for (code of group.codes; track code) {
+              <span class="perm-chip">{{ code }}</span>
+            }
+          </div>
+        </div>
+      }
+    </ui-card>
+  </div>
+}

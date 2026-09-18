@@ -18,6 +18,7 @@ const COLS: DataTableColumn[] = [
 
 const INR = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
 const ALL = 'All';
+const PAGE_SIZE = 20;
 
 @Component({
   selector: 'app-sales-report',
@@ -34,11 +35,14 @@ export class SalesReport implements OnInit {
   readonly paymentMethod = signal<'All' | PaymentMethod>(ALL);
   readonly dateFrom = signal('');
   readonly dateTo = signal('');
+  readonly page = signal(1);
   readonly state = signal<DataTableState>('loading');
   readonly items = signal<SalesReportRow[]>([]);
   readonly total = signal(0);
 
   readonly hasDateFilter = computed(() => !!this.dateFrom() || !!this.dateTo());
+  readonly hasMore = computed(() => this.page() * PAGE_SIZE < this.total());
+  readonly isPartialTotals = computed(() => this.page() > 1 || this.hasMore());
 
   readonly filters = computed<DataTableFilter[]>(() => [
     {
@@ -81,27 +85,37 @@ export class SalesReport implements OnInit {
 
   onSearch(value: string): void {
     this.search.set(value);
+    this.page.set(1);
     this.load();
   }
 
   onPaymentMethodChange(value: 'All' | PaymentMethod): void {
     this.paymentMethod.set(value);
+    this.page.set(1);
     this.load();
   }
 
   onDateFromChange(value: string): void {
     this.dateFrom.set(value);
+    this.page.set(1);
     this.load();
   }
 
   onDateToChange(value: string): void {
     this.dateTo.set(value);
+    this.page.set(1);
     this.load();
   }
 
   clearDates(): void {
     this.dateFrom.set('');
     this.dateTo.set('');
+    this.page.set(1);
+    this.load();
+  }
+
+  onPageChange(page: number): void {
+    this.page.set(page);
     this.load();
   }
 
@@ -122,7 +136,8 @@ export class SalesReport implements OnInit {
         paymentMethod: paymentMethod === ALL ? undefined : paymentMethod,
         dateFrom: this.dateFrom() || undefined,
         dateTo: this.dateTo() || undefined,
-        pageSize: 100,
+        page: this.page(),
+        pageSize: PAGE_SIZE,
       })
       .subscribe({
         next: (res) => {

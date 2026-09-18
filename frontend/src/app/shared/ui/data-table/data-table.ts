@@ -38,6 +38,11 @@ export class UiDataTable {
   readonly retry = output<void>();
   readonly footerText = input('');
 
+  readonly page = input(1);
+  readonly hasMore = input(false);
+  readonly pageChange = output<number>();
+  readonly showPagination = computed(() => this.page() > 1 || this.hasMore());
+
   readonly rowPad = computed(() => (this.density() === 'compact' ? '9px' : '13px'));
   readonly isLoading = computed(() => this.state() === 'loading');
   readonly isError = computed(() => this.state() === 'error');
@@ -50,5 +55,13 @@ export class UiDataTable {
 
   onSearchInput(value: string): void {
     this.searchChange.emit(value);
+  }
+
+  goPrevPage(): void {
+    if (this.page() > 1) this.pageChange.emit(this.page() - 1);
+  }
+
+  goNextPage(): void {
+    if (this.hasMore()) this.pageChange.emit(this.page() + 1);
   }
 }

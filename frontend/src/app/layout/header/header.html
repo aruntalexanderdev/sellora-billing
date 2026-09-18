@@ -1,14 +1,17 @@
+<button type="button" class="hd-menu-btn" (click)="menuToggle.emit()" aria-label="Toggle navigation menu">
+  <span></span><span></span><span></span>
+</button>
 <div class="hd-crumb">
   <span>{{ crumbGroup() }}</span>
   <span class="hd-crumb-sep">/</span>
   <span class="hd-crumb-page">{{ crumbPage() }}</span>
 </div>
 <div class="hd-spacer"></div>
-<div class="hd-user">
+<a class="hd-user" routerLink="/profile" title="My profile">
   <div class="hd-avatar">{{ userInitials() }}</div>
   <div class="hd-user-text">
     <div class="hd-user-name">{{ userName() }}</div>
     <div class="hd-user-role">{{ userRole() }}</div>
   </div>
-</div>
+</a>
 <button type="button" class="hd-signout" (click)="signOut.emit()">Sign out</button>

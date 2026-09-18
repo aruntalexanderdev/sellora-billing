@@ -7,13 +7,19 @@ import type { SupplierItem, UpsertSupplierRequest } from './suppliers.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/suppliers`;
 
+export interface SupplierListQuery {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SuppliersService {
   private readonly http = inject(HttpClient);
 
-  list(search?: string): Observable<PagedResult<SupplierItem>> {
-    const params: Record<string, string> = { page: '1', pageSize: '100' };
-    if (search) params['search'] = search;
+  list(query: SupplierListQuery = {}): Observable<PagedResult<SupplierItem>> {
+    const params: Record<string, string> = { page: String(query.page ?? 1), pageSize: String(query.pageSize ?? 100) };
+    if (query.search) params['search'] = query.search;
     return this.http.get<PagedResult<SupplierItem>>(BASE_URL, { params });
   }
 

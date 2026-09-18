@@ -22,3 +22,23 @@
   max-width: 1420px;
   width: 100%;
 }
+
+.shell-backdrop {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .shell-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 16, 18, .45);
+    z-index: 40;
+  }
+  .shell-main {
+    padding: 18px 16px 40px;
+  }
+}

@@ -16,6 +16,7 @@
             class="sb-item"
             [routerLink]="item.routerLink"
             routerLinkActive="sb-item--active"
+            (click)="closeRequested.emit()"
           >
             <span class="sb-dot"></span>
             <span class="sb-item-label">{{ item.label }}</span>

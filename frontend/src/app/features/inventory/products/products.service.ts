@@ -7,13 +7,19 @@ import type { ProductDetail, ProductListItem, UpsertProductRequest } from './pro
 
 const BASE_URL = `${environment.apiBaseUrl}/products`;
 
+export interface ProductListQuery {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ProductsService {
   private readonly http = inject(HttpClient);
 
-  list(search?: string): Observable<PagedResult<ProductListItem>> {
-    const params: Record<string, string> = { page: '1', pageSize: '100' };
-    if (search) params['search'] = search;
+  list(query: ProductListQuery = {}): Observable<PagedResult<ProductListItem>> {
+    const params: Record<string, string> = { page: String(query.page ?? 1), pageSize: String(query.pageSize ?? 100) };
+    if (query.search) params['search'] = query.search;
     return this.http.get<PagedResult<ProductListItem>>(BASE_URL, { params });
   }
 

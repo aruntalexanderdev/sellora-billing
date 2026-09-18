@@ -17,6 +17,7 @@ const COLS: DataTableColumn[] = [
 ];
 
 const INR = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
+const PAGE_SIZE = 20;
 
 @Component({
   selector: 'app-purchase-report',
@@ -32,11 +33,14 @@ export class PurchaseReport implements OnInit {
   readonly search = signal('');
   readonly dateFrom = signal('');
   readonly dateTo = signal('');
+  readonly page = signal(1);
   readonly state = signal<DataTableState>('loading');
   readonly items = signal<PurchaseReportRow[]>([]);
   readonly total = signal(0);
 
   readonly hasDateFilter = computed(() => !!this.dateFrom() || !!this.dateTo());
+  readonly hasMore = computed(() => this.page() * PAGE_SIZE < this.total());
+  readonly isPartialTotals = computed(() => this.page() > 1 || this.hasMore());
 
   readonly totals = computed(() => {
     const rows = this.items();
@@ -70,22 +74,31 @@ export class PurchaseReport implements OnInit {
 
   onSearch(value: string): void {
     this.search.set(value);
+    this.page.set(1);
     this.load();
   }
 
   onDateFromChange(value: string): void {
     this.dateFrom.set(value);
+    this.page.set(1);
     this.load();
   }
 
   onDateToChange(value: string): void {
     this.dateTo.set(value);
+    this.page.set(1);
     this.load();
   }
 
   clearDates(): void {
     this.dateFrom.set('');
     this.dateTo.set('');
+    this.page.set(1);
+    this.load();
+  }
+
+  onPageChange(page: number): void {
+    this.page.set(page);
     this.load();
   }
 
@@ -100,7 +113,7 @@ export class PurchaseReport implements OnInit {
   private load(): void {
     this.state.set('loading');
     this.reportsService
-      .purchases({ search: this.search(), dateFrom: this.dateFrom() || undefined, dateTo: this.dateTo() || undefined, pageSize: 100 })
+      .purchases({ search: this.search(), dateFrom: this.dateFrom() || undefined, dateTo: this.dateTo() || undefined, page: this.page(), pageSize: PAGE_SIZE })
       .subscribe({
         next: (res) => {
           this.items.set(res.items);
