@@ -27,14 +27,28 @@ type LineGroup = FormGroup<{
 }>;
 
 interface LinePreview {
+  valid: boolean;
   baseQty: number;
   baseUnitLabel: string;
+  subtotal: number;
+  otherCharges: number;
+  discount: number;
   taxableValue: number;
   taxAmount: number;
   lineTotal: number;
+  // The same line converted to the base currency (only meaningful for a foreign supplier).
+  baseTotal: number;
 }
 
-const EMPTY_PREVIEW: LinePreview = { baseQty: 0, baseUnitLabel: '', taxableValue: 0, taxAmount: 0, lineTotal: 0 };
+const EMPTY_PREVIEW: LinePreview = {
+  valid: false, baseQty: 0, baseUnitLabel: '', subtotal: 0, otherCharges: 0, discount: 0,
+  taxableValue: 0, taxAmount: 0, lineTotal: 0, baseTotal: 0,
+};
+
+const roundTo = (n: number, places: number) => {
+  const f = 10 ** places;
+  return Math.sign(n) * Math.round(Math.abs(n) * f + Number.EPSILON) / f;
+};
 
 @Component({
   selector: 'app-purchase-form',
@@ -84,9 +98,27 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
       if (!product || !mode || !row?.qty || row.rate == null) return EMPTY_PREVIEW;
 
       const baseQty = row.qty * mode.conversionFactorToBase;
-      const taxableValue = row.qty * row.rate + (row.otherCharges ?? 0) - (row.discount ?? 0);
-      const taxAmount = (taxableValue * product.taxRatePercent) / 100;
-      return { baseQty, baseUnitLabel: product.baseUnitLabel, taxableValue, taxAmount, lineTotal: taxableValue + taxAmount };
+
+      // Mirrors the server: for a foreign supplier every invoice figure (tax included) is rounded to the
+      // supplier currency's precision, and each rounded figure is then converted and rounded to the base
+      // currency's precision — so the preview matches what is saved.
+      const foreign = this.isForeign();
+      const places = this.selectedSupplier()?.currencyDecimalPrecision ?? 2;
+      const basePlaces = this.resolvedRate()?.baseCurrencyDecimalPrecision ?? 2;
+      const fx = this.resolvedRate()?.rateToBase ?? 1;
+      const inOriginal = (n: number) => (foreign ? roundTo(n, places) : n);
+      const toBase = (n: number) => (foreign ? roundTo(n * fx, basePlaces) : n);
+
+      const subtotal = inOriginal(row.qty * row.rate);
+      const otherCharges = inOriginal(row.otherCharges ?? 0);
+      const discount = inOriginal(row.discount ?? 0);
+      const taxableValue = subtotal + otherCharges - discount;
+      const taxAmount = inOriginal((taxableValue * product.taxRatePercent) / 100);
+      const baseTotal = toBase(subtotal) + toBase(otherCharges) - toBase(discount) + toBase(taxAmount);
+      return {
+        valid: true, baseQty, baseUnitLabel: product.baseUnitLabel, subtotal, otherCharges, discount,
+        taxableValue, taxAmount, lineTotal: taxableValue + taxAmount, baseTotal,
+      };
     });
   });
 
@@ -95,10 +127,11 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
     const previews = this.previews();
     let subtotal = 0, otherCharges = 0, discount = 0, tax = 0;
     rows.forEach((row, i) => {
-      subtotal += (row?.qty ?? 0) * (row?.rate ?? 0);
-      otherCharges += row?.otherCharges ?? 0;
-      discount += row?.discount ?? 0;
-      tax += previews[i]?.taxAmount ?? 0;
+      const preview = previews[i];
+      subtotal += preview?.valid ? preview.subtotal : (row?.qty ?? 0) * (row?.rate ?? 0);
+      otherCharges += preview?.valid ? preview.otherCharges : row?.otherCharges ?? 0;
+      discount += preview?.valid ? preview.discount : row?.discount ?? 0;
+      tax += preview?.taxAmount ?? 0;
     });
     return { subtotal, otherCharges, discount, tax, grandTotal: subtotal + otherCharges - discount + tax };
   });
@@ -118,7 +151,8 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
     return !!supplier && !!rate && rate.baseCurrencyCode !== supplier.currencyCode;
   });
 
-  readonly baseGrandTotal = computed(() => this.totals().grandTotal * (this.resolvedRate()?.rateToBase ?? 1));
+  // Sum of each line converted on its own, exactly as the server totals them.
+  readonly baseGrandTotal = computed(() => this.previews().reduce((sum, p) => sum + p.baseTotal, 0));
   readonly baseSymbol = computed(() => this.resolvedRate()?.baseCurrencySymbol ?? this.currencySymbol());
 
   // Payment is recorded in the business base currency, alongside the base-currency grand total.

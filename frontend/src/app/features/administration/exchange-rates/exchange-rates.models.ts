@@ -20,4 +20,5 @@ export interface ResolvedExchangeRate {
   rateToBase: number;
   baseCurrencyCode: string;
   baseCurrencySymbol: string;
+  baseCurrencyDecimalPrecision: number;
 }

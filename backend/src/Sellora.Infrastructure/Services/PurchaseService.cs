@@ -54,7 +54,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         foreach (var lineInput in input.Lines)
         {
-            var (line, lineSubtotal, originalLineTotal) = await BuildLineAsync(purchase, lineInput, rateToBase, basePrecision, ct);
+            var (line, lineSubtotal, originalLineTotal) = await BuildLineAsync(purchase, lineInput, rateToBase, transactionCurrency.DecimalPrecision, basePrecision, ct);
             purchase.Lines.Add(line);
 
             subtotal += lineSubtotal;
@@ -153,7 +153,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
     // transaction currency; a real conversion (rate != 1) rounds each converted component to the base
     // currency's precision so header totals always equal the sum of their lines.
     private async Task<(PurchaseOrderLine Line, decimal Subtotal, decimal OriginalLineTotal)> BuildLineAsync(
-        PurchaseOrder purchase, PurchaseLineInput input, decimal rateToBase, int basePrecision, CancellationToken ct)
+        PurchaseOrder purchase, PurchaseLineInput input, decimal rateToBase, int transactionPrecision, int basePrecision, CancellationToken ct)
     {
         if (input.Qty <= 0)
         {
@@ -180,20 +180,29 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         var tax = await db.Taxes.SingleAsync(t => t.Id == product.TaxId, ct);
 
-        decimal ToBase(decimal amount) => rateToBase == 1m ? amount : Math.Round(amount * rateToBase, basePrecision, MidpointRounding.AwayFromZero);
-
         var baseQty = input.Qty * sellingMode.ConversionFactorToBase;
+        var foreign = rateToBase != 1m;
 
-        var subtotal = ToBase(input.Qty * input.Rate);
-        var otherCharges = ToBase(input.OtherCharges);
-        var discount = ToBase(input.Discount);
+        // A foreign invoice's figures exist in whole units of its own currency, so each is rounded to that
+        // currency's precision first (tax included, as the supplier's invoice would print it) and only
+        // those rounded figures are converted. This keeps original × rate consistent with the base value.
+        decimal InOriginal(decimal amount) => foreign ? Math.Round(amount, transactionPrecision, MidpointRounding.AwayFromZero) : amount;
+        decimal ToBase(decimal amount) => foreign ? Math.Round(amount * rateToBase, basePrecision, MidpointRounding.AwayFromZero) : amount;
+
+        var originalSubtotal = InOriginal(input.Qty * input.Rate);
+        var originalOtherCharges = InOriginal(input.OtherCharges);
+        var originalDiscount = InOriginal(input.Discount);
+        var originalTaxable = originalSubtotal + originalOtherCharges - originalDiscount;
+        var originalTax = InOriginal(originalTaxable * tax.RatePercent / 100);
+        var originalLineTotal = originalTaxable + originalTax;
+
+        var subtotal = ToBase(originalSubtotal);
+        var otherCharges = ToBase(originalOtherCharges);
+        var discount = ToBase(originalDiscount);
         var taxableValue = subtotal + otherCharges - discount;
-        var taxAmount = taxableValue * tax.RatePercent / 100;
+        var taxAmount = ToBase(originalTax);
         var lineTotal = taxableValue + taxAmount;
         var unitCost = baseQty > 0 ? taxableValue / baseQty : 0;
-
-        var originalTaxable = input.Qty * input.Rate + input.OtherCharges - input.Discount;
-        var originalLineTotal = originalTaxable + originalTaxable * tax.RatePercent / 100;
 
         var line = new PurchaseOrderLine
         {

@@ -8,6 +8,7 @@ export interface SupplierItem {
   currencyId: string;
   currencyCode: string;
   currencySymbol: string;
+  currencyDecimalPrecision: number;
 }
 
 export interface UpsertSupplierRequest {

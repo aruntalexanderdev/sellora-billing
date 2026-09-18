@@ -28,7 +28,7 @@ public class SuppliersController(SelloraDbContext db) : ControllerBase
 
         var total = await query.CountAsync(ct);
         var items = await query.OrderBy(x => x.Name).Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(x => new SupplierDto(x.Id, x.Name, x.City, x.Gstin, x.PaymentTerms, x.IsActive, x.CurrencyId, x.Currency.Code, x.Currency.Symbol))
+            .Select(x => new SupplierDto(x.Id, x.Name, x.City, x.Gstin, x.PaymentTerms, x.IsActive, x.CurrencyId, x.Currency.Code, x.Currency.Symbol, x.Currency.DecimalPrecision))
             .ToListAsync(ct);
 
         return Ok(new PagedResult<SupplierDto>(items, total, page, pageSize));

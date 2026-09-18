@@ -5,7 +5,7 @@ namespace Sellora.Api.Contracts;
 
 public record SupplierDto(
     Guid Id, string Name, string? City, string? Gstin, string? PaymentTerms, bool IsActive,
-    Guid CurrencyId, string CurrencyCode, string CurrencySymbol
+    Guid CurrencyId, string CurrencyCode, string CurrencySymbol, int CurrencyDecimalPrecision
 );
 
 public record UpsertSupplierRequest(
@@ -18,5 +18,5 @@ public record UpsertSupplierRequest(
 
 public static class SupplierMapping
 {
-    public static SupplierDto ToDto(Supplier s) => new(s.Id, s.Name, s.City, s.Gstin, s.PaymentTerms, s.IsActive, s.CurrencyId, s.Currency.Code, s.Currency.Symbol);
+    public static SupplierDto ToDto(Supplier s) => new(s.Id, s.Name, s.City, s.Gstin, s.PaymentTerms, s.IsActive, s.CurrencyId, s.Currency.Code, s.Currency.Symbol, s.Currency.DecimalPrecision);
 }

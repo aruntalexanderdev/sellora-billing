@@ -22,4 +22,4 @@ public record UpsertExchangeRateRequest(
     [Required] DateOnly EffectiveDate
 );
 
-public record ResolvedExchangeRateDto(Guid CurrencyId, DateOnly AsOfDate, decimal RateToBase, string BaseCurrencyCode, string BaseCurrencySymbol);
+public record ResolvedExchangeRateDto(Guid CurrencyId, DateOnly AsOfDate, decimal RateToBase, string BaseCurrencyCode, string BaseCurrencySymbol, int BaseCurrencyDecimalPrecision);

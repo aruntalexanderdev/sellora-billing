@@ -113,6 +113,27 @@ public class MultiCurrencyPurchaseTests
     }
 
     [Fact]
+    public async Task CreatePurchaseAsync_ForeignSupplier_RoundsInvoiceFiguresBeforeConverting()
+    {
+        var f = await SeedAsync(taxRate: 5m);
+        f.Db.ExchangeRates.Add(new ExchangeRate
+        {
+            Id = Guid.NewGuid(), CurrencyId = f.Usd.Id, RateToBase = 95.97m,
+            EffectiveDate = new DateOnly(2026, 9, 10), CreatedByUserId = f.UserId,
+        });
+        await f.Db.SaveChangesAsync();
+
+        // 1 × USD 4.38: tax 0.219 is invoiced as USD 0.22, so the invoice total is USD 4.60.
+        var purchase = await f.Purchases.CreatePurchaseAsync(Input(f, f.UsdSupplier, new DateOnly(2026, 9, 18), 1, 4.38m), f.UserId);
+
+        Assert.Equal(4.60m, purchase.OriginalGrandTotal);
+        Assert.Equal(420.35m, purchase.Subtotal);   // 4.38 × 95.97
+        Assert.Equal(21.11m, purchase.TaxTotal);    // 0.22 × 95.97
+        Assert.Equal(441.46m, purchase.GrandTotal); // 4.60 × 95.97, matching what the invoice shows
+        Assert.Equal(purchase.Subtotal + purchase.TaxTotal, purchase.Lines.Single().LineTotal);
+    }
+
+    [Fact]
     public async Task CreatePurchaseAsync_BaseCurrencySupplier_UsesRateOfOne()
     {
         var f = await SeedAsync();

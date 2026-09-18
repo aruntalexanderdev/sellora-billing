@@ -46,7 +46,7 @@ public class ExchangeRatesController(SelloraDbContext db, IExchangeRateService e
         {
             var rate = await exchangeRateService.ResolveRateToBaseAsync(currencyId, date, ct);
             var baseCurrency = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);
-            return Ok(new ResolvedExchangeRateDto(currencyId, date, rate, baseCurrency.Code, baseCurrency.Symbol));
+            return Ok(new ResolvedExchangeRateDto(currencyId, date, rate, baseCurrency.Code, baseCurrency.Symbol, baseCurrency.DecimalPrecision));
         }
         catch (DomainValidationException ex)
         {
