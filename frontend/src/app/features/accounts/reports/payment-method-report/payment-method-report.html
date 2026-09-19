@@ -1,0 +1,62 @@
+<div class="page-head no-print">
+  <div>
+    <h1>Payment method summary</h1>
+    <p>Money received and paid, by how it moved. Payments, refunds, reversals and expenses count; transfers between your own accounts don't.</p>
+  </div>
+  <button type="button" class="report-print-btn" (click)="print()">Print</button>
+</div>
+
+<div class="report-filters no-print">
+  <app-report-date-filter
+    [from]="dateFrom()" [to]="dateTo()"
+    (fromChange)="onDates($event, null)" (toChange)="onDates(null, $event)" (cleared)="dateFrom.set(''); dateTo.set(''); onDates(null, null)"
+  />
+</div>
+
+@if (loading()) {
+  <div class="report-state">Loading…</div>
+} @else if (failed()) {
+  <div class="report-state">Could not load this report. <button type="button" class="report-filter-clear" (click)="load()">Retry</button></div>
+} @else if (report(); as r) {
+  <div class="tiles">
+    <div class="tile"><span class="tile-label">Received</span><strong class="in">{{ fmt(r.totalReceived) }}</strong></div>
+    <div class="tile"><span class="tile-label">Paid</span><strong class="out">{{ fmt(r.totalPaid) }}</strong></div>
+    <div class="tile"><span class="tile-label">Net</span><strong [class.negative]="r.totalNet < 0">{{ fmt(r.totalNet) }}</strong></div>
+  </div>
+
+  @if (r.items.length === 0) {
+    <div class="report-state">No payments in this period.</div>
+  } @else {
+    <div class="report-table-wrap">
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th class="num">Transactions</th>
+            <th class="num">Received</th>
+            <th class="num">Paid</th>
+            <th class="num">Net</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (m of r.items; track m.paymentMethod) {
+            <tr>
+              <td class="strong">{{ label(m.paymentMethod) }}</td>
+              <td class="num muted">{{ m.transactions }}</td>
+              <td class="num in">{{ fmt(m.received) }}</td>
+              <td class="num out">{{ fmt(m.paid) }}</td>
+              <td class="num strong" [class.negative]="m.net < 0">{{ fmt(m.net) }}</td>
+            </tr>
+          }
+          <tr class="total-row">
+            <td>Total</td>
+            <td class="num">{{ totalTransactions() }}</td>
+            <td class="num in">{{ fmt(r.totalReceived) }}</td>
+            <td class="num out">{{ fmt(r.totalPaid) }}</td>
+            <td class="num" [class.negative]="r.totalNet < 0">{{ fmt(r.totalNet) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  }
+}

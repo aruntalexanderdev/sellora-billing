@@ -1,0 +1,52 @@
+<div class="page-head no-print">
+  <div>
+    <h1>{{ supplier ? 'Supplier outstanding' : 'Customer outstanding' }}</h1>
+    <p>
+      {{ supplier ? 'What you still owe each supplier' : 'What each customer still owes you' }}, after returns and refunds.
+      Amounts are in the base currency.
+    </p>
+  </div>
+  <button type="button" class="report-print-btn" (click)="print()">Print</button>
+</div>
+
+<div class="report-filters no-print">
+  <app-report-date-filter
+    [from]="dateFrom()" [to]="dateTo()"
+    (fromChange)="onDates($event, null)" (toChange)="onDates(null, $event)" (cleared)="dateFrom.set(''); dateTo.set(''); onDates(null, null)"
+  />
+  <div class="inline-filters">
+    <label class="check">
+      <input type="checkbox" [checked]="onlyOutstanding()" (change)="onOnlyOutstanding($any($event.target).checked)" />
+      Only with something outstanding
+    </label>
+  </div>
+</div>
+
+@if (report(); as r) {
+  <div class="tiles">
+    <div class="tile"><span class="tile-label">Net {{ supplier ? 'purchases' : 'sales' }}</span><strong>{{ fmt(r.totalNet) }}</strong></div>
+    <div class="tile"><span class="tile-label">{{ supplier ? 'Paid' : 'Received' }}</span><strong>{{ fmt(r.totalPaid) }}</strong></div>
+    <div class="tile"><span class="tile-label">Outstanding</span><strong class="out">{{ fmt(r.totalOutstanding) }}</strong></div>
+    <div class="tile"><span class="tile-label">Credit held</span><strong class="in">{{ fmt(r.totalCredit) }}</strong></div>
+  </div>
+  <p class="report-note">
+    Credit held is money {{ supplier ? 'the supplier holds' : 'you hold' }} beyond what is owed, or paid on a cancelled {{ supplier ? 'purchase' : 'sale' }} — refundable.
+  </p>
+}
+
+<ui-data-table
+  [cols]="cols()"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  [searchPlaceholder]="supplier ? 'Search suppliers…' : 'Search customers…'"
+  emptyTitle="Nothing outstanding"
+  emptyBody="No one matches these filters."
+  (searchChange)="onSearch($event)"
+  (retry)="retry()"
+  [footerText]="total() + (supplier ? ' supplier' : ' customer') + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
+/>

@@ -1,0 +1,83 @@
+<div class="page-head no-print">
+  <div>
+    <h1>Cash &amp; bank report</h1>
+    <p>Each account's opening balance, money in and out, transfers and closing balance for the period, in the base currency.</p>
+  </div>
+  <button type="button" class="report-print-btn" (click)="print()">Print</button>
+</div>
+
+<div class="report-filters no-print">
+  <app-report-date-filter
+    [from]="dateFrom()" [to]="dateTo()"
+    (fromChange)="onDates($event, null)" (toChange)="onDates(null, $event)" (cleared)="dateFrom.set(''); dateTo.set(''); onDates(null, null)"
+  />
+</div>
+
+@if (loading()) {
+  <div class="report-state">Loading…</div>
+} @else if (failed()) {
+  <div class="report-state">Could not load this report. <button type="button" class="report-filter-clear" (click)="load()">Retry</button></div>
+} @else if (report(); as r) {
+  <div class="tiles">
+    <div class="tile"><span class="tile-label">Opening</span><strong>{{ fmt(r.opening) }}</strong></div>
+    <div class="tile"><span class="tile-label">Money in</span><strong class="in">{{ fmt(r.moneyIn) }}</strong></div>
+    <div class="tile"><span class="tile-label">Money out</span><strong class="out">{{ fmt(r.moneyOut) }}</strong></div>
+    <div class="tile"><span class="tile-label">Closing</span><strong [class.negative]="r.closing < 0">{{ fmt(r.closing) }}</strong></div>
+  </div>
+  <p class="report-note">
+    Closing = opening + money in − money out ± transfers. Only payments where an account was chosen are counted; the balance at the start of the period includes everything before it.
+  </p>
+
+  @if (r.items.length === 0) {
+    <div class="report-state">No accounts yet.</div>
+  } @else {
+    <div class="report-table-wrap">
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Type</th>
+            <th class="num">Opening</th>
+            <th class="num">Money in</th>
+            <th class="num">Money out</th>
+            <th class="num">Transfers in</th>
+            <th class="num">Transfers out</th>
+            <th class="num">Closing</th>
+            <th class="num">To reconcile</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (a of r.items; track a.accountId) {
+            <tr>
+              <td>
+                <a class="strong" [routerLink]="['/accounts/cash-bank', a.accountId]">{{ a.accountName }}</a>
+                @if (!a.isActive) {
+                  <div class="sub">Inactive</div>
+                }
+              </td>
+              <td class="muted">{{ a.kind }}</td>
+              <td class="num">{{ fmt(a.opening) }}</td>
+              <td class="num in">{{ fmt(a.moneyIn) }}</td>
+              <td class="num out">{{ fmt(a.moneyOut) }}</td>
+              <td class="num">{{ fmt(a.transfersIn) }}</td>
+              <td class="num">{{ fmt(a.transfersOut) }}</td>
+              <td class="num strong" [class.negative]="a.closing < 0">{{ fmt(a.closing) }}</td>
+              <td class="num muted">{{ a.unreconciledCount }}</td>
+            </tr>
+          }
+          <tr class="total-row">
+            <td>Total</td>
+            <td></td>
+            <td class="num">{{ fmt(r.opening) }}</td>
+            <td class="num in">{{ fmt(r.moneyIn) }}</td>
+            <td class="num out">{{ fmt(r.moneyOut) }}</td>
+            <td class="num">{{ fmt(r.transfersIn) }}</td>
+            <td class="num">{{ fmt(r.transfersOut) }}</td>
+            <td class="num" [class.negative]="r.closing < 0">{{ fmt(r.closing) }}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  }
+}

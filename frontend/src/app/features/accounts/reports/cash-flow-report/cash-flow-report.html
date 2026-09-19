@@ -1,0 +1,97 @@
+<div class="page-head no-print">
+  <div>
+    <h1>Cash flow / money movement</h1>
+    <p>Where the business's money came from and went. Amounts are in the base currency; cancelled expenses never happened.</p>
+  </div>
+  <button type="button" class="report-print-btn" (click)="print()">Print</button>
+</div>
+
+<div class="report-filters no-print">
+  <app-report-date-filter
+    [from]="dateFrom()" [to]="dateTo()"
+    (fromChange)="onDates($event, null)" (toChange)="onDates(null, $event)" (cleared)="dateFrom.set(''); dateTo.set(''); onDates(null, null)"
+  />
+</div>
+
+@if (loading()) {
+  <div class="report-state">Loading…</div>
+} @else if (failed()) {
+  <div class="report-state">Could not load this report. <button type="button" class="report-filter-clear" (click)="load()">Retry</button></div>
+} @else if (report(); as r) {
+  <div class="tiles">
+    <div class="tile"><span class="tile-label">Money in</span><strong class="in">{{ fmt(r.moneyIn) }}</strong></div>
+    <div class="tile"><span class="tile-label">Money out</span><strong class="out">{{ fmt(r.moneyOut) }}</strong></div>
+    <div class="tile"><span class="tile-label">Net movement</span><strong [class.negative]="r.net < 0">{{ fmt(r.net) }}</strong></div>
+  </div>
+
+  <div class="report-table-wrap">
+    <table class="report-table">
+      <tbody>
+        <tr class="group-head"><td colspan="2">Money in</td></tr>
+        <tr><td class="indent">Received from customers</td><td class="num">{{ fmt(r.receivedFromCustomers) }}</td></tr>
+        <tr><td class="indent">Refunds received from suppliers</td><td class="num">{{ fmt(r.supplierRefunds) }}</td></tr>
+        <tr><td class="indent">Supplier payments reversed</td><td class="num">{{ fmt(r.reversalsIn) }}</td></tr>
+        <tr class="total-row"><td>Total money in</td><td class="num in">{{ fmt(r.moneyIn) }}</td></tr>
+
+        <tr class="group-head"><td colspan="2">Money out</td></tr>
+        <tr><td class="indent">Paid to suppliers</td><td class="num">{{ fmt(r.paidToSuppliers) }}</td></tr>
+        <tr><td class="indent">Expenses</td><td class="num">{{ fmt(r.expenses) }}</td></tr>
+        <tr><td class="indent">Refunds paid to customers</td><td class="num">{{ fmt(r.customerRefunds) }}</td></tr>
+        <tr><td class="indent">Customer payments reversed</td><td class="num">{{ fmt(r.reversalsOut) }}</td></tr>
+        <tr class="total-row"><td>Total money out</td><td class="num out">{{ fmt(r.moneyOut) }}</td></tr>
+
+        <tr class="total-row"><td>Net movement</td><td class="num" [class.negative]="r.net < 0">{{ fmt(r.net) }}</td></tr>
+
+        <tr class="group-head"><td colspan="2">Between your own accounts (not part of the net)</td></tr>
+        <tr><td class="indent">Transferred in</td><td class="num muted">{{ fmt(r.transfersIn) }}</td></tr>
+        <tr><td class="indent">Transferred out</td><td class="num muted">{{ fmt(r.transfersOut) }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  @if (r.months.length > 0) {
+    <h2 class="report-section">By month</h2>
+    <div class="report-table-wrap">
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>Month</th>
+            <th class="num">Received</th>
+            <th class="num">Paid to suppliers</th>
+            <th class="num">Expenses</th>
+            <th class="num">Refunds (net)</th>
+            <th class="num">Money in</th>
+            <th class="num">Money out</th>
+            <th class="num">Net</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (m of r.months; track m.period) {
+            <tr>
+              <td class="strong">{{ period(m.period) }}</td>
+              <td class="num">{{ fmt(m.received) }}</td>
+              <td class="num">{{ fmt(m.paidToSuppliers) }}</td>
+              <td class="num">{{ fmt(m.expenses) }}</td>
+              <td class="num">{{ fmt(m.refunds) }}</td>
+              <td class="num in">{{ fmt(m.moneyIn) }}</td>
+              <td class="num out">{{ fmt(m.moneyOut) }}</td>
+              <td class="num strong" [class.negative]="m.net < 0">{{ fmt(m.net) }}</td>
+            </tr>
+          }
+          <tr class="total-row">
+            <td>Total</td>
+            <td class="num">{{ fmt(r.receivedFromCustomers) }}</td>
+            <td class="num">{{ fmt(r.paidToSuppliers) }}</td>
+            <td class="num">{{ fmt(r.expenses) }}</td>
+            <td class="num">{{ fmt(r.refunds) }}</td>
+            <td class="num in">{{ fmt(r.moneyIn) }}</td>
+            <td class="num out">{{ fmt(r.moneyOut) }}</td>
+            <td class="num" [class.negative]="r.net < 0">{{ fmt(r.net) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  } @else {
+    <div class="report-state">No money moved in this period.</div>
+  }
+}

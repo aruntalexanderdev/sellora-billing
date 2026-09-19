@@ -83,6 +83,19 @@ const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
     ],
   },
   {
+    label: 'Accounts Reports',
+    items: [
+      { label: 'Purchase Payments', routerLink: '/accounts/reports/purchase-payments', permission: 'Reports.Accounts' },
+      { label: 'Sales Payments', routerLink: '/accounts/reports/sales-payments', permission: 'Reports.Accounts' },
+      { label: 'Supplier Outstanding', routerLink: '/accounts/reports/supplier-outstanding', permission: 'Reports.Accounts' },
+      { label: 'Customer Outstanding', routerLink: '/accounts/reports/customer-outstanding', permission: 'Reports.Accounts' },
+      { label: 'Expense Report', routerLink: '/accounts/reports/expenses', permission: 'Reports.Accounts' },
+      { label: 'Cash Flow', routerLink: '/accounts/reports/cash-flow', permission: 'Reports.Accounts' },
+      { label: 'Cash & Bank Report', routerLink: '/accounts/reports/cash-bank', permission: 'Reports.Accounts' },
+      { label: 'Payment Methods', routerLink: '/accounts/reports/payment-methods', permission: 'Reports.Accounts' },
+    ],
+  },
+  {
     label: 'Reports',
     items: [
       { label: 'Current Stock', routerLink: '/reports/stock', permission: 'Reports.Stock' },

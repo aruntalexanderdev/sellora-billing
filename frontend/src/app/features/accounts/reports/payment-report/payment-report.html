@@ -1,0 +1,44 @@
+<div class="page-head no-print">
+  <div>
+    <h1>{{ purchase ? 'Purchase payment report' : 'Sales payment report' }}</h1>
+    <p>
+      {{ purchase ? 'Every payment made to suppliers, with refunds and reversals.' : 'Every payment received from customers, with refunds and reversals.' }}
+      Amounts are in the base currency.
+    </p>
+  </div>
+  <button type="button" class="report-print-btn" (click)="print()">Print</button>
+</div>
+
+<div class="report-filters no-print">
+  <app-report-date-filter
+    [from]="dateFrom()" [to]="dateTo()"
+    (fromChange)="onDates($event, null)" (toChange)="onDates(null, $event)" (cleared)="dateFrom.set(''); dateTo.set(''); onDates(null, null)"
+  />
+</div>
+
+@if (report(); as r) {
+  <div class="tiles">
+    <div class="tile"><span class="tile-label">{{ purchase ? 'Paid' : 'Received' }}</span><strong>{{ fmt(r.payments) }}</strong></div>
+    <div class="tile"><span class="tile-label">Refunds</span><strong class="out">{{ fmt(r.refunds) }}</strong></div>
+    <div class="tile"><span class="tile-label">Reversed</span><strong class="out">{{ fmt(r.reversals) }}</strong></div>
+    <div class="tile"><span class="tile-label">Net</span><strong>{{ fmt(r.net) }}</strong></div>
+  </div>
+}
+
+<ui-data-table
+  [cols]="cols()"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  [searchPlaceholder]="purchase ? 'Search supplier or purchase no…' : 'Search customer or invoice no…'"
+  [filters]="filters()"
+  emptyTitle="No payments match these filters"
+  emptyBody="Clear the search, method or date range to see every payment."
+  (searchChange)="onSearch($event)"
+  (retry)="retry()"
+  [footerText]="total() + ' entr' + (total() === 1 ? 'y' : 'ies')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
+/>

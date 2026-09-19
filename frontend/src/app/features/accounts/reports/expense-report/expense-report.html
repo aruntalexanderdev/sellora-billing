@@ -1,0 +1,53 @@
+<div class="page-head no-print">
+  <div>
+    <h1>Expense report</h1>
+    <p>Operating costs by category, date and payment method. Totals are in the base currency and never include cancelled expenses.</p>
+  </div>
+  <button type="button" class="report-print-btn" (click)="print()">Print</button>
+</div>
+
+<div class="report-filters no-print">
+  <app-report-date-filter
+    [from]="dateFrom()" [to]="dateTo()"
+    (fromChange)="onDates($event, null)" (toChange)="onDates(null, $event)" (cleared)="dateFrom.set(''); dateTo.set(''); onDates(null, null)"
+  />
+  <div class="inline-filters">
+    <select class="field-input" [value]="categoryId()" (change)="onCategory($any($event.target).value)" aria-label="Filter by category">
+      <option value="">All categories</option>
+      @for (c of categories(); track c.id) {
+        <option [value]="c.id">{{ c.name }}</option>
+      }
+    </select>
+    <label class="check">
+      <input type="checkbox" [checked]="includeCancelled()" (change)="onIncludeCancelled($any($event.target).checked)" />
+      Show cancelled
+    </label>
+  </div>
+</div>
+
+@if (report(); as r) {
+  <div class="tiles">
+    <div class="tile"><span class="tile-label">Total expenses</span><strong class="out">{{ fmt(r.totalBase) }}</strong></div>
+    @for (c of r.byCategory; track c.category) {
+      <div class="tile"><span class="tile-label">{{ c.category }} · {{ c.count }}</span><strong>{{ fmt(c.baseTotal) }}</strong></div>
+    }
+  </div>
+}
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search expense no., category or reference…"
+  [filters]="filters()"
+  emptyTitle="No expenses match these filters"
+  emptyBody="Clear the search, category or date range to see every expense."
+  (searchChange)="onSearch($event)"
+  (retry)="retry()"
+  [footerText]="total() + ' expense' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
+/>

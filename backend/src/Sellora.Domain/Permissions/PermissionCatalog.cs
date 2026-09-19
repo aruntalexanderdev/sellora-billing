@@ -90,6 +90,7 @@ public static class PermissionCatalog
         new("Reports.Movement", "Reports", "View", "View the stock movement report."),
         new("Reports.Purchase", "Reports", "View", "View the purchase report."),
         new("Reports.Sales", "Reports", "View", "View the sales report."),
+        new("Reports.Accounts", "Reports", "View", "View the Accounts reports: payments, outstanding balances, expenses, cash flow, cash & bank and payment methods."),
         new("Reports.Profit", "Reports", "View", "View the profit/margin summary report."),
     };
 }
