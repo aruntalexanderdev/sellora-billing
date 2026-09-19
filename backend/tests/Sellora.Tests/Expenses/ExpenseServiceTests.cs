@@ -168,4 +168,39 @@ public class ExpenseServiceTests
         Assert.Null(await f.Service.CancelAsync(Guid.NewGuid(), null, f.UserId));
         Assert.Null(await f.Service.UpdateAsync(Guid.NewGuid(), new UpdateExpenseInput(f.Rent.Id, null, null)));
     }
+
+    [Fact]
+    public async Task CreateAsync_WritesAnExpensePaymentTransaction_AndCancelMarksItCancelled()
+    {
+        var f = await SeedAsync();
+        var expense = await f.Service.CreateAsync(Input(f, f.Usd, 100m), f.UserId);
+
+        var txn = await f.Db.FinancialTransactions.AsNoTracking().SingleAsync();
+        Assert.Equal(FinancialTransactionType.ExpensePayment, txn.Type);
+        Assert.Equal(MoneyDirection.Out, txn.Direction);
+        Assert.Equal(FinancialTransactionStatus.Active, txn.Status);
+        Assert.Equal(expense.Id, txn.ExpenseId);
+        Assert.Equal(f.Usd.Id, txn.CurrencyId);
+        Assert.Equal(100m, txn.Amount);
+        Assert.Equal(83.20m, txn.ExchangeRateToBase);
+        Assert.Equal(8320m, txn.BaseAmount);
+        Assert.Equal(PaymentMethod.BankTransfer, txn.PaymentMethod);
+        Assert.Equal(f.UserId, txn.CreatedByUserId);
+
+        await f.Service.CancelAsync(expense.Id, null, f.UserId);
+
+        var after = await f.Db.FinancialTransactions.AsNoTracking().SingleAsync(); // kept, not deleted
+        Assert.Equal(FinancialTransactionStatus.Cancelled, after.Status);
+        Assert.Equal(8320m, after.BaseAmount);
+    }
+
+    [Fact]
+    public async Task RejectedExpense_WritesNoTransaction()
+    {
+        var f = await SeedAsync();
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateAsync(Input(f, f.Inr, 0m), f.UserId));
+
+        Assert.Empty(await f.Db.FinancialTransactions.ToListAsync());
+    }
 }

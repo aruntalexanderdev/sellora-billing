@@ -181,6 +181,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         };
         purchase.Payments.Add(payment);
         db.PurchasePayments.Add(payment);
+        db.FinancialTransactions.Add(FinancialTransaction.ForPurchasePayment(payment, purchase.CurrencyId));
     }
 
     private static void ApplyPaidTotal(PurchaseOrder purchase, decimal amount, int transactionPrecision, int basePrecision)

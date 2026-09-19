@@ -27,6 +27,7 @@ import { ExpenseList } from './features/accounts/expenses/expense-list/expense-l
 import { ExpenseForm } from './features/accounts/expenses/expense-form/expense-form';
 import { ExpenseDetail } from './features/accounts/expenses/expense-detail/expense-detail';
 import { ExpenseCategories } from './features/accounts/expenses/expense-categories/expense-categories';
+import { FinancialTransactionList } from './features/accounts/financial-transactions/financial-transaction-list/financial-transaction-list';
 import { PurchaseList } from './features/purchases/purchase-list/purchase-list';
 import { PurchaseForm } from './features/purchases/purchase-form/purchase-form';
 import { PurchaseDetail } from './features/purchases/purchase-detail/purchase-detail';
@@ -315,6 +316,13 @@ export const routes: Routes = [
         component: ExpenseDetail,
         canActivate: [permissionGuard('Expenses.View')],
         data: { group: 'Accounts', page: 'Expense details' },
+      },
+
+      {
+        path: 'accounts/financial-transactions',
+        component: FinancialTransactionList,
+        canActivate: [permissionGuard('FinancialTransactions.View')],
+        data: { group: 'Accounts', page: 'Financial Transactions' },
       },
 
       {

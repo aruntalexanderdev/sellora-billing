@@ -485,4 +485,40 @@ public class MultiCurrencyPurchaseTests
         Assert.Empty(await f.Db.PurchaseOrders.ToListAsync());
         Assert.Empty(await f.Db.StockItems.ToListAsync());
     }
+
+    [Fact]
+    public async Task Payments_EachWriteASupplierPaymentTransaction_WithTheSnapshottedRate()
+    {
+        var f = await SeedAsync();
+        var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.UsdSupplier, new DateOnly(2026, 9, 5), 10, 100m, 400m), f.UserId);
+        await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(600m, PaymentMethod.Upi, 600m), f.UserId);
+
+        var payments = await f.Db.PurchasePayments.AsNoTracking().OrderBy(p => p.CreatedAt).ToListAsync();
+        var txns = await f.Db.FinancialTransactions.AsNoTracking().OrderBy(t => t.CreatedAt).ToListAsync();
+
+        Assert.Equal(2, txns.Count);
+        Assert.All(txns, t =>
+        {
+            Assert.Equal(FinancialTransactionType.SupplierPayment, t.Type);
+            Assert.Equal(MoneyDirection.Out, t.Direction);
+            Assert.Equal(FinancialTransactionStatus.Active, t.Status);
+            Assert.Equal(f.Usd.Id, t.CurrencyId);
+            Assert.Equal(83.20m, t.ExchangeRateToBase);
+        });
+        Assert.Equal(payments.Select(p => p.Id), txns.Select(t => t.PurchasePaymentId!.Value));
+        Assert.Equal(payments.Select(p => p.Amount), txns.Select(t => t.Amount));
+        Assert.Equal(83200m, txns.Sum(t => t.BaseAmount)); // fully paid: exactly the base grand total
+    }
+
+    [Fact]
+    public async Task RejectedPayment_WritesNoTransaction()
+    {
+        var f = await SeedAsync();
+        var purchase = await f.Purchases.CreatePurchaseAsync(Input(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m), f.UserId);
+
+        await Assert.ThrowsAsync<DomainValidationException>(
+            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(101m, PaymentMethod.Cash, 100m), f.UserId));
+
+        Assert.Empty(await f.Db.FinancialTransactions.ToListAsync());
+    }
 }

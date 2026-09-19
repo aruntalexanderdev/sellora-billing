@@ -279,6 +279,89 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("ExpenseCategories");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.FinancialTransaction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal>("BaseAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<decimal>("ExchangeRateToBase")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<Guid?>("ExpenseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PaymentMethod")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("PurchasePaymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SalesPaymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateOnly>("TransactionDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("CurrencyId");
+
+                    b.HasIndex("ExpenseId")
+                        .IsUnique();
+
+                    b.HasIndex("PurchasePaymentId")
+                        .IsUnique();
+
+                    b.HasIndex("SalesPaymentId")
+                        .IsUnique();
+
+                    b.HasIndex("TransactionDate", "CreatedAt");
+
+                    b.HasIndex("Type", "Status");
+
+                    b.ToTable("FinancialTransactions", t =>
+                        {
+                            t.HasCheckConstraint("CK_FinancialTransactions_Amount_Positive", "\"Amount\" > 0");
+
+                            t.HasCheckConstraint("CK_FinancialTransactions_OneSource", "(CASE WHEN \"PurchasePaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"SalesPaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"ExpenseId\" IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.Permission", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1275,6 +1358,46 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("CreatedByUser");
 
                     b.Navigation("Currency");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.FinancialTransaction", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Currency", "Currency")
+                        .WithMany()
+                        .HasForeignKey("CurrencyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Expense", "Expense")
+                        .WithMany()
+                        .HasForeignKey("ExpenseId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.PurchasePayment", "PurchasePayment")
+                        .WithMany()
+                        .HasForeignKey("PurchasePaymentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.SalesPayment", "SalesPayment")
+                        .WithMany()
+                        .HasForeignKey("SalesPaymentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("Currency");
+
+                    b.Navigation("Expense");
+
+                    b.Navigation("PurchasePayment");
+
+                    b.Navigation("SalesPayment");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Product", b =>

@@ -74,7 +74,10 @@ const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
   },
   {
     label: 'Accounts',
-    items: [{ label: 'Expenses', routerLink: '/accounts/expenses', permission: 'Expenses.View' }],
+    items: [
+      { label: 'Expenses', routerLink: '/accounts/expenses', permission: 'Expenses.View' },
+      { label: 'Financial Transactions', routerLink: '/accounts/financial-transactions', permission: 'FinancialTransactions.View' },
+    ],
   },
   {
     label: 'Reports',

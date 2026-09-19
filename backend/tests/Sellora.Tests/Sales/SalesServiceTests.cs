@@ -281,4 +281,40 @@ public class SalesServiceTests
         Assert.Equal("Status", cancelled.Field);
         Assert.Null(await f.Service.AddPaymentAsync(Guid.NewGuid(), request, f.UserId));
     }
+
+    [Fact]
+    public async Task Payments_EachWriteACustomerPaymentTransaction_InTheBaseCurrency()
+    {
+        var f = await SeedAsync();
+        var sale = await SaleAsync(f, 300m);
+        await f.Service.AddPaymentAsync(sale.Id, new AddSalePaymentInput(200m, PaymentMethod.Upi, 1065m), f.UserId);
+
+        var payments = await f.Db.SalesPayments.AsNoTracking().OrderBy(p => p.CreatedAt).ToListAsync();
+        var txns = await f.Db.FinancialTransactions.AsNoTracking().OrderBy(t => t.CreatedAt).ToListAsync();
+        var baseCurrencyId = (await f.Db.BusinessSettings.SingleAsync()).BaseCurrencyId;
+
+        Assert.Equal(2, txns.Count);
+        Assert.All(txns, t =>
+        {
+            Assert.Equal(FinancialTransactionType.CustomerPayment, t.Type);
+            Assert.Equal(MoneyDirection.In, t.Direction);
+            Assert.Equal(baseCurrencyId, t.CurrencyId);
+        });
+        Assert.Equal(payments.Select(p => p.Id), txns.Select(t => t.SalesPaymentId!.Value));
+        Assert.Equal([300m, 200m], txns.Select(t => t.BaseAmount));
+    }
+
+    [Fact]
+    public async Task UnpaidSale_AndCappedOverTender_WriteTheRightTransactions()
+    {
+        var f = await SeedAsync();
+        await SaleAsync(f, 0m);
+        Assert.Empty(await f.Db.FinancialTransactions.ToListAsync());
+
+        await f.Service.CreateSaleAsync(
+            new CreateSaleInput(f.Customer.Id, new DateOnly(2026, 9, 18), PaymentMethod.Cash, 2000m,
+                [new SaleLineInput(f.Product.Id, f.LooseKg.Id, 20, 65, 0)]), f.UserId);
+
+        Assert.Equal(1365m, (await f.Db.FinancialTransactions.SingleAsync()).BaseAmount); // change is not money received
+    }
 }

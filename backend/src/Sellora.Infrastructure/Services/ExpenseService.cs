@@ -55,6 +55,7 @@ public class ExpenseService(SelloraDbContext db, IExchangeRateService exchangeRa
         };
 
         db.Expenses.Add(expense);
+        db.FinancialTransactions.Add(FinancialTransaction.ForExpense(expense));
         await db.SaveChangesAsync(ct);
         return expense;
     }
@@ -100,6 +101,10 @@ public class ExpenseService(SelloraDbContext db, IExchangeRateService exchangeRa
         expense.CancelledAt = DateTimeOffset.UtcNow;
         expense.CancelledByUserId = cancelledByUserId;
         expense.CancellationReason = Clean(reason);
+
+        // The money-out record stays for history but no longer counts toward totals.
+        var transaction = await db.FinancialTransactions.SingleOrDefaultAsync(t => t.ExpenseId == expense.Id, ct);
+        if (transaction is not null) transaction.Status = FinancialTransactionStatus.Cancelled;
 
         await db.SaveChangesAsync(ct);
         return expense;

@@ -72,6 +72,9 @@ public static class PermissionCatalog
         new("Expenses.Cancel", "Accounts", "Cancel", "Cancel an expense."),
         new("Expenses.Categories", "Accounts", "Categories", "Create, rename and deactivate expense categories."),
 
+        // Accounts — Financial Transactions
+        new("FinancialTransactions.View", "Accounts", "View", "View the financial transaction history."),
+
         // Reports
         new("Reports.Stock", "Reports", "View", "View the current stock report."),
         new("Reports.Movement", "Reports", "View", "View the stock movement report."),

@@ -1,0 +1,66 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Sellora.Api.Contracts;
+using Sellora.Domain.Entities;
+using Sellora.Infrastructure.Data;
+
+namespace Sellora.Api.Controllers;
+
+/// <summary>Read-only. Financial transactions are written only as a side effect of the source record
+/// (a purchase payment, sales payment or expense) in the same database transaction.</summary>
+[ApiController]
+[Route("api/v1/financial-transactions")]
+public class FinancialTransactionsController(SelloraDbContext db) : ControllerBase
+{
+    [HttpGet]
+    [Authorize(Policy = "FinancialTransactions.View")]
+    public async Task<ActionResult<FinancialTransactionListDto>> List(
+        [FromQuery] string? search, [FromQuery] FinancialTransactionType? type, [FromQuery] MoneyDirection? direction,
+        [FromQuery] FinancialTransactionStatus? status, [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var query = db.FinancialTransactions.AsQueryable();
+        if (type is not null) query = query.Where(t => t.Type == type);
+        if (direction is not null) query = query.Where(t => t.Direction == direction);
+        if (status is not null) query = query.Where(t => t.Status == status);
+        if (dateFrom is not null) query = query.Where(t => t.TransactionDate >= dateFrom);
+        if (dateTo is not null) query = query.Where(t => t.TransactionDate <= dateTo);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim().ToLower();
+            query = query.Where(t =>
+                (t.PurchasePayment != null && (t.PurchasePayment.PurchaseOrder.PurchaseNo.ToLower().Contains(s) || t.PurchasePayment.PurchaseOrder.Supplier.Name.ToLower().Contains(s)))
+                || (t.SalesPayment != null && (t.SalesPayment.SalesInvoice.InvoiceNo.ToLower().Contains(s) || t.SalesPayment.SalesInvoice.Customer.Name.ToLower().Contains(s)))
+                || (t.Expense != null && (t.Expense.ExpenseNo.ToLower().Contains(s) || t.Expense.Category.Name.ToLower().Contains(s))));
+        }
+
+        var total = await query.CountAsync(ct);
+        var moneyIn = await query.Where(t => t.Status == FinancialTransactionStatus.Active && t.Direction == MoneyDirection.In).SumAsync(t => (decimal?)t.BaseAmount, ct) ?? 0m;
+        var moneyOut = await query.Where(t => t.Status == FinancialTransactionStatus.Active && t.Direction == MoneyDirection.Out).SumAsync(t => (decimal?)t.BaseAmount, ct) ?? 0m;
+
+        var items = await query
+            .OrderByDescending(t => t.TransactionDate).ThenByDescending(t => t.CreatedAt)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(t => new FinancialTransactionDto(
+                t.Id, t.TransactionDate, t.Type, t.Direction, t.Status,
+                t.PurchasePayment != null ? t.PurchasePayment.PurchaseOrder.Supplier.Name
+                    : t.SalesPayment != null ? t.SalesPayment.SalesInvoice.Customer.Name
+                    : t.Expense!.Category.Name,
+                t.PurchasePayment != null ? "Purchase" : t.SalesPayment != null ? "Sale" : "Expense",
+                t.PurchasePayment != null ? t.PurchasePayment.PurchaseOrderId
+                    : t.SalesPayment != null ? t.SalesPayment.SalesInvoiceId
+                    : t.ExpenseId!.Value,
+                t.PurchasePayment != null ? t.PurchasePayment.PurchaseOrder.PurchaseNo
+                    : t.SalesPayment != null ? t.SalesPayment.SalesInvoice.InvoiceNo
+                    : t.Expense!.ExpenseNo,
+                t.PaymentMethod, t.Amount, t.Currency.Code, t.ExchangeRateToBase, t.BaseAmount, t.CreatedAt))
+            .ToListAsync(ct);
+
+        var baseCurrency = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);
+        return Ok(new FinancialTransactionListDto(items, total, page, pageSize, moneyIn, moneyOut, baseCurrency.Code, baseCurrency.Symbol));
+    }
+}

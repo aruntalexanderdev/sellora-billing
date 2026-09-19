@@ -1,0 +1,51 @@
+<div class="page-head">
+  <div>
+    <h1>Financial transactions</h1>
+    <p>Every movement of the business's money — customer payments in, supplier payments and expenses out. Recorded automatically; totals are in the base currency.</p>
+  </div>
+</div>
+
+<div class="summary">
+  <div class="tile"><span class="tile-label">Money in</span><strong class="in">{{ fmt(moneyIn()) }}</strong></div>
+  <div class="tile"><span class="tile-label">Money out</span><strong class="out">{{ fmt(moneyOut()) }}</strong></div>
+  <div class="tile"><span class="tile-label">Net movement</span><strong>{{ fmt(net()) }}</strong></div>
+  <div class="tile-note">Active transactions matching the filters below.</div>
+</div>
+
+<div class="filters">
+  <select class="field-input" [value]="type()" (change)="onFilter('type', $any($event.target).value)" aria-label="Filter by type">
+    <option value="">All types</option>
+    <option value="CustomerPayment">Customer payment</option>
+    <option value="SupplierPayment">Supplier payment</option>
+    <option value="ExpensePayment">Expense paid</option>
+  </select>
+  <select class="field-input" [value]="direction()" (change)="onFilter('direction', $any($event.target).value)" aria-label="Filter by direction">
+    <option value="">Money in &amp; out</option>
+    <option value="In">Money in</option>
+    <option value="Out">Money out</option>
+  </select>
+  <select class="field-input" [value]="status()" (change)="onFilter('status', $any($event.target).value)" aria-label="Filter by status">
+    <option value="">All statuses</option>
+    <option value="Active">Active</option>
+    <option value="Cancelled">Cancelled</option>
+  </select>
+  <label class="date-filter">From <input type="date" class="field-input" [value]="dateFrom()" (change)="onFilter('dateFrom', $any($event.target).value)" /></label>
+  <label class="date-filter">To <input type="date" class="field-input" [value]="dateTo()" (change)="onFilter('dateTo', $any($event.target).value)" /></label>
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search party, purchase, invoice or expense no…"
+  emptyTitle="No financial transactions yet"
+  emptyBody="Payments and expenses will appear here as they are recorded."
+  (searchChange)="onSearch($event)"
+  (retry)="retry()"
+  [footerText]="total() + ' transaction' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
+/>

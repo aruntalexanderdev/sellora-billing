@@ -78,7 +78,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         var received = Math.Min(input.PaidAmount, invoice.GrandTotal);
         if (received > 0)
         {
-            RecordPayment(invoice, received, input.PaymentMethod, input.InvoiceDate, createdByUserId);
+            await RecordPaymentAsync(invoice, received, input.PaymentMethod, input.InvoiceDate, createdByUserId, ct);
         }
 
         db.SalesInvoices.Add(invoice);
@@ -125,7 +125,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("Amount", $"Payment cannot exceed the outstanding due of {due:F2}.");
         }
 
-        RecordPayment(invoice, input.Amount, input.PaymentMethod, DateOnly.FromDateTime(DateTime.UtcNow), receivedByUserId);
+        await RecordPaymentAsync(invoice, input.Amount, input.PaymentMethod, DateOnly.FromDateTime(DateTime.UtcNow), receivedByUserId, ct);
 
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
@@ -134,7 +134,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
     // The one place a payment is recorded: appends a ledger row and moves the invoice's running paid total;
     // an existing payment is never touched.
-    private void RecordPayment(SalesInvoice invoice, decimal amount, PaymentMethod method, DateOnly paymentDate, Guid userId)
+    private async Task RecordPaymentAsync(SalesInvoice invoice, decimal amount, PaymentMethod method, DateOnly paymentDate, Guid userId, CancellationToken ct)
     {
         invoice.PaidAmount += amount;
         invoice.PaymentMethod = method;
@@ -152,6 +152,10 @@ public class SalesService(SelloraDbContext db) : ISalesService
         };
         invoice.Payments.Add(payment);
         db.SalesPayments.Add(payment);
+
+        // Sales are billed in the base currency, so the money moved is in the base currency too.
+        var baseCurrencyId = await db.BusinessSettings.Select(s => s.BaseCurrencyId).SingleAsync(ct);
+        db.FinancialTransactions.Add(FinancialTransaction.ForSalesPayment(payment, baseCurrencyId));
     }
 
     public async Task CancelSaleAsync(Guid salesInvoiceId, CancellationToken ct = default)
