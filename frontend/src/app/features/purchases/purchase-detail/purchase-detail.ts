@@ -9,7 +9,7 @@ import { ToastService } from '../../../shared/ui/toast/toast.service';
 import { ConfirmDialogService } from '../../../shared/ui/confirm-dialog/confirm-dialog.service';
 import { AuthService } from '../../../core/auth/auth.service';
 import { PurchasesService } from '../purchases.service';
-import type { PurchaseDetail as PurchaseDetailModel, PaymentMethod } from '../purchases.models';
+import type { PurchaseDetail as PurchaseDetailModel, PurchasePayment, PaymentMethod } from '../purchases.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
 import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
 import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
@@ -96,11 +96,11 @@ export class PurchaseDetail implements OnInit {
     const foreign = p.exchangeRateToBase !== 1;
     let paidBase = paidOriginal;
     if (foreign) {
-      paidBase = paidOriginal >= p.originalGrandTotal ? p.grandTotal : roundTo(paidOriginal * p.exchangeRateToBase, p.baseCurrencyDecimalPrecision);
+      paidBase = paidOriginal >= p.originalNetTotal ? p.netTotal : roundTo(paidOriginal * p.exchangeRateToBase, p.baseCurrencyDecimalPrecision);
     }
     return {
-      dueOriginal: Math.max(0, p.originalGrandTotal - paidOriginal),
-      dueBase: Math.max(0, p.grandTotal - paidBase),
+      dueOriginal: Math.max(0, p.originalNetTotal - paidOriginal),
+      dueBase: Math.max(0, p.netTotal - paidBase),
     };
   });
 
@@ -109,8 +109,119 @@ export class PurchaseDetail implements OnInit {
     notes: [''],
   });
 
+  // ---- Return items / refund / reverse ----
+  readonly canReturn = computed(() => {
+    const p = this.purchase();
+    return this.auth.hasPermission('Purchase.Return') && !!p && p.status === 'Completed' && p.lines.some((l) => l.returnableQty > 0);
+  });
+  readonly canRefund = computed(() => this.auth.hasPermission('Purchase.Refund') && (this.purchase()?.originalRefundableAmount ?? 0) > 0);
+  readonly canReverse = (x: PurchasePayment) => this.auth.hasPermission('Purchase.Refund') && x.kind === 'Payment' && !x.isReversed;
+
+  readonly refunding = signal(false);
+  readonly refundSaving = signal(false);
+  readonly refundError = signal<string | null>(null);
+
+  private readonly withinRefundable = (c: AbstractControl): ValidationErrors | null =>
+    c.value == null || c.value === '' || roundTo(Number(c.value), this.precision()) <= (this.purchase()?.originalRefundableAmount ?? 0)
+      ? null
+      : { exceedsRefundable: true };
+
+  readonly refundForm = this.fb.nonNullable.group({
+    amount: [null as number | null, [Validators.required, this.positiveAmount, this.withinRefundable]],
+    paymentMethod: ['Cash' as PaymentMethod, Validators.required],
+    accountId: [''],
+    reason: [''],
+    purchaseReturnId: [''],
+  });
+
+  readonly reversing = signal<PurchasePayment | null>(null);
+  readonly reverseSaving = signal(false);
+  readonly reverseError = signal<string | null>(null);
+  readonly reverseReason = this.fb.nonNullable.control('');
+
+  goReturn(): void {
+    this.router.navigate(['/purchases', this.purchase()!.id, 'return']);
+  }
+
+  openRefund(): void {
+    if (!this.canRefund()) return;
+    this.refundError.set(null);
+    this.reversing.set(null);
+    this.paying.set(false);
+    this.cashBank.options().subscribe({ next: (o) => this.accountOptions.set(o) });
+    // The supplier pays back the way we paid, so start from the purchase's last payment method.
+    this.refundForm.reset({
+      amount: this.purchase()!.originalRefundableAmount, paymentMethod: this.purchase()!.paymentMethod,
+      accountId: defaultAccountId(this.accountOptions(), this.purchase()!.paymentMethod), reason: '', purchaseReturnId: '',
+    });
+    this.refunding.set(true);
+  }
+
+  submitRefund(): void {
+    if (this.refundSaving()) return;
+    this.refundError.set(null);
+    this.refundForm.controls.amount.updateValueAndValidity();
+    if (this.refundForm.invalid) {
+      this.refundForm.markAllAsTouched();
+      return;
+    }
+
+    const p = this.purchase()!;
+    const v = this.refundForm.getRawValue();
+    this.refundSaving.set(true);
+    this.purchasesService
+      .addRefund(p.id, {
+        amount: v.amount!, paymentMethod: v.paymentMethod, expectedRefundable: p.originalRefundableAmount,
+        accountId: v.accountId || null, reason: v.reason || null, purchaseReturnId: v.purchaseReturnId || null,
+      })
+      .subscribe({
+        next: (updated) => {
+          this.refundSaving.set(false);
+          this.purchase.set(updated);
+          this.refunding.set(false);
+          this.toast.show('Refund recorded.');
+        },
+        error: (err: HttpErrorResponse) => {
+          this.refundSaving.set(false);
+          const problem = err.error as ApiProblem | undefined;
+          this.refundError.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Could not record this refund.');
+        },
+      });
+  }
+
+  startReverse(x: PurchasePayment): void {
+    this.reverseError.set(null);
+    this.reverseReason.reset('');
+    this.refunding.set(false);
+    this.paying.set(false);
+    this.reversing.set(x);
+  }
+
+  submitReverse(): void {
+    const x = this.reversing();
+    if (!x || this.reverseSaving()) return;
+    this.reverseError.set(null);
+    this.reverseSaving.set(true);
+    this.purchasesService.reversePayment(this.purchase()!.id, x.id, this.reverseReason.value || null).subscribe({
+      next: (updated) => {
+        this.reverseSaving.set(false);
+        this.purchase.set(updated);
+        this.reversing.set(null);
+        this.toast.show('Payment reversed.');
+      },
+      error: (err: HttpErrorResponse) => {
+        this.reverseSaving.set(false);
+        const problem = err.error as ApiProblem | undefined;
+        this.reverseError.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Could not reverse this payment.');
+      },
+    });
+  }
+
   ngOnInit(): void {
     this.load();
+    this.refundForm.controls.paymentMethod.valueChanges.subscribe((m) =>
+      this.refundForm.patchValue({ accountId: defaultAccountId(this.accountOptions(), m) }),
+    );
     this.payForm.controls.paymentMethod.valueChanges.subscribe((m) =>
       this.payForm.patchValue({ accountId: defaultAccountId(this.accountOptions(), m) }),
     );
@@ -141,6 +252,8 @@ export class PurchaseDetail implements OnInit {
   openPay(): void {
     if (!this.canPay()) return;
     this.payError.set(null);
+    this.refunding.set(false);
+    this.reversing.set(null);
     const method = this.purchase()!.paymentMethod;
     // Loaded when the panel opens, since only people who can pay ever need the list.
     this.cashBank.options().subscribe({

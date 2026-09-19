@@ -18,12 +18,16 @@ public record SalesInvoiceListItemDto(
 public record SalesInvoiceLineDto(
     Guid Id, Guid ProductId, string ProductName, Guid SellingModeId, string SellingModeLabel,
     decimal Qty, decimal BaseQty, string BaseUnitLabel, decimal UnitPrice,
-    decimal TaxRatePercent, decimal Discount, decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal CostOfGoodsSold
+    decimal TaxRatePercent, decimal Discount, decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal CostOfGoodsSold,
+    decimal ReturnedQty, decimal ReturnableQty
 );
 
 public record SalesPaymentDto(
-    Guid Id, DateOnly PaymentDate, decimal Amount, PaymentMethod PaymentMethod, string CreatedByName, DateTimeOffset CreatedAt
+    Guid Id, PaymentEntryKind Kind, DateOnly PaymentDate, decimal Amount, PaymentMethod PaymentMethod,
+    string CreatedByName, DateTimeOffset CreatedAt, bool IsReversed, string? Reason, string? ReturnNo
 );
+
+public record SalesReturnSummaryDto(Guid Id, string ReturnNo, DateOnly ReturnDate, decimal Total, decimal RefundedAmount);
 
 public record SalesInvoiceDetailDto(
     Guid Id, string InvoiceNo, Guid CustomerId, string CustomerName, DateOnly InvoiceDate,
@@ -31,7 +35,9 @@ public record SalesInvoiceDetailDto(
     decimal Subtotal, decimal TaxTotal, decimal DiscountTotal, decimal GrandTotal,
     SalesStatus Status, string CreatedByName, DateTimeOffset CreatedAt, DateTimeOffset? CancelledAt,
     IReadOnlyList<SalesInvoiceLineDto> Lines,
-    IReadOnlyList<SalesPaymentDto> Payments
+    IReadOnlyList<SalesPaymentDto> Payments,
+    decimal ReturnedAmount, decimal NetTotal, decimal RefundableAmount,
+    IReadOnlyList<SalesReturnSummaryDto> Returns
 );
 
 public record CreateSaleLineRequest(
@@ -56,4 +62,49 @@ public record AddSalePaymentRequest(
     PaymentMethod PaymentMethod,
     [Range(0, 999999999)] decimal ExpectedDue,
     Guid? AccountId = null
+);
+
+public record SaleReturnLineRequest([Required] Guid? SalesInvoiceLineId, [Range(0.001, 999999999)] decimal Qty);
+
+public record RefundRequest(
+    [Range(0.000001, 999999999)] decimal Amount,
+    PaymentMethod PaymentMethod,
+    Guid? AccountId = null,
+    [MaxLength(200)] string? Reason = null
+);
+
+public record CreateSaleReturnRequest(
+    [Required] Guid? SalesInvoiceId,
+    [Required] DateOnly ReturnDate,
+    [MaxLength(300)] string? Reason,
+    [MinLength(1)] SaleReturnLineRequest[] Lines,
+    RefundRequest? Refund = null
+);
+
+public record AddSaleRefundRequest(
+    [Range(0.000001, 999999999)] decimal Amount,
+    PaymentMethod PaymentMethod,
+    [Range(0, 999999999)] decimal ExpectedRefundable,
+    Guid? AccountId = null,
+    [MaxLength(200)] string? Reason = null,
+    Guid? SalesReturnId = null
+);
+
+public record ReversePaymentRequest([MaxLength(200)] string? Reason = null);
+
+public record SalesReturnListItemDto(
+    Guid Id, string ReturnNo, DateOnly ReturnDate, Guid SalesInvoiceId, string InvoiceNo, string CustomerName,
+    decimal Total, decimal RefundedAmount
+);
+
+public record SalesReturnLineDto(
+    Guid Id, string ProductName, string SellingModeLabel, decimal Qty, decimal BaseQty, string BaseUnitLabel,
+    decimal TaxableValue, decimal TaxAmount, decimal LineTotal
+);
+
+public record SalesReturnDetailDto(
+    Guid Id, string ReturnNo, DateOnly ReturnDate, Guid SalesInvoiceId, string InvoiceNo, string CustomerName,
+    string? Reason, decimal TaxableTotal, decimal TaxTotal, decimal Total, decimal RefundedAmount,
+    string CreatedByName, DateTimeOffset CreatedAt,
+    IReadOnlyList<SalesReturnLineDto> Lines, IReadOnlyList<SalesPaymentDto> Refunds
 );

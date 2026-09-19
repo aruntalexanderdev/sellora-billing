@@ -1,9 +1,9 @@
 namespace Sellora.Domain.Entities;
 
 /// <summary>
-/// One payment received against a sales invoice. Payments are append-only: an invoice's paid total is the
-/// sum of its payments, and a payment is never edited or deleted (corrections arrive as reversals in a later
-/// phase). Sales are billed in the base currency today, so the rate is always 1; it is snapshotted anyway so
+/// One entry in a sales invoice's money ledger: a payment received, a refund paid back, or a reversal of an earlier
+/// payment (see <see cref="Kind"/>). Entries are append-only: an invoice's paid total is
+/// payments less refunds and reversals, and an entry is never edited or deleted. Sales are billed in the base currency today, so the rate is always 1; it is snapshotted anyway so
 /// the record keeps its shape if customer currencies are added.
 /// </summary>
 public class SalesPayment
@@ -12,6 +12,18 @@ public class SalesPayment
 
     public Guid SalesInvoiceId { get; set; }
     public SalesInvoice SalesInvoice { get; set; } = null!;
+
+    public PaymentEntryKind Kind { get; set; } = PaymentEntryKind.Payment;
+
+    /// <summary>For a <see cref="PaymentEntryKind.Reversal"/>, the payment it undoes.</summary>
+    public Guid? ReversesPaymentId { get; set; }
+    public SalesPayment? ReversesPayment { get; set; }
+
+    /// <summary>For a refund, the return it was made for, if any.</summary>
+    public Guid? SalesReturnId { get; set; }
+    public SalesReturn? SalesReturn { get; set; }
+
+    public string? Reason { get; set; }
 
     public DateOnly PaymentDate { get; set; }
 

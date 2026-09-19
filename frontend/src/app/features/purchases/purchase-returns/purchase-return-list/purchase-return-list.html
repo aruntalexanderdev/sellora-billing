@@ -1,0 +1,23 @@
+<div class="page-head">
+  <div>
+    <h1>Purchase returns</h1>
+    <p>Goods sent back to suppliers. Start a return from the purchase itself.</p>
+  </div>
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search return, purchase or supplier…"
+  emptyTitle="No returns yet"
+  emptyBody="Open a purchase and choose Return items to send goods back to the supplier."
+  (searchChange)="onSearch($event)"
+  (retry)="retry()"
+  [footerText]="total() + ' return' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
+/>

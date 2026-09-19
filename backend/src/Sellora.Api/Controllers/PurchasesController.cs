@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Payments;
 using Sellora.Domain.Purchasing;
 using Sellora.Infrastructure.Data;
 
@@ -42,7 +43,8 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(p => new PurchaseListItemDto(
                 p.Id, p.PurchaseNo, p.Supplier.Name, p.PurchaseDate, p.GrandTotal,
-                p.PaidAmount <= 0 ? PaymentStatus.Due : p.PaidAmount >= p.GrandTotal ? PaymentStatus.Paid : PaymentStatus.PartiallyPaid,
+                p.OriginalGrandTotal - p.OriginalReturnedAmount <= 0 || p.OriginalPaidAmount >= p.OriginalGrandTotal - p.OriginalReturnedAmount ? PaymentStatus.Paid
+                    : p.OriginalPaidAmount <= 0 ? PaymentStatus.Due : PaymentStatus.PartiallyPaid,
                 p.Status, p.Currency.Code, p.OriginalGrandTotal))
             .ToListAsync(ct);
 
@@ -59,7 +61,11 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             .Include(p => p.CreatedByUser)
             .Include(p => p.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.BaseUnit)
             .Include(p => p.Lines).ThenInclude(l => l.SellingMode)
+            .Include(p => p.Lines).ThenInclude(l => l.Batch)
             .Include(p => p.Payments).ThenInclude(pay => pay.CreatedByUser)
+            .Include(p => p.Payments).ThenInclude(pay => pay.PurchaseReturn)
+            .Include(p => p.Returns).ThenInclude(r => r.Lines)
+            .AsSplitQuery()
             .SingleOrDefaultAsync(p => p.Id == id, ct);
 
         if (purchase is null) return NotFound();
@@ -144,6 +150,48 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         }
     }
 
+    [HttpPost("{id:guid}/refunds")]
+    [Authorize(Policy = "Purchase.Refund")]
+    public async Task<ActionResult<PurchaseDetailDto>> AddRefund(Guid id, AddPurchaseRefundRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        try
+        {
+            var purchase = await purchaseService.AddRefundAsync(
+                id, new AddPurchaseRefundInput(request.Amount, request.PaymentMethod, request.ExpectedRefundable, request.AccountId, request.Reason, request.PurchaseReturnId),
+                CurrentUserId(), ct);
+            if (purchase is null) return NotFound();
+
+            return await Get(id, ct);
+        }
+        catch (DomainValidationException ex)
+        {
+            ModelState.AddModelError(ex.Field, ex.Message);
+            return ValidationProblem(ModelState);
+        }
+    }
+
+    [HttpPost("{id:guid}/payments/{paymentId:guid}/reverse")]
+    [Authorize(Policy = "Purchase.Refund")]
+    public async Task<ActionResult<PurchaseDetailDto>> ReversePayment(Guid id, Guid paymentId, ReversePaymentRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        try
+        {
+            var purchase = await purchaseService.ReversePaymentAsync(id, paymentId, new ReversePaymentInput(request.Reason), CurrentUserId(), ct);
+            if (purchase is null) return NotFound();
+
+            return await Get(id, ct);
+        }
+        catch (DomainValidationException ex)
+        {
+            ModelState.AddModelError(ex.Field, ex.Message);
+            return ValidationProblem(ModelState);
+        }
+    }
+
     [HttpPost("{id:guid}/cancel")]
     [Authorize(Policy = "Purchase.Cancel")]
     public async Task<IActionResult> Cancel(Guid id, CancellationToken ct)
@@ -159,7 +207,24 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         }
     }
 
-    private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency) => new(
+    private Guid CurrentUserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
+
+    private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency)
+    {
+        var returnedByLine = p.Returns.SelectMany(r => r.Lines).GroupBy(l => l.PurchaseOrderLineId).ToDictionary(g => g.Key, g => g.Sum(l => l.Qty));
+        var reversed = p.Payments.Where(x => x.ReversesPaymentId != null).Select(x => x.ReversesPaymentId!.Value).ToHashSet();
+        return ToDetail(p, baseCurrency, returnedByLine, reversed);
+    }
+
+    // What can still go back to the supplier: whatever was not returned yet, but no more than is still in stock
+    // from this purchase's batch (goods already sold cannot be returned).
+    private static decimal Returnable(PurchaseOrderLine l, decimal returned)
+    {
+        var inStock = l.Batch is null || l.ConversionFactorToBase <= 0 ? 0 : l.Batch.RemainingBaseQty / l.ConversionFactorToBase;
+        return Math.Max(0, Math.Min(l.Qty - returned, inStock));
+    }
+
+    private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency, Dictionary<Guid, decimal> returnedByLine, HashSet<Guid> reversed) => new(
         p.Id, p.PurchaseNo, p.SupplierId, p.Supplier.Name, p.PurchaseDate,
         p.SupplierInvoiceNumber, p.Notes, p.PaymentMethod,
         p.PaidAmount, p.DueAmount, p.PaymentStatus,
@@ -170,10 +235,18 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         p.Lines.Select(l => new PurchaseLineDto(
             l.Id, l.ProductId, l.Product.Name, l.SellingModeId, l.SellingMode.Label,
             l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Rate,
-            l.TaxRatePercent, l.OtherCharges, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.UnitCost
+            l.TaxRatePercent, l.OtherCharges, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.UnitCost,
+            returnedByLine.GetValueOrDefault(l.Id), p.Status == PurchaseStatus.Cancelled ? 0 : Returnable(l, returnedByLine.GetValueOrDefault(l.Id))
         )).ToList(),
-        p.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => new PurchasePaymentDto(
-            pay.Id, pay.PaymentDate, pay.Amount, pay.ExchangeRateToBase, pay.BaseAmount,
-            pay.PaymentMethod, $"{pay.CreatedByUser.FirstName} {pay.CreatedByUser.LastName}", pay.CreatedAt
+        p.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => ToPaymentDto(pay, reversed)).ToList(),
+        p.ReturnedAmount, p.OriginalReturnedAmount, p.NetTotal, p.OriginalNetTotal, p.OriginalRefundableAmount,
+        p.Returns.OrderBy(r => r.CreatedAt).Select(r => new PurchaseReturnSummaryDto(
+            r.Id, r.ReturnNo, r.ReturnDate, r.Total, r.OriginalTotal,
+            p.Payments.Where(x => x.PurchaseReturnId == r.Id && x.Kind == PaymentEntryKind.Refund).Sum(x => x.Amount)
         )).ToList());
+
+    internal static PurchasePaymentDto ToPaymentDto(PurchasePayment pay, HashSet<Guid> reversed) => new(
+        pay.Id, pay.Kind, pay.PaymentDate, pay.Amount, pay.ExchangeRateToBase, pay.BaseAmount, pay.PaymentMethod,
+        $"{pay.CreatedByUser.FirstName} {pay.CreatedByUser.LastName}", pay.CreatedAt,
+        reversed.Contains(pay.Id), pay.Reason, pay.PurchaseReturn?.ReturnNo);
 }

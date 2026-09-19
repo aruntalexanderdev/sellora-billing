@@ -219,8 +219,12 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
             .Select(l => new { l.TaxableValue, l.CostOfGoodsSold })
             .ToListAsync(ct);
 
-        var salesRevenue = lineTotals.Sum(l => l.TaxableValue);
-        var cogs = lineTotals.Sum(l => l.CostOfGoodsSold);
+        // Returned goods come off both sides: their pre-tax value leaves revenue and their cost leaves COGS.
+        var returned = await db.SalesReturnLines.Where(l => query.Any(i => i.Id == l.SalesReturn.SalesInvoiceId))
+            .Select(l => new { l.TaxableValue, l.CostRestored }).ToListAsync(ct);
+
+        var salesRevenue = lineTotals.Sum(l => l.TaxableValue) - returned.Sum(l => l.TaxableValue);
+        var cogs = lineTotals.Sum(l => l.CostOfGoodsSold) - returned.Sum(l => l.CostRestored);
         var grossProfit = salesRevenue - cogs;
         var grossMarginPercent = salesRevenue > 0 ? Math.Round(grossProfit / salesRevenue * 100, 2) : (decimal?)null;
 

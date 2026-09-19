@@ -16,5 +16,8 @@ public class SalesInvoiceLineBatchConsumption
     public PurchaseBatch PurchaseBatch { get; set; } = null!;
 
     public decimal QtyBaseUnits { get; set; }
+
+    /// <summary>How much of <see cref="QtyBaseUnits"/> a customer has since returned to this batch.</summary>
+    public decimal ReturnedQtyBaseUnits { get; set; }
     public decimal UnitCost { get; set; }
 }

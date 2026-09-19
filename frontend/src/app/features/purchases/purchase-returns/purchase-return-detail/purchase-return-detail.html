@@ -1,0 +1,86 @@
+@if (!loading() && ret(); as r) {
+  <div class="page-head">
+    <div>
+      <h1>{{ r.returnNo }}</h1>
+      <p>{{ r.supplierName }} · {{ r.returnDate }} · against <a class="link" [routerLink]="['/purchases', r.purchaseOrderId]">{{ r.purchaseNo }}</a></p>
+    </div>
+    <div class="header-actions">
+      <a routerLink="/purchases/returns" class="back-link">Back to returns</a>
+    </div>
+  </div>
+
+  @if (r.currencyCode !== r.baseCurrencyCode) {
+    <div class="fx-card">
+      <div><span class="fx-label">Credit ({{ r.currencyCode }})</span><strong>{{ original(r.originalTotal) }} {{ r.currencyCode }}</strong></div>
+      <div><span class="fx-label">Credit ({{ r.baseCurrencyCode }})</span><strong>{{ base(r.total) }} {{ r.baseCurrencyCode }}</strong></div>
+      <div class="fx-note">At the exchange rate captured on the purchase. Lines below are in {{ r.baseCurrencyCode }}.</div>
+    </div>
+  }
+
+  <div class="detail-card">
+    <div class="lines-table-wrap">
+      <table class="lines-table">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Unit</th>
+            <th class="num">Qty returned</th>
+            <th class="num">Value</th>
+            <th class="num">Tax</th>
+            <th class="num">Credit</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (l of r.lines; track l.id) {
+            <tr>
+              <td class="strong">{{ l.productName }}</td>
+              <td>{{ l.sellingModeLabel }} <span class="muted">({{ l.baseQty }} {{ l.baseUnitLabel }})</span></td>
+              <td class="num">{{ l.qty }}</td>
+              <td class="num">{{ base(l.taxableValue) }}</td>
+              <td class="num">{{ base(l.taxAmount) }}</td>
+              <td class="num strong">{{ base(l.lineTotal) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="summary-and-payment">
+      <div class="summary-card">
+        <div class="totals-row"><span>Value of goods</span><span>{{ base(r.taxableTotal) }}</span></div>
+        <div class="totals-row"><span>Tax</span><span>{{ base(r.taxTotal) }}</span></div>
+        <div class="totals-row totals-grand"><span>Credit from supplier</span><span>{{ base(r.total) }}</span></div>
+      </div>
+      <div class="payment-card">
+        <div class="kv-row"><span>Refunded so far ({{ r.currencyCode }})</span><span>{{ original(r.refundedAmount) }}</span></div>
+        <div class="kv-row"><span>Reason</span><span>{{ r.reason || '—' }}</span></div>
+        <div class="kv-row muted-row"><span>Entered by</span><span>{{ r.createdByName }}</span></div>
+      </div>
+    </div>
+
+    @if (r.refunds.length > 0) {
+      <div class="payment-history">
+        <h2>Refunds for this return</h2>
+        <div class="lines-table-wrap">
+          <table class="lines-table">
+            <thead>
+              <tr><th>Date</th><th>Method</th><th class="num">Amount ({{ r.currencyCode }})</th><th>By</th></tr>
+            </thead>
+            <tbody>
+              @for (p of r.refunds; track p.id) {
+                <tr>
+                  <td>{{ p.paymentDate }}</td>
+                  <td>{{ p.paymentMethod }}</td>
+                  <td class="num">{{ original(p.amount) }}</td>
+                  <td>{{ p.createdByName }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+  </div>
+} @else if (!loading()) {
+  <div class="not-found">Return not found.</div>
+}

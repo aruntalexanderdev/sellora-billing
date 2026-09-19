@@ -13,13 +13,16 @@ public record PurchaseLineDto(
     Guid Id, Guid ProductId, string ProductName, Guid SellingModeId, string SellingModeLabel,
     decimal Qty, decimal BaseQty, string BaseUnitLabel, decimal Rate,
     decimal TaxRatePercent, decimal OtherCharges, decimal Discount,
-    decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal UnitCost
+    decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal UnitCost,
+    decimal ReturnedQty, decimal ReturnableQty
 );
 
 public record PurchasePaymentDto(
-    Guid Id, DateOnly PaymentDate, decimal Amount, decimal ExchangeRateToBase, decimal BaseAmount,
-    PaymentMethod PaymentMethod, string CreatedByName, DateTimeOffset CreatedAt
+    Guid Id, PaymentEntryKind Kind, DateOnly PaymentDate, decimal Amount, decimal ExchangeRateToBase, decimal BaseAmount,
+    PaymentMethod PaymentMethod, string CreatedByName, DateTimeOffset CreatedAt, bool IsReversed, string? Reason, string? ReturnNo
 );
+
+public record PurchaseReturnSummaryDto(Guid Id, string ReturnNo, DateOnly ReturnDate, decimal Total, decimal OriginalTotal, decimal RefundedAmount);
 
 public record PurchaseDetailDto(
     Guid Id, string PurchaseNo, Guid SupplierId, string SupplierName, DateOnly PurchaseDate,
@@ -31,7 +34,9 @@ public record PurchaseDetailDto(
     decimal OriginalPaidAmount, decimal OriginalDueAmount,
     string BaseCurrencyCode, string BaseCurrencySymbol, int CurrencyDecimalPrecision, int BaseCurrencyDecimalPrecision,
     IReadOnlyList<PurchaseLineDto> Lines,
-    IReadOnlyList<PurchasePaymentDto> Payments
+    IReadOnlyList<PurchasePaymentDto> Payments,
+    decimal ReturnedAmount, decimal OriginalReturnedAmount, decimal NetTotal, decimal OriginalNetTotal,
+    decimal OriginalRefundableAmount, IReadOnlyList<PurchaseReturnSummaryDto> Returns
 );
 
 public record CreatePurchaseLineRequest(
@@ -64,4 +69,49 @@ public record AddPurchasePaymentRequest(
     PaymentMethod PaymentMethod,
     [Range(0, 999999999)] decimal ExpectedDue,
     Guid? AccountId = null
+);
+
+public record PurchaseReturnLineRequest([Required] Guid? PurchaseOrderLineId, [Range(0.001, 999999999)] decimal Qty);
+
+public record PurchaseRefundRequest(
+    [Range(0.000001, 999999999)] decimal Amount,
+    PaymentMethod PaymentMethod,
+    Guid? AccountId = null,
+    [MaxLength(200)] string? Reason = null
+);
+
+public record CreatePurchaseReturnRequest(
+    [Required] Guid? PurchaseOrderId,
+    [Required] DateOnly ReturnDate,
+    [MaxLength(300)] string? Reason,
+    [MinLength(1)] PurchaseReturnLineRequest[] Lines,
+    PurchaseRefundRequest? Refund = null
+);
+
+public record AddPurchaseRefundRequest(
+    [Range(0.000001, 999999999)] decimal Amount,
+    PaymentMethod PaymentMethod,
+    [Range(0, 999999999)] decimal ExpectedRefundable,
+    Guid? AccountId = null,
+    [MaxLength(200)] string? Reason = null,
+    Guid? PurchaseReturnId = null
+);
+
+public record PurchaseReturnListItemDto(
+    Guid Id, string ReturnNo, DateOnly ReturnDate, Guid PurchaseOrderId, string PurchaseNo, string SupplierName,
+    decimal Total, decimal OriginalTotal, string CurrencyCode, decimal RefundedAmount
+);
+
+public record PurchaseReturnLineDto(
+    Guid Id, string ProductName, string SellingModeLabel, decimal Qty, decimal BaseQty, string BaseUnitLabel,
+    decimal TaxableValue, decimal TaxAmount, decimal LineTotal
+);
+
+public record PurchaseReturnDetailDto(
+    Guid Id, string ReturnNo, DateOnly ReturnDate, Guid PurchaseOrderId, string PurchaseNo, string SupplierName,
+    string? Reason, decimal TaxableTotal, decimal TaxTotal, decimal Total, decimal OriginalTotal, decimal RefundedAmount,
+    string CurrencyCode, string CurrencySymbol, int CurrencyDecimalPrecision,
+    string BaseCurrencyCode, string BaseCurrencySymbol, int BaseCurrencyDecimalPrecision,
+    string CreatedByName, DateTimeOffset CreatedAt,
+    IReadOnlyList<PurchaseReturnLineDto> Lines, IReadOnlyList<PurchasePaymentDto> Refunds
 );

@@ -57,13 +57,31 @@ public class PurchaseOrder
     /// running totals of these rows, maintained only by the purchase service.</summary>
     public ICollection<PurchasePayment> Payments { get; set; } = new List<PurchasePayment>();
 
-    /// <summary>Due amount is always derived from GrandTotal - PaidAmount, never stored independently (docx §17).</summary>
-    public decimal DueAmount => Math.Max(0, GrandTotal - PaidAmount);
+    /// <summary>The value of goods returned to the supplier, in the base currency. Maintained only by the purchase service.</summary>
+    public decimal ReturnedAmount { get; set; }
 
-    /// <summary>Remaining due in the transaction currency, derived from the original totals.</summary>
-    public decimal OriginalDueAmount => Math.Max(0, OriginalGrandTotal - OriginalPaidAmount);
+    /// <summary>The same returned value in the purchase's transaction currency.</summary>
+    public decimal OriginalReturnedAmount { get; set; }
 
-    public PaymentStatus PaymentStatus => PaidAmount <= 0
-        ? PaymentStatus.Due
-        : PaidAmount >= GrandTotal ? PaymentStatus.Paid : PaymentStatus.PartiallyPaid;
+    public ICollection<PurchaseReturn> Returns { get; set; } = new List<PurchaseReturn>();
+
+    /// <summary>What is owed to the supplier for: the grand total less returned goods, in the base currency.</summary>
+    public decimal NetTotal => GrandTotal - ReturnedAmount;
+
+    /// <summary>The same, in the transaction currency.</summary>
+    public decimal OriginalNetTotal => OriginalGrandTotal - OriginalReturnedAmount;
+
+    /// <summary>Remaining due in the transaction currency, derived; a cancelled purchase owes nothing.</summary>
+    public decimal OriginalDueAmount => Status == PurchaseStatus.Cancelled ? 0 : Math.Max(0, OriginalNetTotal - OriginalPaidAmount);
+
+    /// <summary>Remaining due in the base currency. Zero exactly when the transaction-currency due is zero, so
+    /// rounding can never leave a stray paisa of due on a settled foreign purchase.</summary>
+    public decimal DueAmount => OriginalDueAmount <= 0 ? 0 : Math.Max(0, NetTotal - PaidAmount);
+
+    /// <summary>Money held by the supplier beyond what is owed (transaction currency) and so refundable by them.</summary>
+    public decimal OriginalRefundableAmount => Math.Max(0, OriginalPaidAmount - (Status == PurchaseStatus.Cancelled ? 0 : OriginalNetTotal));
+
+    public PaymentStatus PaymentStatus => OriginalNetTotal <= 0 || OriginalPaidAmount >= OriginalNetTotal
+        ? PaymentStatus.Paid
+        : OriginalPaidAmount <= 0 ? PaymentStatus.Due : PaymentStatus.PartiallyPaid;
 }

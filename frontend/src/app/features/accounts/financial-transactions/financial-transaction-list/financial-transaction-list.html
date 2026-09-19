@@ -20,6 +20,9 @@
     <option value="ExpensePayment">Expense paid</option>
     <option value="OpeningBalance">Opening balance</option>
     <option value="Transfer">Transfer</option>
+    <option value="CustomerRefund">Customer refund</option>
+    <option value="SupplierRefund">Supplier refund</option>
+    <option value="PaymentReversal">Payment reversal</option>
   </select>
   <select class="field-input" [value]="direction()" (change)="onFilter('direction', $any($event.target).value)" aria-label="Filter by direction">
     <option value="">Money in &amp; out</option>

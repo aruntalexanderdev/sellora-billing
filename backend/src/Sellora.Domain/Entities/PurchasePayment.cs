@@ -1,8 +1,9 @@
 namespace Sellora.Domain.Entities;
 
 /// <summary>
-/// One payment made against a purchase. Payments are append-only: a purchase's paid totals are the sum of
-/// its payments, and a payment is never edited or deleted (corrections arrive as reversals in a later phase).
+/// One entry in a purchase's money ledger: a payment made, a refund received from the supplier, or a reversal of an
+/// earlier payment (see <see cref="Kind"/>). Entries are append-only: a purchase's paid totals are payments less
+/// refunds and reversals, and an entry is never edited or deleted.
 /// The amount is in the purchase's transaction currency; the rate is the purchase's captured rate, snapshotted
 /// here so the base-currency figure can never be recalculated later.
 /// </summary>
@@ -12,6 +13,18 @@ public class PurchasePayment
 
     public Guid PurchaseOrderId { get; set; }
     public PurchaseOrder PurchaseOrder { get; set; } = null!;
+
+    public PaymentEntryKind Kind { get; set; } = PaymentEntryKind.Payment;
+
+    /// <summary>For a <see cref="PaymentEntryKind.Reversal"/>, the payment it undoes.</summary>
+    public Guid? ReversesPaymentId { get; set; }
+    public PurchasePayment? ReversesPayment { get; set; }
+
+    /// <summary>For a refund, the return it was made for, if any.</summary>
+    public Guid? PurchaseReturnId { get; set; }
+    public PurchaseReturn? PurchaseReturn { get; set; }
+
+    public string? Reason { get; set; }
 
     public DateOnly PaymentDate { get; set; }
 

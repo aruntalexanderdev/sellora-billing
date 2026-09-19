@@ -1,0 +1,23 @@
+<div class="page-head">
+  <div>
+    <h1>Sales returns</h1>
+    <p>Goods customers have brought back. Start a return from the sale itself.</p>
+  </div>
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search return, invoice or customer…"
+  emptyTitle="No returns yet"
+  emptyBody="Open a sale and choose Return items to record goods coming back."
+  (searchChange)="onSearch($event)"
+  (retry)="retry()"
+  [footerText]="total() + ' return' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
+/>

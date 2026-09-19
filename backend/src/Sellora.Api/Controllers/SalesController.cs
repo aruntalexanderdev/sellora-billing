@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Payments;
 using Sellora.Domain.Sales;
 using Sellora.Infrastructure.Data;
 
@@ -76,9 +77,9 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
         {
             query = paymentStatus switch
             {
-                PaymentStatus.Due => query.Where(i => i.PaidAmount <= 0),
-                PaymentStatus.Paid => query.Where(i => i.PaidAmount >= i.GrandTotal),
-                _ => query.Where(i => i.PaidAmount > 0 && i.PaidAmount < i.GrandTotal),
+                PaymentStatus.Due => query.Where(i => i.PaidAmount <= 0 && i.GrandTotal - i.ReturnedAmount > 0),
+                PaymentStatus.Paid => query.Where(i => i.GrandTotal - i.ReturnedAmount <= 0 || i.PaidAmount >= i.GrandTotal - i.ReturnedAmount),
+                _ => query.Where(i => i.PaidAmount > 0 && i.PaidAmount < i.GrandTotal - i.ReturnedAmount),
             };
         }
 
@@ -88,8 +89,9 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(i => new SalesInvoiceListItemDto(
                 i.Id, i.InvoiceNo, i.Customer.Name, i.InvoiceDate, i.GrandTotal, i.PaidAmount,
-                i.GrandTotal - i.PaidAmount < 0 ? 0 : i.GrandTotal - i.PaidAmount,
-                i.PaidAmount <= 0 ? PaymentStatus.Due : i.PaidAmount >= i.GrandTotal ? PaymentStatus.Paid : PaymentStatus.PartiallyPaid,
+                i.Status == SalesStatus.Cancelled || i.GrandTotal - i.ReturnedAmount - i.PaidAmount < 0 ? 0 : i.GrandTotal - i.ReturnedAmount - i.PaidAmount,
+                i.GrandTotal - i.ReturnedAmount <= 0 || i.PaidAmount >= i.GrandTotal - i.ReturnedAmount ? PaymentStatus.Paid
+                    : i.PaidAmount <= 0 ? PaymentStatus.Due : PaymentStatus.PartiallyPaid,
                 i.Status))
             .ToListAsync(ct);
 
@@ -106,6 +108,9 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             .Include(i => i.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.BaseUnit)
             .Include(i => i.Lines).ThenInclude(l => l.SellingMode)
             .Include(i => i.Payments).ThenInclude(pay => pay.CreatedByUser)
+            .Include(i => i.Payments).ThenInclude(pay => pay.SalesReturn)
+            .Include(i => i.Returns).ThenInclude(r => r.Lines)
+            .AsSplitQuery()
             .SingleOrDefaultAsync(i => i.Id == id, ct);
 
         return invoice is null ? NotFound() : Ok(ToDetail(invoice));
@@ -161,6 +166,48 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
         }
     }
 
+    [HttpPost("{id:guid}/refunds")]
+    [Authorize(Policy = "Sales.Refund")]
+    public async Task<ActionResult<SalesInvoiceDetailDto>> AddRefund(Guid id, AddSaleRefundRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        try
+        {
+            var invoice = await salesService.AddRefundAsync(
+                id, new AddSaleRefundInput(request.Amount, request.PaymentMethod, request.ExpectedRefundable, request.AccountId, request.Reason, request.SalesReturnId),
+                CurrentUserId(), ct);
+            if (invoice is null) return NotFound();
+
+            return await Get(id, ct);
+        }
+        catch (DomainValidationException ex)
+        {
+            ModelState.AddModelError(ex.Field, ex.Message);
+            return ValidationProblem(ModelState);
+        }
+    }
+
+    [HttpPost("{id:guid}/payments/{paymentId:guid}/reverse")]
+    [Authorize(Policy = "Sales.Refund")]
+    public async Task<ActionResult<SalesInvoiceDetailDto>> ReversePayment(Guid id, Guid paymentId, ReversePaymentRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        try
+        {
+            var invoice = await salesService.ReversePaymentAsync(id, paymentId, new ReversePaymentInput(request.Reason), CurrentUserId(), ct);
+            if (invoice is null) return NotFound();
+
+            return await Get(id, ct);
+        }
+        catch (DomainValidationException ex)
+        {
+            ModelState.AddModelError(ex.Field, ex.Message);
+            return ValidationProblem(ModelState);
+        }
+    }
+
     [HttpPost("{id:guid}/cancel")]
     [Authorize(Policy = "Sales.Cancel")]
     public async Task<IActionResult> Cancel(Guid id, CancellationToken ct)
@@ -176,7 +223,16 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
         }
     }
 
-    private static SalesInvoiceDetailDto ToDetail(SalesInvoice i) => new(
+    private Guid CurrentUserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
+
+    private static SalesInvoiceDetailDto ToDetail(SalesInvoice i)
+    {
+        var returnedByLine = i.Returns.SelectMany(r => r.Lines).GroupBy(l => l.SalesInvoiceLineId).ToDictionary(g => g.Key, g => g.Sum(l => l.Qty));
+        var reversed = i.Payments.Where(p => p.ReversesPaymentId != null).Select(p => p.ReversesPaymentId!.Value).ToHashSet();
+        return ToDetail(i, returnedByLine, reversed);
+    }
+
+    private static SalesInvoiceDetailDto ToDetail(SalesInvoice i, Dictionary<Guid, decimal> returnedByLine, HashSet<Guid> reversed) => new(
         i.Id, i.InvoiceNo, i.CustomerId, i.Customer.Name, i.InvoiceDate,
         i.PaymentMethod, i.PaidAmount, i.DueAmount, i.PaymentStatus,
         i.Subtotal, i.TaxTotal, i.DiscountTotal, i.GrandTotal,
@@ -184,10 +240,18 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
         i.Lines.Select(l => new SalesInvoiceLineDto(
             l.Id, l.ProductId, l.Product.Name, l.SellingModeId, l.SellingMode.Label,
             l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.UnitPrice,
-            l.TaxRatePercent, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.CostOfGoodsSold
+            l.TaxRatePercent, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.CostOfGoodsSold,
+            returnedByLine.GetValueOrDefault(l.Id), l.Qty - returnedByLine.GetValueOrDefault(l.Id)
         )).ToList(),
-        i.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => new SalesPaymentDto(
-            pay.Id, pay.PaymentDate, pay.Amount, pay.PaymentMethod,
-            $"{pay.CreatedByUser.FirstName} {pay.CreatedByUser.LastName}", pay.CreatedAt
+        i.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => ToPaymentDto(pay, reversed)).ToList(),
+        i.ReturnedAmount, i.NetTotal, i.RefundableAmount,
+        i.Returns.OrderBy(r => r.CreatedAt).Select(r => new SalesReturnSummaryDto(
+            r.Id, r.ReturnNo, r.ReturnDate, r.Total,
+            i.Payments.Where(p => p.SalesReturnId == r.Id && p.Kind == PaymentEntryKind.Refund).Sum(p => p.Amount)
         )).ToList());
+
+    internal static SalesPaymentDto ToPaymentDto(SalesPayment pay, HashSet<Guid> reversed) => new(
+        pay.Id, pay.Kind, pay.PaymentDate, pay.Amount, pay.PaymentMethod,
+        $"{pay.CreatedByUser.FirstName} {pay.CreatedByUser.LastName}", pay.CreatedAt,
+        reversed.Contains(pay.Id), pay.Reason, pay.SalesReturn?.ReturnNo);
 }

@@ -1,4 +1,5 @@
 using Sellora.Domain.Entities;
+using Sellora.Domain.Payments;
 
 namespace Sellora.Domain.Sales;
 
@@ -26,4 +27,27 @@ public sealed record CreateSaleInput(
     decimal PaidAmount,
     IReadOnlyList<SaleLineInput> Lines,
     Guid? AccountId = null
+);
+
+/// <summary><see cref="Qty"/> is in the selling unit the invoice line was sold in.</summary>
+public sealed record SaleReturnLineInput(Guid SalesInvoiceLineId, decimal Qty);
+
+/// <summary>Goods a customer brings back. An optional <see cref="Refund"/> pays money back in the same step.</summary>
+public sealed record CreateSaleReturnInput(
+    Guid SalesInvoiceId,
+    DateOnly ReturnDate,
+    string? Reason,
+    IReadOnlyList<SaleReturnLineInput> Lines,
+    RefundDetails? Refund = null
+);
+
+/// <summary>Money paid back to a customer. <see cref="ExpectedRefundable"/> is the refundable amount the caller
+/// saw, so a stale or duplicate submission is rejected instead of being applied twice.</summary>
+public sealed record AddSaleRefundInput(
+    decimal Amount,
+    PaymentMethod PaymentMethod,
+    decimal ExpectedRefundable,
+    Guid? AccountId = null,
+    string? Reason = null,
+    Guid? SalesReturnId = null
 );

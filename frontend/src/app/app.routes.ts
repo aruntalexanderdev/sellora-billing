@@ -25,7 +25,6 @@ import { ProductList } from './features/inventory/products/product-list/product-
 import { ProductForm } from './features/inventory/products/product-form/product-form';
 import { PurchaseList } from './features/purchases/purchase-list/purchase-list';
 import { PurchaseForm } from './features/purchases/purchase-form/purchase-form';
-import { PurchaseDetail } from './features/purchases/purchase-detail/purchase-detail';
 import { StockOverview } from './features/inventory/stock/stock-overview/stock-overview';
 import { StockDetail } from './features/inventory/stock/stock-detail/stock-detail';
 import { StockAdjustmentForm } from './features/inventory/stock-adjustments/stock-adjustment-form/stock-adjustment-form';
@@ -34,7 +33,6 @@ import { CustomerList } from './features/sales/customers/customer-list/customer-
 import { CustomerForm } from './features/sales/customers/customer-form/customer-form';
 import { Pos } from './features/sales/pos/pos';
 import { SalesList } from './features/sales/sales-list/sales-list';
-import { SalesDetail } from './features/sales/sales-detail/sales-detail';
 import { CurrentStockReport } from './features/reports/current-stock-report/current-stock-report';
 import { StockMovementReport } from './features/reports/stock-movement-report/stock-movement-report';
 import { PurchaseReport } from './features/reports/purchase-report/purchase-report';
@@ -281,8 +279,27 @@ export const routes: Routes = [
         data: { group: 'Purchases', page: 'New purchase' },
       },
       {
+        path: 'purchases/returns',
+        loadComponent: () => import('./features/purchases/purchase-returns/purchase-return-list/purchase-return-list').then((m) => m.PurchaseReturnList),
+        canActivate: [permissionGuard('Purchase.View')],
+        data: { group: 'Purchases', page: 'Purchase Returns' },
+      },
+      {
+        path: 'purchases/returns/:id',
+        loadComponent: () => import('./features/purchases/purchase-returns/purchase-return-detail/purchase-return-detail').then((m) => m.PurchaseReturnDetail),
+        canActivate: [permissionGuard('Purchase.View')],
+        data: { group: 'Purchases', page: 'Return details' },
+      },
+      {
+        path: 'purchases/:id/return',
+        loadComponent: () => import('./features/purchases/purchase-returns/purchase-return-form/purchase-return-form').then((m) => m.PurchaseReturnForm),
+        canActivate: [permissionGuard('Purchase.Return')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Purchases', page: 'Return items' },
+      },
+      {
         path: 'purchases/:id',
-        component: PurchaseDetail,
+        loadComponent: () => import('./features/purchases/purchase-detail/purchase-detail').then((m) => m.PurchaseDetail),
         canActivate: [permissionGuard('Purchase.View')],
         data: { group: 'Purchases', page: 'Purchase details' },
       },
@@ -388,8 +405,27 @@ export const routes: Routes = [
         data: { group: 'Sales & Billing', page: 'Sales' },
       },
       {
+        path: 'sales/returns',
+        loadComponent: () => import('./features/sales/sales-returns/sales-return-list/sales-return-list').then((m) => m.SalesReturnList),
+        canActivate: [permissionGuard('Sales.View')],
+        data: { group: 'Sales & Billing', page: 'Sales Returns' },
+      },
+      {
+        path: 'sales/returns/:id',
+        loadComponent: () => import('./features/sales/sales-returns/sales-return-detail/sales-return-detail').then((m) => m.SalesReturnDetail),
+        canActivate: [permissionGuard('Sales.View')],
+        data: { group: 'Sales & Billing', page: 'Return details' },
+      },
+      {
+        path: 'sales/:id/return',
+        loadComponent: () => import('./features/sales/sales-returns/sales-return-form/sales-return-form').then((m) => m.SalesReturnForm),
+        canActivate: [permissionGuard('Sales.Return')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Sales & Billing', page: 'Return items' },
+      },
+      {
         path: 'sales/:id',
-        component: SalesDetail,
+        loadComponent: () => import('./features/sales/sales-detail/sales-detail').then((m) => m.SalesDetail),
         canActivate: [permissionGuard('Sales.View')],
         data: { group: 'Sales & Billing', page: 'Invoice details' },
       },

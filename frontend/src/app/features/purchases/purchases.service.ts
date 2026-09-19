@@ -5,6 +5,10 @@ import { environment } from '../../../environments/environment';
 import type { PagedResult } from '../../core/api.models';
 import type {
   AddPurchasePaymentRequest,
+  AddPurchaseRefundRequest,
+  CreatePurchaseReturnRequest,
+  PurchaseReturnDetail,
+  PurchaseReturnListItem,
   CreatePurchaseRequest,
   PurchaseDetail,
   PurchaseListItem,
@@ -13,6 +17,7 @@ import type {
 } from './purchases.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/purchases`;
+const RETURNS_URL = `${environment.apiBaseUrl}/purchase-returns`;
 
 export interface PurchaseListQuery {
   search?: string;
@@ -48,6 +53,28 @@ export class PurchasesService {
 
   addPayment(id: string, request: AddPurchasePaymentRequest): Observable<PurchaseDetail> {
     return this.http.post<PurchaseDetail>(`${BASE_URL}/${id}/payments`, request);
+  }
+
+  addRefund(id: string, request: AddPurchaseRefundRequest): Observable<PurchaseDetail> {
+    return this.http.post<PurchaseDetail>(`${BASE_URL}/${id}/refunds`, request);
+  }
+
+  reversePayment(id: string, paymentId: string, reason: string | null): Observable<PurchaseDetail> {
+    return this.http.post<PurchaseDetail>(`${BASE_URL}/${id}/payments/${paymentId}/reverse`, { reason });
+  }
+
+  createReturn(request: CreatePurchaseReturnRequest): Observable<PurchaseReturnDetail> {
+    return this.http.post<PurchaseReturnDetail>(RETURNS_URL, request);
+  }
+
+  returns(query: { search?: string; page?: number; pageSize?: number }): Observable<PagedResult<PurchaseReturnListItem>> {
+    const params: Record<string, string> = { page: String(query.page ?? 1), pageSize: String(query.pageSize ?? 20) };
+    if (query.search) params['search'] = query.search;
+    return this.http.get<PagedResult<PurchaseReturnListItem>>(RETURNS_URL, { params });
+  }
+
+  getReturn(id: string): Observable<PurchaseReturnDetail> {
+    return this.http.get<PurchaseReturnDetail>(`${RETURNS_URL}/${id}`);
   }
 
   cancel(id: string): Observable<void> {

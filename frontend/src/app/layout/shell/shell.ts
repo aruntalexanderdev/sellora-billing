@@ -61,6 +61,7 @@ const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
     label: 'Purchases',
     items: [
       { label: 'Purchases', routerLink: '/purchases', permission: 'Purchase.View' },
+      { label: 'Purchase Returns', routerLink: '/purchases/returns', permission: 'Purchase.View' },
       { label: 'Suppliers', routerLink: '/purchases/suppliers', permission: 'Suppliers.View' },
     ],
   },
@@ -69,6 +70,7 @@ const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
     items: [
       { label: 'New Sale', routerLink: '/sales/new', permission: 'Sales.Create' },
       { label: 'Sales', routerLink: '/sales', permission: 'Sales.View' },
+      { label: 'Sales Returns', routerLink: '/sales/returns', permission: 'Sales.View' },
       { label: 'Customers', routerLink: '/sales/customers', permission: 'Customers.View' },
     ],
   },

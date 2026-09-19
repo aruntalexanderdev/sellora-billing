@@ -40,7 +40,7 @@ export class StockMovementReport implements OnInit {
   readonly hasMore = computed(() => this.page() * PAGE_SIZE < this.total());
 
   readonly filters = computed<DataTableFilter[]>(() => [
-    { value: this.type(), options: [ALL, 'Purchase', 'Sale', 'Adjustment'], onChange: (v) => this.onTypeChange(v as 'All' | StockMovementType) },
+    { value: this.type(), options: [ALL, 'Purchase', 'Sale', 'Adjustment', 'SaleReturn', 'PurchaseReturn'], onChange: (v) => this.onTypeChange(v as 'All' | StockMovementType) },
   ]);
 
   readonly rows = computed<DataTableRow[]>(() =>
@@ -51,7 +51,7 @@ export class StockMovementReport implements OnInit {
         {
           kind: 'badge',
           text: m.type,
-          tone: m.type === 'Purchase' ? 'good' : m.type === 'Sale' ? 'info' : 'warn',
+          tone: m.type === 'Purchase' || m.type === 'SaleReturn' ? 'good' : m.type === 'Sale' || m.type === 'PurchaseReturn' ? 'info' : 'warn',
         },
         {
           kind: 'text',

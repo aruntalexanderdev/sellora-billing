@@ -605,6 +605,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("OriginalPaidAmount")
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<decimal>("OriginalReturnedAmount")
+                        .HasColumnType("numeric(18,4)");
+
                     b.Property<decimal>("OtherChargesTotal")
                         .HasColumnType("numeric(18,2)");
 
@@ -623,6 +626,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
+
+                    b.Property<decimal>("ReturnedAmount")
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -741,6 +747,13 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("ExchangeRateToBase")
                         .HasColumnType("numeric(18,6)");
 
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasDefaultValue("Payment");
+
                     b.Property<DateOnly>("PaymentDate")
                         .HasColumnType("date");
 
@@ -752,15 +765,133 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("PurchaseOrderId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("PurchaseReturnId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("ReversesPaymentId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("PurchaseReturnId");
+
+                    b.HasIndex("ReversesPaymentId")
+                        .IsUnique();
 
                     b.HasIndex("PurchaseOrderId", "CreatedAt");
 
                     b.ToTable("PurchasePayments", t =>
                         {
                             t.HasCheckConstraint("CK_PurchasePayments_Amount_Positive", "\"Amount\" > 0");
+
+                            t.HasCheckConstraint("CK_PurchasePayments_ReversalLink", "(\"Kind\" = 'Reversal') = (\"ReversesPaymentId\" IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PurchaseReturn", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("OriginalTotal")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("PurchaseOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateOnly>("ReturnDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("ReturnNo")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<decimal>("TaxTotal")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TaxableTotal")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("Total")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("ReturnNo")
+                        .IsUnique();
+
+                    b.HasIndex("PurchaseOrderId", "CreatedAt");
+
+                    b.ToTable("PurchaseReturns", t =>
+                        {
+                            t.HasCheckConstraint("CK_PurchaseReturns_Total_Positive", "\"Total\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PurchaseReturnLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("BaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("CostRemoved")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal>("LineTotal")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PurchaseOrderLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PurchaseReturnId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Qty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal>("TaxableValue")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("PurchaseOrderLineId");
+
+                    b.HasIndex("PurchaseReturnId");
+
+                    b.ToTable("PurchaseReturnLines", t =>
+                        {
+                            t.HasCheckConstraint("CK_PurchaseReturnLines_Qty_Positive", "\"Qty\" > 0");
                         });
                 });
 
@@ -887,6 +1018,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<decimal>("ReturnedAmount")
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -983,6 +1117,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("QtyBaseUnits")
                         .HasColumnType("numeric(18,3)");
 
+                    b.Property<decimal>("ReturnedQtyBaseUnits")
+                        .HasColumnType("numeric(18,3)");
+
                     b.Property<Guid>("SalesInvoiceLineId")
                         .HasColumnType("uuid");
 
@@ -995,7 +1132,10 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("SalesInvoiceLineId");
 
-                    b.ToTable("SalesInvoiceLineBatchConsumptions");
+                    b.ToTable("SalesInvoiceLineBatchConsumptions", t =>
+                        {
+                            t.HasCheckConstraint("CK_SalesConsumption_ReturnedWithinConsumed", "\"ReturnedQtyBaseUnits\" >= 0 AND \"ReturnedQtyBaseUnits\" <= \"QtyBaseUnits\"");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.SalesPayment", b =>
@@ -1019,6 +1159,13 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("ExchangeRateToBase")
                         .HasColumnType("numeric(18,6)");
 
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasDefaultValue("Payment");
+
                     b.Property<DateOnly>("PaymentDate")
                         .HasColumnType("date");
 
@@ -1027,18 +1174,133 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("Reason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("ReversesPaymentId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("SalesInvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SalesReturnId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByUserId");
 
+                    b.HasIndex("ReversesPaymentId")
+                        .IsUnique();
+
+                    b.HasIndex("SalesReturnId");
+
                     b.HasIndex("SalesInvoiceId", "CreatedAt");
 
                     b.ToTable("SalesPayments", t =>
                         {
                             t.HasCheckConstraint("CK_SalesPayments_Amount_Positive", "\"Amount\" > 0");
+
+                            t.HasCheckConstraint("CK_SalesPayments_ReversalLink", "(\"Kind\" = 'Reversal') = (\"ReversesPaymentId\" IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesReturn", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateOnly>("ReturnDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("ReturnNo")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("SalesInvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("TaxTotal")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TaxableTotal")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("Total")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("ReturnNo")
+                        .IsUnique();
+
+                    b.HasIndex("SalesInvoiceId", "CreatedAt");
+
+                    b.ToTable("SalesReturns", t =>
+                        {
+                            t.HasCheckConstraint("CK_SalesReturns_Total_Positive", "\"Total\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesReturnLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("BaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("CostRestored")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal>("LineTotal")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Qty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<Guid>("SalesInvoiceLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SalesReturnId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal>("TaxableValue")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("SalesInvoiceLineId");
+
+                    b.HasIndex("SalesReturnId");
+
+                    b.ToTable("SalesReturnLines", t =>
+                        {
+                            t.HasCheckConstraint("CK_SalesReturnLines_Qty_Positive", "\"Qty\" > 0");
                         });
                 });
 
@@ -1617,9 +1879,69 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.PurchaseReturn", "PurchaseReturn")
+                        .WithMany()
+                        .HasForeignKey("PurchaseReturnId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.PurchasePayment", "ReversesPayment")
+                        .WithMany()
+                        .HasForeignKey("ReversesPaymentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("CreatedByUser");
 
                     b.Navigation("PurchaseOrder");
+
+                    b.Navigation("PurchaseReturn");
+
+                    b.Navigation("ReversesPayment");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PurchaseReturn", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.PurchaseOrder", "PurchaseOrder")
+                        .WithMany("Returns")
+                        .HasForeignKey("PurchaseOrderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("PurchaseOrder");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PurchaseReturnLine", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.PurchaseOrderLine", "PurchaseOrderLine")
+                        .WithMany()
+                        .HasForeignKey("PurchaseOrderLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.PurchaseReturn", "PurchaseReturn")
+                        .WithMany("Lines")
+                        .HasForeignKey("PurchaseReturnId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("PurchaseOrderLine");
+
+                    b.Navigation("PurchaseReturn");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.RefreshToken", b =>
@@ -1733,8 +2055,41 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.SalesPayment", "ReversesPayment")
+                        .WithMany()
+                        .HasForeignKey("ReversesPaymentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Sellora.Domain.Entities.SalesInvoice", "SalesInvoice")
                         .WithMany("Payments")
+                        .HasForeignKey("SalesInvoiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.SalesReturn", "SalesReturn")
+                        .WithMany()
+                        .HasForeignKey("SalesReturnId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("ReversesPayment");
+
+                    b.Navigation("SalesInvoice");
+
+                    b.Navigation("SalesReturn");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesReturn", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.SalesInvoice", "SalesInvoice")
+                        .WithMany("Returns")
                         .HasForeignKey("SalesInvoiceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
@@ -1742,6 +2097,33 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("CreatedByUser");
 
                     b.Navigation("SalesInvoice");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesReturnLine", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.SalesInvoiceLine", "SalesInvoiceLine")
+                        .WithMany()
+                        .HasForeignKey("SalesInvoiceLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.SalesReturn", "SalesReturn")
+                        .WithMany("Lines")
+                        .HasForeignKey("SalesReturnId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("SalesInvoiceLine");
+
+                    b.Navigation("SalesReturn");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.SellingPrice", b =>
@@ -1849,11 +2231,18 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("Lines");
 
                     b.Navigation("Payments");
+
+                    b.Navigation("Returns");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrderLine", b =>
                 {
                     b.Navigation("Batch");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PurchaseReturn", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Role", b =>
@@ -1868,11 +2257,18 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("Lines");
 
                     b.Navigation("Payments");
+
+                    b.Navigation("Returns");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLine", b =>
                 {
                     b.Navigation("BatchConsumptions");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesReturn", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.StockAdjustment", b =>

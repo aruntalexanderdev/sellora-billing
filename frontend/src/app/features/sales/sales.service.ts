@@ -5,6 +5,10 @@ import { environment } from '../../../environments/environment';
 import type { PagedResult } from '../../core/api.models';
 import type {
   AddSalePaymentRequest,
+  AddSaleRefundRequest,
+  CreateSaleReturnRequest,
+  SalesReturnDetail,
+  SalesReturnListItem,
   CreateSaleRequest,
   SaleCatalogProduct,
   SalesInvoiceDetail,
@@ -13,6 +17,7 @@ import type {
 } from './sales.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/sales`;
+const RETURNS_URL = `${environment.apiBaseUrl}/sales-returns`;
 
 export interface SalesListQuery {
   search?: string;
@@ -48,6 +53,28 @@ export class SalesService {
 
   addPayment(id: string, request: AddSalePaymentRequest): Observable<SalesInvoiceDetail> {
     return this.http.post<SalesInvoiceDetail>(`${BASE_URL}/${id}/payments`, request);
+  }
+
+  addRefund(id: string, request: AddSaleRefundRequest): Observable<SalesInvoiceDetail> {
+    return this.http.post<SalesInvoiceDetail>(`${BASE_URL}/${id}/refunds`, request);
+  }
+
+  reversePayment(id: string, paymentId: string, reason: string | null): Observable<SalesInvoiceDetail> {
+    return this.http.post<SalesInvoiceDetail>(`${BASE_URL}/${id}/payments/${paymentId}/reverse`, { reason });
+  }
+
+  createReturn(request: CreateSaleReturnRequest): Observable<SalesReturnDetail> {
+    return this.http.post<SalesReturnDetail>(RETURNS_URL, request);
+  }
+
+  returns(query: { search?: string; page?: number; pageSize?: number }): Observable<PagedResult<SalesReturnListItem>> {
+    const params: Record<string, string> = { page: String(query.page ?? 1), pageSize: String(query.pageSize ?? 20) };
+    if (query.search) params['search'] = query.search;
+    return this.http.get<PagedResult<SalesReturnListItem>>(RETURNS_URL, { params });
+  }
+
+  getReturn(id: string): Observable<SalesReturnDetail> {
+    return this.http.get<SalesReturnDetail>(`${RETURNS_URL}/${id}`);
   }
 
   cancel(id: string): Observable<void> {

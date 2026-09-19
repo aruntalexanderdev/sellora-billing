@@ -37,7 +37,7 @@ public class DashboardController(SelloraDbContext db) : ControllerBase
 
             outstandingCustomerDue = await db.SalesInvoices
                 .Where(i => i.Status == SalesStatus.Completed)
-                .Select(i => i.GrandTotal - i.PaidAmount < 0 ? 0 : i.GrandTotal - i.PaidAmount)
+                .Select(i => i.GrandTotal - i.ReturnedAmount - i.PaidAmount < 0 ? 0 : i.GrandTotal - i.ReturnedAmount - i.PaidAmount)
                 .SumAsync(ct);
 
             recentSales = await db.SalesInvoices.Include(i => i.Customer)

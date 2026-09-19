@@ -8,6 +8,12 @@ public enum FinancialTransactionType
     SupplierPayment,
     /// <summary>Money paid for an operating expense.</summary>
     ExpensePayment,
+    /// <summary>Money paid back to a customer.</summary>
+    CustomerRefund,
+    /// <summary>Money a supplier paid back to us.</summary>
+    SupplierRefund,
+    /// <summary>The opposite of an earlier payment that was entered in error.</summary>
+    PaymentReversal,
     /// <summary>The balance an account started with. Manual; has no source record.</summary>
     OpeningBalance,
     /// <summary>One leg of a transfer between two accounts (out of one, into the other). Manual; has no source record.</summary>
@@ -87,8 +93,14 @@ public class FinancialTransaction
     public static FinancialTransaction ForPurchasePayment(PurchasePayment payment, Guid currencyId, Guid? accountId) => new()
     {
         Id = Guid.NewGuid(),
-        Type = FinancialTransactionType.SupplierPayment,
-        Direction = MoneyDirection.Out,
+        Type = payment.Kind switch
+        {
+            PaymentEntryKind.Refund => FinancialTransactionType.SupplierRefund,
+            PaymentEntryKind.Reversal => FinancialTransactionType.PaymentReversal,
+            _ => FinancialTransactionType.SupplierPayment,
+        },
+        // Paying a supplier sends money out; a refund or a reversal of such a payment brings it back in.
+        Direction = payment.Kind == PaymentEntryKind.Payment ? MoneyDirection.Out : MoneyDirection.In,
         TransactionDate = payment.PaymentDate,
         CurrencyId = currencyId,
         Amount = payment.Amount,
@@ -103,8 +115,14 @@ public class FinancialTransaction
     public static FinancialTransaction ForSalesPayment(SalesPayment payment, Guid currencyId, Guid? accountId) => new()
     {
         Id = Guid.NewGuid(),
-        Type = FinancialTransactionType.CustomerPayment,
-        Direction = MoneyDirection.In,
+        Type = payment.Kind switch
+        {
+            PaymentEntryKind.Refund => FinancialTransactionType.CustomerRefund,
+            PaymentEntryKind.Reversal => FinancialTransactionType.PaymentReversal,
+            _ => FinancialTransactionType.CustomerPayment,
+        },
+        // Receiving from a customer brings money in; a refund or a reversal of such a payment sends it back out.
+        Direction = payment.Kind == PaymentEntryKind.Payment ? MoneyDirection.In : MoneyDirection.Out,
         TransactionDate = payment.PaymentDate,
         CurrencyId = currencyId,
         Amount = payment.Amount,

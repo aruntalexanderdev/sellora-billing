@@ -1,4 +1,5 @@
 using Sellora.Domain.Entities;
+using Sellora.Domain.Payments;
 
 namespace Sellora.Domain.Purchasing;
 
@@ -36,4 +37,28 @@ public sealed record AddPurchasePaymentInput(
     PaymentMethod PaymentMethod,
     decimal ExpectedDue,
     Guid? AccountId = null
+);
+
+/// <summary><see cref="Qty"/> is in the purchase unit the line was bought in.</summary>
+public sealed record PurchaseReturnLineInput(Guid PurchaseOrderLineId, decimal Qty);
+
+/// <summary>Goods sent back to a supplier. An optional <see cref="Refund"/> records money the supplier paid
+/// back in the same step, in the purchase's transaction currency.</summary>
+public sealed record CreatePurchaseReturnInput(
+    Guid PurchaseOrderId,
+    DateOnly ReturnDate,
+    string? Reason,
+    IReadOnlyList<PurchaseReturnLineInput> Lines,
+    RefundDetails? Refund = null
+);
+
+/// <summary>Money a supplier paid back, in the purchase's transaction currency. <see cref="ExpectedRefundable"/>
+/// is the refundable amount the caller saw, so a stale or duplicate submission is rejected.</summary>
+public sealed record AddPurchaseRefundInput(
+    decimal Amount,
+    PaymentMethod PaymentMethod,
+    decimal ExpectedRefundable,
+    Guid? AccountId = null,
+    string? Reason = null,
+    Guid? PurchaseReturnId = null
 );

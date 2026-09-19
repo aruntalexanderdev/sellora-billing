@@ -17,6 +17,7 @@ public class SalesInvoice
 
     /// <summary>The method of the most recent payment (each payment also records its own).</summary>
     public PaymentMethod PaymentMethod { get; set; }
+    /// <summary>Net money held from the customer: payments received less refunds and reversals.</summary>
     public decimal PaidAmount { get; set; }
 
     public decimal Subtotal { get; set; }
@@ -37,10 +38,22 @@ public class SalesInvoice
     /// only by the sales service.</summary>
     public ICollection<SalesPayment> Payments { get; set; } = new List<SalesPayment>();
 
-    /// <summary>Due amount is always derived from GrandTotal - PaidAmount, never stored independently (docx §17).</summary>
-    public decimal DueAmount => Math.Max(0, GrandTotal - PaidAmount);
+    /// <summary>The value of goods customers have returned (tax included). Maintained only by the sales service.</summary>
+    public decimal ReturnedAmount { get; set; }
 
-    public PaymentStatus PaymentStatus => PaidAmount <= 0
-        ? PaymentStatus.Due
-        : PaidAmount >= GrandTotal ? PaymentStatus.Paid : PaymentStatus.PartiallyPaid;
+    public ICollection<SalesReturn> Returns { get; set; } = new List<SalesReturn>();
+
+    /// <summary>What the customer actually owes for: the grand total less returned goods.</summary>
+    public decimal NetTotal => GrandTotal - ReturnedAmount;
+
+    /// <summary>Due amount is always derived, never stored independently (docx §17). A cancelled sale owes nothing.</summary>
+    public decimal DueAmount => Status == SalesStatus.Cancelled ? 0 : Math.Max(0, NetTotal - PaidAmount);
+
+    /// <summary>Money held from the customer beyond what they owe — paid more than the net total, or paid on a
+    /// sale that was then cancelled — and so refundable to them.</summary>
+    public decimal RefundableAmount => Math.Max(0, PaidAmount - (Status == SalesStatus.Cancelled ? 0 : NetTotal));
+
+    public PaymentStatus PaymentStatus => NetTotal <= 0 || PaidAmount >= NetTotal
+        ? PaymentStatus.Paid
+        : PaidAmount <= 0 ? PaymentStatus.Due : PaymentStatus.PartiallyPaid;
 }

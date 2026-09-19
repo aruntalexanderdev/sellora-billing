@@ -1,0 +1,128 @@
+@if (!loading() && purchase(); as p) {
+  <div class="page-head">
+    <div>
+      <h1>Return items from {{ p.purchaseNo }}</h1>
+      <p>{{ p.supplierName }} · bought {{ p.purchaseDate }}. Returned goods leave your stock and reduce what you owe the supplier.</p>
+    </div>
+    <div class="header-actions"><a [routerLink]="['/purchases', p.id]" class="back-link">Back to purchase</a></div>
+  </div>
+
+  @if (blocked().length > 0) {
+    <div class="fx-card">
+      <div class="fx-note">
+        Some items can't be returned because they have already been sold:
+        @for (l of blocked(); track l.id) {
+          <strong>{{ l.productName }}</strong>{{ $last ? '.' : ', ' }}
+        }
+      </div>
+    </div>
+  }
+
+  @if (lines().length === 0) {
+    <div class="not-found">There is nothing left on this purchase that can be returned.</div>
+  } @else {
+    <div class="detail-card">
+      <div class="lines-table-wrap">
+        <table class="lines-table">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Unit</th>
+              <th class="num">Bought</th>
+              <th class="num">Already returned</th>
+              <th class="num">Can return</th>
+              <th class="num">Return qty</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (l of lines(); track l.id) {
+              <tr>
+                <td class="strong">{{ l.productName }}</td>
+                <td>{{ l.sellingModeLabel }}</td>
+                <td class="num">{{ l.qty }}</td>
+                <td class="num">{{ l.returnedQty }}</td>
+                <td class="num">{{ l.returnableQty }}</td>
+                <td class="num">
+                  <input
+                    type="number" min="0" step="0.001" [attr.max]="l.returnableQty" class="field-input qty-input"
+                    [value]="qty()[l.id] ?? ''" (input)="setQty(l.id, $any($event.target).value)" [attr.aria-label]="'Return quantity for ' + l.productName"
+                  />
+                  @if (invalidLine(l.id, l.returnableQty)) {
+                    <div class="field-error">At most {{ l.returnableQty }}.</div>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <div style="padding: 10px 14px"><a class="link" (click)="returnAll()">Return everything that can go back</a></div>
+    </div>
+
+    <form [formGroup]="form" (ngSubmit)="submit()" class="pay-card" style="margin-top: 16px">
+      <div class="pay-grid">
+        <div>
+          <label class="field-label">Return date</label>
+          <input type="date" formControlName="returnDate" class="field-input" [attr.min]="p.purchaseDate" />
+        </div>
+        <div>
+          <label class="field-label">Reason</label>
+          <input type="text" formControlName="reason" class="field-input" maxlength="300" placeholder="Damaged, wrong grade…" />
+        </div>
+      </div>
+
+      <div class="pay-preview">
+        Credit from the supplier (tax included): <strong>{{ base(creditBase()) }}</strong>
+        @if (p.currencyCode !== p.baseCurrencyCode) {
+          · <strong>{{ original(creditOriginal()) }} {{ p.currencyCode }}</strong>
+        }
+        @if (p.originalPaidAmount > 0) {
+          · then refundable by the supplier: <strong>{{ original(refundableAfter()) }}</strong>
+        }
+      </div>
+
+      @if (refundableAfter() > 0) {
+        <label class="check-row">
+          <input type="checkbox" [checked]="refundNow()" (change)="toggleRefund($any($event.target).checked)" />
+          The supplier has refunded this now
+        </label>
+      }
+
+      @if (refundNow()) {
+        <div [formGroup]="refundForm" class="pay-grid" style="margin-top: 8px">
+          <div>
+            <label class="field-label">Refund amount ({{ p.currencyCode }})</label>
+            <input type="number" [attr.step]="amountStep()" min="0" [attr.max]="refundableAfter()" formControlName="amount" class="field-input" />
+          </div>
+          <div>
+            <label class="field-label">Refund method</label>
+            <select formControlName="paymentMethod" class="field-input">
+              @for (m of paymentMethods; track m) {
+                <option [value]="m">{{ m }}</option>
+              }
+            </select>
+          </div>
+          <div>
+            <label class="field-label">Account</label>
+            <select formControlName="accountId" class="field-input">
+              <option value="">Not tracked</option>
+              @for (a of accountOptions(); track a.id) {
+                <option [value]="a.id">{{ a.name }}</option>
+              }
+            </select>
+          </div>
+        </div>
+      }
+
+      @if (error()) {
+        <div class="field-error">{{ error() }}</div>
+      }
+      <div class="edit-actions">
+        <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Recording…' : 'Record return' }}</ui-button>
+        <a [routerLink]="['/purchases', p.id]" class="back-link">Cancel</a>
+      </div>
+    </form>
+  }
+} @else if (!loading()) {
+  <div class="not-found">Purchase not found.</div>
+}

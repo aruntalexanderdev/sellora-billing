@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Payments;
 using Sellora.Domain.Sales;
 using Sellora.Infrastructure.Data;
 
@@ -91,17 +92,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
     public async Task<SalesInvoice?> AddPaymentAsync(Guid salesInvoiceId, AddSalePaymentInput input, Guid receivedByUserId, CancellationToken ct = default)
     {
-        // FOR UPDATE serialises concurrent payments on the same invoice, so the due they are checked
-        // against cannot go stale between the read and the save. The in-memory test provider has neither
-        // transactions nor row locks, hence the relational check.
-        var relational = db.Database.IsRelational();
-        await using var transaction = relational ? await db.Database.BeginTransactionAsync(ct) : null;
-
-        var invoice = relational
-            ? await db.SalesInvoices
-                .FromSqlInterpolated($"SELECT * FROM \"SalesInvoices\" WHERE \"Id\" = {salesInvoiceId} FOR UPDATE")
-                .SingleOrDefaultAsync(ct)
-            : await db.SalesInvoices.SingleOrDefaultAsync(i => i.Id == salesInvoiceId, ct);
+        await using var transaction = await BeginAsync(ct);
+        var invoice = await LockInvoiceAsync(salesInvoiceId, ct);
         if (invoice is null) return null;
 
         if (invoice.Status == SalesStatus.Cancelled)
@@ -136,18 +128,38 @@ public class SalesService(SelloraDbContext db) : ISalesService
         return invoice;
     }
 
-    // The one place a payment is recorded: appends a ledger row and moves the invoice's running paid total;
-    // an existing payment is never touched.
-    private async Task RecordPaymentAsync(SalesInvoice invoice, decimal amount, PaymentMethod method, DateOnly paymentDate, Guid userId, Guid? accountId, CancellationToken ct)
+    // FOR UPDATE serialises concurrent money operations on the same invoice, so the due or refundable amount they
+    // are checked against cannot go stale between the read and the save. The in-memory test provider has neither
+    // transactions nor row locks, hence the relational check.
+    private async Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction?> BeginAsync(CancellationToken ct) =>
+        db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
+
+    private async Task<SalesInvoice?> LockInvoiceAsync(Guid salesInvoiceId, CancellationToken ct) =>
+        db.Database.IsRelational()
+            ? await db.SalesInvoices
+                .FromSqlInterpolated($"SELECT * FROM \"SalesInvoices\" WHERE \"Id\" = {salesInvoiceId} FOR UPDATE")
+                .SingleOrDefaultAsync(ct)
+            : await db.SalesInvoices.SingleOrDefaultAsync(i => i.Id == salesInvoiceId, ct);
+
+    // The one place money is recorded against an invoice: appends a ledger row and moves the invoice's running paid
+    // total (up for a payment, down for a refund or reversal); an existing entry is never touched. Every entry
+    // writes its own financial transaction.
+    private async Task<SalesPayment> RecordEntryAsync(
+        SalesInvoice invoice, PaymentEntryKind kind, decimal amount, PaymentMethod method, DateOnly date, Guid userId,
+        Guid? accountId, string? reason, Guid? reversesPaymentId, Guid? salesReturnId, CancellationToken ct)
     {
-        invoice.PaidAmount += amount;
-        invoice.PaymentMethod = method;
+        invoice.PaidAmount += kind == PaymentEntryKind.Payment ? amount : -amount;
+        if (kind == PaymentEntryKind.Payment) invoice.PaymentMethod = method;
 
         var payment = new SalesPayment
         {
             Id = Guid.NewGuid(),
             SalesInvoiceId = invoice.Id,
-            PaymentDate = paymentDate,
+            Kind = kind,
+            ReversesPaymentId = reversesPaymentId,
+            SalesReturnId = salesReturnId,
+            Reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim(),
+            PaymentDate = date,
             Amount = amount,
             ExchangeRateToBase = 1m,
             BaseAmount = amount,
@@ -160,6 +172,224 @@ public class SalesService(SelloraDbContext db) : ISalesService
         // Sales are billed in the base currency, so the money moved is in the base currency too.
         var baseCurrencyId = await db.BusinessSettings.Select(s => s.BaseCurrencyId).SingleAsync(ct);
         db.FinancialTransactions.Add(FinancialTransaction.ForSalesPayment(payment, baseCurrencyId, accountId));
+        return payment;
+    }
+
+    private Task RecordPaymentAsync(SalesInvoice invoice, decimal amount, PaymentMethod method, DateOnly paymentDate, Guid userId, Guid? accountId, CancellationToken ct) =>
+        RecordEntryAsync(invoice, PaymentEntryKind.Payment, amount, method, paymentDate, userId, accountId, null, null, null, ct);
+
+    public async Task<SalesInvoice?> AddRefundAsync(Guid salesInvoiceId, AddSaleRefundInput input, Guid userId, CancellationToken ct = default)
+    {
+        await using var transaction = await BeginAsync(ct);
+        var invoice = await LockInvoiceAsync(salesInvoiceId, ct);
+        if (invoice is null) return null;
+
+        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, ct);
+        if (input.SalesReturnId is { } returnId
+            && !await db.SalesReturns.AnyAsync(r => r.Id == returnId && r.SalesInvoiceId == invoice.Id, ct))
+        {
+            throw new DomainValidationException("SalesReturnId", "Select a return that belongs to this sale.");
+        }
+
+        ValidateRefund(invoice, input.Amount, input.ExpectedRefundable);
+        await RecordEntryAsync(invoice, PaymentEntryKind.Refund, input.Amount, input.PaymentMethod, DateOnly.FromDateTime(DateTime.UtcNow),
+            userId, input.AccountId, input.Reason, null, input.SalesReturnId, ct);
+
+        await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
+        return invoice;
+    }
+
+    private static void ValidateRefund(SalesInvoice invoice, decimal amount, decimal? expectedRefundable)
+    {
+        var refundable = invoice.RefundableAmount;
+        if (refundable <= 0)
+        {
+            throw new DomainValidationException("Amount", "There is nothing to refund on this invoice.");
+        }
+        if (amount <= 0)
+        {
+            throw new DomainValidationException("Amount", "Refund amount must be greater than zero.");
+        }
+        if (expectedRefundable is { } expected && expected != refundable)
+        {
+            throw new DomainValidationException("ExpectedRefundable", $"The refundable amount has changed to {refundable:F2}. Reload the invoice and try again.");
+        }
+        if (amount > refundable)
+        {
+            throw new DomainValidationException("Amount", $"Refund cannot exceed the refundable amount of {refundable:F2}.");
+        }
+    }
+
+    public async Task<SalesInvoice?> ReversePaymentAsync(Guid salesInvoiceId, Guid paymentId, ReversePaymentInput input, Guid userId, CancellationToken ct = default)
+    {
+        await using var transaction = await BeginAsync(ct);
+        var invoice = await LockInvoiceAsync(salesInvoiceId, ct);
+        if (invoice is null) return null;
+
+        var payment = await db.SalesPayments.SingleOrDefaultAsync(p => p.Id == paymentId && p.SalesInvoiceId == invoice.Id, ct)
+            ?? throw new DomainValidationException("PaymentId", "Payment not found on this invoice.");
+        if (payment.Kind != PaymentEntryKind.Payment)
+        {
+            throw new DomainValidationException("PaymentId", "Only a payment can be reversed.");
+        }
+        if (await db.SalesPayments.AnyAsync(p => p.ReversesPaymentId == payment.Id, ct))
+        {
+            throw new DomainValidationException("PaymentId", "This payment has already been reversed.");
+        }
+        if (invoice.PaidAmount < payment.Amount)
+        {
+            throw new DomainValidationException("PaymentId", "This payment can't be reversed because part of it has since been refunded.");
+        }
+
+        // The reversal goes back through the same account the payment came in through.
+        var accountId = await db.FinancialTransactions.Where(t => t.SalesPaymentId == payment.Id).Select(t => t.AccountId).SingleOrDefaultAsync(ct);
+        await RecordEntryAsync(invoice, PaymentEntryKind.Reversal, payment.Amount, payment.PaymentMethod, DateOnly.FromDateTime(DateTime.UtcNow),
+            userId, accountId, input.Reason, payment.Id, null, ct);
+
+        await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
+        return invoice;
+    }
+
+    public async Task<SalesReturn> CreateReturnAsync(CreateSaleReturnInput input, Guid userId, CancellationToken ct = default)
+    {
+        if (input.Lines.Count == 0)
+        {
+            throw new DomainValidationException("Lines", "Choose at least one item to return.");
+        }
+        if (input.Lines.Select(l => l.SalesInvoiceLineId).Distinct().Count() != input.Lines.Count)
+        {
+            throw new DomainValidationException("Lines", "Each item can only be listed once.");
+        }
+        if (input.ReturnDate > DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)))
+        {
+            throw new DomainValidationException("ReturnDate", "Return date cannot be in the future.");
+        }
+
+        await using var transaction = await BeginAsync(ct);
+        var invoice = await LockInvoiceAsync(input.SalesInvoiceId, ct)
+            ?? throw new DomainValidationException("SalesInvoiceId", "Select a valid sale.");
+        if (invoice.Status == SalesStatus.Cancelled)
+        {
+            throw new DomainValidationException("Status", "This sale is cancelled, so nothing can be returned against it.");
+        }
+        if (input.ReturnDate < invoice.InvoiceDate)
+        {
+            throw new DomainValidationException("ReturnDate", "Return date cannot be before the sale date.");
+        }
+
+        var lines = await db.SalesInvoiceLines
+            .Include(l => l.Product)
+            .Include(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch)
+            .Where(l => l.SalesInvoiceId == invoice.Id).ToListAsync(ct);
+        var priorReturns = await db.SalesReturnLines
+            .Where(r => r.SalesInvoiceLine.SalesInvoiceId == invoice.Id).ToListAsync(ct);
+        var precision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+
+        var salesReturn = new SalesReturn
+        {
+            Id = Guid.NewGuid(),
+            ReturnNo = $"SRT-{await db.SalesReturns.CountAsync(ct) + 1:D4}",
+            SalesInvoiceId = invoice.Id,
+            ReturnDate = input.ReturnDate,
+            Reason = string.IsNullOrWhiteSpace(input.Reason) ? null : input.Reason.Trim(),
+            CreatedByUserId = userId,
+        };
+
+        foreach (var requested in input.Lines)
+        {
+            var line = lines.SingleOrDefault(l => l.Id == requested.SalesInvoiceLineId)
+                ?? throw new DomainValidationException("Lines", "One of the items does not belong to this sale.");
+
+            var qty = Math.Round(requested.Qty, 3, MidpointRounding.AwayFromZero);
+            if (qty <= 0)
+            {
+                throw new DomainValidationException("Lines", $"Quantity for {line.Product.Name} must be greater than zero.");
+            }
+
+            var prior = priorReturns.Where(r => r.SalesInvoiceLineId == line.Id).ToList();
+            var returnable = line.Qty - prior.Sum(r => r.Qty);
+            if (qty > returnable)
+            {
+                throw new DomainValidationException("Lines", $"Only {returnable:0.###} of {line.Product.Name} can still be returned.");
+            }
+
+            // Returning whatever is left takes the exact remainder, so per-line rounding can never leave a stray
+            // paisa of credit unissued (or issue one too many) once an item is fully returned.
+            var last = qty == returnable;
+            var taxable = last ? line.TaxableValue - prior.Sum(r => r.TaxableValue) : Math.Round(line.TaxableValue * qty / line.Qty, precision, MidpointRounding.AwayFromZero);
+            var tax = last ? line.TaxAmount - prior.Sum(r => r.TaxAmount) : Math.Round(line.TaxAmount * qty / line.Qty, precision, MidpointRounding.AwayFromZero);
+            var baseQty = last ? line.BaseQty - prior.Sum(r => r.BaseQty) : qty * line.ConversionFactorToBase;
+
+            // Put the goods back into the batches they were sold from, oldest first.
+            var remaining = baseQty;
+            decimal costRestored = 0;
+            foreach (var consumption in line.BatchConsumptions.OrderBy(c => c.PurchaseBatch.CreatedAt))
+            {
+                if (remaining <= 0) break;
+                var alloc = Math.Min(remaining, consumption.QtyBaseUnits - consumption.ReturnedQtyBaseUnits);
+                if (alloc <= 0) continue;
+
+                consumption.ReturnedQtyBaseUnits += alloc;
+                consumption.PurchaseBatch.RemainingBaseQty += alloc;
+                costRestored += alloc * consumption.UnitCost;
+                remaining -= alloc;
+            }
+            if (remaining > 0)
+            {
+                throw new InvalidOperationException($"Sale line {line.Id} has fewer consumed batches than the quantity being returned.");
+            }
+
+            var returnLine = new SalesReturnLine
+            {
+                Id = Guid.NewGuid(),
+                SalesReturnId = salesReturn.Id,
+                SalesInvoiceLineId = line.Id,
+                ProductId = line.ProductId,
+                Qty = qty,
+                BaseQty = baseQty,
+                TaxableValue = taxable,
+                TaxAmount = tax,
+                LineTotal = taxable + tax,
+                CostRestored = costRestored,
+            };
+            salesReturn.Lines.Add(returnLine);
+            priorReturns.Add(returnLine);
+            salesReturn.TaxableTotal += taxable;
+            salesReturn.TaxTotal += tax;
+
+            var stockItem = await db.StockItems.SingleAsync(s => s.ProductId == line.ProductId, ct);
+            stockItem.QuantityOnHand += baseQty;
+            db.StockMovements.Add(new StockMovement
+            {
+                Id = Guid.NewGuid(),
+                ProductId = line.ProductId,
+                Type = StockMovementType.SaleReturn,
+                QuantityBaseUnits = baseQty,
+                ReferenceType = "SalesReturn",
+                ReferenceId = salesReturn.Id,
+                ReferenceNo = salesReturn.ReturnNo,
+                UserId = userId,
+                Notes = $"Returned from {invoice.InvoiceNo}",
+            });
+        }
+
+        salesReturn.Total = salesReturn.TaxableTotal + salesReturn.TaxTotal;
+        invoice.ReturnedAmount += salesReturn.Total;
+        db.SalesReturns.Add(salesReturn);
+
+        if (input.Refund is { } refund)
+        {
+            await FinancialAccountRules.EnsureUsableAsync(db, refund.AccountId, ct);
+            ValidateRefund(invoice, refund.Amount, null);
+            await RecordEntryAsync(invoice, PaymentEntryKind.Refund, refund.Amount, refund.PaymentMethod, input.ReturnDate,
+                userId, refund.AccountId, refund.Reason, null, salesReturn.Id, ct);
+        }
+
+        await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
+        return salesReturn;
     }
 
     public async Task CancelSaleAsync(Guid salesInvoiceId, CancellationToken ct = default)
@@ -172,6 +402,10 @@ public class SalesService(SelloraDbContext db) : ISalesService
         if (invoice.Status == SalesStatus.Cancelled)
         {
             throw new DomainValidationException("Status", "This sale has already been cancelled.");
+        }
+        if (await db.SalesReturns.AnyAsync(r => r.SalesInvoiceId == invoice.Id, ct))
+        {
+            throw new DomainValidationException("Status", "Cannot cancel — items from this sale have been returned.");
         }
 
         var baseQtyByProduct = new Dictionary<Guid, decimal>();

@@ -50,6 +50,8 @@ public static class PermissionCatalog
         new("Purchase.Create", "Purchase", "Create", "Create new purchase orders."),
         new("Purchase.Edit", "Purchase", "Edit", "Edit draft purchase orders."),
         new("Purchase.Pay", "Purchase", "Pay", "Record payments against purchase orders."),
+        new("Purchase.Return", "Purchase", "Return", "Return goods to a supplier."),
+        new("Purchase.Refund", "Purchase", "Refund", "Record supplier refunds and reverse purchase payments."),
         new("Purchase.Cancel", "Purchase", "Cancel", "Cancel a completed purchase order."),
 
         // Sales & Billing — Customers
@@ -63,6 +65,8 @@ public static class PermissionCatalog
         new("Sales.Create", "Sales", "Create", "Create sales through POS billing."),
         new("Sales.Edit", "Sales", "Edit", "Edit an in-progress sale."),
         new("Sales.Receive", "Sales", "Receive", "Record payments received against sales invoices."),
+        new("Sales.Return", "Sales", "Return", "Take back goods from a customer."),
+        new("Sales.Refund", "Sales", "Refund", "Refund customers and reverse sales payments."),
         new("Sales.Cancel", "Sales", "Cancel", "Cancel a completed sales invoice."),
 
         // Accounts — Expenses

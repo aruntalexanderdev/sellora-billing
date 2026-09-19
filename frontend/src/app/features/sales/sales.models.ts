@@ -1,6 +1,7 @@
 export type SalesStatus = 'Completed' | 'Cancelled';
 export type PaymentStatus = 'Due' | 'PartiallyPaid' | 'Paid';
 export type PaymentMethod = 'Cash' | 'Upi' | 'Card' | 'Credit' | 'BankTransfer';
+export type PaymentEntryKind = 'Payment' | 'Refund' | 'Reversal';
 
 export interface SaleCatalogMode {
   id: string;
@@ -48,15 +49,29 @@ export interface SalesInvoiceLine {
   taxAmount: number;
   lineTotal: number;
   costOfGoodsSold: number;
+  returnedQty: number;
+  returnableQty: number;
 }
 
 export interface SalesPayment {
   id: string;
+  kind: PaymentEntryKind;
   paymentDate: string;
   amount: number;
   paymentMethod: PaymentMethod;
   createdByName: string;
   createdAt: string;
+  isReversed: boolean;
+  reason: string | null;
+  returnNo: string | null;
+}
+
+export interface SalesReturnSummary {
+  id: string;
+  returnNo: string;
+  returnDate: string;
+  total: number;
+  refundedAmount: number;
 }
 
 export interface SalesInvoiceDetail {
@@ -79,6 +94,10 @@ export interface SalesInvoiceDetail {
   cancelledAt: string | null;
   lines: SalesInvoiceLine[];
   payments: SalesPayment[];
+  returnedAmount: number;
+  netTotal: number;
+  refundableAmount: number;
+  returns: SalesReturnSummary[];
 }
 
 export interface CreateSaleLineRequest {
@@ -103,4 +122,65 @@ export interface AddSalePaymentRequest {
   paymentMethod: PaymentMethod;
   expectedDue: number;
   accountId?: string | null;
+}
+
+export interface RefundDetails {
+  amount: number;
+  paymentMethod: PaymentMethod;
+  accountId?: string | null;
+  reason?: string | null;
+}
+
+export interface AddSaleRefundRequest extends RefundDetails {
+  expectedRefundable: number;
+  salesReturnId?: string | null;
+}
+
+export interface CreateSaleReturnRequest {
+  salesInvoiceId: string;
+  returnDate: string;
+  reason?: string | null;
+  lines: { salesInvoiceLineId: string; qty: number }[];
+  refund?: RefundDetails | null;
+}
+
+export interface SalesReturnListItem {
+  id: string;
+  returnNo: string;
+  returnDate: string;
+  salesInvoiceId: string;
+  invoiceNo: string;
+  customerName: string;
+  total: number;
+  refundedAmount: number;
+}
+
+export interface SalesReturnLine {
+  id: string;
+  productName: string;
+  sellingModeLabel: string;
+  qty: number;
+  baseQty: number;
+  baseUnitLabel: string;
+  taxableValue: number;
+  taxAmount: number;
+  lineTotal: number;
+}
+
+export interface SalesReturnDetail {
+  id: string;
+  returnNo: string;
+  returnDate: string;
+  salesInvoiceId: string;
+  invoiceNo: string;
+  customerName: string;
+  reason: string | null;
+  taxableTotal: number;
+  taxTotal: number;
+  total: number;
+  refundedAmount: number;
+  createdByName: string;
+  createdAt: string;
+  lines: SalesReturnLine[];
+  refunds: SalesPayment[];
 }
