@@ -1,0 +1,47 @@
+<div class="page-head">
+  <div>
+    <h1>Expenses</h1>
+    <p>Operating costs such as rent, electricity and salaries, kept separate from stock purchases. Totals are in the base currency.</p>
+  </div>
+  <div class="head-actions">
+    @if (canManageCategories()) {
+      <ui-button variant="secondary" (onClick)="goToCategories()">Categories</ui-button>
+    }
+    @if (canCreate()) {
+      <ui-button variant="primary" (onClick)="goToCreate()">+ New expense</ui-button>
+    }
+  </div>
+</div>
+
+<div class="filters">
+  <select class="field-input" [value]="categoryId()" (change)="onCategory($any($event.target).value)" aria-label="Filter by category">
+    <option value="">All categories</option>
+    @for (c of categories(); track c.id) {
+      <option [value]="c.id">{{ c.name }}{{ c.isActive ? '' : ' (inactive)' }}</option>
+    }
+  </select>
+  <select class="field-input" [value]="status()" (change)="onStatus($any($event.target).value)" aria-label="Filter by status">
+    <option value="">All statuses</option>
+    <option value="Active">Active</option>
+    <option value="Cancelled">Cancelled</option>
+  </select>
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search expense no., category or reference…"
+  emptyTitle="No expenses yet"
+  emptyBody="Record rent, utilities, salaries and other running costs here."
+  [emptyAction]="canCreate() ? '+ New expense' : null"
+  (searchChange)="onSearch($event)"
+  (emptyActionClick)="goToCreate()"
+  (retry)="retry()"
+  [footerText]="total() + ' expense' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
+/>

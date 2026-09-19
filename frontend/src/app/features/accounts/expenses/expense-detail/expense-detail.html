@@ -1,0 +1,96 @@
+@if (!loading() && expense(); as e) {
+  <div class="page-head">
+    <div>
+      <h1>{{ e.expenseNo }}</h1>
+      <p>{{ e.categoryName }} · {{ e.expenseDate }}</p>
+    </div>
+    <div class="header-actions">
+      @if (canEdit() && !editing() && !cancelling()) {
+        <ui-button variant="secondary" (onClick)="startEdit()">Edit</ui-button>
+      }
+      @if (canCancel() && !cancelling()) {
+        <ui-button variant="destructive" (onClick)="startCancel()">Cancel expense</ui-button>
+      }
+      <a routerLink="/accounts/expenses" class="back-link">Back to list</a>
+    </div>
+  </div>
+
+  <div class="status-row">
+    <ui-badge [text]="e.status" [tone]="e.status === 'Active' ? 'good' : 'mute'" />
+    @if (e.status === 'Cancelled') {
+      <span class="cancelled-note">
+        Cancelled{{ e.cancelledByName ? ' by ' + e.cancelledByName : '' }}{{ e.cancellationReason ? ' — ' + e.cancellationReason : '' }}
+      </span>
+    }
+  </div>
+
+  @if (isForeign()) {
+    <div class="fx-card">
+      <div><span class="fx-label">Original amount</span><strong>{{ own(e.amount) }} {{ e.currencyCode }}</strong></div>
+      <div><span class="fx-label">Exchange rate used</span><strong>1 {{ e.currencyCode }} = {{ e.baseCurrencySymbol }}{{ e.exchangeRateToBase }}</strong></div>
+      <div><span class="fx-label">Base currency value</span><strong>{{ base(e.baseAmount) }} {{ e.baseCurrencyCode }}</strong></div>
+      <div class="fx-note">Rate captured when this expense was saved.</div>
+    </div>
+  }
+
+  @if (cancelling()) {
+    <div class="pay-card">
+      <div class="pay-head"><strong>Cancel {{ e.expenseNo }}?</strong></div>
+      <p class="muted" style="margin: 0 0 10px">The record is kept, marked as cancelled, and no longer counts toward totals.</p>
+      <form [formGroup]="cancelForm" (ngSubmit)="confirmCancel()">
+        <label class="field-label">Reason (optional)</label>
+        <input type="text" formControlName="reason" class="field-input" maxlength="200" />
+        @if (error()) {
+          <div class="field-error">{{ error() }}</div>
+        }
+        <div class="edit-actions">
+          <ui-button type="submit" variant="destructive" [disabled]="saving()">{{ saving() ? 'Cancelling…' : 'Cancel expense' }}</ui-button>
+          <ui-button variant="secondary" (onClick)="cancelling.set(false)">Keep expense</ui-button>
+        </div>
+      </form>
+    </div>
+  }
+
+  <div class="detail-card">
+    <div class="payment-card" style="max-width: 560px">
+      @if (!editing()) {
+        <div class="kv-row"><span>Amount</span><span>{{ own(e.amount) }}{{ isForeign() ? ' ' + e.currencyCode : '' }}</span></div>
+        @if (isForeign()) {
+          <div class="kv-row"><span>Amount ({{ e.baseCurrencyCode }})</span><span>{{ base(e.baseAmount) }}</span></div>
+        }
+        <div class="kv-row"><span>Payment method</span><span>{{ e.paymentMethod }}</span></div>
+        <div class="kv-row"><span>Reference</span><span>{{ e.reference || '—' }}</span></div>
+        <div class="kv-row"><span>Notes</span><span>{{ e.notes || '—' }}</span></div>
+        <div class="kv-row muted-row"><span>Entered by</span><span>{{ e.createdByName }} · {{ e.createdAt | date: 'medium' }}</span></div>
+        @if (e.updatedAt) {
+          <div class="kv-row muted-row"><span>Last edited</span><span>{{ e.updatedAt | date: 'medium' }}</span></div>
+        }
+      } @else {
+        <form [formGroup]="editForm" class="edit-form" (ngSubmit)="saveEdit()">
+          <label class="field-label">Category</label>
+          <select formControlName="categoryId" class="field-input">
+            @for (c of selectableCategories(); track c.id) {
+              <option [value]="c.id">{{ c.name }}</option>
+            }
+          </select>
+
+          <label class="field-label" style="margin-top: 10px">Reference</label>
+          <input type="text" formControlName="reference" class="field-input" maxlength="60" />
+
+          <label class="field-label" style="margin-top: 10px">Notes</label>
+          <textarea formControlName="notes" class="field-input" rows="2" maxlength="500"></textarea>
+
+          @if (error()) {
+            <div class="field-error">{{ error() }}</div>
+          }
+          <div class="edit-actions">
+            <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
+            <ui-button variant="secondary" (onClick)="editing.set(false)">Cancel</ui-button>
+          </div>
+        </form>
+      }
+    </div>
+  </div>
+} @else if (!loading()) {
+  <div class="not-found">Expense not found.</div>
+}

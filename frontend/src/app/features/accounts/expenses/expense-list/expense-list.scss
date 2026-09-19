@@ -1,0 +1,19 @@
+@use '../../../../shared/styles/page-head';
+@use '../../../../shared/styles/form-fields';
+
+.head-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+
+  .field-input {
+    width: auto;
+    min-width: 180px;
+  }
+}

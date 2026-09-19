@@ -23,6 +23,10 @@ import { SupplierList } from './features/purchases/suppliers/supplier-list/suppl
 import { SupplierForm } from './features/purchases/suppliers/supplier-form/supplier-form';
 import { ProductList } from './features/inventory/products/product-list/product-list';
 import { ProductForm } from './features/inventory/products/product-form/product-form';
+import { ExpenseList } from './features/accounts/expenses/expense-list/expense-list';
+import { ExpenseForm } from './features/accounts/expenses/expense-form/expense-form';
+import { ExpenseDetail } from './features/accounts/expenses/expense-detail/expense-detail';
+import { ExpenseCategories } from './features/accounts/expenses/expense-categories/expense-categories';
 import { PurchaseList } from './features/purchases/purchase-list/purchase-list';
 import { PurchaseForm } from './features/purchases/purchase-form/purchase-form';
 import { PurchaseDetail } from './features/purchases/purchase-detail/purchase-detail';
@@ -285,6 +289,32 @@ export const routes: Routes = [
         component: PurchaseDetail,
         canActivate: [permissionGuard('Purchase.View')],
         data: { group: 'Purchases', page: 'Purchase details' },
+      },
+
+      {
+        path: 'accounts/expenses',
+        component: ExpenseList,
+        canActivate: [permissionGuard('Expenses.View')],
+        data: { group: 'Accounts', page: 'Expenses' },
+      },
+      {
+        path: 'accounts/expenses/new',
+        component: ExpenseForm,
+        canActivate: [permissionGuard('Expenses.Create')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Accounts', page: 'New expense' },
+      },
+      {
+        path: 'accounts/expenses/categories',
+        component: ExpenseCategories,
+        canActivate: [permissionGuard('Expenses.Categories')],
+        data: { group: 'Accounts', page: 'Expense categories' },
+      },
+      {
+        path: 'accounts/expenses/:id',
+        component: ExpenseDetail,
+        canActivate: [permissionGuard('Expenses.View')],
+        data: { group: 'Accounts', page: 'Expense details' },
       },
 
       {

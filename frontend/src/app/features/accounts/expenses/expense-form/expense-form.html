@@ -1,0 +1,102 @@
+<div class="page-head">
+  <div>
+    <h1>New expense</h1>
+    <p>Record an operating cost that has been paid. Amount, date, currency and method can't be changed afterwards — cancel and re-enter to correct them.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error">{{ serverError() }}</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Category</label>
+        <select formControlName="categoryId" class="field-input">
+          <option value="" disabled>Select a category…</option>
+          @for (c of categories(); track c.id) {
+            <option [value]="c.id">{{ c.name }}</option>
+          }
+        </select>
+        @if (form.controls.categoryId.touched && form.controls.categoryId.errors?.['required']) {
+          <div class="field-error">Select a category.</div>
+        }
+        @if (form.controls.categoryId.errors?.['server']) {
+          <div class="field-error">{{ form.controls.categoryId.errors?.['server'] }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label">Expense date</label>
+        <input type="date" formControlName="expenseDate" class="field-input" />
+        @if (form.controls.expenseDate.errors?.['server']) {
+          <div class="field-error">{{ form.controls.expenseDate.errors?.['server'] }}</div>
+        }
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Currency</label>
+        <select formControlName="currencyId" class="field-input">
+          @for (c of currencies(); track c.id) {
+            <option [value]="c.id">{{ c.code }} — {{ c.name }}</option>
+          }
+        </select>
+        @if (form.controls.currencyId.errors?.['server']) {
+          <div class="field-error">{{ form.controls.currencyId.errors?.['server'] }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label">Amount{{ currency() ? ' (' + currency()!.code + ')' : '' }}</label>
+        <input type="number" [attr.step]="amountStep()" min="0" formControlName="amount" class="field-input" />
+        @if (form.controls.amount.touched && form.controls.amount.errors?.['required']) {
+          <div class="field-error">Enter the amount.</div>
+        }
+        @if (form.controls.amount.touched && form.controls.amount.errors?.['min']) {
+          <div class="field-error">Amount must be greater than zero.</div>
+        }
+        @if (form.controls.amount.errors?.['server']) {
+          <div class="field-error">{{ form.controls.amount.errors?.['server'] }}</div>
+        }
+      </div>
+    </div>
+
+    @if (isForeign()) {
+      @if (rateError()) {
+        <div class="field-error" style="margin-bottom: 16px">{{ rateError() }}</div>
+      } @else if (resolvedRate(); as r) {
+        <div class="field-hint" style="margin: -6px 0 16px">
+          Rate for this date: 1 {{ currency()!.code }} = {{ r.baseCurrencySymbol }}{{ r.rateToBase }}
+          @if (basePreview() !== null) {
+            · recorded as {{ r.baseCurrencySymbol }}{{ basePreview() }} {{ r.baseCurrencyCode }}
+          }
+        </div>
+      }
+    }
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Payment method</label>
+        <select formControlName="paymentMethod" class="field-input">
+          @for (m of paymentMethods; track m) {
+            <option [value]="m">{{ m }}</option>
+          }
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Reference</label>
+        <input type="text" formControlName="reference" class="field-input" maxlength="60" placeholder="Bill or receipt no." />
+      </div>
+    </div>
+
+    <label class="field-label">Notes</label>
+    <textarea formControlName="notes" class="field-input" rows="2" maxlength="500"></textarea>
+
+    <div class="actions" style="margin-top: 16px">
+      <ui-button type="submit" variant="primary" [disabled]="saving() || (isForeign() && !!rateError())">{{ saving() ? 'Saving…' : 'Record expense' }}</ui-button>
+      <a routerLink="/accounts/expenses" class="cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>

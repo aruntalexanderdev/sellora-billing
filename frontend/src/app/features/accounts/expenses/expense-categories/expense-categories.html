@@ -1,0 +1,39 @@
+<div class="page-head">
+  <div>
+    <h1>Expense categories</h1>
+    <p>Group expenses for reporting. Categories are deactivated rather than deleted, so past expenses keep theirs.</p>
+  </div>
+  <a routerLink="/accounts/expenses" class="back-link">Back to expenses</a>
+</div>
+
+<div class="card">
+  <form [formGroup]="form" (ngSubmit)="submit()" class="add-row">
+    <input type="text" formControlName="name" class="field-input" maxlength="60" [placeholder]="editingId() ? 'Rename category' : 'New category name'" aria-label="Category name" />
+    <ui-button type="submit" variant="primary" [disabled]="saving()">{{ editingId() ? 'Save' : 'Add' }}</ui-button>
+    @if (editingId()) {
+      <ui-button variant="secondary" (onClick)="startAdd()">Cancel</ui-button>
+    }
+  </form>
+  @if (error()) {
+    <div class="field-error">{{ error() }}</div>
+  }
+
+  @if (loading()) {
+    <p class="muted">Loading…</p>
+  } @else {
+    <table class="cat-table">
+      <tbody>
+        @for (c of categories(); track c.id) {
+          <tr>
+            <td class="strong">{{ c.name }}</td>
+            <td><ui-badge [text]="c.isActive ? 'Active' : 'Inactive'" [tone]="c.isActive ? 'good' : 'mute'" /></td>
+            <td class="row-actions">
+              <a class="link" (click)="startRename(c)">Rename</a>
+              <a class="link" (click)="toggle(c)">{{ c.isActive ? 'Deactivate' : 'Activate' }}</a>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</div>

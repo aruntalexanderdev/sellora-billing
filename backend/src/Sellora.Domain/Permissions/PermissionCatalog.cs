@@ -65,6 +65,13 @@ public static class PermissionCatalog
         new("Sales.Receive", "Sales", "Receive", "Record payments received against sales invoices."),
         new("Sales.Cancel", "Sales", "Cancel", "Cancel a completed sales invoice."),
 
+        // Accounts — Expenses
+        new("Expenses.View", "Accounts", "View", "View operating expenses."),
+        new("Expenses.Create", "Accounts", "Create", "Record operating expenses."),
+        new("Expenses.Edit", "Accounts", "Edit", "Edit an expense's category, reference and notes."),
+        new("Expenses.Cancel", "Accounts", "Cancel", "Cancel an expense."),
+        new("Expenses.Categories", "Accounts", "Categories", "Create, rename and deactivate expense categories."),
+
         // Reports
         new("Reports.Stock", "Reports", "View", "View the current stock report."),
         new("Reports.Movement", "Reports", "View", "View the stock movement report."),

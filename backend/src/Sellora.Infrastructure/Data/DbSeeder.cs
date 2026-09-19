@@ -28,6 +28,7 @@ public static class DbSeeder
         await SeedSuppliersAsync(db, currencies, ct);
         await SeedProductsAsync(db, units, taxes, ct);
         await SeedCustomersAsync(db, ct);
+        await SeedExpenseCategoriesAsync(db, ct);
     }
 
     private static async Task SeedPermissionsAsync(SelloraDbContext db, CancellationToken ct)
@@ -67,6 +68,18 @@ public static class DbSeeder
         foreach (var roleId in roleIds)
         {
             db.RolePermissions.Add(new RolePermission { RoleId = roleId, PermissionId = permission.Id });
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Starter categories; added once, so an administrator who renames or deactivates one is not overridden.
+    private static async Task SeedExpenseCategoriesAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        if (await db.ExpenseCategories.AnyAsync(ct)) return;
+
+        foreach (var name in new[] { "Rent", "Electricity", "Internet", "Salary", "Transport", "Maintenance", "Other" })
+        {
+            db.ExpenseCategories.Add(new ExpenseCategory { Id = Guid.NewGuid(), Name = name });
         }
         await db.SaveChangesAsync(ct);
     }
