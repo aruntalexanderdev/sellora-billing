@@ -194,4 +194,91 @@ public class SalesServiceTests
         var stockItem = await f.Db.StockItems.SingleAsync(s => s.ProductId == f.Product.Id);
         Assert.Equal(40m, stockItem.QuantityOnHand); // 100 - 40 - 60 + 40 restored
     }
+
+    private static async Task<SalesInvoice> SaleAsync(Fixture f, decimal paid, PaymentMethod method = PaymentMethod.Cash)
+    {
+        await PurchaseAsync(f, 30, 580);
+        // 20 kg @ 65 = 1300 + 5% GST = 1365
+        return await f.Service.CreateSaleAsync(
+            new CreateSaleInput(f.Customer.Id, new DateOnly(2026, 9, 18), method, paid,
+                [new SaleLineInput(f.Product.Id, f.LooseKg.Id, 20, 65, 0)]), f.UserId);
+    }
+
+    [Fact]
+    public async Task AddPaymentAsync_PartialPayments_AppendRowsAndTrackDueAndStatus()
+    {
+        var f = await SeedAsync();
+        var sale = await SaleAsync(f, 300m);
+        Assert.Equal(PaymentStatus.PartiallyPaid, sale.PaymentStatus);
+
+        var second = await f.Service.AddPaymentAsync(sale.Id, new AddSalePaymentInput(200m, PaymentMethod.Upi, 1065m), f.UserId);
+        Assert.Equal(500m, second!.PaidAmount);
+        Assert.Equal(865m, second.DueAmount);
+        Assert.Equal(PaymentMethod.Upi, second.PaymentMethod);
+
+        var last = await f.Service.AddPaymentAsync(sale.Id, new AddSalePaymentInput(865m, PaymentMethod.Card, 865m), f.UserId);
+        Assert.Equal(PaymentStatus.Paid, last!.PaymentStatus);
+        Assert.Equal(0m, last.DueAmount);
+
+        var rows = await f.Db.SalesPayments.AsNoTracking().OrderBy(p => p.CreatedAt).ToListAsync();
+        Assert.Equal([300m, 200m, 865m], rows.Select(r => r.Amount));
+        Assert.Equal([PaymentMethod.Cash, PaymentMethod.Upi, PaymentMethod.Card], rows.Select(r => r.PaymentMethod));
+        Assert.All(rows, r => Assert.Equal(1m, r.ExchangeRateToBase));
+        Assert.Equal(1365m, rows.Sum(r => r.BaseAmount));
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_WithoutPayment_WritesNoRow_AndOverTenderIsCappedAsChange()
+    {
+        var f = await SeedAsync();
+        var unpaid = await SaleAsync(f, 0m);
+        Assert.Empty(await f.Db.SalesPayments.ToListAsync());
+        Assert.Equal(PaymentStatus.Due, unpaid.PaymentStatus);
+
+        var overTendered = await f.Service.CreateSaleAsync(
+            new CreateSaleInput(f.Customer.Id, new DateOnly(2026, 9, 18), PaymentMethod.Cash, 2000m,
+                [new SaleLineInput(f.Product.Id, f.LooseKg.Id, 20, 65, 0)]), f.UserId);
+
+        Assert.Equal(1365m, overTendered.PaidAmount);
+        Assert.Equal(1365m, (await f.Db.SalesPayments.SingleAsync()).Amount);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(1065.01)]
+    public async Task AddPaymentAsync_ZeroNegativeOrOverpayment_IsRejected(double amount)
+    {
+        var f = await SeedAsync();
+        var sale = await SaleAsync(f, 300m);
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(
+            () => f.Service.AddPaymentAsync(sale.Id, new AddSalePaymentInput((decimal)amount, PaymentMethod.Cash, 1065m), f.UserId));
+        Assert.Equal("Amount", ex.Field);
+        Assert.Single(await f.Db.SalesPayments.ToListAsync());
+    }
+
+    [Fact]
+    public async Task AddPaymentAsync_DuplicateSubmission_FullyPaidAndCancelled_AreRejected()
+    {
+        var f = await SeedAsync();
+        var sale = await SaleAsync(f, 0m);
+        var request = new AddSalePaymentInput(1365m, PaymentMethod.Cash, 1365m);
+
+        await f.Service.AddPaymentAsync(sale.Id, request, f.UserId);
+        var paid = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.AddPaymentAsync(sale.Id, request, f.UserId));
+        Assert.Equal("Amount", paid.Field);
+
+        var other = await SaleAsync(f, 0m);
+        await f.Service.AddPaymentAsync(other.Id, new AddSalePaymentInput(100m, PaymentMethod.Cash, 1365m), f.UserId);
+        var stale = await Assert.ThrowsAsync<DomainValidationException>(
+            () => f.Service.AddPaymentAsync(other.Id, new AddSalePaymentInput(100m, PaymentMethod.Cash, 1365m), f.UserId));
+        Assert.Equal("ExpectedDue", stale.Field);
+
+        await f.Service.CancelSaleAsync(other.Id);
+        var cancelled = await Assert.ThrowsAsync<DomainValidationException>(
+            () => f.Service.AddPaymentAsync(other.Id, new AddSalePaymentInput(10m, PaymentMethod.Cash, 1265m), f.UserId));
+        Assert.Equal("Status", cancelled.Field);
+        Assert.Null(await f.Service.AddPaymentAsync(Guid.NewGuid(), request, f.UserId));
+    }
 }

@@ -105,6 +105,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             .Include(i => i.CreatedByUser)
             .Include(i => i.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.BaseUnit)
             .Include(i => i.Lines).ThenInclude(l => l.SellingMode)
+            .Include(i => i.Payments).ThenInclude(pay => pay.CreatedByUser)
             .SingleOrDefaultAsync(i => i.Id == id, ct);
 
         return invoice is null ? NotFound() : Ok(ToDetail(invoice));
@@ -125,6 +126,32 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
             var invoice = await salesService.CreateSaleAsync(input, userId, ct);
             return await Get(invoice.Id, ct);
+        }
+        catch (DomainValidationException ex)
+        {
+            ModelState.AddModelError(ex.Field, ex.Message);
+            return ValidationProblem(ModelState);
+        }
+    }
+
+    [HttpPost("{id:guid}/payments")]
+    [Authorize(Policy = "Sales.Receive")]
+    public async Task<ActionResult<SalesInvoiceDetailDto>> AddPayment(Guid id, AddSalePaymentRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
+            var invoice = await salesService.AddPaymentAsync(
+                id, new AddSalePaymentInput(request.Amount, request.PaymentMethod, request.ExpectedDue), userId, ct);
+            if (invoice is null) return NotFound();
+
+            return await Get(id, ct);
+        }
+        catch (DomainValidationException ex) when (ex.Field == "Status")
+        {
+            return Problem(statusCode: 400, title: ex.Message);
         }
         catch (DomainValidationException ex)
         {
@@ -157,5 +184,9 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             l.Id, l.ProductId, l.Product.Name, l.SellingModeId, l.SellingMode.Label,
             l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.UnitPrice,
             l.TaxRatePercent, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.CostOfGoodsSold
+        )).ToList(),
+        i.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => new SalesPaymentDto(
+            pay.Id, pay.PaymentDate, pay.Amount, pay.PaymentMethod,
+            $"{pay.CreatedByUser.FirstName} {pay.CreatedByUser.LastName}", pay.CreatedAt
         )).ToList());
 }

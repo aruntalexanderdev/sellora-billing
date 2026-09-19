@@ -28,6 +28,24 @@ public class SalesInvoiceConfiguration : IEntityTypeConfiguration<SalesInvoice>
     }
 }
 
+public class SalesPaymentConfiguration : IEntityTypeConfiguration<SalesPayment>
+{
+    public void Configure(EntityTypeBuilder<SalesPayment> builder)
+    {
+        builder.HasKey(p => p.Id);
+        builder.Property(p => p.Amount).HasColumnType("numeric(18,2)");
+        builder.Property(p => p.ExchangeRateToBase).HasColumnType("numeric(18,6)");
+        builder.Property(p => p.BaseAmount).HasColumnType("numeric(18,2)");
+        builder.Property(p => p.PaymentMethod).HasConversion<string>().HasMaxLength(20);
+
+        builder.ToTable(t => t.HasCheckConstraint("CK_SalesPayments_Amount_Positive", "\"Amount\" > 0"));
+        builder.HasIndex(p => new { p.SalesInvoiceId, p.CreatedAt });
+
+        builder.HasOne(p => p.SalesInvoice).WithMany(i => i.Payments).HasForeignKey(p => p.SalesInvoiceId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(p => p.CreatedByUser).WithMany().HasForeignKey(p => p.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
 public class SalesInvoiceLineConfiguration : IEntityTypeConfiguration<SalesInvoiceLine>
 {
     public void Configure(EntityTypeBuilder<SalesInvoiceLine> builder)

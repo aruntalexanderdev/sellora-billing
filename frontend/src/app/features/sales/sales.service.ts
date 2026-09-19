@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import type { PagedResult } from '../../core/api.models';
 import type {
+  AddSalePaymentRequest,
   CreateSaleRequest,
   SaleCatalogProduct,
   SalesInvoiceDetail,
@@ -43,6 +44,10 @@ export class SalesService {
 
   create(request: CreateSaleRequest): Observable<SalesInvoiceDetail> {
     return this.http.post<SalesInvoiceDetail>(BASE_URL, request);
+  }
+
+  addPayment(id: string, request: AddSalePaymentRequest): Observable<SalesInvoiceDetail> {
+    return this.http.post<SalesInvoiceDetail>(`${BASE_URL}/${id}/payments`, request);
   }
 
   cancel(id: string): Observable<void> {

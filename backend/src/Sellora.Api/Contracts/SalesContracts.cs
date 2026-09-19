@@ -21,12 +21,17 @@ public record SalesInvoiceLineDto(
     decimal TaxRatePercent, decimal Discount, decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal CostOfGoodsSold
 );
 
+public record SalesPaymentDto(
+    Guid Id, DateOnly PaymentDate, decimal Amount, PaymentMethod PaymentMethod, string CreatedByName, DateTimeOffset CreatedAt
+);
+
 public record SalesInvoiceDetailDto(
     Guid Id, string InvoiceNo, Guid CustomerId, string CustomerName, DateOnly InvoiceDate,
     PaymentMethod PaymentMethod, decimal PaidAmount, decimal DueAmount, PaymentStatus PaymentStatus,
     decimal Subtotal, decimal TaxTotal, decimal DiscountTotal, decimal GrandTotal,
     SalesStatus Status, string CreatedByName, DateTimeOffset CreatedAt, DateTimeOffset? CancelledAt,
-    IReadOnlyList<SalesInvoiceLineDto> Lines
+    IReadOnlyList<SalesInvoiceLineDto> Lines,
+    IReadOnlyList<SalesPaymentDto> Payments
 );
 
 public record CreateSaleLineRequest(
@@ -43,4 +48,10 @@ public record CreateSaleRequest(
     PaymentMethod PaymentMethod,
     [Range(0, double.MaxValue)] decimal PaidAmount,
     [MinLength(1)] CreateSaleLineRequest[] Lines
+);
+
+public record AddSalePaymentRequest(
+    [Range(0.000001, 999999999)] decimal Amount,
+    PaymentMethod PaymentMethod,
+    [Range(0, 999999999)] decimal ExpectedDue
 );

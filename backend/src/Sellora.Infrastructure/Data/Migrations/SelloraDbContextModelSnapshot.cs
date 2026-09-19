@@ -745,6 +745,50 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("SalesInvoiceLineBatchConsumptions");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesPayment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("BaseAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ExchangeRateToBase")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<DateOnly>("PaymentDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("PaymentMethod")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("SalesInvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("SalesInvoiceId", "CreatedAt");
+
+                    b.ToTable("SalesPayments", t =>
+                        {
+                            t.HasCheckConstraint("CK_SalesPayments_Amount_Positive", "\"Amount\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.SellingPrice", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1329,6 +1373,25 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("SalesInvoiceLine");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesPayment", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.SalesInvoice", "SalesInvoice")
+                        .WithMany("Payments")
+                        .HasForeignKey("SalesInvoiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("SalesInvoice");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.SellingPrice", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
@@ -1451,6 +1514,8 @@ namespace Sellora.Infrastructure.Data.Migrations
             modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoice", b =>
                 {
                     b.Navigation("Lines");
+
+                    b.Navigation("Payments");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLine", b =>

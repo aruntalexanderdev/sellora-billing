@@ -15,6 +15,7 @@ public class SalesInvoice
 
     public DateOnly InvoiceDate { get; set; }
 
+    /// <summary>The method of the most recent payment (each payment also records its own).</summary>
     public PaymentMethod PaymentMethod { get; set; }
     public decimal PaidAmount { get; set; }
 
@@ -31,6 +32,10 @@ public class SalesInvoice
     public DateTimeOffset? CancelledAt { get; set; }
 
     public ICollection<SalesInvoiceLine> Lines { get; set; } = new List<SalesInvoiceLine>();
+
+    /// <summary>The payment ledger. <see cref="PaidAmount"/> is the running total of these rows, maintained
+    /// only by the sales service.</summary>
+    public ICollection<SalesPayment> Payments { get; set; } = new List<SalesPayment>();
 
     /// <summary>Due amount is always derived from GrandTotal - PaidAmount, never stored independently (docx §17).</summary>
     public decimal DueAmount => Math.Max(0, GrandTotal - PaidAmount);

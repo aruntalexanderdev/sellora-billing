@@ -49,23 +49,24 @@ public static class DbSeeder
 
         await db.SaveChangesAsync(ct);
 
-        await GrantPurchasePayToPurchaseEditorsAsync(db, ct);
+        await GrantNewPermissionToExistingHoldersAsync(db, "Purchase.Pay", "Purchase.Edit", ct);
+        await GrantNewPermissionToExistingHoldersAsync(db, "Sales.Receive", "Sales.Create", ct);
     }
 
-    // Paying used to be covered by Purchase.Edit, so every role that can edit purchases keeps the ability
-    // to pay when Purchase.Pay is introduced. Only roles with no Purchase.Pay grant are touched, so a role
-    // an administrator later revokes it from is not re-granted.
-    private static async Task GrantPurchasePayToPurchaseEditorsAsync(SelloraDbContext db, CancellationToken ct)
+    // Recording payments used to be covered by an edit permission, so every role holding that permission keeps
+    // the ability when the dedicated one is introduced. Only runs while nobody holds the new permission, so a
+    // role an administrator later revokes it from is not re-granted.
+    private static async Task GrantNewPermissionToExistingHoldersAsync(SelloraDbContext db, string newCode, string existingCode, CancellationToken ct)
     {
-        var pay = await db.Permissions.SingleAsync(p => p.Code == "Purchase.Pay", ct);
-        if (await db.RolePermissions.AnyAsync(rp => rp.PermissionId == pay.Id, ct)) return;
+        var permission = await db.Permissions.SingleAsync(p => p.Code == newCode, ct);
+        if (await db.RolePermissions.AnyAsync(rp => rp.PermissionId == permission.Id, ct)) return;
 
-        var editorRoleIds = await db.RolePermissions
-            .Where(rp => rp.Permission.Code == "Purchase.Edit")
+        var roleIds = await db.RolePermissions
+            .Where(rp => rp.Permission.Code == existingCode)
             .Select(rp => rp.RoleId).ToListAsync(ct);
-        foreach (var roleId in editorRoleIds)
+        foreach (var roleId in roleIds)
         {
-            db.RolePermissions.Add(new RolePermission { RoleId = roleId, PermissionId = pay.Id });
+            db.RolePermissions.Add(new RolePermission { RoleId = roleId, PermissionId = permission.Id });
         }
         await db.SaveChangesAsync(ct);
     }

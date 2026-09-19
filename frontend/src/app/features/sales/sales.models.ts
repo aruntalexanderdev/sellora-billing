@@ -50,6 +50,15 @@ export interface SalesInvoiceLine {
   costOfGoodsSold: number;
 }
 
+export interface SalesPayment {
+  id: string;
+  paymentDate: string;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  createdByName: string;
+  createdAt: string;
+}
+
 export interface SalesInvoiceDetail {
   id: string;
   invoiceNo: string;
@@ -69,6 +78,7 @@ export interface SalesInvoiceDetail {
   createdAt: string;
   cancelledAt: string | null;
   lines: SalesInvoiceLine[];
+  payments: SalesPayment[];
 }
 
 export interface CreateSaleLineRequest {
@@ -85,4 +95,10 @@ export interface CreateSaleRequest {
   paymentMethod: PaymentMethod;
   paidAmount: number;
   lines: CreateSaleLineRequest[];
+}
+
+export interface AddSalePaymentRequest {
+  amount: number;
+  paymentMethod: PaymentMethod;
+  expectedDue: number;
 }

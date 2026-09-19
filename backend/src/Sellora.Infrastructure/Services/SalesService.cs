@@ -31,7 +31,6 @@ public class SalesService(SelloraDbContext db) : ISalesService
             CustomerId = customer.Id,
             InvoiceDate = input.InvoiceDate,
             PaymentMethod = input.PaymentMethod,
-            PaidAmount = input.PaidAmount,
             Status = SalesStatus.Completed,
             CreatedByUserId = createdByUserId,
         };
@@ -75,10 +74,84 @@ public class SalesService(SelloraDbContext db) : ISalesService
         invoice.DiscountTotal = discountTotal;
         invoice.GrandTotal = subtotal - discountTotal + taxTotal;
 
+        // Cash tendered above the total is change handed back, not money received against the invoice.
+        var received = Math.Min(input.PaidAmount, invoice.GrandTotal);
+        if (received > 0)
+        {
+            RecordPayment(invoice, received, input.PaymentMethod, input.InvoiceDate, createdByUserId);
+        }
+
         db.SalesInvoices.Add(invoice);
         await db.SaveChangesAsync(ct);
 
         return invoice;
+    }
+
+    public async Task<SalesInvoice?> AddPaymentAsync(Guid salesInvoiceId, AddSalePaymentInput input, Guid receivedByUserId, CancellationToken ct = default)
+    {
+        // FOR UPDATE serialises concurrent payments on the same invoice, so the due they are checked
+        // against cannot go stale between the read and the save. The in-memory test provider has neither
+        // transactions nor row locks, hence the relational check.
+        var relational = db.Database.IsRelational();
+        await using var transaction = relational ? await db.Database.BeginTransactionAsync(ct) : null;
+
+        var invoice = relational
+            ? await db.SalesInvoices
+                .FromSqlInterpolated($"SELECT * FROM \"SalesInvoices\" WHERE \"Id\" = {salesInvoiceId} FOR UPDATE")
+                .SingleOrDefaultAsync(ct)
+            : await db.SalesInvoices.SingleOrDefaultAsync(i => i.Id == salesInvoiceId, ct);
+        if (invoice is null) return null;
+
+        if (invoice.Status == SalesStatus.Cancelled)
+        {
+            throw new DomainValidationException("Status", "This sale is cancelled and cannot receive payments.");
+        }
+
+        var due = invoice.DueAmount;
+        if (due <= 0)
+        {
+            throw new DomainValidationException("Amount", "This invoice is already fully paid.");
+        }
+        if (input.Amount <= 0)
+        {
+            throw new DomainValidationException("Amount", "Payment amount must be greater than zero.");
+        }
+        if (input.ExpectedDue != due)
+        {
+            throw new DomainValidationException("ExpectedDue", $"The amount due has changed to {due:F2}. Reload the invoice and try again.");
+        }
+        if (input.Amount > due)
+        {
+            throw new DomainValidationException("Amount", $"Payment cannot exceed the outstanding due of {due:F2}.");
+        }
+
+        RecordPayment(invoice, input.Amount, input.PaymentMethod, DateOnly.FromDateTime(DateTime.UtcNow), receivedByUserId);
+
+        await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
+        return invoice;
+    }
+
+    // The one place a payment is recorded: appends a ledger row and moves the invoice's running paid total;
+    // an existing payment is never touched.
+    private void RecordPayment(SalesInvoice invoice, decimal amount, PaymentMethod method, DateOnly paymentDate, Guid userId)
+    {
+        invoice.PaidAmount += amount;
+        invoice.PaymentMethod = method;
+
+        var payment = new SalesPayment
+        {
+            Id = Guid.NewGuid(),
+            SalesInvoiceId = invoice.Id,
+            PaymentDate = paymentDate,
+            Amount = amount,
+            ExchangeRateToBase = 1m,
+            BaseAmount = amount,
+            PaymentMethod = method,
+            CreatedByUserId = userId,
+        };
+        invoice.Payments.Add(payment);
+        db.SalesPayments.Add(payment);
     }
 
     public async Task CancelSaleAsync(Guid salesInvoiceId, CancellationToken ct = default)

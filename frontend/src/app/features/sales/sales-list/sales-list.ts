@@ -15,6 +15,8 @@ const COLS: DataTableColumn[] = [
   { label: 'Paid', align: 'right' },
   { label: 'Due', align: 'right' },
   { label: 'Status', align: 'left' },
+  { label: 'Payment', align: 'left' },
+  { label: '', align: 'right' },
 ];
 
 const INR = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
@@ -38,6 +40,7 @@ export class SalesList implements OnInit {
   readonly items = signal<SalesInvoiceListItem[]>([]);
   readonly total = signal(0);
 
+  readonly canReceive = computed(() => this.auth.hasPermission('Sales.Receive'));
   readonly canCreate = computed(() => this.auth.hasPermission('Sales.Create'));
   readonly hasMore = computed(() => this.page() * 20 < this.total());
 
@@ -51,6 +54,15 @@ export class SalesList implements OnInit {
         { kind: 'text', text: INR(s.paidAmount), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(s.dueAmount), align: 'right', color: s.dueAmount > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)' },
         { kind: 'badge', text: s.status, tone: s.status === 'Completed' ? 'good' : 'mute' },
+        { kind: 'badge', text: s.paymentStatus, tone: s.paymentStatus === 'Paid' ? 'good' : s.paymentStatus === 'PartiallyPaid' ? 'warn' : 'bad' },
+        {
+          kind: 'actions',
+          // Only a live invoice that still has something outstanding can receive a payment.
+          actions:
+            this.canReceive() && s.status === 'Completed' && s.paymentStatus !== 'Paid'
+              ? [{ label: 'Receive payment', onClick: () => this.router.navigate(['/sales', s.id], { queryParams: { pay: 1 } }) }]
+              : [],
+        },
       ],
     })),
   );
