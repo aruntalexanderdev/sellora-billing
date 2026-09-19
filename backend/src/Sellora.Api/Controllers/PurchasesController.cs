@@ -59,6 +59,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             .Include(p => p.CreatedByUser)
             .Include(p => p.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.BaseUnit)
             .Include(p => p.Lines).ThenInclude(l => l.SellingMode)
+            .Include(p => p.Payments).ThenInclude(pay => pay.CreatedByUser)
             .SingleOrDefaultAsync(p => p.Id == id, ct);
 
         if (purchase is null) return NotFound();
@@ -100,7 +101,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         try
         {
             var purchase = await purchaseService.UpdateHeaderAsync(
-                id, new UpdatePurchaseHeaderInput(request.SupplierInvoiceNumber, request.Notes, request.PaymentMethod, request.PaidAmount), ct);
+                id, new UpdatePurchaseHeaderInput(request.SupplierInvoiceNumber, request.Notes), ct);
             if (purchase is null) return NotFound();
 
             return await Get(id, ct);
@@ -117,15 +118,16 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
     }
 
     [HttpPost("{id:guid}/payments")]
-    [Authorize(Policy = "Purchase.Edit")]
+    [Authorize(Policy = "Purchase.Pay")]
     public async Task<ActionResult<PurchaseDetailDto>> AddPayment(Guid id, AddPurchasePaymentRequest request, CancellationToken ct)
     {
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
         try
         {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
             var purchase = await purchaseService.AddPaymentAsync(
-                id, new AddPurchasePaymentInput(request.Amount, request.PaymentMethod, request.ExpectedDue), ct);
+                id, new AddPurchasePaymentInput(request.Amount, request.PaymentMethod, request.ExpectedDue), userId, ct);
             if (purchase is null) return NotFound();
 
             return await Get(id, ct);
@@ -168,5 +170,9 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             l.Id, l.ProductId, l.Product.Name, l.SellingModeId, l.SellingMode.Label,
             l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Rate,
             l.TaxRatePercent, l.OtherCharges, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.UnitCost
+        )).ToList(),
+        p.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => new PurchasePaymentDto(
+            pay.Id, pay.PaymentDate, pay.Amount, pay.ExchangeRateToBase, pay.BaseAmount,
+            pay.PaymentMethod, $"{pay.CreatedByUser.FirstName} {pay.CreatedByUser.LastName}", pay.CreatedAt
         )).ToList());
 }

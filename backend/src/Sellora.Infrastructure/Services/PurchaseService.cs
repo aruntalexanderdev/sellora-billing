@@ -71,7 +71,10 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         purchase.DiscountTotal = discountTotal;
         purchase.GrandTotal = subtotal + otherChargesTotal - discountTotal + taxTotal;
         purchase.OriginalGrandTotal = Math.Round(originalGrandTotal, transactionCurrency.DecimalPrecision, MidpointRounding.AwayFromZero);
-        ApplyPayment(purchase, input.PaidAmount, transactionCurrency.DecimalPrecision, basePrecision);
+        if (input.PaidAmount > 0)
+        {
+            RecordPayment(purchase, input.PaidAmount, input.PaymentMethod, input.PurchaseDate, createdByUserId, transactionCurrency.DecimalPrecision, basePrecision);
+        }
 
         db.PurchaseOrders.Add(purchase);
         await db.SaveChangesAsync(ct);
@@ -81,7 +84,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
     public async Task<PurchaseOrder?> UpdateHeaderAsync(Guid purchaseOrderId, UpdatePurchaseHeaderInput input, CancellationToken ct = default)
     {
-        var purchase = await db.PurchaseOrders.Include(p => p.Currency)
+        var purchase = await db.PurchaseOrders
             .SingleOrDefaultAsync(p => p.Id == purchaseOrderId, ct);
         if (purchase is null) return null;
 
@@ -90,28 +93,14 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             throw new DomainValidationException("Status", "This purchase is cancelled and cannot be edited.");
         }
 
-        var paid = input.PaidAmount;
-        if (purchase.ExchangeRateToBase != 1m)
-        {
-            paid = Math.Round(paid, purchase.Currency.DecimalPrecision, MidpointRounding.AwayFromZero);
-        }
-        if (paid > purchase.OriginalGrandTotal)
-        {
-            throw new DomainValidationException("PaidAmount", "Paid amount cannot exceed the grand total.");
-        }
-
-        var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
-
         purchase.SupplierInvoiceNumber = input.SupplierInvoiceNumber;
         purchase.Notes = input.Notes;
-        purchase.PaymentMethod = input.PaymentMethod;
-        ApplyPayment(purchase, paid, purchase.Currency.DecimalPrecision, basePrecision);
 
         await db.SaveChangesAsync(ct);
         return purchase;
     }
 
-    public async Task<PurchaseOrder?> AddPaymentAsync(Guid purchaseOrderId, AddPurchasePaymentInput input, CancellationToken ct = default)
+    public async Task<PurchaseOrder?> AddPaymentAsync(Guid purchaseOrderId, AddPurchasePaymentInput input, Guid paidByUserId, CancellationToken ct = default)
     {
         // FOR UPDATE serialises concurrent payments on the same purchase, so the due they are checked
         // against cannot go stale between the read and the save. The in-memory test provider has neither
@@ -158,8 +147,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
 
-        purchase.PaymentMethod = input.PaymentMethod;
-        ApplyPayment(purchase, purchase.OriginalPaidAmount + amount, precision, basePrecision);
+        RecordPayment(purchase, amount, input.PaymentMethod, DateOnly.FromDateTime(DateTime.UtcNow), paidByUserId, precision, basePrecision);
 
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
@@ -168,11 +156,34 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         return purchase;
     }
 
-    // The one place a payment is converted. The amount is entered in the transaction currency and kept
-    // as entered (OriginalPaidAmount); PaidAmount is its base-currency equivalent at the purchase's captured
-    // rate. A payment that clears the whole original total is booked as exactly the base grand total, so
-    // rounding can never leave a stray paisa of due behind on a fully-paid foreign purchase.
-    private static void ApplyPayment(PurchaseOrder purchase, decimal amount, int transactionPrecision, int basePrecision)
+    // The one place a payment is recorded. It appends a ledger row and moves the purchase's running totals;
+    // an existing payment is never touched. The amount is entered in the transaction currency and kept as
+    // entered; the base-currency figure uses the purchase's captured rate. A payment that clears the whole
+    // original total is booked so the base paid total is exactly the base grand total, so rounding can never
+    // leave a stray paisa of due behind on a fully-paid foreign purchase. Each row's BaseAmount is the movement
+    // in the running base total, so the rows always sum to PaidAmount.
+    private void RecordPayment(PurchaseOrder purchase, decimal amount, PaymentMethod method, DateOnly paymentDate, Guid userId, int transactionPrecision, int basePrecision)
+    {
+        var basePaidBefore = purchase.PaidAmount;
+        ApplyPaidTotal(purchase, purchase.OriginalPaidAmount + amount, transactionPrecision, basePrecision);
+        purchase.PaymentMethod = method;
+
+        var payment = new PurchasePayment
+        {
+            Id = Guid.NewGuid(),
+            PurchaseOrderId = purchase.Id,
+            PaymentDate = paymentDate,
+            Amount = purchase.ExchangeRateToBase == 1m ? amount : Math.Round(amount, transactionPrecision, MidpointRounding.AwayFromZero),
+            ExchangeRateToBase = purchase.ExchangeRateToBase,
+            BaseAmount = purchase.PaidAmount - basePaidBefore,
+            PaymentMethod = method,
+            CreatedByUserId = userId,
+        };
+        purchase.Payments.Add(payment);
+        db.PurchasePayments.Add(payment);
+    }
+
+    private static void ApplyPaidTotal(PurchaseOrder purchase, decimal amount, int transactionPrecision, int basePrecision)
     {
         if (purchase.ExchangeRateToBase == 1m)
         {

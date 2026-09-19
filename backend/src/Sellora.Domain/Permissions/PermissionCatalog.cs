@@ -49,6 +49,7 @@ public static class PermissionCatalog
         new("Purchase.View", "Purchase", "View", "View purchase orders."),
         new("Purchase.Create", "Purchase", "Create", "Create new purchase orders."),
         new("Purchase.Edit", "Purchase", "Edit", "Edit draft purchase orders."),
+        new("Purchase.Pay", "Purchase", "Pay", "Record payments against purchase orders."),
         new("Purchase.Cancel", "Purchase", "Cancel", "Cancel a completed purchase order."),
 
         // Sales & Billing — Customers

@@ -39,7 +39,7 @@ export class PurchaseList implements OnInit {
   readonly total = signal(0);
 
   readonly canCreate = computed(() => this.auth.hasPermission('Purchase.Create'));
-  readonly canPay = computed(() => this.auth.hasPermission('Purchase.Edit'));
+  readonly canPay = computed(() => this.auth.hasPermission('Purchase.Pay'));
   readonly hasMore = computed(() => this.page() * 20 < this.total());
 
   readonly rows = computed<DataTableRow[]>(() =>

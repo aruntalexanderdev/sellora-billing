@@ -16,6 +16,11 @@ public record PurchaseLineDto(
     decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal UnitCost
 );
 
+public record PurchasePaymentDto(
+    Guid Id, DateOnly PaymentDate, decimal Amount, decimal ExchangeRateToBase, decimal BaseAmount,
+    PaymentMethod PaymentMethod, string CreatedByName, DateTimeOffset CreatedAt
+);
+
 public record PurchaseDetailDto(
     Guid Id, string PurchaseNo, Guid SupplierId, string SupplierName, DateOnly PurchaseDate,
     string? SupplierInvoiceNumber, string? Notes, PaymentMethod PaymentMethod,
@@ -25,7 +30,8 @@ public record PurchaseDetailDto(
     Guid CurrencyId, string CurrencyCode, string CurrencySymbol, decimal ExchangeRateToBase, decimal OriginalGrandTotal,
     decimal OriginalPaidAmount, decimal OriginalDueAmount,
     string BaseCurrencyCode, string BaseCurrencySymbol, int CurrencyDecimalPrecision, int BaseCurrencyDecimalPrecision,
-    IReadOnlyList<PurchaseLineDto> Lines
+    IReadOnlyList<PurchaseLineDto> Lines,
+    IReadOnlyList<PurchasePaymentDto> Payments
 );
 
 public record CreatePurchaseLineRequest(
@@ -49,9 +55,7 @@ public record CreatePurchaseRequest(
 
 public record UpdatePurchaseHeaderRequest(
     [MaxLength(60)] string? SupplierInvoiceNumber,
-    [MaxLength(500)] string? Notes,
-    PaymentMethod PaymentMethod,
-    [Range(0, double.MaxValue)] decimal PaidAmount
+    [MaxLength(500)] string? Notes
 );
 
 public record AddPurchasePaymentRequest(

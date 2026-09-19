@@ -36,6 +36,24 @@ public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder
     }
 }
 
+public class PurchasePaymentConfiguration : IEntityTypeConfiguration<PurchasePayment>
+{
+    public void Configure(EntityTypeBuilder<PurchasePayment> builder)
+    {
+        builder.HasKey(p => p.Id);
+        builder.Property(p => p.Amount).HasColumnType("numeric(18,4)");
+        builder.Property(p => p.ExchangeRateToBase).HasColumnType("numeric(18,6)");
+        builder.Property(p => p.BaseAmount).HasColumnType("numeric(18,2)");
+        builder.Property(p => p.PaymentMethod).HasConversion<string>().HasMaxLength(20);
+
+        builder.ToTable(t => t.HasCheckConstraint("CK_PurchasePayments_Amount_Positive", "\"Amount\" > 0"));
+        builder.HasIndex(p => new { p.PurchaseOrderId, p.CreatedAt });
+
+        builder.HasOne(p => p.PurchaseOrder).WithMany(o => o.Payments).HasForeignKey(p => p.PurchaseOrderId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(p => p.CreatedByUser).WithMany().HasForeignKey(p => p.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
 public class PurchaseOrderLineConfiguration : IEntityTypeConfiguration<PurchaseOrderLine>
 {
     public void Configure(EntityTypeBuilder<PurchaseOrderLine> builder)

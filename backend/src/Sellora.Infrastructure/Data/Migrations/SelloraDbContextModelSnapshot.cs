@@ -467,6 +467,50 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("PurchaseOrderLines");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.PurchasePayment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal>("BaseAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ExchangeRateToBase")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<DateOnly>("PaymentDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("PaymentMethod")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("PurchaseOrderId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("PurchaseOrderId", "CreatedAt");
+
+                    b.ToTable("PurchasePayments", t =>
+                        {
+                            t.HasCheckConstraint("CK_PurchasePayments_Amount_Positive", "\"Amount\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1163,6 +1207,25 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("Tax");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.PurchasePayment", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.PurchaseOrder", "PurchaseOrder")
+                        .WithMany("Payments")
+                        .HasForeignKey("PurchaseOrderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("PurchaseOrder");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.RefreshToken", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.User", "User")
@@ -1369,6 +1432,8 @@ namespace Sellora.Infrastructure.Data.Migrations
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrder", b =>
                 {
                     b.Navigation("Lines");
+
+                    b.Navigation("Payments");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrderLine", b =>

@@ -174,7 +174,7 @@ public class MultiCurrencyPurchaseTests
     }
 
     [Fact]
-    public async Task UpdateHeaderAsync_ForeignPurchase_ConvertsPaymentAtTheRateCapturedOnThePurchase()
+    public async Task AddPaymentAsync_ForeignPurchase_SnapshotsThePurchaseRateOnEachPaymentRow()
     {
         var f = await SeedAsync();
         var purchase = await f.Purchases.CreatePurchaseAsync(Input(f, f.UsdSupplier, new DateOnly(2026, 9, 5), 10, 100m), f.UserId);
@@ -183,29 +183,60 @@ public class MultiCurrencyPurchaseTests
         f.UsdRate.RateToBase = 99m;
         await f.Db.SaveChangesAsync();
 
-        var updated = await f.Purchases.UpdateHeaderAsync(purchase.Id, new UpdatePurchaseHeaderInput("SI-9", "n", PaymentMethod.Upi, 250m));
-
-        Assert.NotNull(updated);
+        var updated = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(250m, PaymentMethod.Upi, 1000m), f.UserId);
         Assert.Equal(250m, updated!.OriginalPaidAmount);
         Assert.Equal(20800m, updated.PaidAmount);
         Assert.Equal(750m, updated.OriginalDueAmount);
         Assert.Equal(62400m, updated.DueAmount);
 
-        var settled = await f.Purchases.UpdateHeaderAsync(purchase.Id, new UpdatePurchaseHeaderInput("SI-9", "n", PaymentMethod.Upi, 1000m));
+        var settled = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(750m, PaymentMethod.Upi, 750m), f.UserId);
         Assert.Equal(83200m, settled!.PaidAmount);
         Assert.Equal(0m, settled.DueAmount);
-        Assert.Equal(0m, settled.OriginalDueAmount);
+
+        var rows = await f.Db.PurchasePayments.AsNoTracking().OrderBy(p => p.CreatedAt).ToListAsync();
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, r => Assert.Equal(83.20m, r.ExchangeRateToBase));
+        Assert.Equal([250m, 750m], rows.Select(r => r.Amount));
+        Assert.Equal(20800m, rows[0].BaseAmount);
+        Assert.Equal(settled.PaidAmount, rows.Sum(r => r.BaseAmount));
     }
 
     [Fact]
-    public async Task UpdateHeaderAsync_PaymentAboveOriginalTotal_IsRejected()
+    public async Task AddPaymentAsync_EveryPaymentIsANewRow_AndExistingRowsAreNeverChanged()
     {
         var f = await SeedAsync();
-        var purchase = await f.Purchases.CreatePurchaseAsync(Input(f, f.UsdSupplier, new DateOnly(2026, 9, 5), 10, 100m), f.UserId);
+        var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m, 25m), f.UserId);
 
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(
-            () => f.Purchases.UpdateHeaderAsync(purchase.Id, new UpdatePurchaseHeaderInput(null, null, PaymentMethod.Cash, 1000.01m)));
-        Assert.Equal("PaidAmount", ex.Field);
+        await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(25m, PaymentMethod.Upi, 75m), f.UserId);
+        await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(50m, PaymentMethod.Card, 50m), f.UserId);
+
+        var rows = await f.Db.PurchasePayments.AsNoTracking().OrderBy(p => p.CreatedAt).ToListAsync();
+        Assert.Equal([25m, 25m, 50m], rows.Select(r => r.Amount));
+        Assert.Equal([PaymentMethod.Cash, PaymentMethod.Upi, PaymentMethod.Card], rows.Select(r => r.PaymentMethod));
+        Assert.All(rows, r => Assert.Equal(f.UserId, r.CreatedByUserId));
+        Assert.Equal(100m, (await f.Db.PurchaseOrders.AsNoTracking().SingleAsync()).PaidAmount);
+    }
+
+    [Fact]
+    public async Task CreatePurchaseAsync_WithoutUpfrontPayment_WritesNoPaymentRow()
+    {
+        var f = await SeedAsync();
+        await f.Purchases.CreatePurchaseAsync(Input(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m), f.UserId);
+
+        Assert.Empty(await f.Db.PurchasePayments.ToListAsync());
+    }
+
+    [Fact]
+    public async Task UpdateHeaderAsync_ChangesOnlyInvoiceAndNotes_NeverThePaidAmount()
+    {
+        var f = await SeedAsync();
+        var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m, 40m), f.UserId);
+
+        var updated = await f.Purchases.UpdateHeaderAsync(purchase.Id, new UpdatePurchaseHeaderInput("SI-9", "n"));
+
+        Assert.Equal("SI-9", updated!.SupplierInvoiceNumber);
+        Assert.Equal(40m, updated.PaidAmount);
+        Assert.Single(await f.Db.PurchasePayments.ToListAsync());
     }
 
     [Fact]
@@ -216,9 +247,9 @@ public class MultiCurrencyPurchaseTests
         await f.Purchases.CancelPurchaseAsync(purchase.Id);
 
         var ex = await Assert.ThrowsAsync<DomainValidationException>(
-            () => f.Purchases.UpdateHeaderAsync(purchase.Id, new UpdatePurchaseHeaderInput(null, null, PaymentMethod.Cash, 10m)));
+            () => f.Purchases.UpdateHeaderAsync(purchase.Id, new UpdatePurchaseHeaderInput(null, null)));
         Assert.Equal("Status", ex.Field);
-        Assert.Null(await f.Purchases.UpdateHeaderAsync(Guid.NewGuid(), new UpdatePurchaseHeaderInput(null, null, PaymentMethod.Cash, 0m)));
+        Assert.Null(await f.Purchases.UpdateHeaderAsync(Guid.NewGuid(), new UpdatePurchaseHeaderInput(null, null)));
     }
 
     [Fact]
@@ -232,7 +263,7 @@ public class MultiCurrencyPurchaseTests
         Assert.Equal(3800m, purchase.DueAmount);
         Assert.Equal(3800m, purchase.OriginalDueAmount);
 
-        var updated = await f.Purchases.UpdateHeaderAsync(purchase.Id, new UpdatePurchaseHeaderInput(null, null, PaymentMethod.Cash, 5800m));
+        var updated = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(3800m, PaymentMethod.Cash, 3800m), f.UserId);
         Assert.Equal(5800m, updated!.PaidAmount);
         Assert.Equal(0m, updated.DueAmount);
         Assert.Equal(PaymentStatus.Paid, updated.PaymentStatus);
@@ -246,10 +277,10 @@ public class MultiCurrencyPurchaseTests
         Assert.Equal(40m, purchase.DueAmount);
 
         var over = await Assert.ThrowsAsync<DomainValidationException>(
-            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(40.01m, PaymentMethod.Upi, 40m)));
+            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(40.01m, PaymentMethod.Upi, 40m), f.UserId));
         Assert.Equal("Amount", over.Field);
 
-        var paid = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(40m, PaymentMethod.Upi, 40m));
+        var paid = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(40m, PaymentMethod.Upi, 40m), f.UserId);
         Assert.Equal(100m, paid!.PaidAmount);
         Assert.Equal(0m, paid.DueAmount);
         Assert.Equal(PaymentStatus.Paid, paid.PaymentStatus);
@@ -266,7 +297,7 @@ public class MultiCurrencyPurchaseTests
         var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m, 60m), f.UserId);
 
         var ex = await Assert.ThrowsAsync<DomainValidationException>(
-            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput((decimal)amount, PaymentMethod.Cash, 40m)));
+            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput((decimal)amount, PaymentMethod.Cash, 40m), f.UserId));
         Assert.Equal("Amount", ex.Field);
         Assert.Equal(60m, (await f.Db.PurchaseOrders.AsNoTracking().SingleAsync(p => p.Id == purchase.Id)).PaidAmount);
     }
@@ -278,7 +309,7 @@ public class MultiCurrencyPurchaseTests
         var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m, 100m), f.UserId);
 
         var ex = await Assert.ThrowsAsync<DomainValidationException>(
-            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(1m, PaymentMethod.Cash, 0m)));
+            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(1m, PaymentMethod.Cash, 0m), f.UserId));
         Assert.Equal("Amount", ex.Field);
     }
 
@@ -288,20 +319,20 @@ public class MultiCurrencyPurchaseTests
         var f = await SeedAsync();
         var purchase = await f.Purchases.CreatePurchaseAsync(Input(f, f.UsdSupplier, new DateOnly(2026, 9, 5), 10, 100m), f.UserId); // USD 1,000 = INR 83,200
 
-        var first = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(400m, PaymentMethod.Cash, 1000m));
+        var first = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(400m, PaymentMethod.Cash, 1000m), f.UserId);
         Assert.Equal(400m, first!.OriginalPaidAmount);
         Assert.Equal(33280m, first.PaidAmount);
         Assert.Equal(600m, first.OriginalDueAmount);
         Assert.Equal(49920m, first.DueAmount);
 
-        var second = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(300m, PaymentMethod.BankTransfer, 600m));
+        var second = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(300m, PaymentMethod.BankTransfer, 600m), f.UserId);
         Assert.Equal(700m, second!.OriginalPaidAmount);
         Assert.Equal(58240m, second.PaidAmount);
         Assert.Equal(300m, second.OriginalDueAmount);
         Assert.Equal(24960m, second.DueAmount);
         Assert.Equal(PaymentStatus.PartiallyPaid, second.PaymentStatus);
 
-        var third = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(300m, PaymentMethod.Cash, 300m));
+        var third = await f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(300m, PaymentMethod.Cash, 300m), f.UserId);
         Assert.Equal(83200m, third!.PaidAmount);
         Assert.Equal(0m, third.DueAmount);
         Assert.Equal(0m, third.OriginalDueAmount);
@@ -315,7 +346,7 @@ public class MultiCurrencyPurchaseTests
         var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.UsdSupplier, new DateOnly(2026, 9, 5), 10, 100m, 400m), f.UserId);
 
         var ex = await Assert.ThrowsAsync<DomainValidationException>(
-            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(600.01m, PaymentMethod.Cash, 600m)));
+            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(600.01m, PaymentMethod.Cash, 600m), f.UserId));
         Assert.Equal("Amount", ex.Field);
     }
 
@@ -326,8 +357,8 @@ public class MultiCurrencyPurchaseTests
         var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m, 0m), f.UserId);
         var request = new AddPurchasePaymentInput(30m, PaymentMethod.Cash, 100m);
 
-        await f.Purchases.AddPaymentAsync(purchase.Id, request);
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Purchases.AddPaymentAsync(purchase.Id, request));
+        await f.Purchases.AddPaymentAsync(purchase.Id, request, f.UserId);
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Purchases.AddPaymentAsync(purchase.Id, request, f.UserId));
 
         Assert.Equal("ExpectedDue", ex.Field);
         Assert.Equal(30m, (await f.Db.PurchaseOrders.AsNoTracking().SingleAsync(p => p.Id == purchase.Id)).PaidAmount);
@@ -341,9 +372,9 @@ public class MultiCurrencyPurchaseTests
         await f.Purchases.CancelPurchaseAsync(purchase.Id);
 
         var ex = await Assert.ThrowsAsync<DomainValidationException>(
-            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(10m, PaymentMethod.Cash, 100m)));
+            () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(10m, PaymentMethod.Cash, 100m), f.UserId));
         Assert.Equal("Status", ex.Field);
-        Assert.Null(await f.Purchases.AddPaymentAsync(Guid.NewGuid(), new AddPurchasePaymentInput(10m, PaymentMethod.Cash, 0m)));
+        Assert.Null(await f.Purchases.AddPaymentAsync(Guid.NewGuid(), new AddPurchasePaymentInput(10m, PaymentMethod.Cash, 0m), f.UserId));
     }
 
     [Fact]

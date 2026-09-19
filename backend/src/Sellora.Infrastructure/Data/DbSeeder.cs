@@ -48,6 +48,26 @@ public static class DbSeeder
         }
 
         await db.SaveChangesAsync(ct);
+
+        await GrantPurchasePayToPurchaseEditorsAsync(db, ct);
+    }
+
+    // Paying used to be covered by Purchase.Edit, so every role that can edit purchases keeps the ability
+    // to pay when Purchase.Pay is introduced. Only roles with no Purchase.Pay grant are touched, so a role
+    // an administrator later revokes it from is not re-granted.
+    private static async Task GrantPurchasePayToPurchaseEditorsAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        var pay = await db.Permissions.SingleAsync(p => p.Code == "Purchase.Pay", ct);
+        if (await db.RolePermissions.AnyAsync(rp => rp.PermissionId == pay.Id, ct)) return;
+
+        var editorRoleIds = await db.RolePermissions
+            .Where(rp => rp.Permission.Code == "Purchase.Edit")
+            .Select(rp => rp.RoleId).ToListAsync(ct);
+        foreach (var roleId in editorRoleIds)
+        {
+            db.RolePermissions.Add(new RolePermission { RoleId = roleId, PermissionId = pay.Id });
+        }
+        await db.SaveChangesAsync(ct);
     }
 
     private static async Task<Role> SeedAdministratorRoleAsync(SelloraDbContext db, CancellationToken ct)

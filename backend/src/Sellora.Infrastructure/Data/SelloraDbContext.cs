@@ -23,6 +23,7 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options) : DbCo
 
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
     public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
+    public DbSet<PurchasePayment> PurchasePayments => Set<PurchasePayment>();
     public DbSet<PurchaseBatch> PurchaseBatches => Set<PurchaseBatch>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
     public DbSet<StockItem> StockItems => Set<StockItem>();

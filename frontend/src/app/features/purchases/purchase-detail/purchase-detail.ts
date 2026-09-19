@@ -47,6 +47,7 @@ export class PurchaseDetail implements OnInit {
   readonly saving = signal(false);
 
   readonly canEdit = computed(() => this.auth.hasPermission('Purchase.Edit'));
+  readonly canPayPermission = computed(() => this.auth.hasPermission('Purchase.Pay'));
   readonly canCancel = computed(() => this.auth.hasPermission('Purchase.Cancel'));
 
   // ---- Pay (an additional payment against the outstanding due) ----
@@ -57,7 +58,7 @@ export class PurchaseDetail implements OnInit {
 
   readonly canPay = computed(() => {
     const p = this.purchase();
-    return this.canEdit() && !!p && p.status === 'Completed' && p.originalDueAmount > 0;
+    return this.canPayPermission() && !!p && p.status === 'Completed' && p.originalDueAmount > 0;
   });
 
   private readonly precision = () => this.purchase()?.currencyDecimalPrecision ?? 2;
@@ -100,8 +101,6 @@ export class PurchaseDetail implements OnInit {
   readonly headerForm = this.fb.nonNullable.group({
     supplierInvoiceNumber: [''],
     notes: [''],
-    paymentMethod: ['Cash' as PaymentMethod, Validators.required],
-    paidAmount: [0, [Validators.required, Validators.min(0)]],
   });
 
   ngOnInit(): void {
@@ -117,8 +116,6 @@ export class PurchaseDetail implements OnInit {
         this.headerForm.patchValue({
           supplierInvoiceNumber: p.supplierInvoiceNumber ?? '',
           notes: p.notes ?? '',
-          paymentMethod: p.paymentMethod,
-          paidAmount: p.originalPaidAmount,
         });
         this.loading.set(false);
 
@@ -165,7 +162,6 @@ export class PurchaseDetail implements OnInit {
         next: (updated) => {
           this.paySaving.set(false);
           this.purchase.set(updated);
-          this.headerForm.patchValue({ paymentMethod: updated.paymentMethod, paidAmount: updated.originalPaidAmount });
           this.toast.show(
             updated.originalDueAmount > 0
               ? `Payment recorded · ${this.original(updated.originalDueAmount)} still due.`
@@ -191,8 +187,6 @@ export class PurchaseDetail implements OnInit {
     this.headerForm.patchValue({
       supplierInvoiceNumber: p.supplierInvoiceNumber ?? '',
       notes: p.notes ?? '',
-      paymentMethod: p.paymentMethod,
-      paidAmount: p.originalPaidAmount,
     });
     this.editing.set(false);
   }

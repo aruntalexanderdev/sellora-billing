@@ -28,6 +28,7 @@ public class PurchaseOrder
     /// purchase and its lines is already in the business base currency.</summary>
     public decimal OriginalGrandTotal { get; set; }
 
+    /// <summary>The method of the most recent payment (each payment also records its own).</summary>
     public PaymentMethod PaymentMethod { get; set; }
 
     /// <summary>Amount paid, in the business base currency (compared against <see cref="GrandTotal"/>).</summary>
@@ -51,6 +52,10 @@ public class PurchaseOrder
     public DateTimeOffset? CancelledAt { get; set; }
 
     public ICollection<PurchaseOrderLine> Lines { get; set; } = new List<PurchaseOrderLine>();
+
+    /// <summary>The payment ledger. <see cref="PaidAmount"/> and <see cref="OriginalPaidAmount"/> are the
+    /// running totals of these rows, maintained only by the purchase service.</summary>
+    public ICollection<PurchasePayment> Payments { get; set; } = new List<PurchasePayment>();
 
     /// <summary>Due amount is always derived from GrandTotal - PaidAmount, never stored independently (docx §17).</summary>
     public decimal DueAmount => Math.Max(0, GrandTotal - PaidAmount);

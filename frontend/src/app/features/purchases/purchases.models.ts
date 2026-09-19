@@ -33,6 +33,17 @@ export interface PurchaseLine {
   unitCost: number;
 }
 
+export interface PurchasePayment {
+  id: string;
+  paymentDate: string;
+  amount: number;
+  exchangeRateToBase: number;
+  baseAmount: number;
+  paymentMethod: PaymentMethod;
+  createdByName: string;
+  createdAt: string;
+}
+
 export interface PurchaseDetail {
   id: string;
   purchaseNo: string;
@@ -66,6 +77,7 @@ export interface PurchaseDetail {
   currencyDecimalPrecision: number;
   baseCurrencyDecimalPrecision: number;
   lines: PurchaseLine[];
+  payments: PurchasePayment[];
 }
 
 export interface CreatePurchaseLineRequest {
@@ -90,8 +102,6 @@ export interface CreatePurchaseRequest {
 export interface UpdatePurchaseHeaderRequest {
   supplierInvoiceNumber?: string | null;
   notes?: string | null;
-  paymentMethod: PaymentMethod;
-  paidAmount: number;
 }
 
 export interface AddPurchasePaymentRequest {

@@ -208,3 +208,18 @@
     grid-template-columns: 1fr;
   }
 }
+
+.payment-history {
+  margin-top: 20px;
+
+  h2 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 8px;
+  }
+
+  .muted {
+    color: var(--muted, #6b7280);
+    margin: 0;
+  }
+}
