@@ -9,7 +9,7 @@
   <div class="tile"><span class="tile-label">Money in</span><strong class="in">{{ fmt(moneyIn()) }}</strong></div>
   <div class="tile"><span class="tile-label">Money out</span><strong class="out">{{ fmt(moneyOut()) }}</strong></div>
   <div class="tile"><span class="tile-label">Net movement</span><strong>{{ fmt(net()) }}</strong></div>
-  <div class="tile-note">Active transactions matching the filters below.</div>
+  <div class="tile-note">Active transactions matching the filters below. Opening balances and transfers between your own accounts aren't counted.</div>
 </div>
 
 <div class="filters">
@@ -18,6 +18,8 @@
     <option value="CustomerPayment">Customer payment</option>
     <option value="SupplierPayment">Supplier payment</option>
     <option value="ExpensePayment">Expense paid</option>
+    <option value="OpeningBalance">Opening balance</option>
+    <option value="Transfer">Transfer</option>
   </select>
   <select class="field-input" [value]="direction()" (change)="onFilter('direction', $any($event.target).value)" aria-label="Filter by direction">
     <option value="">Money in &amp; out</option>

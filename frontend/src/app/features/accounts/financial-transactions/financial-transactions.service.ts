@@ -16,6 +16,7 @@ export interface FinancialTransactionQuery {
   type?: FinancialTransactionType;
   direction?: MoneyDirection;
   status?: FinancialTransactionStatus;
+  accountId?: string;
   dateFrom?: string;
   dateTo?: string;
   page?: number;
@@ -28,7 +29,7 @@ export class FinancialTransactionsService {
 
   list(query: FinancialTransactionQuery): Observable<FinancialTransactionList> {
     const params: Record<string, string> = { page: String(query.page ?? 1), pageSize: String(query.pageSize ?? 20) };
-    for (const key of ['search', 'type', 'direction', 'status', 'dateFrom', 'dateTo'] as const) {
+    for (const key of ['search', 'type', 'direction', 'status', 'accountId', 'dateFrom', 'dateTo'] as const) {
       if (query[key]) params[key] = query[key]!;
     }
     return this.http.get<FinancialTransactionList>(BASE_URL, { params });

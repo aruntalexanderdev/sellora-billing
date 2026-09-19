@@ -15,6 +15,9 @@ import type { SupplierItem } from '../suppliers/suppliers.models';
 import type { ProductDetail } from '../../inventory/products/products.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
 import type { PaymentMethod } from '../purchases.models';
+import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
+import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
+
 import type { HasUnsavedChanges } from '../../../core/unsaved-changes.guard';
 
 type LineGroup = FormGroup<{
@@ -63,10 +66,12 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
   private readonly suppliersService = inject(SuppliersService);
   private readonly productsService = inject(ProductsService);
   private readonly exchangeRatesService = inject(ExchangeRatesService);
+  private readonly cashBank = inject(CashBankService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
 
   readonly paymentMethods: PaymentMethod[] = ['Cash', 'Upi', 'Card', 'Credit', 'BankTransfer'];
+  readonly accountOptions = signal<AccountOption[]>([]);
   readonly suppliers = signal<SupplierItem[]>([]);
   readonly products = signal<{ id: string; name: string; sku: string }[]>([]);
   private readonly productCache = signal<Map<string, ProductDetail>>(new Map());
@@ -76,6 +81,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
     purchaseDate: [today(), Validators.required],
     supplierInvoiceNumber: [''],
     paymentMethod: ['Cash' as PaymentMethod, Validators.required],
+    accountId: [''],
     paidAmount: [0, [Validators.required, Validators.min(0)]],
     notes: [''],
     lines: this.fb.array<LineGroup>([]),
@@ -192,6 +198,16 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
   }
 
   ngOnInit(): void {
+    this.cashBank.options().subscribe({
+      next: (o) => {
+        this.accountOptions.set(o);
+        this.form.patchValue({ accountId: defaultAccountId(o, this.form.controls.paymentMethod.value) });
+        this.form.controls.accountId.markAsPristine();
+      },
+    });
+    this.form.controls.paymentMethod.valueChanges.subscribe((m) =>
+      this.form.patchValue({ accountId: defaultAccountId(this.accountOptions(), m) }),
+    );
     this.suppliersService.list().subscribe({ next: (res) => this.suppliers.set(res.items.filter((s) => s.isActive)) });
     this.productsService.list().subscribe({
       next: (res) => this.products.set(res.items.filter((p) => p.isActive).map((p) => ({ id: p.id, name: p.name, sku: p.sku }))),
@@ -281,6 +297,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
         notes: v.notes || null,
         paymentMethod: v.paymentMethod,
         paidAmount: v.paidAmount,
+        accountId: v.accountId || null,
         lines: v.lines.map((l) => ({
           productId: l.productId,
           sellingModeId: l.sellingModeId,

@@ -10,7 +10,8 @@ public sealed record CreateExpenseInput(
     decimal Amount,
     PaymentMethod PaymentMethod,
     string? Reference,
-    string? Notes
+    string? Notes,
+    Guid? AccountId = null
 );
 
 /// <summary>The only fields that can change once an expense is saved.</summary>

@@ -94,6 +94,7 @@ export interface CreateSaleRequest {
   invoiceDate: string;
   paymentMethod: PaymentMethod;
   paidAmount: number;
+  accountId?: string | null;
   lines: CreateSaleLineRequest[];
 }
 
@@ -101,4 +102,5 @@ export interface AddSalePaymentRequest {
   amount: number;
   paymentMethod: PaymentMethod;
   expectedDue: number;
+  accountId?: string | null;
 }

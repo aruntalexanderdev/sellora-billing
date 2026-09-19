@@ -1,6 +1,6 @@
 import type { PaymentMethod } from '../../purchases/purchases.models';
 
-export type FinancialTransactionType = 'CustomerPayment' | 'SupplierPayment' | 'ExpensePayment';
+export type FinancialTransactionType = 'CustomerPayment' | 'SupplierPayment' | 'ExpensePayment' | 'OpeningBalance' | 'Transfer';
 export type MoneyDirection = 'In' | 'Out';
 export type FinancialTransactionStatus = 'Active' | 'Cancelled';
 export type RelatedType = 'Purchase' | 'Sale' | 'Expense';
@@ -12,15 +12,19 @@ export interface FinancialTransaction {
   direction: MoneyDirection;
   status: FinancialTransactionStatus;
   party: string;
-  relatedType: RelatedType;
-  relatedId: string;
-  relatedNo: string;
+  relatedType: RelatedType | null;
+  relatedId: string | null;
+  relatedNo: string | null;
   paymentMethod: PaymentMethod;
   amount: number;
   currencyCode: string;
   exchangeRateToBase: number;
   baseAmount: number;
   createdAt: string;
+  accountId: string | null;
+  accountName: string | null;
+  isReconciled: boolean;
+  notes: string | null;
 }
 
 export interface FinancialTransactionList {

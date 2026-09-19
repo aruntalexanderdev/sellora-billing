@@ -54,6 +54,16 @@
               }
             </select>
           </div>
+          <div>
+            <label class="field-label">Account</label>
+            <select formControlName="accountId" class="field-input">
+              <option value="">Not tracked</option>
+              @for (a of accountOptions(); track a.id) {
+                <option [value]="a.id">{{ a.name }}</option>
+              }
+            </select>
+            <div class="field-hint">Where the money was received.</div>
+          </div>
         </div>
 
         <div class="pay-preview">After this payment — Due: {{ INR(dueAfter()) }}</div>

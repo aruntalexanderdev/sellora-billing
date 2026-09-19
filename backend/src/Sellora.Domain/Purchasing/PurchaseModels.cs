@@ -18,7 +18,8 @@ public sealed record CreatePurchaseInput(
     string? Notes,
     PaymentMethod PaymentMethod,
     decimal PaidAmount,
-    IReadOnlyList<PurchaseLineInput> Lines
+    IReadOnlyList<PurchaseLineInput> Lines,
+    Guid? AccountId = null
 );
 
 /// <summary>Editable header fields of a saved purchase. Payments are not editable here.</summary>
@@ -33,5 +34,6 @@ public sealed record UpdatePurchaseHeaderInput(
 public sealed record AddPurchasePaymentInput(
     decimal Amount,
     PaymentMethod PaymentMethod,
-    decimal ExpectedDue
+    decimal ExpectedDue,
+    Guid? AccountId = null
 );

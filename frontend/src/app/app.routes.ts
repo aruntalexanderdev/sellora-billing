@@ -23,11 +23,6 @@ import { SupplierList } from './features/purchases/suppliers/supplier-list/suppl
 import { SupplierForm } from './features/purchases/suppliers/supplier-form/supplier-form';
 import { ProductList } from './features/inventory/products/product-list/product-list';
 import { ProductForm } from './features/inventory/products/product-form/product-form';
-import { ExpenseList } from './features/accounts/expenses/expense-list/expense-list';
-import { ExpenseForm } from './features/accounts/expenses/expense-form/expense-form';
-import { ExpenseDetail } from './features/accounts/expenses/expense-detail/expense-detail';
-import { ExpenseCategories } from './features/accounts/expenses/expense-categories/expense-categories';
-import { FinancialTransactionList } from './features/accounts/financial-transactions/financial-transaction-list/financial-transaction-list';
 import { PurchaseList } from './features/purchases/purchase-list/purchase-list';
 import { PurchaseForm } from './features/purchases/purchase-form/purchase-form';
 import { PurchaseDetail } from './features/purchases/purchase-detail/purchase-detail';
@@ -294,33 +289,66 @@ export const routes: Routes = [
 
       {
         path: 'accounts/expenses',
-        component: ExpenseList,
+        loadComponent: () => import('./features/accounts/expenses/expense-list/expense-list').then((m) => m.ExpenseList),
         canActivate: [permissionGuard('Expenses.View')],
         data: { group: 'Accounts', page: 'Expenses' },
       },
       {
         path: 'accounts/expenses/new',
-        component: ExpenseForm,
+        loadComponent: () => import('./features/accounts/expenses/expense-form/expense-form').then((m) => m.ExpenseForm),
         canActivate: [permissionGuard('Expenses.Create')],
         canDeactivate: [unsavedChangesGuard],
         data: { group: 'Accounts', page: 'New expense' },
       },
       {
         path: 'accounts/expenses/categories',
-        component: ExpenseCategories,
+        loadComponent: () => import('./features/accounts/expenses/expense-categories/expense-categories').then((m) => m.ExpenseCategories),
         canActivate: [permissionGuard('Expenses.Categories')],
         data: { group: 'Accounts', page: 'Expense categories' },
       },
       {
         path: 'accounts/expenses/:id',
-        component: ExpenseDetail,
+        loadComponent: () => import('./features/accounts/expenses/expense-detail/expense-detail').then((m) => m.ExpenseDetail),
         canActivate: [permissionGuard('Expenses.View')],
         data: { group: 'Accounts', page: 'Expense details' },
       },
 
       {
+        path: 'accounts/cash-bank',
+        loadComponent: () => import('./features/accounts/cash-bank/account-list/account-list').then((m) => m.AccountList),
+        canActivate: [permissionGuard('CashBank.View')],
+        data: { group: 'Accounts', page: 'Cash & Bank' },
+      },
+      {
+        path: 'accounts/cash-bank/new',
+        loadComponent: () => import('./features/accounts/cash-bank/account-form/account-form').then((m) => m.AccountForm),
+        canActivate: [permissionGuard('CashBank.Manage')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Accounts', page: 'New account' },
+      },
+      {
+        path: 'accounts/cash-bank/transfer',
+        loadComponent: () => import('./features/accounts/cash-bank/transfer-form/transfer-form').then((m) => m.TransferForm),
+        canActivate: [permissionGuard('CashBank.Transfer')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Accounts', page: 'Transfer money' },
+      },
+      {
+        path: 'accounts/cash-bank/:id/edit',
+        loadComponent: () => import('./features/accounts/cash-bank/account-form/account-form').then((m) => m.AccountForm),
+        canActivate: [permissionGuard('CashBank.Manage')],
+        canDeactivate: [unsavedChangesGuard],
+        data: { group: 'Accounts', page: 'Edit account' },
+      },
+      {
+        path: 'accounts/cash-bank/:id',
+        loadComponent: () => import('./features/accounts/cash-bank/account-detail/account-detail').then((m) => m.AccountDetail),
+        canActivate: [permissionGuard('CashBank.View')],
+        data: { group: 'Accounts', page: 'Account history' },
+      },
+      {
         path: 'accounts/financial-transactions',
-        component: FinancialTransactionList,
+        loadComponent: () => import('./features/accounts/financial-transactions/financial-transaction-list/financial-transaction-list').then((m) => m.FinancialTransactionList),
         canActivate: [permissionGuard('FinancialTransactions.View')],
         data: { group: 'Accounts', page: 'Financial Transactions' },
       },

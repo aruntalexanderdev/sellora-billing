@@ -16,6 +16,7 @@ const COLS: DataTableColumn[] = [
   { label: 'Transaction', align: 'left' },
   { label: 'Party', align: 'left' },
   { label: 'Source', align: 'left' },
+  { label: 'Account', align: 'left' },
   { label: 'Method', align: 'left' },
   { label: 'Money', align: 'right' },
   { label: 'Status', align: 'left' },
@@ -28,6 +29,8 @@ const TYPE_LABEL: Record<FinancialTransactionType, string> = {
   CustomerPayment: 'Customer payment',
   SupplierPayment: 'Supplier payment',
   ExpensePayment: 'Expense paid',
+  OpeningBalance: 'Opening balance',
+  Transfer: 'Transfer',
 };
 
 const ROUTE: Record<RelatedType, string> = {
@@ -74,9 +77,12 @@ export class FinancialTransactionList implements OnInit {
         cells: [
           { kind: 'text', text: t.transactionDate, color: 'var(--color-text-muted)' },
           { kind: 'text', text: TYPE_LABEL[t.type], weight: '600' },
-          { kind: 'text', text: t.party },
-          { kind: 'link', text: `${t.relatedType} ${t.relatedNo}`, onClick: () => this.router.navigate([ROUTE[t.relatedType], t.relatedId]) },
-          { kind: 'text', text: t.paymentMethod, color: 'var(--color-text-muted)' },
+          { kind: 'text', text: t.type === 'Transfer' ? (t.direction === 'In' ? `from ${t.party}` : `to ${t.party}`) : t.party },
+          t.relatedType && t.relatedId
+            ? { kind: 'link', text: `${t.relatedType} ${t.relatedNo}`, onClick: () => this.router.navigate([ROUTE[t.relatedType!], t.relatedId]) }
+            : { kind: 'text', text: '—', color: 'var(--color-text-muted)' },
+          { kind: 'text', text: t.accountName ?? 'Not tracked', color: 'var(--color-text-muted)' },
+          { kind: 'text', text: t.type === 'OpeningBalance' || t.type === 'Transfer' ? '—' : t.paymentMethod, color: 'var(--color-text-muted)' },
           {
             kind: 'text',
             text: `${sign}${money(t.baseAmount)}`,

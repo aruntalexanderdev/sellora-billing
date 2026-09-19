@@ -56,6 +56,7 @@ export interface CreateExpenseRequest {
   currencyId: string;
   amount: number;
   paymentMethod: PaymentMethod;
+  accountId?: string | null;
   reference?: string | null;
   notes?: string | null;
 }

@@ -75,6 +75,12 @@ public static class PermissionCatalog
         // Accounts — Financial Transactions
         new("FinancialTransactions.View", "Accounts", "View", "View the financial transaction history."),
 
+        // Accounts — Cash & Bank
+        new("CashBank.View", "Accounts", "View", "View cash and bank accounts, balances and account history."),
+        new("CashBank.Manage", "Accounts", "Manage", "Create, edit and deactivate cash and bank accounts."),
+        new("CashBank.Transfer", "Accounts", "Transfer", "Transfer money between accounts, including cash deposits and withdrawals."),
+        new("CashBank.Reconcile", "Accounts", "Reconcile", "Reconcile account transactions against statements."),
+
         // Reports
         new("Reports.Stock", "Reports", "View", "View the current stock report."),
         new("Reports.Movement", "Reports", "View", "View the stock movement report."),

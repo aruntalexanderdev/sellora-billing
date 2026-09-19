@@ -96,6 +96,7 @@ export interface CreatePurchaseRequest {
   notes?: string | null;
   paymentMethod: PaymentMethod;
   paidAmount: number;
+  accountId?: string | null;
   lines: CreatePurchaseLineRequest[];
 }
 
@@ -108,4 +109,5 @@ export interface AddPurchasePaymentRequest {
   amount: number;
   paymentMethod: PaymentMethod;
   expectedDue: number;
+  accountId?: string | null;
 }

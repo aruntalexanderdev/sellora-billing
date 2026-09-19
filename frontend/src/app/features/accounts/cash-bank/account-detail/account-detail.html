@@ -1,0 +1,100 @@
+@if (account(); as a) {
+  <div class="page-head">
+    <div>
+      <h1>{{ a.name }}</h1>
+      <p>{{ a.kind }} account{{ a.reference ? ' · ' + a.reference : '' }}</p>
+    </div>
+    <div class="head-actions">
+      @if (canTransfer() && a.isActive) {
+        <ui-button variant="secondary" (onClick)="transfer()">Transfer</ui-button>
+      }
+      <a routerLink="/accounts/cash-bank" class="back-link">Back to accounts</a>
+    </div>
+  </div>
+
+  <div class="status-row">
+    <ui-badge [text]="a.isActive ? 'Active' : 'Inactive'" [tone]="a.isActive ? 'good' : 'mute'" />
+  </div>
+
+  <div class="summary">
+    <div class="tile"><span class="tile-label">Book balance</span><strong [class.negative]="a.balance < 0">{{ fmt(a.balance) }}</strong></div>
+    <div class="tile"><span class="tile-label">Reconciled balance</span><strong>{{ fmt(a.reconciledBalance) }}</strong></div>
+    <div class="tile"><span class="tile-label">Not yet reconciled</span><strong>{{ a.unreconciledCount }}</strong></div>
+  </div>
+
+  @if (canReconcile()) {
+    <div class="reconcile-card">
+      <div class="reconcile-head"><strong>Reconcile</strong> <span class="muted">Tick transactions that appear on your statement or cash count, then mark them reconciled.</span></div>
+      <div class="reconcile-row">
+        <label class="field-label" for="stmt">Statement balance</label>
+        <input id="stmt" type="number" step="0.01" class="field-input" [ngModel]="statementBalance()" (ngModelChange)="statementBalance.set($event === '' ? null : $event)" />
+        @if (difference() !== null) {
+          <span class="diff" [class.ok]="difference() === 0">
+            {{ difference() === 0 ? 'Matches the reconciled balance.' : 'Difference from reconciled balance: ' + fmt(difference()!) }}
+          </span>
+        }
+      </div>
+      <div class="reconcile-actions">
+        <ui-button variant="primary" [disabled]="working() || selectedUnreconciled() === 0" (onClick)="reconcile(true)">Mark reconciled ({{ selectedUnreconciled() }})</ui-button>
+        <ui-button variant="secondary" [disabled]="working() || selectedReconciled() === 0" (onClick)="reconcile(false)">Clear reconciled ({{ selectedReconciled() }})</ui-button>
+        @if (error()) {
+          <span class="field-error">{{ error() }}</span>
+        }
+      </div>
+    </div>
+  }
+
+  <div class="table-wrap">
+    @if (loading()) {
+      <p class="muted pad">Loading…</p>
+    } @else if (transactions().length === 0) {
+      <p class="muted pad">No transactions on this account yet.</p>
+    } @else {
+      <table class="txn-table">
+        <thead>
+          <tr>
+            @if (canReconcile()) {
+              <th class="check"><input type="checkbox" aria-label="Select all" (change)="toggleAll($any($event.target).checked)" /></th>
+            }
+            <th>Date</th>
+            <th>Transaction</th>
+            <th>Details</th>
+            <th class="num">Money</th>
+            <th>Reconciled</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (t of transactions(); track t.id) {
+            <tr [class.cancelled]="t.status === 'Cancelled'">
+              @if (canReconcile()) {
+                <td class="check"><input type="checkbox" [disabled]="!canSelect(t)" [checked]="selected().has(t.id)" (change)="toggle(t)" [attr.aria-label]="'Select ' + label(t)" /></td>
+              }
+              <td class="muted">{{ t.transactionDate }}</td>
+              <td class="strong">{{ label(t) }}{{ t.status === 'Cancelled' ? ' (cancelled)' : '' }}</td>
+              <td>
+                @if (t.relatedType && t.relatedId) {
+                  <a class="link" (click)="open(t)">{{ t.relatedType }} {{ t.relatedNo }}</a>
+                  <span class="muted"> · {{ t.party }}</span>
+                } @else if (t.type === 'Transfer') {
+                  <span>{{ t.direction === 'In' ? 'from ' : 'to ' }}{{ t.party }}</span>
+                  @if (t.notes) {
+                    <span class="muted"> · {{ t.notes }}</span>
+                  }
+                } @else {
+                  <span class="muted">{{ t.notes ?? '—' }}</span>
+                }
+              </td>
+              <td class="num strong" [class.in]="t.direction === 'In'" [class.out]="t.direction === 'Out'">{{ signed(t) }}</td>
+              <td>{{ t.isReconciled ? 'Yes' : '—' }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+      @if (hasMore()) {
+        <div class="more"><ui-button variant="secondary" [disabled]="loadingMore()" (onClick)="loadMore()">{{ loadingMore() ? 'Loading…' : 'Load more' }}</ui-button></div>
+      }
+    }
+  </div>
+} @else if (!loading()) {
+  <div class="muted">Account not found.</div>
+}

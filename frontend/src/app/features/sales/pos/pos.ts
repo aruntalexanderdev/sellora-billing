@@ -11,6 +11,9 @@ import type { CustomerItem } from '../customers/customers.models';
 import type { SaleCatalogProduct } from '../sales.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
 import type { PaymentMethod } from '../sales.models';
+import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
+import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
+
 import type { HasUnsavedChanges } from '../../../core/unsaved-changes.guard';
 
 type LineGroup = FormGroup<{
@@ -57,6 +60,8 @@ export class Pos implements OnInit, HasUnsavedChanges {
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
 
+  private readonly cashBank = inject(CashBankService);
+  readonly accountOptions = signal<AccountOption[]>([]);
   readonly paymentMethods: PaymentMethod[] = ['Cash', 'Upi', 'Card', 'Credit', 'BankTransfer'];
   readonly customers = signal<CustomerItem[]>([]);
   readonly catalog = signal<SaleCatalogProduct[]>([]);
@@ -74,6 +79,7 @@ export class Pos implements OnInit, HasUnsavedChanges {
     customerId: ['', Validators.required],
     invoiceDate: [today()],
     paymentMethod: ['Cash' as PaymentMethod, Validators.required],
+    accountId: [''],
     paidAmount: [0, [Validators.required, Validators.min(0)]],
     lines: this.fb.array<LineGroup>([]),
   });
@@ -161,6 +167,16 @@ export class Pos implements OnInit, HasUnsavedChanges {
   }
 
   ngOnInit(): void {
+    this.cashBank.options().subscribe({
+      next: (o) => {
+        this.accountOptions.set(o);
+        this.form.patchValue({ accountId: defaultAccountId(o, this.form.controls.paymentMethod.value) });
+        this.form.controls.accountId.markAsPristine();
+      },
+    });
+    this.form.controls.paymentMethod.valueChanges.subscribe((m) =>
+      this.form.patchValue({ accountId: defaultAccountId(this.accountOptions(), m) }),
+    );
     this.customersService.list().subscribe({
       next: (res) => {
         const active = res.items.filter((c) => c.isActive);
@@ -233,6 +249,7 @@ export class Pos implements OnInit, HasUnsavedChanges {
         invoiceDate: v.invoiceDate,
         paymentMethod: v.paymentMethod,
         paidAmount: v.paidAmount,
+        accountId: v.accountId || null,
         lines: v.lines.map((l) => ({
           productId: l.productId,
           sellingModeId: l.sellingModeId,

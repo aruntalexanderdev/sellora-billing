@@ -77,7 +77,8 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         var input = new CreatePurchaseInput(
             request.SupplierId!.Value, request.PurchaseDate, request.SupplierInvoiceNumber, request.Notes,
             request.PaymentMethod, request.PaidAmount,
-            request.Lines.Select(l => new PurchaseLineInput(l.ProductId!.Value, l.SellingModeId!.Value, l.Qty, l.Rate, l.OtherCharges, l.Discount)).ToList());
+            request.Lines.Select(l => new PurchaseLineInput(l.ProductId!.Value, l.SellingModeId!.Value, l.Qty, l.Rate, l.OtherCharges, l.Discount)).ToList(),
+            request.AccountId);
 
         try
         {
@@ -127,7 +128,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         {
             var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
             var purchase = await purchaseService.AddPaymentAsync(
-                id, new AddPurchasePaymentInput(request.Amount, request.PaymentMethod, request.ExpectedDue), userId, ct);
+                id, new AddPurchasePaymentInput(request.Amount, request.PaymentMethod, request.ExpectedDue, request.AccountId), userId, ct);
             if (purchase is null) return NotFound();
 
             return await Get(id, ct);

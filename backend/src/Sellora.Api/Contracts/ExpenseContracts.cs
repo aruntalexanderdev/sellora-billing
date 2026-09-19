@@ -29,7 +29,8 @@ public record CreateExpenseRequest(
     [Range(0.000001, 999999999)] decimal Amount,
     PaymentMethod PaymentMethod,
     [MaxLength(60)] string? Reference,
-    [MaxLength(500)] string? Notes
+    [MaxLength(500)] string? Notes,
+    Guid? AccountId = null
 );
 
 public record UpdateExpenseRequest(

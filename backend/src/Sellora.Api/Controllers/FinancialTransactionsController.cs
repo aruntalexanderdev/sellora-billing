@@ -17,7 +17,7 @@ public class FinancialTransactionsController(SelloraDbContext db) : ControllerBa
     [Authorize(Policy = "FinancialTransactions.View")]
     public async Task<ActionResult<FinancialTransactionListDto>> List(
         [FromQuery] string? search, [FromQuery] FinancialTransactionType? type, [FromQuery] MoneyDirection? direction,
-        [FromQuery] FinancialTransactionStatus? status, [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
+        [FromQuery] FinancialTransactionStatus? status, [FromQuery] Guid? accountId, [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
@@ -27,6 +27,7 @@ public class FinancialTransactionsController(SelloraDbContext db) : ControllerBa
         if (type is not null) query = query.Where(t => t.Type == type);
         if (direction is not null) query = query.Where(t => t.Direction == direction);
         if (status is not null) query = query.Where(t => t.Status == status);
+        if (accountId is not null) query = query.Where(t => t.AccountId == accountId);
         if (dateFrom is not null) query = query.Where(t => t.TransactionDate >= dateFrom);
         if (dateTo is not null) query = query.Where(t => t.TransactionDate <= dateTo);
         if (!string.IsNullOrWhiteSpace(search))
@@ -39,8 +40,9 @@ public class FinancialTransactionsController(SelloraDbContext db) : ControllerBa
         }
 
         var total = await query.CountAsync(ct);
-        var moneyIn = await query.Where(t => t.Status == FinancialTransactionStatus.Active && t.Direction == MoneyDirection.In).SumAsync(t => (decimal?)t.BaseAmount, ct) ?? 0m;
-        var moneyOut = await query.Where(t => t.Status == FinancialTransactionStatus.Active && t.Direction == MoneyDirection.Out).SumAsync(t => (decimal?)t.BaseAmount, ct) ?? 0m;
+        var external = query.Where(t => t.Type != FinancialTransactionType.OpeningBalance && t.Type != FinancialTransactionType.Transfer);
+        var moneyIn = await external.Where(t => t.Status == FinancialTransactionStatus.Active && t.Direction == MoneyDirection.In).SumAsync(t => (decimal?)t.BaseAmount, ct) ?? 0m;
+        var moneyOut = await external.Where(t => t.Status == FinancialTransactionStatus.Active && t.Direction == MoneyDirection.Out).SumAsync(t => (decimal?)t.BaseAmount, ct) ?? 0m;
 
         var items = await query
             .OrderByDescending(t => t.TransactionDate).ThenByDescending(t => t.CreatedAt)
@@ -49,15 +51,19 @@ public class FinancialTransactionsController(SelloraDbContext db) : ControllerBa
                 t.Id, t.TransactionDate, t.Type, t.Direction, t.Status,
                 t.PurchasePayment != null ? t.PurchasePayment.PurchaseOrder.Supplier.Name
                     : t.SalesPayment != null ? t.SalesPayment.SalesInvoice.Customer.Name
-                    : t.Expense!.Category.Name,
-                t.PurchasePayment != null ? "Purchase" : t.SalesPayment != null ? "Sale" : "Expense",
+                    : t.Expense != null ? t.Expense.Category.Name
+                    : t.Type == FinancialTransactionType.Transfer
+                        ? db.FinancialTransactions.Where(o => o.TransferGroupId == t.TransferGroupId && o.Id != t.Id).Select(o => o.Account!.Name).FirstOrDefault() ?? ""
+                        : t.Account!.Name,
+                t.PurchasePayment != null ? "Purchase" : t.SalesPayment != null ? "Sale" : t.Expense != null ? "Expense" : null,
                 t.PurchasePayment != null ? t.PurchasePayment.PurchaseOrderId
                     : t.SalesPayment != null ? t.SalesPayment.SalesInvoiceId
-                    : t.ExpenseId!.Value,
+                    : t.ExpenseId,
                 t.PurchasePayment != null ? t.PurchasePayment.PurchaseOrder.PurchaseNo
                     : t.SalesPayment != null ? t.SalesPayment.SalesInvoice.InvoiceNo
-                    : t.Expense!.ExpenseNo,
-                t.PaymentMethod, t.Amount, t.Currency.Code, t.ExchangeRateToBase, t.BaseAmount, t.CreatedAt))
+                    : t.Expense != null ? t.Expense.ExpenseNo : null,
+                t.PaymentMethod, t.Amount, t.Currency.Code, t.ExchangeRateToBase, t.BaseAmount, t.CreatedAt,
+                t.AccountId, t.Account != null ? t.Account.Name : null, t.ReconciledAt != null, t.Notes))
             .ToListAsync(ct);
 
         var baseCurrency = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);

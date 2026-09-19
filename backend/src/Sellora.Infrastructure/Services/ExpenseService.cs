@@ -34,6 +34,8 @@ public class ExpenseService(SelloraDbContext db, IExchangeRateService exchangeRa
             throw new DomainValidationException("ExpenseDate", "Expense date cannot be in the future.");
         }
 
+        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, ct);
+
         var rate = await exchangeRateService.ResolveRateToBaseAsync(currency.Id, input.ExpenseDate, ct);
         var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
         var baseAmount = rate == 1m ? amount : Math.Round(amount * rate, basePrecision, MidpointRounding.AwayFromZero);
@@ -55,7 +57,7 @@ public class ExpenseService(SelloraDbContext db, IExchangeRateService exchangeRa
         };
 
         db.Expenses.Add(expense);
-        db.FinancialTransactions.Add(FinancialTransaction.ForExpense(expense));
+        db.FinancialTransactions.Add(FinancialTransaction.ForExpense(expense, input.AccountId));
         await db.SaveChangesAsync(ct);
         return expense;
     }

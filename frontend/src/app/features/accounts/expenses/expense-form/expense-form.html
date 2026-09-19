@@ -86,6 +86,19 @@
         </select>
       </div>
       <div>
+        <label class="field-label">Account</label>
+        <select formControlName="accountId" class="field-input">
+          <option value="">Not tracked</option>
+          @for (a of accountOptions(); track a.id) {
+            <option [value]="a.id">{{ a.name }}</option>
+          }
+        </select>
+        <div class="field-hint">Where the money was paid from.</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
         <label class="field-label">Reference</label>
         <input type="text" formControlName="reference" class="field-input" maxlength="60" placeholder="Bill or receipt no." />
       </div>

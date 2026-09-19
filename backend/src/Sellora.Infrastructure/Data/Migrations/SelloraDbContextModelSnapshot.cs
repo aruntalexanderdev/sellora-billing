@@ -279,10 +279,52 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("ExpenseCategories");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.FinancialAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("FinancialAccounts");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.FinancialTransaction", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AccountId")
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("Amount")
@@ -311,12 +353,22 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid?>("ExpenseId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<string>("PaymentMethod")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
                     b.Property<Guid?>("PurchasePaymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ReconciledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReconciledByUserId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("SalesPaymentId")
@@ -329,6 +381,9 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.Property<DateOnly>("TransactionDate")
                         .HasColumnType("date");
+
+                    b.Property<Guid?>("TransferGroupId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Type")
                         .IsRequired()
@@ -347,8 +402,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("PurchasePaymentId")
                         .IsUnique();
 
+                    b.HasIndex("ReconciledByUserId");
+
                     b.HasIndex("SalesPaymentId")
                         .IsUnique();
+
+                    b.HasIndex("AccountId", "TransactionDate");
 
                     b.HasIndex("TransactionDate", "CreatedAt");
 
@@ -358,7 +417,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_FinancialTransactions_Amount_Positive", "\"Amount\" > 0");
 
-                            t.HasCheckConstraint("CK_FinancialTransactions_OneSource", "(CASE WHEN \"PurchasePaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"SalesPaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"ExpenseId\" IS NULL THEN 0 ELSE 1 END) = 1");
+                            t.HasCheckConstraint("CK_FinancialTransactions_ManualHasAccount", "\"Type\" NOT IN ('OpeningBalance', 'Transfer') OR \"AccountId\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_FinancialTransactions_Source", "(CASE WHEN \"PurchasePaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"SalesPaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"ExpenseId\" IS NULL THEN 0 ELSE 1 END) = CASE WHEN \"Type\" IN ('OpeningBalance', 'Transfer') THEN 0 ELSE 1 END");
                         });
                 });
 
@@ -1360,8 +1421,24 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("Currency");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.FinancialAccount", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.FinancialTransaction", b =>
                 {
+                    b.HasOne("Sellora.Domain.Entities.FinancialAccount", "Account")
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
@@ -1384,10 +1461,17 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("PurchasePaymentId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Sellora.Domain.Entities.User", "ReconciledByUser")
+                        .WithMany()
+                        .HasForeignKey("ReconciledByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Sellora.Domain.Entities.SalesPayment", "SalesPayment")
                         .WithMany()
                         .HasForeignKey("SalesPaymentId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Account");
 
                     b.Navigation("CreatedByUser");
 
@@ -1396,6 +1480,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("Expense");
 
                     b.Navigation("PurchasePayment");
+
+                    b.Navigation("ReconciledByUser");
 
                     b.Navigation("SalesPayment");
                 });

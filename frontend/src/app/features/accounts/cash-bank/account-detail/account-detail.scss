@@ -1,0 +1,145 @@
+@use '../../../../shared/styles/page-head';
+@use '../../../../shared/styles/form-fields';
+
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.back-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.status-row {
+  margin-bottom: 14px;
+}
+.muted {
+  color: var(--color-text-muted);
+}
+.pad {
+  padding: 18px;
+  margin: 0;
+}
+.link {
+  font-weight: 600;
+  color: var(--color-primary, #2563eb);
+  cursor: pointer;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+
+  .tile {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 170px;
+    padding: 12px 16px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+  }
+  .tile-label {
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--color-text-muted);
+  }
+  strong {
+    font-size: 18px;
+  }
+  .negative {
+    color: var(--color-danger);
+  }
+}
+
+.reconcile-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+
+  .reconcile-head {
+    margin-bottom: 10px;
+    font-size: 13px;
+  }
+  .reconcile-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+
+    .field-label {
+      margin: 0;
+    }
+    .field-input {
+      width: 180px;
+    }
+  }
+  .diff {
+    font-size: 13px;
+    color: var(--color-danger);
+
+    &.ok {
+      color: var(--color-success, #15803d);
+    }
+  }
+  .reconcile-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+}
+
+.table-wrap {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  overflow-x: auto;
+}
+.txn-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-border);
+  }
+  td {
+    padding: 11px 14px;
+    border-top: 1px solid var(--color-border);
+  }
+  .check {
+    width: 36px;
+  }
+  .num {
+    text-align: right;
+  }
+  .strong {
+    font-weight: 600;
+  }
+  .in {
+    color: var(--color-success, #15803d);
+  }
+  .out {
+    color: var(--color-danger);
+  }
+  .cancelled {
+    opacity: 0.55;
+  }
+}
+.more {
+  padding: 12px;
+  text-align: center;
+  border-top: 1px solid var(--color-border);
+}

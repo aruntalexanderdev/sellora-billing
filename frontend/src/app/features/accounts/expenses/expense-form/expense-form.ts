@@ -11,6 +11,9 @@ import { ExchangeRatesService } from '../../../administration/exchange-rates/exc
 import type { CurrencyItem } from '../../../administration/currencies/currencies.models';
 import type { ResolvedExchangeRate } from '../../../administration/exchange-rates/exchange-rates.models';
 import type { ExpenseCategory, PaymentMethod } from '../expenses.models';
+import { CashBankService, defaultAccountId } from '../../cash-bank/cash-bank.service';
+import type { AccountOption } from '../../cash-bank/cash-bank.models';
+
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 
@@ -36,6 +39,7 @@ export class ExpenseForm implements OnInit, HasUnsavedChanges {
   private readonly expensesService = inject(ExpensesService);
   private readonly currenciesService = inject(CurrenciesService);
   private readonly exchangeRatesService = inject(ExchangeRatesService);
+  private readonly cashBank = inject(CashBankService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
 
@@ -47,10 +51,12 @@ export class ExpenseForm implements OnInit, HasUnsavedChanges {
     currencyId: ['', Validators.required],
     amount: [null as number | null, [Validators.required, Validators.min(0.000001)]],
     paymentMethod: ['Cash' as PaymentMethod, Validators.required],
+    accountId: [''],
     reference: [''],
     notes: [''],
   });
 
+  readonly accountOptions = signal<AccountOption[]>([]);
   readonly categories = signal<ExpenseCategory[]>([]);
   readonly currencies = signal<CurrencyItem[]>([]);
   readonly resolvedRate = signal<ResolvedExchangeRate | null>(null);
@@ -80,6 +86,16 @@ export class ExpenseForm implements OnInit, HasUnsavedChanges {
   }
 
   ngOnInit(): void {
+    this.cashBank.options().subscribe({
+      next: (o) => {
+        this.accountOptions.set(o);
+        this.form.patchValue({ accountId: defaultAccountId(o, this.form.controls.paymentMethod.value) });
+        this.form.controls.accountId.markAsPristine();
+      },
+    });
+    this.form.controls.paymentMethod.valueChanges.subscribe((m) =>
+      this.form.patchValue({ accountId: defaultAccountId(this.accountOptions(), m) }),
+    );
     this.expensesService.categories().subscribe({ next: (list) => this.categories.set(list.filter((c) => c.isActive)) });
     this.currenciesService.list().subscribe({
       next: (list) => {
@@ -132,6 +148,7 @@ export class ExpenseForm implements OnInit, HasUnsavedChanges {
         currencyId: v.currencyId,
         amount: v.amount!,
         paymentMethod: v.paymentMethod,
+        accountId: v.accountId || null,
         reference: v.reference || null,
         notes: v.notes || null,
       })

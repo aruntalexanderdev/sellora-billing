@@ -47,11 +47,13 @@ public record CreateSaleRequest(
     [Required] DateOnly InvoiceDate,
     PaymentMethod PaymentMethod,
     [Range(0, double.MaxValue)] decimal PaidAmount,
-    [MinLength(1)] CreateSaleLineRequest[] Lines
+    [MinLength(1)] CreateSaleLineRequest[] Lines,
+    Guid? AccountId = null
 );
 
 public record AddSalePaymentRequest(
     [Range(0.000001, 999999999)] decimal Amount,
     PaymentMethod PaymentMethod,
-    [Range(0, 999999999)] decimal ExpectedDue
+    [Range(0, 999999999)] decimal ExpectedDue,
+    Guid? AccountId = null
 );

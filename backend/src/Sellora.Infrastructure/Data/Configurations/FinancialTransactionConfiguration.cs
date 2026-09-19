@@ -21,8 +21,13 @@ public class FinancialTransactionConfiguration : IEntityTypeConfiguration<Financ
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("CK_FinancialTransactions_Amount_Positive", "\"Amount\" > 0");
-            t.HasCheckConstraint("CK_FinancialTransactions_OneSource",
-                "(CASE WHEN \"PurchasePaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"SalesPaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"ExpenseId\" IS NULL THEN 0 ELSE 1 END) = 1");
+            // Payment/expense movements come from exactly one source record; opening balances and transfers
+            // are entered directly, have no source, and must name their account.
+            t.HasCheckConstraint("CK_FinancialTransactions_Source",
+                "(CASE WHEN \"PurchasePaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"SalesPaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"ExpenseId\" IS NULL THEN 0 ELSE 1 END) = "
+                + "CASE WHEN \"Type\" IN ('OpeningBalance', 'Transfer') THEN 0 ELSE 1 END");
+            t.HasCheckConstraint("CK_FinancialTransactions_ManualHasAccount",
+                "\"Type\" NOT IN ('OpeningBalance', 'Transfer') OR \"AccountId\" IS NOT NULL");
         });
 
         // A source record produces at most one transaction (nulls are not compared by a unique index).
@@ -31,11 +36,15 @@ public class FinancialTransactionConfiguration : IEntityTypeConfiguration<Financ
         builder.HasIndex(t => t.ExpenseId).IsUnique();
         builder.HasIndex(t => new { t.TransactionDate, t.CreatedAt });
         builder.HasIndex(t => new { t.Type, t.Status });
+        builder.HasIndex(t => new { t.AccountId, t.TransactionDate });
+        builder.Property(t => t.Notes).HasMaxLength(500);
 
         builder.HasOne(t => t.Currency).WithMany().HasForeignKey(t => t.CurrencyId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(t => t.PurchasePayment).WithMany().HasForeignKey(t => t.PurchasePaymentId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(t => t.SalesPayment).WithMany().HasForeignKey(t => t.SalesPaymentId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(t => t.Expense).WithMany().HasForeignKey(t => t.ExpenseId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(t => t.Account).WithMany().HasForeignKey(t => t.AccountId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(t => t.ReconciledByUser).WithMany().HasForeignKey(t => t.ReconciledByUserId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(t => t.CreatedByUser).WithMany().HasForeignKey(t => t.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
     }
 }

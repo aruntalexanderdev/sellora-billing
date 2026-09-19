@@ -22,6 +22,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("CustomerId", "This customer is inactive.");
         }
 
+        await FinancialAccountRules.EnsureUsableAsync(db, input.PaidAmount > 0 ? input.AccountId : null, ct);
+
         var invoiceNo = await NextInvoiceNoAsync(ct);
 
         var invoice = new SalesInvoice
@@ -78,7 +80,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         var received = Math.Min(input.PaidAmount, invoice.GrandTotal);
         if (received > 0)
         {
-            await RecordPaymentAsync(invoice, received, input.PaymentMethod, input.InvoiceDate, createdByUserId, ct);
+            await RecordPaymentAsync(invoice, received, input.PaymentMethod, input.InvoiceDate, createdByUserId, input.AccountId, ct);
         }
 
         db.SalesInvoices.Add(invoice);
@@ -107,6 +109,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("Status", "This sale is cancelled and cannot receive payments.");
         }
 
+        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, ct);
+
         var due = invoice.DueAmount;
         if (due <= 0)
         {
@@ -125,7 +129,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("Amount", $"Payment cannot exceed the outstanding due of {due:F2}.");
         }
 
-        await RecordPaymentAsync(invoice, input.Amount, input.PaymentMethod, DateOnly.FromDateTime(DateTime.UtcNow), receivedByUserId, ct);
+        await RecordPaymentAsync(invoice, input.Amount, input.PaymentMethod, DateOnly.FromDateTime(DateTime.UtcNow), receivedByUserId, input.AccountId, ct);
 
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
@@ -134,7 +138,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
     // The one place a payment is recorded: appends a ledger row and moves the invoice's running paid total;
     // an existing payment is never touched.
-    private async Task RecordPaymentAsync(SalesInvoice invoice, decimal amount, PaymentMethod method, DateOnly paymentDate, Guid userId, CancellationToken ct)
+    private async Task RecordPaymentAsync(SalesInvoice invoice, decimal amount, PaymentMethod method, DateOnly paymentDate, Guid userId, Guid? accountId, CancellationToken ct)
     {
         invoice.PaidAmount += amount;
         invoice.PaymentMethod = method;
@@ -155,7 +159,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         // Sales are billed in the base currency, so the money moved is in the base currency too.
         var baseCurrencyId = await db.BusinessSettings.Select(s => s.BaseCurrencyId).SingleAsync(ct);
-        db.FinancialTransactions.Add(FinancialTransaction.ForSalesPayment(payment, baseCurrencyId));
+        db.FinancialTransactions.Add(FinancialTransaction.ForSalesPayment(payment, baseCurrencyId, accountId));
     }
 
     public async Task CancelSaleAsync(Guid salesInvoiceId, CancellationToken ct = default)

@@ -8,6 +8,10 @@ public enum FinancialTransactionType
     SupplierPayment,
     /// <summary>Money paid for an operating expense.</summary>
     ExpensePayment,
+    /// <summary>The balance an account started with. Manual; has no source record.</summary>
+    OpeningBalance,
+    /// <summary>One leg of a transfer between two accounts (out of one, into the other). Manual; has no source record.</summary>
+    Transfer,
 }
 
 public enum MoneyDirection
@@ -60,11 +64,27 @@ public class FinancialTransaction
     public Guid? ExpenseId { get; set; }
     public Expense? Expense { get; set; }
 
+    /// <summary>The cash or bank account the money moved through. Null for movements made before accounts
+    /// existed, or where the user chose not to track an account; those do not count toward any balance.
+    /// Always set for manual transactions.</summary>
+    public Guid? AccountId { get; set; }
+    public FinancialAccount? Account { get; set; }
+
+    /// <summary>Shared by the two legs of a transfer.</summary>
+    public Guid? TransferGroupId { get; set; }
+
+    public string? Notes { get; set; }
+
+    /// <summary>Set when the transaction has been matched to the bank/cash statement.</summary>
+    public DateTimeOffset? ReconciledAt { get; set; }
+    public Guid? ReconciledByUserId { get; set; }
+    public User? ReconciledByUser { get; set; }
+
     public Guid CreatedByUserId { get; set; }
     public User CreatedByUser { get; set; } = null!;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
-    public static FinancialTransaction ForPurchasePayment(PurchasePayment payment, Guid currencyId) => new()
+    public static FinancialTransaction ForPurchasePayment(PurchasePayment payment, Guid currencyId, Guid? accountId) => new()
     {
         Id = Guid.NewGuid(),
         Type = FinancialTransactionType.SupplierPayment,
@@ -76,10 +96,11 @@ public class FinancialTransaction
         BaseAmount = payment.BaseAmount,
         PaymentMethod = payment.PaymentMethod,
         PurchasePaymentId = payment.Id,
+        AccountId = accountId,
         CreatedByUserId = payment.CreatedByUserId,
     };
 
-    public static FinancialTransaction ForSalesPayment(SalesPayment payment, Guid currencyId) => new()
+    public static FinancialTransaction ForSalesPayment(SalesPayment payment, Guid currencyId, Guid? accountId) => new()
     {
         Id = Guid.NewGuid(),
         Type = FinancialTransactionType.CustomerPayment,
@@ -91,10 +112,11 @@ public class FinancialTransaction
         BaseAmount = payment.BaseAmount,
         PaymentMethod = payment.PaymentMethod,
         SalesPaymentId = payment.Id,
+        AccountId = accountId,
         CreatedByUserId = payment.CreatedByUserId,
     };
 
-    public static FinancialTransaction ForExpense(Expense expense) => new()
+    public static FinancialTransaction ForExpense(Expense expense, Guid? accountId) => new()
     {
         Id = Guid.NewGuid(),
         Type = FinancialTransactionType.ExpensePayment,
@@ -106,6 +128,7 @@ public class FinancialTransaction
         BaseAmount = expense.BaseAmount,
         PaymentMethod = expense.PaymentMethod,
         ExpenseId = expense.Id,
+        AccountId = accountId,
         CreatedByUserId = expense.CreatedByUserId,
     };
 }

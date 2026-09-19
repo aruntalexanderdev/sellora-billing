@@ -11,6 +11,9 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { PurchasesService } from '../purchases.service';
 import type { PurchaseDetail as PurchaseDetailModel, PaymentMethod } from '../purchases.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
+import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
+import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
+
 
 const roundTo = (n: number, places: number) => {
   const f = 10 ** places;
@@ -34,6 +37,8 @@ export class PurchaseDetail implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
+  private readonly cashBank = inject(CashBankService);
+  readonly accountOptions = signal<AccountOption[]>([]);
 
   // Every stored amount on a purchase is in the business base currency; only OriginalGrandTotal is in
   // the purchase's own transaction currency.
@@ -74,6 +79,7 @@ export class PurchaseDetail implements OnInit {
   readonly payForm = this.fb.nonNullable.group({
     amount: [null as number | null, [Validators.required, this.positiveAmount, this.withinDue]],
     paymentMethod: ['Cash' as PaymentMethod, Validators.required],
+    accountId: [''],
   });
   private readonly payAmount = toSignal(this.payForm.controls.amount.valueChanges, { initialValue: null as number | null });
 
@@ -105,6 +111,9 @@ export class PurchaseDetail implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.payForm.controls.paymentMethod.valueChanges.subscribe((m) =>
+      this.payForm.patchValue({ accountId: defaultAccountId(this.accountOptions(), m) }),
+    );
   }
 
   private load(): void {
@@ -132,7 +141,15 @@ export class PurchaseDetail implements OnInit {
   openPay(): void {
     if (!this.canPay()) return;
     this.payError.set(null);
-    this.payForm.reset({ amount: null, paymentMethod: this.purchase()!.paymentMethod });
+    const method = this.purchase()!.paymentMethod;
+    // Loaded when the panel opens, since only people who can pay ever need the list.
+    this.cashBank.options().subscribe({
+      next: (o) => {
+        this.accountOptions.set(o);
+        this.payForm.patchValue({ accountId: defaultAccountId(o, this.payForm.controls.paymentMethod.value) });
+      },
+    });
+    this.payForm.reset({ amount: null, paymentMethod: method, accountId: defaultAccountId(this.accountOptions(), method) });
     this.editing.set(false);
     this.paying.set(true);
   }
@@ -157,7 +174,7 @@ export class PurchaseDetail implements OnInit {
     const v = this.payForm.getRawValue();
     this.paySaving.set(true);
     this.purchasesService
-      .addPayment(p.id, { amount: v.amount!, paymentMethod: v.paymentMethod, expectedDue: p.originalDueAmount })
+      .addPayment(p.id, { amount: v.amount!, paymentMethod: v.paymentMethod, expectedDue: p.originalDueAmount, accountId: v.accountId || null })
       .subscribe({
         next: (updated) => {
           this.paySaving.set(false);

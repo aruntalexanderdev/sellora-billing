@@ -1,0 +1,75 @@
+<div class="page-head">
+  <div>
+    <h1>Cash &amp; Bank</h1>
+    <p>Where the business's money sits. Balances are worked out from recorded transactions, in the base currency.</p>
+  </div>
+  <div class="head-actions">
+    @if (canTransfer()) {
+      <ui-button variant="secondary" (onClick)="router.navigate(['/accounts/cash-bank/transfer'])">Transfer</ui-button>
+    }
+    @if (canManage()) {
+      <ui-button variant="primary" (onClick)="router.navigate(['/accounts/cash-bank/new'])">+ New account</ui-button>
+    }
+  </div>
+</div>
+
+@if (loading()) {
+  <p class="muted">Loading…</p>
+} @else if (failed()) {
+  <p class="muted">Couldn't load accounts. <a class="link" (click)="load()">Retry</a></p>
+} @else if (data(); as d) {
+  <div class="summary">
+    <div class="tile"><span class="tile-label">Cash</span><strong>{{ fmt(d.cashBalance) }}</strong></div>
+    <div class="tile"><span class="tile-label">Bank</span><strong>{{ fmt(d.bankBalance) }}</strong></div>
+    <div class="tile"><span class="tile-label">Total</span><strong>{{ fmt(total()) }}</strong></div>
+    <div class="tile-note">Only payments where an account was chosen count toward these balances.</div>
+  </div>
+
+  @if (d.items.length === 0) {
+    <div class="empty">
+      <strong>No accounts yet</strong>
+      <p>Add a cash drawer or bank account, then choose it when paying or receiving money.</p>
+      @if (canManage()) {
+        <ui-button variant="primary" (onClick)="router.navigate(['/accounts/cash-bank/new'])">+ New account</ui-button>
+      }
+    </div>
+  } @else {
+    <div class="table-wrap">
+      <table class="acct-table">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Type</th>
+            <th class="num">Balance</th>
+            <th class="num">To reconcile</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (a of d.items; track a.id) {
+            <tr [class.inactive]="!a.isActive">
+              <td>
+                <a class="link strong" (click)="open(a)">{{ a.name }}</a>
+                @if (a.reference) {
+                  <div class="sub">{{ a.reference }}</div>
+                }
+              </td>
+              <td>{{ a.kind }}</td>
+              <td class="num strong" [class.negative]="a.balance < 0">{{ fmt(a.balance) }}</td>
+              <td class="num">{{ a.unreconciledCount }}</td>
+              <td><ui-badge [text]="a.isActive ? 'Active' : 'Inactive'" [tone]="a.isActive ? 'good' : 'mute'" /></td>
+              <td class="row-actions">
+                <a class="link" (click)="open(a)">History</a>
+                @if (canManage()) {
+                  <a class="link" [routerLink]="['/accounts/cash-bank', a.id, 'edit']">Edit</a>
+                  <a class="link" (click)="toggle(a)">{{ a.isActive ? 'Deactivate' : 'Activate' }}</a>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+}

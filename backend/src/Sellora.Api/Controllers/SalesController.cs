@@ -119,7 +119,8 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
 
         var input = new CreateSaleInput(
             request.CustomerId!.Value, request.InvoiceDate, request.PaymentMethod, request.PaidAmount,
-            request.Lines.Select(l => new SaleLineInput(l.ProductId!.Value, l.SellingModeId!.Value, l.Qty, l.UnitPrice, l.Discount)).ToList());
+            request.Lines.Select(l => new SaleLineInput(l.ProductId!.Value, l.SellingModeId!.Value, l.Qty, l.UnitPrice, l.Discount)).ToList(),
+            request.AccountId);
 
         try
         {
@@ -144,7 +145,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
         {
             var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
             var invoice = await salesService.AddPaymentAsync(
-                id, new AddSalePaymentInput(request.Amount, request.PaymentMethod, request.ExpectedDue), userId, ct);
+                id, new AddSalePaymentInput(request.Amount, request.PaymentMethod, request.ExpectedDue, request.AccountId), userId, ct);
             if (invoice is null) return NotFound();
 
             return await Get(id, ct);

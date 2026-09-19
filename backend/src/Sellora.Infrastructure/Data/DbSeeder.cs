@@ -29,6 +29,7 @@ public static class DbSeeder
         await SeedProductsAsync(db, units, taxes, ct);
         await SeedCustomersAsync(db, ct);
         await SeedExpenseCategoriesAsync(db, ct);
+        await SeedMainCashAccountAsync(db, ct);
     }
 
     private static async Task SeedPermissionsAsync(SelloraDbContext db, CancellationToken ct)
@@ -69,6 +70,20 @@ public static class DbSeeder
         {
             db.RolePermissions.Add(new RolePermission { RoleId = roleId, PermissionId = permission.Id });
         }
+        await db.SaveChangesAsync(ct);
+    }
+
+    // A default cash account so payments have somewhere to land from the start. Added once, so an
+    // administrator who renames or deactivates it is not overridden.
+    private static async Task SeedMainCashAccountAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        if (await db.FinancialAccounts.AnyAsync(ct)) return;
+
+        var admin = await db.Users.SingleAsync(u => u.Email == SeedAdminEmail, ct);
+        db.FinancialAccounts.Add(new FinancialAccount
+        {
+            Id = Guid.NewGuid(), Name = "Main Cash", Kind = FinancialAccountKind.Cash, CreatedByUserId = admin.Id,
+        });
         await db.SaveChangesAsync(ct);
     }
 

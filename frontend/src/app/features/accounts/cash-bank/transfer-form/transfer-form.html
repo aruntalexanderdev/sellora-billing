@@ -1,0 +1,84 @@
+<div class="page-head">
+  <div>
+    <h1>Transfer money</h1>
+    <p>Move money between your own accounts. It leaves one and arrives in the other, so your total doesn't change.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error">{{ serverError() }}</div>
+  }
+
+  <div class="presets">
+    <button type="button" class="preset" [class.on]="preset() === 'transfer'" (click)="setPreset('transfer')">Any transfer</button>
+    <button type="button" class="preset" [class.on]="preset() === 'deposit'" (click)="setPreset('deposit')">Cash deposit</button>
+    <button type="button" class="preset" [class.on]="preset() === 'withdrawal'" (click)="setPreset('withdrawal')">Cash withdrawal</button>
+  </div>
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <div class="grid-2">
+      <div>
+        <label class="field-label">From</label>
+        <select formControlName="fromAccountId" class="field-input">
+          <option value="" disabled>Select an account…</option>
+          @for (a of fromChoices(); track a.id) {
+            <option [value]="a.id">{{ a.name }} ({{ fmt(a.balance) }})</option>
+          }
+        </select>
+        @if (form.controls.fromAccountId.touched && form.controls.fromAccountId.errors?.['required']) {
+          <div class="field-error">Choose the account to take money from.</div>
+        }
+        @if (form.controls.fromAccountId.errors?.['server']) {
+          <div class="field-error">{{ form.controls.fromAccountId.errors?.['server'] }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label">To</label>
+        <select formControlName="toAccountId" class="field-input">
+          <option value="" disabled>Select an account…</option>
+          @for (a of toChoices(); track a.id) {
+            <option [value]="a.id">{{ a.name }} ({{ fmt(a.balance) }})</option>
+          }
+        </select>
+        @if (form.controls.toAccountId.touched && form.controls.toAccountId.errors?.['required']) {
+          <div class="field-error">Choose the account to send money to.</div>
+        }
+        @if (form.controls.toAccountId.errors?.['server']) {
+          <div class="field-error">{{ form.controls.toAccountId.errors?.['server'] }}</div>
+        }
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label">Amount</label>
+        <input type="number" step="0.01" min="0" formControlName="amount" class="field-input" />
+        @if (form.controls.amount.touched && form.controls.amount.errors) {
+          <div class="field-error">Enter an amount greater than zero.</div>
+        }
+        @if (form.controls.amount.errors?.['server']) {
+          <div class="field-error">{{ form.controls.amount.errors?.['server'] }}</div>
+        }
+        @if (overdraws()) {
+          <div class="field-hint">This is more than {{ from()!.name }} currently holds ({{ fmt(from()!.balance) }}) and will leave it negative.</div>
+        }
+      </div>
+      <div>
+        <label class="field-label">Date</label>
+        <input type="date" formControlName="transferDate" class="field-input" />
+        @if (form.controls.transferDate.errors?.['server']) {
+          <div class="field-error">{{ form.controls.transferDate.errors?.['server'] }}</div>
+        }
+      </div>
+    </div>
+
+    <label class="field-label">Notes</label>
+    <textarea formControlName="notes" class="field-input" rows="2" maxlength="500"></textarea>
+
+    <div class="actions" style="margin-top: 16px">
+      <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Record transfer' }}</ui-button>
+      <a routerLink="/accounts/cash-bank" class="cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>

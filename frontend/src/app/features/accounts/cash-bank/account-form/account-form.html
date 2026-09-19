@@ -1,0 +1,68 @@
+<div class="page-head">
+  <div>
+    <h1>{{ isEdit() ? 'Edit account' : 'New account' }}</h1>
+    <p>
+      {{ isEdit() ? "The type and opening balance can't be changed once an account exists." : 'A cash drawer or bank account whose balance you want to track.' }}
+    </p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error">{{ serverError() }}</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <label class="field-label">Account name</label>
+    <input type="text" formControlName="name" class="field-input" maxlength="60" placeholder="Main Cash, HDFC Bank…" />
+    @if (form.controls.name.touched && form.controls.name.errors?.['required']) {
+      <div class="field-error">Account name is required.</div>
+    }
+    @if (form.controls.name.errors?.['server']) {
+      <div class="field-error">{{ form.controls.name.errors?.['server'] }}</div>
+    }
+
+    <div class="grid-2" style="margin-top: 16px">
+      <div>
+        <label class="field-label">Type</label>
+        <select formControlName="kind" class="field-input">
+          @for (k of kinds; track k) {
+            <option [value]="k">{{ k }}</option>
+          }
+        </select>
+      </div>
+      <div>
+        <label class="field-label">{{ kind() === 'Bank' ? 'Bank / account number' : 'Location' }}</label>
+        <input type="text" formControlName="reference" class="field-input" maxlength="60" [placeholder]="kind() === 'Bank' ? 'HDFC, ending 1234' : 'Front counter'" />
+      </div>
+    </div>
+
+    @if (!isEdit()) {
+      <div class="grid-2">
+        <div>
+          <label class="field-label">Opening balance</label>
+          <input type="number" step="0.01" min="0" formControlName="openingBalance" class="field-input" />
+          <div class="field-hint">What the account holds today. Recorded as its first transaction.</div>
+          @if (form.controls.openingBalance.errors?.['min']) {
+            <div class="field-error">Opening balance can't be negative.</div>
+          }
+          @if (form.controls.openingBalance.errors?.['server']) {
+            <div class="field-error">{{ form.controls.openingBalance.errors?.['server'] }}</div>
+          }
+        </div>
+        <div>
+          <label class="field-label">As of</label>
+          <input type="date" formControlName="openingDate" class="field-input" />
+          @if (form.controls.openingDate.errors?.['server']) {
+            <div class="field-error">{{ form.controls.openingDate.errors?.['server'] }}</div>
+          }
+        </div>
+      </div>
+    }
+
+    <div class="actions">
+      <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
+      <a routerLink="/accounts/cash-bank" class="cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>

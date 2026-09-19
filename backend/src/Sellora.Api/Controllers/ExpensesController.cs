@@ -72,7 +72,7 @@ public class ExpensesController(SelloraDbContext db, IExpenseService expenseServ
         {
             var expense = await expenseService.CreateAsync(
                 new CreateExpenseInput(request.CategoryId!.Value, request.ExpenseDate, request.CurrencyId!.Value,
-                    request.Amount, request.PaymentMethod, request.Reference, request.Notes),
+                    request.Amount, request.PaymentMethod, request.Reference, request.Notes, request.AccountId),
                 CurrentUserId(), ct);
             return await Get(expense.Id, ct);
         }

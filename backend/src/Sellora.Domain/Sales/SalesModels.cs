@@ -15,7 +15,8 @@ public sealed record SaleLineInput(
 public sealed record AddSalePaymentInput(
     decimal Amount,
     PaymentMethod PaymentMethod,
-    decimal ExpectedDue
+    decimal ExpectedDue,
+    Guid? AccountId = null
 );
 
 public sealed record CreateSaleInput(
@@ -23,5 +24,6 @@ public sealed record CreateSaleInput(
     DateOnly InvoiceDate,
     PaymentMethod PaymentMethod,
     decimal PaidAmount,
-    IReadOnlyList<SaleLineInput> Lines
+    IReadOnlyList<SaleLineInput> Lines,
+    Guid? AccountId = null
 );

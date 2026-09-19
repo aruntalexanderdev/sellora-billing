@@ -11,6 +11,9 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { SalesService } from '../sales.service';
 import type { PaymentMethod, SalesInvoiceDetail as SalesInvoiceDetailModel } from '../sales.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
+import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
+import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
+
 
 const INR = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -29,6 +32,8 @@ export class SalesDetail implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
+  private readonly cashBank = inject(CashBankService);
+  readonly accountOptions = signal<AccountOption[]>([]);
 
   readonly INR = INR;
 
@@ -60,12 +65,16 @@ export class SalesDetail implements OnInit {
   readonly payForm = this.fb.nonNullable.group({
     amount: [null as number | null, [Validators.required, this.positiveAmount, this.withinDue]],
     paymentMethod: ['Cash' as PaymentMethod, Validators.required],
+    accountId: [''],
   });
   private readonly payAmount = toSignal(this.payForm.controls.amount.valueChanges, { initialValue: null as number | null });
   readonly dueAfter = computed(() => Math.max(0, (this.invoice()?.dueAmount ?? 0) - (this.payAmount() ?? 0)));
 
   ngOnInit(): void {
     this.load();
+    this.payForm.controls.paymentMethod.valueChanges.subscribe((m) =>
+      this.payForm.patchValue({ accountId: defaultAccountId(this.accountOptions(), m) }),
+    );
   }
 
   private load(): void {
@@ -89,7 +98,15 @@ export class SalesDetail implements OnInit {
   openPay(): void {
     if (!this.canReceive()) return;
     this.payError.set(null);
-    this.payForm.reset({ amount: null, paymentMethod: this.invoice()!.paymentMethod });
+    const method = this.invoice()!.paymentMethod;
+    // Loaded when the panel opens, since only people who can receive payments ever need the list.
+    this.cashBank.options().subscribe({
+      next: (o) => {
+        this.accountOptions.set(o);
+        this.payForm.patchValue({ accountId: defaultAccountId(o, this.payForm.controls.paymentMethod.value) });
+      },
+    });
+    this.payForm.reset({ amount: null, paymentMethod: method, accountId: defaultAccountId(this.accountOptions(), method) });
     this.paying.set(true);
   }
 
@@ -112,7 +129,7 @@ export class SalesDetail implements OnInit {
     const i = this.invoice()!;
     const v = this.payForm.getRawValue();
     this.paySaving.set(true);
-    this.salesService.addPayment(i.id, { amount: v.amount!, paymentMethod: v.paymentMethod, expectedDue: i.dueAmount }).subscribe({
+    this.salesService.addPayment(i.id, { amount: v.amount!, paymentMethod: v.paymentMethod, expectedDue: i.dueAmount, accountId: v.accountId || null }).subscribe({
       next: (updated) => {
         this.paySaving.set(false);
         this.invoice.set(updated);

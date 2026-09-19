@@ -50,7 +50,8 @@ public record CreatePurchaseRequest(
     [MaxLength(500)] string? Notes,
     PaymentMethod PaymentMethod,
     [Range(0, double.MaxValue)] decimal PaidAmount,
-    [MinLength(1)] CreatePurchaseLineRequest[] Lines
+    [MinLength(1)] CreatePurchaseLineRequest[] Lines,
+    Guid? AccountId = null
 );
 
 public record UpdatePurchaseHeaderRequest(
@@ -61,5 +62,6 @@ public record UpdatePurchaseHeaderRequest(
 public record AddPurchasePaymentRequest(
     [Range(0.000001, 999999999)] decimal Amount,
     PaymentMethod PaymentMethod,
-    [Range(0, 999999999)] decimal ExpectedDue
+    [Range(0, 999999999)] decimal ExpectedDue,
+    Guid? AccountId = null
 );
