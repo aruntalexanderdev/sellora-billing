@@ -78,16 +78,21 @@ var app = builder.Build();
 
 // Configure the HTTP request pipeline.
 app.UseExceptionHandler();
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
 
-    using var scope = app.Services.CreateScope();
+// Apply pending EF Core migrations and idempotent seed data on every startup, in every environment.
+// This keeps Neon (or any deployed DB) in sync automatically on each deploy - no manual migration step.
+using (var scope = app.Services.CreateScope())
+{
     var db = scope.ServiceProvider.GetRequiredService<SelloraDbContext>();
     var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
     await db.Database.MigrateAsync();
     await DbSeeder.SeedAsync(db, hasher);
+}
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 
 app.UseCors(AngularDevCorsPolicy);
