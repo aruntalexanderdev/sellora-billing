@@ -244,7 +244,7 @@ public class MultiCurrencyPurchaseTests
     {
         var f = await SeedAsync();
         var purchase = await f.Purchases.CreatePurchaseAsync(Input(f, f.UsdSupplier, new DateOnly(2026, 9, 5), 10, 100m), f.UserId);
-        await f.Purchases.CancelPurchaseAsync(purchase.Id);
+        await f.Purchases.CancelPurchaseAsync(purchase.Id, f.UserId);
 
         var ex = await Assert.ThrowsAsync<DomainValidationException>(
             () => f.Purchases.UpdateHeaderAsync(purchase.Id, new UpdatePurchaseHeaderInput(null, null)));
@@ -369,7 +369,7 @@ public class MultiCurrencyPurchaseTests
     {
         var f = await SeedAsync();
         var purchase = await f.Purchases.CreatePurchaseAsync(InputPaid(f, f.InrSupplier, new DateOnly(2026, 9, 5), 10, 10m, 0m), f.UserId);
-        await f.Purchases.CancelPurchaseAsync(purchase.Id);
+        await f.Purchases.CancelPurchaseAsync(purchase.Id, f.UserId);
 
         var ex = await Assert.ThrowsAsync<DomainValidationException>(
             () => f.Purchases.AddPaymentAsync(purchase.Id, new AddPurchasePaymentInput(10m, PaymentMethod.Cash, 100m), f.UserId));

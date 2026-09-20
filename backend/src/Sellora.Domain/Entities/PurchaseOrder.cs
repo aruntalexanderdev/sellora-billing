@@ -50,6 +50,7 @@ public class PurchaseOrder
     public User CreatedByUser { get; set; } = null!;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CancelledAt { get; set; }
+    public Guid? CancelledByUserId { get; set; }
 
     public ICollection<PurchaseOrderLine> Lines { get; set; } = new List<PurchaseOrderLine>();
 

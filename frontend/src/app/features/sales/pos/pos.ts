@@ -1,4 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
+import { newIdempotencyKey } from '../../../core/idempotency';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormArray, FormBuilder, FormGroup, FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -55,6 +56,8 @@ const EMPTY_PREVIEW: LinePreview = {
 })
 export class Pos implements OnInit, HasUnsavedChanges {
   private readonly fb = inject(FormBuilder);
+  // One key per sale, so a double-tap on Complete can't sell the stock twice.
+  private readonly idempotencyKey = newIdempotencyKey();
   private readonly salesService = inject(SalesService);
   private readonly customersService = inject(CustomersService);
   private readonly toast = inject(ToastService);
@@ -257,7 +260,7 @@ export class Pos implements OnInit, HasUnsavedChanges {
           unitPrice: l.unitPrice,
           discount: l.discount,
         })),
-      })
+      }, this.idempotencyKey)
       .subscribe({
         next: (invoice) => {
           this.saving.set(false);

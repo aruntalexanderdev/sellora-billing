@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
+import { idempotencyHeaders } from '../../core/idempotency';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import type { PagedResult } from '../../core/api.models';
@@ -43,8 +44,8 @@ export class PurchasesService {
     return this.http.get<PurchaseDetail>(`${BASE_URL}/${id}`);
   }
 
-  create(request: CreatePurchaseRequest): Observable<PurchaseDetail> {
-    return this.http.post<PurchaseDetail>(BASE_URL, request);
+  create(request: CreatePurchaseRequest, idempotencyKey?: string): Observable<PurchaseDetail> {
+    return this.http.post<PurchaseDetail>(BASE_URL, request, { headers: idempotencyHeaders(idempotencyKey) });
   }
 
   updateHeader(id: string, request: UpdatePurchaseHeaderRequest): Observable<PurchaseDetail> {

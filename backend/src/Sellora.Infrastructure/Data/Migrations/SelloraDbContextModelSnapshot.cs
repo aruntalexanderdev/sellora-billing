@@ -423,6 +423,39 @@ namespace Sellora.Infrastructure.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.IdempotencyKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("ResourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Scope", "Key")
+                        .IsUnique();
+
+                    b.ToTable("IdempotencyKeys");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.Permission", b =>
                 {
                     b.Property<Guid>("Id")
@@ -598,6 +631,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<DateTimeOffset?>("CancelledAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("CancelledByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -670,6 +706,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(18,2)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CancelledByUserId");
 
                     b.HasIndex("CreatedByUserId");
 
@@ -1008,6 +1046,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<DateTimeOffset?>("CancelledAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("CancelledByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1054,6 +1095,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(18,2)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CancelledByUserId");
 
                     b.HasIndex("CreatedByUserId");
 
@@ -1831,6 +1874,11 @@ namespace Sellora.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrder", b =>
                 {
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CancelledByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
@@ -2002,6 +2050,11 @@ namespace Sellora.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoice", b =>
                 {
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CancelledByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Sellora.Domain.Entities.User", "CreatedByUser")
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")

@@ -19,6 +19,7 @@ import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash
 import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
 
 import type { HasUnsavedChanges } from '../../../core/unsaved-changes.guard';
+import { newIdempotencyKey } from '../../../core/idempotency';
 
 type LineGroup = FormGroup<{
   productId: FormControl<string>;
@@ -65,6 +66,8 @@ const roundTo = (n: number, places: number) => {
 })
 export class PurchaseForm implements OnInit, HasUnsavedChanges {
   private readonly fb = inject(FormBuilder);
+  // One key per form, so a double-click or retry can't receive stock twice.
+  private readonly idempotencyKey = newIdempotencyKey();
   private readonly purchasesService = inject(PurchasesService);
   private readonly suppliersService = inject(SuppliersService);
   private readonly productsService = inject(ProductsService);
@@ -311,7 +314,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
           discount: l.discount,
           supplierBatchNumber: l.supplierBatchNumber.trim() === '' ? null : l.supplierBatchNumber,
         })),
-      })
+      }, this.idempotencyKey)
       .subscribe({
         next: (purchase) => {
           this.saving.set(false);

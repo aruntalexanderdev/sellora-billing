@@ -27,6 +27,7 @@ public class SalesInvoiceConfiguration : IEntityTypeConfiguration<SalesInvoice>
 
         builder.HasOne(i => i.Customer).WithMany().HasForeignKey(i => i.CustomerId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(i => i.CreatedByUser).WithMany().HasForeignKey(i => i.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<User>().WithMany().HasForeignKey(i => i.CancelledByUserId).OnDelete(DeleteBehavior.Restrict);
     }
 }
 

@@ -36,5 +36,5 @@ public interface ISalesService
 
     /// <summary>Reverses a sale's stock effects, restoring exactly the batches it consumed. Throws
     /// <see cref="DomainValidationException"/> if already cancelled.</summary>
-    Task CancelSaleAsync(Guid salesInvoiceId, CancellationToken ct = default);
+    Task CancelSaleAsync(Guid salesInvoiceId, Guid cancelledByUserId, CancellationToken ct = default);
 }

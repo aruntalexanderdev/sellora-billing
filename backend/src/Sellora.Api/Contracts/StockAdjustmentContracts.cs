@@ -7,8 +7,8 @@ public record CreateStockAdjustmentRequest(
     [Required] Guid? ProductId,
     AdjustmentType Type,
     AdjustmentDirection Direction,
-    [Range(0.001, double.MaxValue)] decimal QuantityBaseUnits,
-    decimal? UnitCost,
+    [Range(0.001, 999999999)] decimal QuantityBaseUnits,
+    [Range(0, 999999999)] decimal? UnitCost,
     [MaxLength(300)] string? Reason
 );
 

@@ -21,7 +21,8 @@ public sealed record CreatePurchaseInput(
     PaymentMethod PaymentMethod,
     decimal PaidAmount,
     IReadOnlyList<PurchaseLineInput> Lines,
-    Guid? AccountId = null
+    Guid? AccountId = null,
+    string? IdempotencyKey = null
 );
 
 /// <summary>Editable header fields of a saved purchase. Payments are not editable here.</summary>

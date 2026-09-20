@@ -140,7 +140,7 @@ public class PurchaseServiceTests
         var purchase = await f.Service.CreatePurchaseAsync(WithBatch(f, "RICE-001"), f.UserId);
         var batch = await f.Db.PurchaseBatches.SingleAsync();
 
-        await f.Service.CancelPurchaseAsync(purchase.Id);
+        await f.Service.CancelPurchaseAsync(purchase.Id, f.UserId);
 
         var movements = await f.Db.StockMovements.ToListAsync();
         Assert.Equal(2, movements.Count);
@@ -168,6 +168,55 @@ public class PurchaseServiceTests
     }
 
     private static string BatchNo(long sequence) => PurchaseBatch.FormatInternalBatchNo(sequence);
+
+    [Fact]
+    public async Task CreatePurchaseAsync_ReplayedWithSameIdempotencyKey_CreatesOnePurchaseAndMovesStockOnce()
+    {
+        var f = await SeedAsync();
+        var input = WithBatch(f, "RICE-001") with { IdempotencyKey = "form-abc" };
+
+        var first = await f.Service.CreatePurchaseAsync(input, f.UserId);
+        var replay = await f.Service.CreatePurchaseAsync(input, f.UserId);
+
+        Assert.Equal(first.Id, replay.Id);
+        Assert.Single(await f.Db.PurchaseOrders.ToListAsync());
+        Assert.Single(await f.Db.PurchaseBatches.ToListAsync());
+        Assert.Equal(100m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
+    }
+
+    [Fact]
+    public async Task CreatePurchaseAsync_DifferentIdempotencyKeys_AreSeparatePurchases()
+    {
+        var f = await SeedAsync();
+
+        await f.Service.CreatePurchaseAsync(WithBatch(f, null) with { IdempotencyKey = "a" }, f.UserId);
+        await f.Service.CreatePurchaseAsync(WithBatch(f, null) with { IdempotencyKey = "b" }, f.UserId);
+
+        Assert.Equal(2, await f.Db.PurchaseOrders.CountAsync());
+        Assert.Equal(200m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
+    }
+
+    [Fact]
+    public async Task CancelPurchaseAsync_RecordsWhoCancelled_NotJustWhoCreated()
+    {
+        var f = await SeedAsync();
+        var purchase = await f.Service.CreatePurchaseAsync(WithBatch(f, "RICE-001"), f.UserId);
+        var canceller = new User
+        {
+            Id = Guid.NewGuid(), FirstName = "Meena", LastName = "Iyer", Username = "meena", Email = "meena@selloramart.in",
+            PasswordHash = "x", RoleId = (await f.Db.Roles.FirstAsync()).Id,
+        };
+        f.Db.Users.Add(canceller);
+        await f.Db.SaveChangesAsync();
+
+        await f.Service.CancelPurchaseAsync(purchase.Id, canceller.Id);
+
+        var saved = await f.Db.PurchaseOrders.SingleAsync();
+        Assert.Equal(canceller.Id, saved.CancelledByUserId);
+        Assert.Equal(f.UserId, saved.CreatedByUserId);
+        var reversal = await f.Db.StockMovements.SingleAsync(m => m.QuantityBaseUnits < 0);
+        Assert.Equal(canceller.Id, reversal.UserId);
+    }
 
     [Fact]
     public async Task CreatePurchaseAsync_ComputesLineAndHeaderTotalsCorrectly()
@@ -272,7 +321,7 @@ public class PurchaseServiceTests
         await f.Service.CreatePurchaseAsync(BuildInput(f, 30, 580), f.UserId); // 300 kg @ 58
         var purchase = await f.Service.CreatePurchaseAsync(BuildInput(f, 10, 620), f.UserId); // +100 kg @ 62 -> avg 59
 
-        await f.Service.CancelPurchaseAsync(purchase.Id);
+        await f.Service.CancelPurchaseAsync(purchase.Id, f.UserId);
 
         var stockItem = await f.Db.StockItems.SingleAsync(s => s.ProductId == f.Product.Id);
         Assert.Equal(300m, stockItem.QuantityOnHand);
@@ -291,9 +340,9 @@ public class PurchaseServiceTests
     {
         var f = await SeedAsync();
         var purchase = await f.Service.CreatePurchaseAsync(BuildInput(f, 30, 580), f.UserId);
-        await f.Service.CancelPurchaseAsync(purchase.Id);
+        await f.Service.CancelPurchaseAsync(purchase.Id, f.UserId);
 
-        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CancelPurchaseAsync(purchase.Id));
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CancelPurchaseAsync(purchase.Id, f.UserId));
     }
 
     [Fact]
@@ -306,6 +355,6 @@ public class PurchaseServiceTests
         batch.RemainingBaseQty -= 50; // simulate a sale having consumed some of this batch
         await f.Db.SaveChangesAsync();
 
-        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CancelPurchaseAsync(purchase.Id));
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CancelPurchaseAsync(purchase.Id, f.UserId));
     }
 }

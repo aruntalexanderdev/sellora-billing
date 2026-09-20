@@ -177,12 +177,12 @@ public class ReturnsAndRefundsTests
         var f = await SeedAsync();
         await Buy(f, f.InrSupplier, 100, 50m);
         var cancelled = await Sell(f, 5, 100m);
-        await f.Sales.CancelSaleAsync(cancelled.Id);
+        await f.Sales.CancelSaleAsync(cancelled.Id, f.UserId);
         await Fails(() => ReturnSale(f, cancelled, 1), "Status");
 
         var returned = await Sell(f, 5, 100m);
         await ReturnSale(f, returned, 1);
-        await Fails(async () => { await f.Sales.CancelSaleAsync(returned.Id); return 0; }, "Status");
+        await Fails(async () => { await f.Sales.CancelSaleAsync(returned.Id, f.UserId); return 0; }, "Status");
     }
 
     [Fact]
@@ -233,7 +233,7 @@ public class ReturnsAndRefundsTests
         var f = await SeedAsync();
         await Buy(f, f.InrSupplier, 100, 50m);
         var sale = await Sell(f, 10, 100m, paid: 1050m);
-        await f.Sales.CancelSaleAsync(sale.Id);
+        await f.Sales.CancelSaleAsync(sale.Id, f.UserId);
 
         var cancelled = await f.Db.SalesInvoices.AsNoTracking().SingleAsync();
         Assert.Equal(1050m, cancelled.RefundableAmount);
@@ -397,12 +397,12 @@ public class ReturnsAndRefundsTests
     {
         var f = await SeedAsync();
         var cancelled = await Buy(f, f.InrSupplier, 10, 50m);
-        await f.Purchases.CancelPurchaseAsync(cancelled.Id);
+        await f.Purchases.CancelPurchaseAsync(cancelled.Id, f.UserId);
         await Fails(() => ReturnPurchase(f, cancelled, 1), "Status");
 
         var returned = await Buy(f, f.InrSupplier, 10, 50m);
         await ReturnPurchase(f, returned, 1);
-        await Fails(async () => { await f.Purchases.CancelPurchaseAsync(returned.Id); return 0; }, "Status");
+        await Fails(async () => { await f.Purchases.CancelPurchaseAsync(returned.Id, f.UserId); return 0; }, "Status");
     }
 
     [Fact]
@@ -466,7 +466,7 @@ public class ReturnsAndRefundsTests
     {
         var f = await SeedAsync(taxRate: 0m);
         var purchase = await Buy(f, f.InrSupplier, 10, 50m, paid: 500m);
-        await f.Purchases.CancelPurchaseAsync(purchase.Id);
+        await f.Purchases.CancelPurchaseAsync(purchase.Id, f.UserId);
 
         var cancelled = await f.Db.PurchaseOrders.AsNoTracking().SingleAsync();
         Assert.Equal(500m, cancelled.OriginalRefundableAmount);

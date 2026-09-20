@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
+import { idempotencyHeaders } from '../../../core/idempotency';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { CreateStockAdjustmentRequest, StockAdjustmentResult } from './stock-adjustments.models';
@@ -8,7 +9,7 @@ import type { CreateStockAdjustmentRequest, StockAdjustmentResult } from './stoc
 export class StockAdjustmentsService {
   private readonly http = inject(HttpClient);
 
-  create(request: CreateStockAdjustmentRequest): Observable<StockAdjustmentResult> {
-    return this.http.post<StockAdjustmentResult>(`${environment.apiBaseUrl}/stock-adjustments`, request);
+  create(request: CreateStockAdjustmentRequest, idempotencyKey?: string): Observable<StockAdjustmentResult> {
+    return this.http.post<StockAdjustmentResult>(`${environment.apiBaseUrl}/stock-adjustments`, request, { headers: idempotencyHeaders(idempotencyKey) });
   }
 }

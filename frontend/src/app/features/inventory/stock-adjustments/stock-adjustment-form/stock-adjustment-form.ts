@@ -10,6 +10,7 @@ import { StockAdjustmentsService } from '../stock-adjustments.service';
 import { StockService } from '../../stock/stock.service';
 import { ProductsService } from '../../products/products.service';
 import type { AdjustmentDirection, AdjustmentType } from '../stock-adjustments.models';
+import { newIdempotencyKey } from '../../../../core/idempotency';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 
 const REQUIRED_DIRECTION: Record<AdjustmentType, AdjustmentDirection | null> = {
@@ -29,6 +30,8 @@ const REQUIRED_DIRECTION: Record<AdjustmentType, AdjustmentDirection | null> = {
 })
 export class StockAdjustmentForm implements OnInit {
   private readonly fb = inject(FormBuilder);
+  // One key per adjustment, so a double-click can't post it twice.
+  private readonly idempotencyKey = newIdempotencyKey();
   private readonly adjustmentsService = inject(StockAdjustmentsService);
   private readonly stockService = inject(StockService);
   private readonly productsService = inject(ProductsService);
@@ -135,7 +138,7 @@ export class StockAdjustmentForm implements OnInit {
         quantityBaseUnits: v.quantityBaseUnits!,
         unitCost: v.unitCost,
         reason: v.reason || null,
-      })
+      }, this.idempotencyKey)
       .subscribe({
         next: (result) => {
           this.saving.set(false);

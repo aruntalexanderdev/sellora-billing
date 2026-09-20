@@ -41,5 +41,5 @@ public interface IPurchaseService
 
     /// <summary>Reverses a purchase's stock effects. Throws <see cref="DomainValidationException"/> if
     /// already cancelled or if any of its batches have already been consumed by a sale.</summary>
-    Task CancelPurchaseAsync(Guid purchaseOrderId, CancellationToken ct = default);
+    Task CancelPurchaseAsync(Guid purchaseOrderId, Guid cancelledByUserId, CancellationToken ct = default);
 }

@@ -33,6 +33,7 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options) : DbCo
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<FinancialAccount> FinancialAccounts => Set<FinancialAccount>();
     public DbSet<FinancialTransaction> FinancialTransactions => Set<FinancialTransaction>();
+    public DbSet<IdempotencyKey> IdempotencyKeys => Set<IdempotencyKey>();
     public DbSet<PurchaseBatch> PurchaseBatches => Set<PurchaseBatch>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
     public DbSet<StockItem> StockItems => Set<StockItem>();

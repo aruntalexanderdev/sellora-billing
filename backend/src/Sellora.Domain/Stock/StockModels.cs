@@ -8,5 +8,6 @@ public sealed record CreateAdjustmentInput(
     AdjustmentDirection Direction,
     decimal QuantityBaseUnits,
     decimal? UnitCost,
-    string? Reason
+    string? Reason,
+    string? IdempotencyKey = null
 );

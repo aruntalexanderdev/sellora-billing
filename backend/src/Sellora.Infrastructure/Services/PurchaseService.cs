@@ -18,6 +18,11 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         await using var transaction = await BeginAsync(ct);
 
+        if (await Idempotency.FindAsync(db, createdByUserId, Idempotency.Purchase, input.IdempotencyKey, ct) is { } existingId)
+        {
+            return await db.PurchaseOrders.SingleAsync(p => p.Id == existingId, ct);
+        }
+
         var supplier = await db.Suppliers.SingleOrDefaultAsync(s => s.Id == input.SupplierId, ct)
             ?? throw new DomainValidationException("SupplierId", "Select a valid supplier.");
         if (!supplier.IsActive)
@@ -86,6 +91,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         }
 
         db.PurchaseOrders.Add(purchase);
+        Idempotency.Record(db, createdByUserId, Idempotency.Purchase, input.IdempotencyKey, purchase.Id);
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
 
@@ -507,7 +513,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         return purchaseReturn;
     }
 
-    public async Task CancelPurchaseAsync(Guid purchaseOrderId, CancellationToken ct = default)
+    public async Task CancelPurchaseAsync(Guid purchaseOrderId, Guid cancelledByUserId, CancellationToken ct = default)
     {
         await using var transaction = await BeginAsync(ct);
         _ = await LockPurchaseAsync(purchaseOrderId, ct) ?? throw new DomainValidationException("Id", "Purchase not found.");
@@ -566,13 +572,14 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
                 ReferenceType = "PurchaseOrder",
                 ReferenceId = purchase.Id,
                 ReferenceNo = purchase.PurchaseNo,
-                UserId = purchase.CreatedByUserId,
+                UserId = cancelledByUserId,
                 Notes = "Purchase cancelled",
             });
         }
 
         purchase.Status = PurchaseStatus.Cancelled;
         purchase.CancelledAt = DateTimeOffset.UtcNow;
+        purchase.CancelledByUserId = cancelledByUserId;
 
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);

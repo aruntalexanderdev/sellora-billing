@@ -51,17 +51,17 @@ public record SalesInvoiceDetailDto(
 public record CreateSaleLineRequest(
     [Required] Guid? ProductId,
     [Required] Guid? SellingModeId,
-    [Range(0.001, double.MaxValue)] decimal Qty,
-    [Range(0, double.MaxValue)] decimal UnitPrice,
-    [Range(0, double.MaxValue)] decimal Discount
+    [Range(0.001, 999999999)] decimal Qty,
+    [Range(0, 999999999)] decimal UnitPrice,
+    [Range(0, 999999999)] decimal Discount
 );
 
 public record CreateSaleRequest(
     [Required] Guid? CustomerId,
     [Required] DateOnly InvoiceDate,
     PaymentMethod PaymentMethod,
-    [Range(0, double.MaxValue)] decimal PaidAmount,
-    [MinLength(1)] CreateSaleLineRequest[] Lines,
+    [Range(0, 999999999)] decimal PaidAmount,
+    [MinLength(1), MaxLength(200)] CreateSaleLineRequest[] Lines,
     Guid? AccountId = null
 );
 

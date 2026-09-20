@@ -50,6 +50,20 @@ public class StockAdjustmentServiceTests
     }
 
     [Fact]
+    public async Task CreateAdjustmentAsync_ReplayedWithSameIdempotencyKey_AdjustsOnce()
+    {
+        var f = await SeedAsync();
+        var input = new CreateAdjustmentInput(f.Product.Id, AdjustmentType.OpeningStock, AdjustmentDirection.Increase, 50, 10m, null, "adj-1");
+
+        var first = await f.Service.CreateAdjustmentAsync(input, f.UserId);
+        var replay = await f.Service.CreateAdjustmentAsync(input, f.UserId);
+
+        Assert.Equal(first.Id, replay.Id);
+        Assert.Single(await f.Db.StockAdjustments.ToListAsync());
+        Assert.Equal(50m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
+    }
+
+    [Fact]
     public async Task CreateAdjustmentAsync_Increase_AndDecrease_BothLinkTheirMovementToTheBatch()
     {
         var f = await SeedAsync();

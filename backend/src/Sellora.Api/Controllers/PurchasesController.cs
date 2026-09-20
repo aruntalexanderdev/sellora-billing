@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
+using Sellora.Api.Validation;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Payments;
@@ -79,12 +80,13 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
     public async Task<ActionResult<PurchaseDetailDto>> Create(CreatePurchaseRequest request, CancellationToken ct)
     {
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
+        if (!IdempotencyHeader.TryRead(Request, out var key)) return IdempotencyHeader.Invalid(this);
 
         var input = new CreatePurchaseInput(
             request.SupplierId!.Value, request.PurchaseDate, request.SupplierInvoiceNumber, request.Notes,
             request.PaymentMethod, request.PaidAmount,
             request.Lines.Select(l => new PurchaseLineInput(l.ProductId!.Value, l.SellingModeId!.Value, l.Qty, l.Rate, l.OtherCharges, l.Discount, l.SupplierBatchNumber)).ToList(),
-            request.AccountId);
+            request.AccountId, key);
 
         try
         {
@@ -198,7 +200,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
     {
         try
         {
-            await purchaseService.CancelPurchaseAsync(id, ct);
+            await purchaseService.CancelPurchaseAsync(id, CurrentUserId(), ct);
             return NoContent();
         }
         catch (DomainValidationException ex)

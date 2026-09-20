@@ -18,6 +18,11 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         await using var transaction = await StockLocks.BeginAsync(db, ct);
 
+        if (await Idempotency.FindAsync(db, createdByUserId, Idempotency.Sale, input.IdempotencyKey, ct) is { } existingId)
+        {
+            return await db.SalesInvoices.SingleAsync(i => i.Id == existingId, ct);
+        }
+
         var customer = await db.Customers.SingleOrDefaultAsync(c => c.Id == input.CustomerId, ct)
             ?? throw new DomainValidationException("CustomerId", "Select a valid customer.");
         if (!customer.IsActive)
@@ -91,6 +96,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         }
 
         db.SalesInvoices.Add(invoice);
+        Idempotency.Record(db, createdByUserId, Idempotency.Sale, input.IdempotencyKey, invoice.Id);
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
 
@@ -402,7 +408,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         return salesReturn;
     }
 
-    public async Task CancelSaleAsync(Guid salesInvoiceId, CancellationToken ct = default)
+    public async Task CancelSaleAsync(Guid salesInvoiceId, Guid cancelledByUserId, CancellationToken ct = default)
     {
         await using var transaction = await BeginAsync(ct);
         _ = await LockInvoiceAsync(salesInvoiceId, ct) ?? throw new DomainValidationException("Id", "Sale not found.");
@@ -446,13 +452,14 @@ public class SalesService(SelloraDbContext db) : ISalesService
                 ReferenceType = "SalesInvoice",
                 ReferenceId = invoice.Id,
                 ReferenceNo = invoice.InvoiceNo,
-                UserId = invoice.CreatedByUserId,
+                UserId = cancelledByUserId,
                 Notes = "Sale cancelled",
             });
         }
 
         invoice.Status = SalesStatus.Cancelled;
         invoice.CancelledAt = DateTimeOffset.UtcNow;
+        invoice.CancelledByUserId = cancelledByUserId;
 
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);

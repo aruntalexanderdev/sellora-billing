@@ -31,6 +31,7 @@ public class SalesInvoice
     public User CreatedByUser { get; set; } = null!;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CancelledAt { get; set; }
+    public Guid? CancelledByUserId { get; set; }
 
     public ICollection<SalesInvoiceLine> Lines { get; set; } = new List<SalesInvoiceLine>();
 

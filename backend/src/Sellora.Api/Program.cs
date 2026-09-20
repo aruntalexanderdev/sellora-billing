@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using Sellora.Api.Authorization;
+using Sellora.Api.ErrorHandling;
 using Sellora.Domain.Abstractions;
 using Sellora.Infrastructure;
 using Sellora.Infrastructure.Data;
@@ -17,6 +18,9 @@ const string AngularDevCorsPolicy = "AngularDev";
 // Add services to the container.
 builder.Services.AddControllers()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -73,6 +77,7 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
+app.UseExceptionHandler();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

@@ -36,6 +36,12 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
             ?? throw new DomainValidationException("ProductId", "Select a valid product.");
 
         await using var transaction = await StockLocks.BeginAsync(db, ct);
+
+        if (await Idempotency.FindAsync(db, userId, Idempotency.StockAdjustment, input.IdempotencyKey, ct) is { } existingId)
+        {
+            return await db.StockAdjustments.Include(x => x.Product).Include(x => x.User).SingleAsync(x => x.Id == existingId, ct);
+        }
+
         await StockLocks.LockStockItemsAsync(db, [product.Id], ct);
 
         var stockItem = await db.StockItems.SingleOrDefaultAsync(s => s.ProductId == product.Id, ct);
@@ -137,6 +143,7 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
             }
         }
 
+        Idempotency.Record(db, userId, Idempotency.StockAdjustment, input.IdempotencyKey, adjustment.Id);
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
         return adjustment;

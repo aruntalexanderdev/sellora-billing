@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Sellora.Api.Contracts;
+using Sellora.Api.Validation;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Stock;
 
@@ -16,9 +17,10 @@ public class StockAdjustmentsController(IStockAdjustmentService adjustmentServic
     public async Task<ActionResult<StockAdjustmentDto>> Create(CreateStockAdjustmentRequest request, CancellationToken ct)
     {
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
+        if (!IdempotencyHeader.TryRead(Request, out var key)) return IdempotencyHeader.Invalid(this);
 
         var input = new CreateAdjustmentInput(
-            request.ProductId!.Value, request.Type, request.Direction, request.QuantityBaseUnits, request.UnitCost, request.Reason);
+            request.ProductId!.Value, request.Type, request.Direction, request.QuantityBaseUnits, request.UnitCost, request.Reason, key);
 
         try
         {

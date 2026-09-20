@@ -156,7 +156,7 @@ public class AccountsReportsTests
         var a2 = await Buy(f, f.InrSupplier, D2, 10, 50m);                       // 500; unpaid
         await f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(a1.Id, D2, null, [new PurchaseReturnLineInput(a1.Lines.Single().Id, 20)]), f.UserId); // -1,000 → net 4,000, due 2,000
         var cancelled = await Buy(f, f.InrSupplier, D3, 10, 50m, paid: 300m);    // paid 300 then cancelled → credit 300
-        await f.Purchases.CancelPurchaseAsync(cancelled.Id);
+        await f.Purchases.CancelPurchaseAsync(cancelled.Id, f.UserId);
         var foreign = await Buy(f, f.UsdSupplier, D2, 10, 100m, paid: 400m);     // USD 1,000; paid 400 → due USD 600 = ₹49,920
         Assert.NotNull(foreign);
 
@@ -210,7 +210,7 @@ public class AccountsReportsTests
         var s3 = await Sell(f, f.Customer, D2, 10, 100m, paid: 1000m);   // fully paid
         await f.Sales.CreateReturnAsync(new CreateSaleReturnInput(s3.Id, D3, null, [new SaleReturnLineInput(s3.Lines.Single().Id, 4)]), f.UserId); // credit 400 → refundable
         var cancelled = await Sell(f, f.Regular, D3, 1, 100m, paid: 100m);
-        await f.Sales.CancelSaleAsync(cancelled.Id);
+        await f.Sales.CancelSaleAsync(cancelled.Id, f.UserId);
         Assert.NotNull(s1);
 
         var report = Value(await f.Reports.CustomerOutstanding(null, false, null, null, 1, 50, default));

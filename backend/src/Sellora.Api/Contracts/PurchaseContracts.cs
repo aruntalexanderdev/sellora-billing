@@ -43,10 +43,10 @@ public record PurchaseDetailDto(
 public record CreatePurchaseLineRequest(
     [Required] Guid? ProductId,
     [Required] Guid? SellingModeId,
-    [Range(0.001, double.MaxValue)] decimal Qty,
-    [Range(0, double.MaxValue)] decimal Rate,
-    [Range(0, double.MaxValue)] decimal OtherCharges,
-    [Range(0, double.MaxValue)] decimal Discount,
+    [Range(0.001, 999999999)] decimal Qty,
+    [Range(0, 999999999)] decimal Rate,
+    [Range(0, 999999999)] decimal OtherCharges,
+    [Range(0, 999999999)] decimal Discount,
     [MaxLength(60)] string? SupplierBatchNumber = null
 );
 
@@ -56,8 +56,8 @@ public record CreatePurchaseRequest(
     [MaxLength(60)] string? SupplierInvoiceNumber,
     [MaxLength(500)] string? Notes,
     PaymentMethod PaymentMethod,
-    [Range(0, double.MaxValue)] decimal PaidAmount,
-    [MinLength(1)] CreatePurchaseLineRequest[] Lines,
+    [Range(0, 999999999)] decimal PaidAmount,
+    [MinLength(1), MaxLength(200)] CreatePurchaseLineRequest[] Lines,
     Guid? AccountId = null
 );
 

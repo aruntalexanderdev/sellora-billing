@@ -216,6 +216,42 @@ public class SalesServiceTests
     }
 
     [Fact]
+    public async Task CreateSaleAsync_ReplayedWithSameIdempotencyKey_SellsOnlyOnce()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580); // 10 kg
+        var input = BuildInput(f, 4, 70) with { IdempotencyKey = "pos-tap-1" };
+
+        var first = await f.Service.CreateSaleAsync(input, f.UserId);
+        var replay = await f.Service.CreateSaleAsync(input, f.UserId);
+
+        Assert.Equal(first.Id, replay.Id);
+        Assert.Single(await f.Db.SalesInvoices.ToListAsync());
+        Assert.Equal(6m, (await f.Db.PurchaseBatches.SingleAsync()).RemainingBaseQty);
+        Assert.Equal(6m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
+    }
+
+    [Fact]
+    public async Task CancelSaleAsync_RecordsWhoCancelled()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580);
+        var sale = await f.Service.CreateSaleAsync(BuildInput(f, 4, 70), f.UserId);
+        var canceller = new User
+        {
+            Id = Guid.NewGuid(), FirstName = "Meena", LastName = "Iyer", Username = "meena", Email = "meena@selloramart.in",
+            PasswordHash = "x", RoleId = (await f.Db.Roles.FirstAsync()).Id,
+        };
+        f.Db.Users.Add(canceller);
+        await f.Db.SaveChangesAsync();
+
+        await f.Service.CancelSaleAsync(sale.Id, canceller.Id);
+
+        Assert.Equal(canceller.Id, (await f.Db.SalesInvoices.SingleAsync()).CancelledByUserId);
+        Assert.Equal(canceller.Id, (await f.Db.StockMovements.SingleAsync(m => m.Notes == "Sale cancelled")).UserId);
+    }
+
+    [Fact]
     public async Task CreateSaleAsync_QuantityExceedingStock_Throws()
     {
         var f = await SeedAsync();
@@ -251,7 +287,7 @@ public class SalesServiceTests
 
         var sale = await f.Service.CreateSaleAsync(BuildInput(f, 150, 70), f.UserId); // draws 100 + 50
 
-        await f.Service.CancelSaleAsync(sale.Id);
+        await f.Service.CancelSaleAsync(sale.Id, f.UserId);
 
         var stockItem = await f.Db.StockItems.SingleAsync(s => s.ProductId == f.Product.Id);
         Assert.Equal(200m, stockItem.QuantityOnHand);
@@ -271,9 +307,9 @@ public class SalesServiceTests
         var f = await SeedAsync();
         await PurchaseAsync(f, 10, 580);
         var sale = await f.Service.CreateSaleAsync(BuildInput(f, 20, 65), f.UserId);
-        await f.Service.CancelSaleAsync(sale.Id);
+        await f.Service.CancelSaleAsync(sale.Id, f.UserId);
 
-        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CancelSaleAsync(sale.Id));
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CancelSaleAsync(sale.Id, f.UserId));
     }
 
     [Fact]
@@ -285,7 +321,7 @@ public class SalesServiceTests
         var firstSale = await f.Service.CreateSaleAsync(BuildInput(f, 40, 65), f.UserId); // batch remaining -> 60
         await f.Service.CreateSaleAsync(BuildInput(f, 60, 65), f.UserId); // batch remaining -> 0
 
-        await f.Service.CancelSaleAsync(firstSale.Id); // should give back exactly 40, regardless of the second sale
+        await f.Service.CancelSaleAsync(firstSale.Id, f.UserId); // should give back exactly 40, regardless of the second sale
 
         var batch = await f.Db.PurchaseBatches.SingleAsync(b => b.ProductId == f.Product.Id);
         Assert.Equal(40m, batch.RemainingBaseQty);
@@ -374,7 +410,7 @@ public class SalesServiceTests
             () => f.Service.AddPaymentAsync(other.Id, new AddSalePaymentInput(100m, PaymentMethod.Cash, 1365m), f.UserId));
         Assert.Equal("ExpectedDue", stale.Field);
 
-        await f.Service.CancelSaleAsync(other.Id);
+        await f.Service.CancelSaleAsync(other.Id, f.UserId);
         var cancelled = await Assert.ThrowsAsync<DomainValidationException>(
             () => f.Service.AddPaymentAsync(other.Id, new AddSalePaymentInput(10m, PaymentMethod.Cash, 1265m), f.UserId));
         Assert.Equal("Status", cancelled.Field);

@@ -25,6 +25,38 @@ internal static class StockQuantity
     }
 }
 
+/// <summary>Duplicate-submission guard for create requests. See <see cref="Sellora.Domain.Entities.IdempotencyKey"/>.</summary>
+internal static class Idempotency
+{
+    public const string Purchase = "purchase";
+    public const string Sale = "sale";
+    public const string StockAdjustment = "stock-adjustment";
+
+    /// <summary>The document an earlier request with this key created, or null if the key is new. Concurrent
+    /// requests with the same key queue on an advisory lock, so the second one sees the first's committed record
+    /// rather than racing it. Must run inside the create's transaction.</summary>
+    public static async Task<Guid?> FindAsync(SelloraDbContext db, Guid userId, string scope, string? key, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return null;
+
+        if (db.Database.IsRelational())
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtext({$"sellora:idem:{userId}:{scope}:{key}"}))", ct);
+        }
+
+        return await db.IdempotencyKeys
+            .Where(k => k.UserId == userId && k.Scope == scope && k.Key == key)
+            .Select(k => (Guid?)k.ResourceId)
+            .SingleOrDefaultAsync(ct);
+    }
+
+    public static void Record(SelloraDbContext db, Guid userId, string scope, string? key, Guid resourceId)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return;
+        db.IdempotencyKeys.Add(new IdempotencyKey { Id = Guid.NewGuid(), UserId = userId, Scope = scope, Key = key, ResourceId = resourceId });
+    }
+}
+
 internal static class StockLocks
 {
     public static async Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction?> BeginAsync(SelloraDbContext db, CancellationToken ct) =>

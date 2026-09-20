@@ -26,7 +26,8 @@ public sealed record CreateSaleInput(
     PaymentMethod PaymentMethod,
     decimal PaidAmount,
     IReadOnlyList<SaleLineInput> Lines,
-    Guid? AccountId = null
+    Guid? AccountId = null,
+    string? IdempotencyKey = null
 );
 
 /// <summary><see cref="Qty"/> is in the selling unit the invoice line was sold in.</summary>
