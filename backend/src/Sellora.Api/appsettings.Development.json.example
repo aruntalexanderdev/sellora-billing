@@ -1,0 +1,18 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "ConnectionStrings": {
+    "SelloraDb": "Host=localhost;Port=5432;Database=sellora_billing_dev;Username=your_local_pg_user"
+  },
+  "Jwt": {
+    "Issuer": "sellora-billing-dev",
+    "Audience": "sellora-billing-dev",
+    "SigningKey": "REPLACE_WITH_YOUR_OWN_LOCAL_DEV_SIGNING_KEY",
+    "AccessTokenMinutes": 15,
+    "RefreshTokenDays": 14
+  }
+}
