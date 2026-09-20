@@ -451,6 +451,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
                 Id = Guid.NewGuid(),
                 ProductId = line.ProductId,
                 Type = StockMovementType.PurchaseReturn,
+                PurchaseBatchId = batch.Id,
                 QuantityBaseUnits = -baseQty,
                 ReferenceType = "PurchaseReturn",
                 ReferenceId = purchaseReturn.Id,
@@ -548,6 +549,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
                 Id = Guid.NewGuid(),
                 ProductId = line.ProductId,
                 Type = StockMovementType.Purchase,
+                PurchaseBatchId = batch.Id,
                 QuantityBaseUnits = -batch.PurchasedBaseQty,
                 ReferenceType = "PurchaseOrder",
                 ReferenceId = purchase.Id,
@@ -662,7 +664,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
     private async Task ApplyPurchaseLineToStockAsync(PurchaseOrderLine line, string purchaseNo, DateOnly receivedDate, string? supplierBatchNumber, Guid userId, CancellationToken ct)
     {
-        db.PurchaseBatches.Add(new PurchaseBatch
+        var batch = new PurchaseBatch
         {
             Id = Guid.NewGuid(),
             PurchaseOrderLineId = line.Id,
@@ -672,12 +674,14 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             PurchasedBaseQty = line.BaseQty,
             RemainingBaseQty = line.BaseQty,
             UnitCost = line.UnitCost,
-        });
+        };
+        db.PurchaseBatches.Add(batch);
 
         db.StockMovements.Add(new StockMovement
         {
             Id = Guid.NewGuid(),
             ProductId = line.ProductId,
+            PurchaseBatchId = batch.Id,
             Type = StockMovementType.Purchase,
             QuantityBaseUnits = line.BaseQty,
             ReferenceType = "PurchaseOrder",

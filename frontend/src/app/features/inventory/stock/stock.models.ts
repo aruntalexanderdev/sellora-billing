@@ -22,6 +22,8 @@ export interface StockMovement {
   referenceNo: string;
   userName: string;
   notes: string | null;
+  purchaseBatchId: string | null;
+  internalBatchNo: string | null;
 }
 
 export interface StockBatch {
@@ -32,6 +34,11 @@ export interface StockBatch {
   purchasedBaseQty: number;
   remainingBaseQty: number;
   unitCost: number;
+  internalBatchNo: string;
+  supplierBatchNumber: string | null;
+  receivedDate: string;
+  purchaseOrderId: string | null;
+  purchaseOrderLineId: string | null;
 }
 
 export interface StockDetail {

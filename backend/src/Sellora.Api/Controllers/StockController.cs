@@ -71,23 +71,38 @@ public class StockController(SelloraDbContext db) : ControllerBase
         var qty = stockItem?.QuantityOnHand ?? 0;
         var avgCost = stockItem?.AverageCost ?? 0;
 
-        var movements = await db.StockMovements.Include(m => m.User)
+        var movementRows = await db.StockMovements.Include(m => m.User)
             .Where(m => m.ProductId == productId)
             .OrderByDescending(m => m.OccurredAt)
-            .Select(m => new StockMovementDto(m.Id, m.OccurredAt, m.Type, m.QuantityBaseUnits, m.ReferenceType, m.ReferenceNo, $"{m.User.FirstName} {m.User.LastName}", m.Notes))
+            .Select(m => new
+            {
+                m.Id, m.OccurredAt, m.Type, m.QuantityBaseUnits, m.ReferenceType, m.ReferenceNo,
+                UserName = m.User.FirstName + " " + m.User.LastName, m.Notes,
+                m.PurchaseBatchId, BatchSequence = m.PurchaseBatch != null ? m.PurchaseBatch.BatchSequence : (long?)null,
+            })
             .ToListAsync(ct);
+        var movements = movementRows.Select(m => new StockMovementDto(
+            m.Id, m.OccurredAt, m.Type, m.QuantityBaseUnits, m.ReferenceType, m.ReferenceNo, m.UserName, m.Notes,
+            m.PurchaseBatchId, m.BatchSequence is { } seq ? PurchaseBatch.FormatInternalBatchNo(seq) : null)).ToList();
 
-        var batches = await db.PurchaseBatches
-            .Include(b => b.PurchaseOrderLine).ThenInclude(l => l!.PurchaseOrder)
-            .Include(b => b.StockAdjustment)
+        var batchRows = await db.PurchaseBatches
             .Where(b => b.ProductId == productId)
             .OrderByDescending(b => b.CreatedAt)
-            .Select(b => new StockBatchDto(
-                b.Id, b.CreatedAt,
-                b.PurchaseOrderLineId != null ? "Purchase" : "Adjustment",
-                b.PurchaseOrderLineId != null ? b.PurchaseOrderLine!.PurchaseOrder.PurchaseNo : b.StockAdjustment!.AdjustmentNo,
-                b.PurchasedBaseQty, b.RemainingBaseQty, b.UnitCost))
+            .Select(b => new
+            {
+                b.Id, b.CreatedAt, b.BatchSequence, b.SupplierBatchNumber, b.ReceivedDate,
+                b.PurchasedBaseQty, b.RemainingBaseQty, b.UnitCost,
+                IsPurchase = b.PurchaseOrderLineId != null,
+                RefNo = b.PurchaseOrderLineId != null ? b.PurchaseOrderLine!.PurchaseOrder.PurchaseNo : b.StockAdjustment!.AdjustmentNo,
+                PurchaseOrderId = b.PurchaseOrderLineId != null ? b.PurchaseOrderLine!.PurchaseOrderId : (Guid?)null,
+                b.PurchaseOrderLineId,
+            })
             .ToListAsync(ct);
+        var batches = batchRows.Select(b => new StockBatchDto(
+            b.Id, b.CreatedAt, b.IsPurchase ? "Purchase" : "Adjustment", b.RefNo,
+            b.PurchasedBaseQty, b.RemainingBaseQty, b.UnitCost,
+            PurchaseBatch.FormatInternalBatchNo(b.BatchSequence), b.SupplierBatchNumber, b.ReceivedDate,
+            b.PurchaseOrderId, b.PurchaseOrderLineId)).ToList();
 
         return Ok(new StockDetailDto(
             product.Id, product.Sku, product.Name, product.Category, product.BaseUnit.ShortCode, product.Tax.Name,

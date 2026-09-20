@@ -10,12 +10,15 @@ public record StockOverviewItemDto(
 
 public record StockMovementDto(
     Guid Id, DateTimeOffset OccurredAt, StockMovementType Type, decimal QuantityBaseUnits,
-    string ReferenceType, string ReferenceNo, string UserName, string? Notes
+    string ReferenceType, string ReferenceNo, string UserName, string? Notes,
+    Guid? PurchaseBatchId, string? InternalBatchNo
 );
 
 public record StockBatchDto(
     Guid Id, DateTimeOffset CreatedAt, string SourceType, string SourceRefNo,
-    decimal PurchasedBaseQty, decimal RemainingBaseQty, decimal UnitCost
+    decimal PurchasedBaseQty, decimal RemainingBaseQty, decimal UnitCost,
+    string InternalBatchNo, string? SupplierBatchNumber, DateOnly ReceivedDate,
+    Guid? PurchaseOrderId, Guid? PurchaseOrderLineId
 );
 
 public record StockDetailDto(

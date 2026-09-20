@@ -18,7 +18,10 @@ public class StockMovementConfiguration : IEntityTypeConfiguration<StockMovement
         builder.HasOne(m => m.Product).WithMany().HasForeignKey(m => m.ProductId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(m => m.User).WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne(m => m.PurchaseBatch).WithMany().HasForeignKey(m => m.PurchaseBatchId).OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(m => new { m.ProductId, m.OccurredAt });
+        builder.HasIndex(m => m.PurchaseBatchId);
     }
 }
 

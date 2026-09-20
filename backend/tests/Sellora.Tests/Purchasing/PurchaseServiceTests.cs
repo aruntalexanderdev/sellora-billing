@@ -115,6 +115,58 @@ public class PurchaseServiceTests
         Assert.Empty(await f.Db.PurchaseBatches.ToListAsync());
     }
 
+    [Fact]
+    public async Task CreatePurchaseAsync_LinksStockMovementToBatchAndKeepsStockConsistent()
+    {
+        var f = await SeedAsync();
+
+        var purchase = await f.Service.CreatePurchaseAsync(WithBatch(f, "RICE-001"), f.UserId); // 100 kg
+
+        var batch = await f.Db.PurchaseBatches.SingleAsync();
+        var movement = await f.Db.StockMovements.SingleAsync();
+        Assert.Equal(batch.Id, movement.PurchaseBatchId);
+        Assert.Equal(purchase.Id, movement.ReferenceId);
+        Assert.Equal(purchase.Lines.Single().Id, batch.PurchaseOrderLineId);
+
+        var stock = await f.Db.StockItems.SingleAsync();
+        Assert.Equal(100m, stock.QuantityOnHand);
+        Assert.Equal(stock.QuantityOnHand, await f.Db.PurchaseBatches.SumAsync(b => b.RemainingBaseQty));
+    }
+
+    [Fact]
+    public async Task CancelPurchaseAsync_LinksReversalMovementToSameBatch()
+    {
+        var f = await SeedAsync();
+        var purchase = await f.Service.CreatePurchaseAsync(WithBatch(f, "RICE-001"), f.UserId);
+        var batch = await f.Db.PurchaseBatches.SingleAsync();
+
+        await f.Service.CancelPurchaseAsync(purchase.Id);
+
+        var movements = await f.Db.StockMovements.ToListAsync();
+        Assert.Equal(2, movements.Count);
+        Assert.All(movements, m => Assert.Equal(batch.Id, m.PurchaseBatchId));
+        Assert.Equal(0m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
+        Assert.Equal(0m, await f.Db.PurchaseBatches.SumAsync(b => b.RemainingBaseQty));
+    }
+
+    [Fact]
+    public async Task CreatePurchaseAsync_FailureOnLaterLine_LeavesNoPurchaseBatchOrStockBehind()
+    {
+        var f = await SeedAsync();
+        var input = new CreatePurchaseInput(f.Supplier.Id, new DateOnly(2026, 9, 15), null, null, PaymentMethod.Cash, 0,
+        [
+            new PurchaseLineInput(f.Product.Id, f.Bag.Id, 10, 580, 0, 0, "RICE-001"),
+            new PurchaseLineInput(f.Product.Id, Guid.NewGuid(), 10, 580, 0, 0, "RICE-002"), // unknown selling mode
+        ]);
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreatePurchaseAsync(input, f.UserId));
+
+        Assert.Empty(await f.Db.PurchaseOrders.ToListAsync());
+        Assert.Empty(await f.Db.PurchaseBatches.ToListAsync());
+        Assert.Empty(await f.Db.StockMovements.ToListAsync());
+        Assert.Empty(await f.Db.StockItems.ToListAsync());
+    }
+
     private static string BatchNo(long sequence) => PurchaseBatch.FormatInternalBatchNo(sequence);
 
     [Fact]

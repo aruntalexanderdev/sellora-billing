@@ -50,6 +50,23 @@ public class StockAdjustmentServiceTests
     }
 
     [Fact]
+    public async Task CreateAdjustmentAsync_Increase_LinksMovementToNewBatch_DecreaseDoesNot()
+    {
+        var f = await SeedAsync();
+        await SeedOpeningStockAsync(f, 100, 50m);
+        var batch = await f.Db.PurchaseBatches.SingleAsync();
+
+        await f.Service.CreateAdjustmentAsync(
+            new CreateAdjustmentInput(f.Product.Id, AdjustmentType.Damage, AdjustmentDirection.Decrease, 10, null, "Damaged"),
+            f.UserId);
+
+        var movements = await f.Db.StockMovements.OrderBy(m => m.OccurredAt).ToListAsync();
+        Assert.Equal(batch.Id, movements.Single(m => m.QuantityBaseUnits > 0).PurchaseBatchId);
+        Assert.Null(movements.Single(m => m.QuantityBaseUnits < 0).PurchaseBatchId);
+        Assert.Equal(90m, await f.Db.PurchaseBatches.SumAsync(b => b.RemainingBaseQty));
+    }
+
+    [Fact]
     public async Task CreateAdjustmentAsync_OpeningStockIncrease_CreatesBatchAndUpdatesStockItem()
     {
         var f = await SeedAsync();

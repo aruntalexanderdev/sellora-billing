@@ -13,6 +13,12 @@ public class StockMovement
     /// <summary>Signed change in base units — positive for increases, negative for decreases.</summary>
     public decimal QuantityBaseUnits { get; set; }
 
+    /// <summary>The batch this movement created or removed stock from, when it touches exactly one. Null for
+    /// movements that can span several batches (sales, adjustment decreases) — those are traced through
+    /// <see cref="SalesInvoiceLineBatchConsumption"/> — and for movements recorded before batch tracking.</summary>
+    public Guid? PurchaseBatchId { get; set; }
+    public PurchaseBatch? PurchaseBatch { get; set; }
+
     public required string ReferenceType { get; set; }
     public Guid ReferenceId { get; set; }
     public required string ReferenceNo { get; set; }

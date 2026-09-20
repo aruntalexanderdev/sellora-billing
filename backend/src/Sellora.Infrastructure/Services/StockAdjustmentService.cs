@@ -59,6 +59,8 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
             BeforeQty = beforeQty,
         };
 
+        Guid? batchId = null;
+
         if (input.Direction == AdjustmentDirection.Decrease)
         {
             if (input.QuantityBaseUnits > beforeQty)
@@ -78,9 +80,10 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
 
             adjustment.UnitCost = input.UnitCost;
 
+            batchId = Guid.NewGuid();
             db.PurchaseBatches.Add(new PurchaseBatch
             {
-                Id = Guid.NewGuid(),
+                Id = batchId.Value,
                 StockAdjustmentId = adjustment.Id,
                 ProductId = product.Id,
                 ReceivedDate = DateOnly.FromDateTime(adjustment.CreatedAt.UtcDateTime),
@@ -103,6 +106,7 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         {
             Id = Guid.NewGuid(),
             ProductId = product.Id,
+            PurchaseBatchId = batchId,
             Type = StockMovementType.Adjustment,
             QuantityBaseUnits = input.Direction == AdjustmentDirection.Increase ? input.QuantityBaseUnits : -input.QuantityBaseUnits,
             ReferenceType = "StockAdjustment",

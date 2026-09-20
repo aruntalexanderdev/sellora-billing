@@ -1448,6 +1448,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("PurchaseBatchId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("QuantityBaseUnits")
                         .HasColumnType("numeric(18,3)");
 
@@ -1473,6 +1476,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("PurchaseBatchId");
 
                     b.HasIndex("UserId");
 
@@ -2204,6 +2209,11 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.PurchaseBatch", "PurchaseBatch")
+                        .WithMany()
+                        .HasForeignKey("PurchaseBatchId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Sellora.Domain.Entities.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -2211,6 +2221,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Product");
+
+                    b.Navigation("PurchaseBatch");
 
                     b.Navigation("User");
                 });
