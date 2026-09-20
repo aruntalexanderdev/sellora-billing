@@ -534,6 +534,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<long>("BatchSequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("BatchSequence"));
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -546,16 +552,26 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("PurchasedBaseQty")
                         .HasColumnType("numeric(18,3)");
 
+                    b.Property<DateOnly>("ReceivedDate")
+                        .HasColumnType("date");
+
                     b.Property<decimal>("RemainingBaseQty")
                         .HasColumnType("numeric(18,3)");
 
                     b.Property<Guid?>("StockAdjustmentId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("SupplierBatchNumber")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
                     b.Property<decimal>("UnitCost")
                         .HasColumnType("numeric(18,4)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BatchSequence")
+                        .IsUnique();
 
                     b.HasIndex("PurchaseOrderLineId")
                         .IsUnique();
@@ -563,9 +579,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("StockAdjustmentId")
                         .IsUnique();
 
+                    b.HasIndex("SupplierBatchNumber");
+
                     b.HasIndex("ProductId", "CreatedAt");
 
-                    b.ToTable("PurchaseBatches");
+                    b.ToTable("PurchaseBatches", t =>
+                        {
+                            t.HasCheckConstraint("CK_PurchaseBatches_RemainingWithinPurchased", "\"RemainingBaseQty\" >= 0 AND \"RemainingBaseQty\" <= \"PurchasedBaseQty\"");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrder", b =>

@@ -21,6 +21,24 @@ public class PurchaseBatch
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = null!;
 
+    /// <summary>
+    /// Sellora's own identity for this lot, assigned by the database (never entered by users). Supplier batch
+    /// numbers can repeat or be absent, so this — not <see cref="SupplierBatchNumber"/> — is what identifies a batch.
+    /// </summary>
+    public long BatchSequence { get; set; }
+
+    /// <summary>Human-readable internal batch number, e.g. BATCH-0007.</summary>
+    public string InternalBatchNo => FormatInternalBatchNo(BatchSequence);
+
+    public static string FormatInternalBatchNo(long sequence) => $"BATCH-{sequence:D4}";
+
+    /// <summary>The supplier/manufacturer's own lot number, exactly as entered. Null when the supplier gave none;
+    /// the same value may legitimately appear on batches from different purchases.</summary>
+    public string? SupplierBatchNumber { get; set; }
+
+    /// <summary>The day the stock was received — the purchase date, or the adjustment date for adjustment batches.</summary>
+    public DateOnly ReceivedDate { get; set; }
+
     public decimal PurchasedBaseQty { get; set; }
     public decimal RemainingBaseQty { get; set; }
     public decimal UnitCost { get; set; }

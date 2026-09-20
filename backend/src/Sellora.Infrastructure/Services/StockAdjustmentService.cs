@@ -83,6 +83,7 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
                 Id = Guid.NewGuid(),
                 StockAdjustmentId = adjustment.Id,
                 ProductId = product.Id,
+                ReceivedDate = DateOnly.FromDateTime(adjustment.CreatedAt.UtcDateTime),
                 PurchasedBaseQty = input.QuantityBaseUnits,
                 RemainingBaseQty = input.QuantityBaseUnits,
                 UnitCost = input.UnitCost.Value,

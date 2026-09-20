@@ -146,10 +146,18 @@ public class PurchaseBatchConfiguration : IEntityTypeConfiguration<PurchaseBatch
         builder.Property(b => b.RemainingBaseQty).HasColumnType("numeric(18,3)");
         builder.Property(b => b.UnitCost).HasColumnType("numeric(18,4)");
 
+        builder.Property(b => b.BatchSequence).UseIdentityAlwaysColumn();
+        builder.Ignore(b => b.InternalBatchNo);
+        builder.Property(b => b.SupplierBatchNumber).HasMaxLength(60);
+        builder.ToTable(t => t.HasCheckConstraint("CK_PurchaseBatches_RemainingWithinPurchased", "\"RemainingBaseQty\" >= 0 AND \"RemainingBaseQty\" <= \"PurchasedBaseQty\""));
+
         builder.HasOne(b => b.PurchaseOrderLine).WithOne(l => l.Batch).HasForeignKey<PurchaseBatch>(b => b.PurchaseOrderLineId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(b => b.StockAdjustment).WithOne(a => a.Batch).HasForeignKey<PurchaseBatch>(b => b.StockAdjustmentId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(b => b.Product).WithMany().HasForeignKey(b => b.ProductId).OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(b => new { b.ProductId, b.CreatedAt });
+        builder.HasIndex(b => b.BatchSequence).IsUnique();
+        // Deliberately non-unique: suppliers reuse lot numbers across deliveries.
+        builder.HasIndex(b => b.SupplierBatchNumber);
     }
 }

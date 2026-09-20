@@ -55,6 +55,21 @@ public class PurchaseServiceTests
             [new PurchaseLineInput(f.Product.Id, f.Bag.Id, qty, rate, otherCharges, discount)]);
 
     [Fact]
+    public async Task CreatePurchaseAsync_StampsBatchWithReceivedDateAndLeavesSupplierBatchNumberEmpty()
+    {
+        var f = await SeedAsync();
+
+        await f.Service.CreatePurchaseAsync(BuildInput(f, 10, 580), f.UserId);
+
+        var batch = await f.Db.PurchaseBatches.SingleAsync();
+        Assert.Equal(new DateOnly(2026, 9, 15), batch.ReceivedDate);
+        Assert.Null(batch.SupplierBatchNumber);
+        Assert.Equal(BatchNo(batch.BatchSequence), batch.InternalBatchNo);
+    }
+
+    private static string BatchNo(long sequence) => PurchaseBatch.FormatInternalBatchNo(sequence);
+
+    [Fact]
     public async Task CreatePurchaseAsync_ComputesLineAndHeaderTotalsCorrectly()
     {
         var f = await SeedAsync();

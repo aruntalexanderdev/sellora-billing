@@ -65,7 +65,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             discountTotal += line.Discount;
             originalGrandTotal += originalLineTotal;
 
-            await ApplyPurchaseLineToStockAsync(line, purchaseNo, createdByUserId, ct);
+            await ApplyPurchaseLineToStockAsync(line, purchaseNo, input.PurchaseDate, createdByUserId, ct);
         }
 
         purchase.Subtotal = subtotal;
@@ -648,13 +648,14 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         return (line, subtotal, originalLineTotal);
     }
 
-    private async Task ApplyPurchaseLineToStockAsync(PurchaseOrderLine line, string purchaseNo, Guid userId, CancellationToken ct)
+    private async Task ApplyPurchaseLineToStockAsync(PurchaseOrderLine line, string purchaseNo, DateOnly receivedDate, Guid userId, CancellationToken ct)
     {
         db.PurchaseBatches.Add(new PurchaseBatch
         {
             Id = Guid.NewGuid(),
             PurchaseOrderLineId = line.Id,
             ProductId = line.ProductId,
+            ReceivedDate = receivedDate,
             PurchasedBaseQty = line.BaseQty,
             RemainingBaseQty = line.BaseQty,
             UnitCost = line.UnitCost,
