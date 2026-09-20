@@ -41,6 +41,19 @@ export interface StockBatch {
   purchaseOrderLineId: string | null;
 }
 
+export interface BatchConsumption {
+  salesInvoiceId: string;
+  invoiceNo: string;
+  invoiceDate: string;
+  saleStatus: 'Completed' | 'Cancelled';
+  productName: string;
+  qtyBaseUnits: number;
+  returnedQtyBaseUnits: number;
+  unitCost: number;
+}
+
+export type BatchStatus = 'Available' | 'Partly used' | 'Depleted';
+
 export interface StockDetail {
   productId: string;
   sku: string;

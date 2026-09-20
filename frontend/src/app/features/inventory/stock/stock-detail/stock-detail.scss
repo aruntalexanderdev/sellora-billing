@@ -40,7 +40,7 @@
 
 .panels {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: start;
 }
@@ -56,6 +56,52 @@
   font-weight: 650;
   background: var(--color-surface-subtle);
   border-bottom: 1px solid var(--color-border-subtle);
+}
+.panel-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-text-fainter);
+}
+.batch-row {
+  cursor: pointer;
+}
+.batch-row:hover {
+  background: var(--color-surface-subtle);
+}
+.caret {
+  width: 20px;
+  padding-right: 0;
+  color: var(--color-text-fainter);
+}
+.strong {
+  font-weight: 650;
+}
+.batch-detail td {
+  background: var(--color-surface-subtle);
+}
+.detail-box {
+  padding: 4px 0 8px;
+}
+.detail-line {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+.detail-note {
+  font-size: 12.5px;
+  color: var(--color-text-fainter);
+}
+.nested {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+}
+.batch-chip {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-fainter);
 }
 .panel-body {
   overflow-x: auto;

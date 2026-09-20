@@ -5,7 +5,7 @@ import { UiBadge } from '../../../../shared/ui/badge/badge';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { StockService } from '../stock.service';
-import type { StockDetail as StockDetailModel } from '../stock.models';
+import type { BatchConsumption, BatchStatus, StockBatch, StockDetail as StockDetailModel } from '../stock.models';
 
 const INR = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -27,6 +27,39 @@ export class StockDetail implements OnInit {
   readonly loading = signal(true);
 
   readonly canAdjust = computed(() => this.auth.hasPermission('Inventory.Adjust'));
+  readonly canViewPurchases = computed(() => this.auth.hasPermission('Purchase.View'));
+  readonly canViewSales = computed(() => this.auth.hasPermission('Sales.View'));
+
+  // Which batch rows are expanded, and the sales each expanded batch has fed (loaded on first expand).
+  readonly expanded = signal<ReadonlySet<string>>(new Set());
+  readonly consumptions = signal<ReadonlyMap<string, BatchConsumption[] | 'error'>>(new Map());
+
+  batchStatus(b: StockBatch): BatchStatus {
+    if (b.remainingBaseQty <= 0) return 'Depleted';
+    return b.remainingBaseQty < b.purchasedBaseQty ? 'Partly used' : 'Available';
+  }
+
+  consumedQty(b: StockBatch): number {
+    return b.purchasedBaseQty - b.remainingBaseQty;
+  }
+
+  toggleBatch(b: StockBatch): void {
+    const next = new Set(this.expanded());
+    if (next.has(b.id)) {
+      next.delete(b.id);
+    } else {
+      next.add(b.id);
+      if (this.canViewSales() && !this.consumptions().has(b.id)) this.loadConsumptions(b.id);
+    }
+    this.expanded.set(next);
+  }
+
+  private loadConsumptions(batchId: string): void {
+    this.stockService.batchConsumptions(batchId).subscribe({
+      next: (rows) => this.consumptions.update((m) => new Map(m).set(batchId, rows)),
+      error: () => this.consumptions.update((m) => new Map(m).set(batchId, 'error')),
+    });
+  }
 
   ngOnInit(): void {
     const productId = this.route.snapshot.paramMap.get('id')!;

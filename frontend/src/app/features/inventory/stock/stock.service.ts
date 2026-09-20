@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { PagedResult } from '../../../core/api.models';
-import type { StockDetail, StockOverviewItem, StockStatus } from './stock.models';
+import type { BatchConsumption, StockDetail, StockOverviewItem, StockStatus } from './stock.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/stock`;
 
@@ -25,6 +25,10 @@ export class StockService {
     if (query.category) params['category'] = query.category;
     if (query.status) params['status'] = query.status;
     return this.http.get<PagedResult<StockOverviewItem>>(`${BASE_URL}/overview`, { params });
+  }
+
+  batchConsumptions(batchId: string): Observable<BatchConsumption[]> {
+    return this.http.get<BatchConsumption[]>(`${BASE_URL}/batches/${batchId}/consumptions`);
   }
 
   detail(productId: string): Observable<StockDetail> {

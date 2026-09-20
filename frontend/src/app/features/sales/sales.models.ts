@@ -33,6 +33,19 @@ export interface SalesInvoiceListItem {
   status: SalesStatus;
 }
 
+/** A purchase batch a sale line drew stock from, at the batch's cost. */
+export interface SaleBatchConsumption {
+  purchaseBatchId: string;
+  internalBatchNo: string;
+  supplierBatchNumber: string | null;
+  sourceType: 'Purchase' | 'Adjustment';
+  sourceRefNo: string;
+  purchaseOrderId: string | null;
+  qtyBaseUnits: number;
+  returnedQtyBaseUnits: number;
+  unitCost: number;
+}
+
 export interface SalesInvoiceLine {
   id: string;
   productId: string;
@@ -51,6 +64,7 @@ export interface SalesInvoiceLine {
   costOfGoodsSold: number;
   returnedQty: number;
   returnableQty: number;
+  batchConsumptions: SaleBatchConsumption[];
 }
 
 export interface SalesPayment {

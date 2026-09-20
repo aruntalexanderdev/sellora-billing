@@ -197,6 +197,19 @@
               <td class="num">{{ line.taxRatePercent }}%</td>
               <td class="num strong">{{ INR(line.lineTotal) }}</td>
             </tr>
+            @if (line.batchConsumptions.length > 0) {
+              <tr class="batch-trace-row">
+                <td colspan="6">
+                  <span class="batch-trace-label">Drawn from</span>
+                  @for (c of line.batchConsumptions; track c.purchaseBatchId) {
+                    <span class="batch-trace-chip">
+                      {{ c.internalBatchNo }}{{ c.supplierBatchNumber ? ' (' + c.supplierBatchNumber + ')' : '' }}
+                      · {{ c.sourceRefNo }} · {{ c.qtyBaseUnits }} {{ line.baseUnitLabel }} @ {{ INR(c.unitCost) }}
+                    </span>
+                  }
+                </td>
+              </tr>
+            }
           }
         </tbody>
       </table>

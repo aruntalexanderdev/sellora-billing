@@ -41,31 +41,109 @@
 
   <div class="panels">
     <div class="panel">
-      <div class="panel-title">Purchase batches</div>
+      <div class="panel-title">Purchase batches <span class="panel-hint">Product → stock → batch → purchase. Sales draw from the oldest batch first.</span></div>
       <div class="panel-body">
         @if (d.batches.length === 0) {
           <div class="empty-note">No batches yet.</div>
-        }
-        <table class="mini-table">
-          <thead>
-            <tr>
-              <th>Source</th>
-              <th class="num">Purchased</th>
-              <th class="num">Remaining</th>
-              <th class="num">Unit cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (b of d.batches; track b.id) {
+        } @else {
+          <table class="mini-table">
+            <thead>
               <tr>
-                <td>{{ b.sourceType }} · {{ b.sourceRefNo }}</td>
-                <td class="num">{{ b.purchasedBaseQty }}</td>
-                <td class="num" [class.depleted]="b.remainingBaseQty === 0">{{ b.remainingBaseQty }}</td>
-                <td class="num">{{ INR(b.unitCost) }}</td>
+                <th></th>
+                <th>Batch</th>
+                <th>Supplier batch no.</th>
+                <th>Source</th>
+                <th>Received</th>
+                <th class="num">Received qty</th>
+                <th class="num">Remaining</th>
+                <th class="num">Unit cost</th>
+                <th>Status</th>
               </tr>
-            }
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              @for (b of d.batches; track b.id) {
+                <tr class="batch-row" (click)="toggleBatch(b)">
+                  <td class="caret">{{ expanded().has(b.id) ? '▾' : '▸' }}</td>
+                  <td class="strong">{{ b.internalBatchNo }}</td>
+                  <td>{{ b.supplierBatchNumber ?? '—' }}</td>
+                  <td>
+                    @if (b.purchaseOrderId && canViewPurchases()) {
+                      <a [routerLink]="['/purchases', b.purchaseOrderId]" (click)="$event.stopPropagation()">{{ b.sourceRefNo }}</a>
+                    } @else {
+                      {{ b.sourceType }} · {{ b.sourceRefNo }}
+                    }
+                  </td>
+                  <td class="muted">{{ b.receivedDate | date: 'd MMM y' }}</td>
+                  <td class="num">{{ b.purchasedBaseQty }}</td>
+                  <td class="num" [class.depleted]="b.remainingBaseQty === 0">{{ b.remainingBaseQty }}</td>
+                  <td class="num">{{ INR(b.unitCost) }}</td>
+                  <td>
+                    <ui-badge
+                      [text]="batchStatus(b)"
+                      [tone]="batchStatus(b) === 'Available' ? 'good' : batchStatus(b) === 'Partly used' ? 'info' : 'mute'"
+                    />
+                  </td>
+                </tr>
+                @if (expanded().has(b.id)) {
+                  <tr class="batch-detail">
+                    <td></td>
+                    <td colspan="8">
+                      <div class="detail-box">
+                        <div class="detail-line">
+                          Consumed {{ consumedQty(b) }} of {{ b.purchasedBaseQty }} {{ d.baseUnitLabel }} ·
+                          @if (b.sourceType === 'Purchase') {
+                            from {{ b.sourceRefNo }}
+                          } @else {
+                            from stock adjustment {{ b.sourceRefNo }}
+                          }
+                        </div>
+                        @if (!canViewSales()) {
+                          <div class="detail-note">Sales detail needs the Sales view permission.</div>
+                        } @else {
+                          @let rows = consumptions().get(b.id);
+                          @if (rows === undefined) {
+                            <div class="detail-note">Loading sales…</div>
+                          } @else if (rows === 'error') {
+                            <div class="detail-note">Could not load the sales for this batch.</div>
+                          } @else if (rows.length === 0) {
+                            <div class="detail-note">No sales have drawn from this batch yet.</div>
+                          } @else {
+                            <table class="mini-table nested">
+                              <thead>
+                                <tr>
+                                  <th>Invoice</th>
+                                  <th>Date</th>
+                                  <th class="num">Quantity</th>
+                                  <th class="num">Returned</th>
+                                  <th class="num">Unit cost</th>
+                                  <th>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                @for (c of rows; track c.salesInvoiceId + c.qtyBaseUnits) {
+                                  <tr>
+                                    <td><a [routerLink]="['/sales', c.salesInvoiceId]">{{ c.invoiceNo }}</a></td>
+                                    <td class="muted">{{ c.invoiceDate | date: 'd MMM y' }}</td>
+                                    <td class="num">{{ c.qtyBaseUnits }}</td>
+                                    <td class="num">{{ c.returnedQtyBaseUnits }}</td>
+                                    <td class="num">{{ INR(c.unitCost) }}</td>
+                                    <td>
+                                      <ui-badge [text]="c.saleStatus" [tone]="c.saleStatus === 'Completed' ? 'good' : 'bad'" />
+                                    </td>
+                                  </tr>
+                                }
+                              </tbody>
+                            </table>
+                          }
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+        }
       </div>
     </div>
 
@@ -95,7 +173,7 @@
                 <td class="num" [class.positive]="m.quantityBaseUnits > 0" [class.negative]="m.quantityBaseUnits < 0">
                   {{ m.quantityBaseUnits > 0 ? '+' : '' }}{{ m.quantityBaseUnits }}
                 </td>
-                <td class="muted">{{ m.referenceNo }}</td>
+                <td class="muted">{{ m.referenceNo }}@if (m.internalBatchNo) { <span class="batch-chip">{{ m.internalBatchNo }}</span> }</td>
                 <td class="muted">{{ m.userName }}</td>
               </tr>
             }
