@@ -33,6 +33,9 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         var product = await db.Products.Include(p => p.BaseUnit).SingleOrDefaultAsync(p => p.Id == input.ProductId, ct)
             ?? throw new DomainValidationException("ProductId", "Select a valid product.");
 
+        await using var transaction = await StockLocks.BeginAsync(db, ct);
+        await StockLocks.LockStockItemsAsync(db, [product.Id], ct);
+
         var stockItem = await db.StockItems.SingleOrDefaultAsync(s => s.ProductId == product.Id, ct);
         if (stockItem is null)
         {
@@ -117,6 +120,7 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         });
 
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return adjustment;
     }
 
@@ -125,7 +129,7 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         var remaining = quantityToConsume;
         var batches = await db.PurchaseBatches
             .Where(b => b.ProductId == productId && b.RemainingBaseQty > 0)
-            .OrderBy(b => b.CreatedAt)
+            .OrderBy(b => b.CreatedAt).ThenBy(b => b.BatchSequence)
             .ToListAsync(ct);
 
         foreach (var batch in batches)

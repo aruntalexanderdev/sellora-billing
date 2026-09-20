@@ -60,6 +60,24 @@ public class StockController(SelloraDbContext db) : ControllerBase
         return Ok(new PagedResult<StockOverviewItemDto>(items, total, page, pageSize));
     }
 
+    /// <summary>Which sales drew stock from this batch, and how much. Needs Sales.View as well, since it lists invoices.</summary>
+    [HttpGet("batches/{batchId:guid}/consumptions")]
+    [Authorize(Policy = "Sales.View")]
+    public async Task<ActionResult<IReadOnlyList<BatchConsumptionDto>>> BatchConsumptions(Guid batchId, CancellationToken ct)
+    {
+        if (!await db.PurchaseBatches.AnyAsync(b => b.Id == batchId, ct)) return NotFound();
+
+        var rows = await db.SalesInvoiceLineBatchConsumptions
+            .Where(c => c.PurchaseBatchId == batchId)
+            .OrderBy(c => c.SalesInvoiceLine.SalesInvoice.CreatedAt)
+            .Select(c => new BatchConsumptionDto(
+                c.SalesInvoiceLine.SalesInvoiceId, c.SalesInvoiceLine.SalesInvoice.InvoiceNo, c.SalesInvoiceLine.SalesInvoice.InvoiceDate,
+                c.SalesInvoiceLine.SalesInvoice.Status, c.SalesInvoiceLine.Product.Name,
+                c.QtyBaseUnits, c.ReturnedQtyBaseUnits, c.UnitCost))
+            .ToListAsync(ct);
+        return Ok(rows);
+    }
+
     [HttpGet("{productId:guid}")]
     public async Task<ActionResult<StockDetailDto>> Detail(Guid productId, CancellationToken ct)
     {

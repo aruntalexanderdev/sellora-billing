@@ -15,11 +15,19 @@ public record SalesInvoiceListItemDto(
     decimal GrandTotal, decimal PaidAmount, decimal DueAmount, PaymentStatus PaymentStatus, SalesStatus Status
 );
 
+/// <summary>How much of one purchase batch a sale line drew, at the batch's cost — the sale → batch → purchase trail.</summary>
+public record SaleBatchConsumptionDto(
+    Guid PurchaseBatchId, string InternalBatchNo, string? SupplierBatchNumber,
+    string SourceType, string SourceRefNo, Guid? PurchaseOrderId,
+    decimal QtyBaseUnits, decimal ReturnedQtyBaseUnits, decimal UnitCost
+);
+
 public record SalesInvoiceLineDto(
     Guid Id, Guid ProductId, string ProductName, Guid SellingModeId, string SellingModeLabel,
     decimal Qty, decimal BaseQty, string BaseUnitLabel, decimal UnitPrice,
     decimal TaxRatePercent, decimal Discount, decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal CostOfGoodsSold,
-    decimal ReturnedQty, decimal ReturnableQty
+    decimal ReturnedQty, decimal ReturnableQty,
+    IReadOnlyList<SaleBatchConsumptionDto> BatchConsumptions
 );
 
 public record SalesPaymentDto(

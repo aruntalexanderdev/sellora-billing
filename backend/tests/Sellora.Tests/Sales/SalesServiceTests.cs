@@ -117,6 +117,69 @@ public class SalesServiceTests
     }
 
     [Fact]
+    public async Task CreateSaleAsync_PartialAcrossTwoBatches_RecordsEachBatchAndKeepsStockConsistent()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580); // Batch A: 10 kg @ 58/kg
+        await PurchaseAsync(f, 2, 620); // Batch B: 20 kg @ 62/kg
+
+        var sale = await f.Service.CreateSaleAsync(BuildInput(f, 12, 70), f.UserId); // 10 from A, 2 from B
+
+        var line = sale.Lines.Single();
+        Assert.Equal(10m * 58m + 2m * 62m, line.CostOfGoodsSold);
+
+        var batches = await f.Db.PurchaseBatches.OrderBy(b => b.CreatedAt).ToListAsync();
+        Assert.Equal(0m, batches[0].RemainingBaseQty);
+        Assert.Equal(18m, batches[1].RemainingBaseQty);
+
+        var consumptions = await f.Db.SalesInvoiceLineBatchConsumptions.OrderBy(c => c.PurchaseBatch.CreatedAt).ToListAsync();
+        Assert.Equal(2, consumptions.Count);
+        Assert.Equal((batches[0].Id, 10m, 58m), (consumptions[0].PurchaseBatchId, consumptions[0].QtyBaseUnits, consumptions[0].UnitCost));
+        Assert.Equal((batches[1].Id, 2m, 62m), (consumptions[1].PurchaseBatchId, consumptions[1].QtyBaseUnits, consumptions[1].UnitCost));
+        Assert.All(consumptions, c => Assert.Equal(line.Id, c.SalesInvoiceLineId));
+
+        // Each batch traces back to its own purchase line.
+        Assert.All(batches, b => Assert.NotNull(b.PurchaseOrderLineId));
+
+        Assert.Equal(await f.Db.PurchaseBatches.SumAsync(b => b.RemainingBaseQty), (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_LooseSellingMode_ConsumesBaseQuantityFromBatch()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580); // 10 kg @ 58/kg
+        var gram250 = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = f.Product.Id, Label = "250 g", ConversionFactorToBase = 0.25m };
+        f.Db.ProductSellingModes.Add(gram250);
+        await f.Db.SaveChangesAsync();
+
+        var sale = await f.Service.CreateSaleAsync(
+            new CreateSaleInput(f.Customer.Id, new DateOnly(2026, 9, 18), PaymentMethod.Cash, 0,
+                [new SaleLineInput(f.Product.Id, gram250.Id, 3, 20, 0)]), // 3 x 250 g = 0.75 kg
+            f.UserId);
+
+        Assert.Equal(0.75m, sale.Lines.Single().BaseQty);
+        Assert.Equal(0.75m * 58m, sale.Lines.Single().CostOfGoodsSold);
+        Assert.Equal(9.25m, (await f.Db.PurchaseBatches.SingleAsync()).RemainingBaseQty);
+        Assert.Equal(0.75m, (await f.Db.SalesInvoiceLineBatchConsumptions.SingleAsync()).QtyBaseUnits);
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_BatchesShortOfStockOnHand_RefusesInsteadOfUnderstatingCost()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580); // 10 kg
+        // Simulate drift: stock on hand claims more than the batches hold.
+        var stock = await f.Db.StockItems.SingleAsync();
+        stock.QuantityOnHand = 20;
+        await f.Db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateSaleAsync(BuildInput(f, 15, 70), f.UserId));
+
+        Assert.Empty(await f.Db.SalesInvoices.ToListAsync());
+    }
+
+    [Fact]
     public async Task CreateSaleAsync_QuantityExceedingStock_Throws()
     {
         var f = await SeedAsync();

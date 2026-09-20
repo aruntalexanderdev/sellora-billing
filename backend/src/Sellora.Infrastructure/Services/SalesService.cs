@@ -16,6 +16,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("Lines", "Add at least one item.");
         }
 
+        await using var transaction = await StockLocks.BeginAsync(db, ct);
+
         var customer = await db.Customers.SingleOrDefaultAsync(c => c.Id == input.CustomerId, ct)
             ?? throw new DomainValidationException("CustomerId", "Select a valid customer.");
         if (!customer.IsActive)
@@ -56,6 +58,10 @@ public class SalesService(SelloraDbContext db) : ISalesService
             requestedBaseQtyByProduct[line.ProductId] = requestedBaseQtyByProduct.GetValueOrDefault(line.ProductId) + line.BaseQty;
         }
 
+        // Hold each product's stock lock from here to commit, so the availability check and the FIFO batch
+        // consumption below see the same, current quantities.
+        await StockLocks.LockStockItemsAsync(db, requestedBaseQtyByProduct.Keys, ct);
+
         foreach (var (productId, requestedBaseQty) in requestedBaseQtyByProduct)
         {
             var stockItem = await db.StockItems.Include(s => s.Product).SingleOrDefaultAsync(s => s.ProductId == productId, ct);
@@ -86,6 +92,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         db.SalesInvoices.Add(invoice);
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
 
         return invoice;
     }
@@ -531,7 +538,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         var batches = await db.PurchaseBatches
             .Where(b => b.ProductId == line.ProductId && b.RemainingBaseQty > 0)
-            .OrderBy(b => b.CreatedAt)
+            .OrderBy(b => b.CreatedAt).ThenBy(b => b.BatchSequence)
             .ToListAsync(ct);
 
         foreach (var batch in batches)
@@ -550,6 +557,13 @@ public class SalesService(SelloraDbContext db) : ISalesService
                 QtyBaseUnits = take,
                 UnitCost = batch.UnitCost,
             });
+        }
+
+        // Stock on hand and batch remainders are kept in step, so this is a safety net: never record a sale whose
+        // cost (and batch trail) covers only part of the quantity.
+        if (remaining > 0)
+        {
+            throw new DomainValidationException("Lines", $"Batch stock is short by {remaining} for this item — cannot complete the sale.");
         }
 
         return costConsumed;

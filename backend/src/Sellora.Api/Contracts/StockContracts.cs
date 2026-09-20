@@ -21,6 +21,12 @@ public record StockBatchDto(
     Guid? PurchaseOrderId, Guid? PurchaseOrderLineId
 );
 
+/// <summary>One sale line's draw on a batch — the batch → sale trail shown from Stock Details.</summary>
+public record BatchConsumptionDto(
+    Guid SalesInvoiceId, string InvoiceNo, DateOnly InvoiceDate, SalesStatus SaleStatus,
+    string ProductName, decimal QtyBaseUnits, decimal ReturnedQtyBaseUnits, decimal UnitCost
+);
+
 public record StockDetailDto(
     Guid ProductId, string Sku, string Name, string? Category, string BaseUnitLabel, string TaxLabel,
     decimal QuantityOnHand, decimal AverageCost, decimal StockValue, decimal ReorderLevel, StockStatus Status,

@@ -107,6 +107,8 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             .Include(i => i.CreatedByUser)
             .Include(i => i.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.BaseUnit)
             .Include(i => i.Lines).ThenInclude(l => l.SellingMode)
+            .Include(i => i.Lines).ThenInclude(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch).ThenInclude(b => b.PurchaseOrderLine).ThenInclude(pl => pl!.PurchaseOrder)
+            .Include(i => i.Lines).ThenInclude(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch).ThenInclude(b => b.StockAdjustment)
             .Include(i => i.Payments).ThenInclude(pay => pay.CreatedByUser)
             .Include(i => i.Payments).ThenInclude(pay => pay.SalesReturn)
             .Include(i => i.Returns).ThenInclude(r => r.Lines)
@@ -241,7 +243,13 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             l.Id, l.ProductId, l.Product.Name, l.SellingModeId, l.SellingMode.Label,
             l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.UnitPrice,
             l.TaxRatePercent, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.CostOfGoodsSold,
-            returnedByLine.GetValueOrDefault(l.Id), l.Qty - returnedByLine.GetValueOrDefault(l.Id)
+            returnedByLine.GetValueOrDefault(l.Id), l.Qty - returnedByLine.GetValueOrDefault(l.Id),
+            l.BatchConsumptions.OrderBy(c => c.PurchaseBatch.BatchSequence).Select(c => new SaleBatchConsumptionDto(
+                c.PurchaseBatchId, PurchaseBatch.FormatInternalBatchNo(c.PurchaseBatch.BatchSequence), c.PurchaseBatch.SupplierBatchNumber,
+                c.PurchaseBatch.PurchaseOrderLine != null ? "Purchase" : "Adjustment",
+                c.PurchaseBatch.PurchaseOrderLine != null ? c.PurchaseBatch.PurchaseOrderLine.PurchaseOrder.PurchaseNo : c.PurchaseBatch.StockAdjustment!.AdjustmentNo,
+                c.PurchaseBatch.PurchaseOrderLine?.PurchaseOrderId,
+                c.QtyBaseUnits, c.ReturnedQtyBaseUnits, c.UnitCost)).ToList()
         )).ToList(),
         i.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => ToPaymentDto(pay, reversed)).ToList(),
         i.ReturnedAmount, i.NetTotal, i.RefundableAmount,
