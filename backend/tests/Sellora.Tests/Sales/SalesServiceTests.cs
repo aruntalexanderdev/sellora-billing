@@ -179,6 +179,42 @@ public class SalesServiceTests
         Assert.Empty(await f.Db.SalesInvoices.ToListAsync());
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task CreateSaleAsync_ZeroOrNegativeQuantity_IsRejected(double qty)
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580);
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateSaleAsync(BuildInput(f, (decimal)qty, 70), f.UserId));
+        Assert.Equal(10m, (await f.Db.PurchaseBatches.SingleAsync()).RemainingBaseQty);
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_BaseQuantityBeyondThreeDecimals_IsRejected()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580);
+
+        // 1.2345 kg would be rounded when stored, letting batch and stock totals drift apart.
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateSaleAsync(BuildInput(f, 1.2345m, 70), f.UserId));
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_SellingEverythingDepletesBatchesExactly_AndNextSaleIsRefused()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580);
+        await PurchaseAsync(f, 1, 620);
+
+        await f.Service.CreateSaleAsync(BuildInput(f, 20, 70), f.UserId);
+
+        Assert.All(await f.Db.PurchaseBatches.ToListAsync(), b => Assert.Equal(0m, b.RemainingBaseQty));
+        Assert.Equal(0m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateSaleAsync(BuildInput(f, 0.001m, 70), f.UserId));
+    }
+
     [Fact]
     public async Task CreateSaleAsync_QuantityExceedingStock_Throws()
     {

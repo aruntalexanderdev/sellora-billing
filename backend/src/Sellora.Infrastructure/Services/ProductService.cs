@@ -60,6 +60,14 @@ public class ProductService(SelloraDbContext db) : IProductService
             throw new DomainValidationException(nameof(input.Sku), "A product with this SKU already exists.");
         }
 
+        // Every stock quantity, batch and cost is stored in the base unit, so it cannot be re-labelled once the
+        // product has stock history — the same numbers would silently mean a different unit.
+        if (input.BaseUnitId != product.BaseUnitId
+            && (await db.StockMovements.AnyAsync(m => m.ProductId == productId, ct) || await db.PurchaseBatches.AnyAsync(b => b.ProductId == productId, ct)))
+        {
+            throw new DomainValidationException(nameof(input.BaseUnitId), "The base unit cannot be changed once this product has stock history.");
+        }
+
         product.Sku = input.Sku.Trim();
         product.Name = input.Name.Trim();
         product.Category = input.Category;

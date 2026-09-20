@@ -72,6 +72,36 @@ public class ProductServiceTests
         f.Product.Sku, f.Product.Name, f.Product.Category, f.Unit.Id, f.Tax.Id, f.Product.ReorderLevel, modes);
 
     [Fact]
+    public async Task UpdateProductAsync_ChangingBaseUnit_IsBlockedOnceStockHistoryExists()
+    {
+        var f = await SeedAsync();
+        var gram = new Unit { Id = Guid.NewGuid(), Name = "Gram", ShortCode = "g", Type = UnitType.Weight };
+        f.Db.Units.Add(gram);
+        f.Db.PurchaseBatches.Add(new PurchaseBatch { Id = Guid.NewGuid(), ProductId = f.Product.Id, PurchasedBaseQty = 10, RemainingBaseQty = 10, UnitCost = 5 });
+        await f.Db.SaveChangesAsync();
+
+        var input = BuildInput(f, new SellingModeInputItem(f.Bag.Id, f.Bag.Label, f.Bag.ConversionFactorToBase), new SellingModeInputItem(f.LooseKg.Id, f.LooseKg.Label, f.LooseKg.ConversionFactorToBase)) with { BaseUnitId = gram.Id };
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.UpdateProductAsync(f.Product.Id, input));
+        Assert.Equal(f.Unit.Id, (await f.Db.Products.SingleAsync()).BaseUnitId);
+    }
+
+    [Fact]
+    public async Task UpdateProductAsync_ChangingBaseUnit_IsAllowedWhenNoStockHistory()
+    {
+        var f = await SeedAsync();
+        var gram = new Unit { Id = Guid.NewGuid(), Name = "Gram", ShortCode = "g", Type = UnitType.Weight };
+        f.Db.Units.Add(gram);
+        await f.Db.SaveChangesAsync();
+
+        var input = BuildInput(f, new SellingModeInputItem(f.Bag.Id, f.Bag.Label, f.Bag.ConversionFactorToBase), new SellingModeInputItem(f.LooseKg.Id, f.LooseKg.Label, f.LooseKg.ConversionFactorToBase)) with { BaseUnitId = gram.Id };
+
+        var updated = await f.Service.UpdateProductAsync(f.Product.Id, input);
+
+        Assert.Equal(gram.Id, updated!.BaseUnitId);
+    }
+
+    [Fact]
     public async Task UpdateProductAsync_RemovingModeReferencedByPurchaseOrderLine_DeactivatesInsteadOfDeleting()
     {
         var f = await SeedAsync(withPurchaseOrderLineOnBag: true);

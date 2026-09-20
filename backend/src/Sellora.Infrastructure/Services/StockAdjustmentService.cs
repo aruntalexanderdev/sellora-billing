@@ -24,6 +24,8 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
             throw new DomainValidationException("QuantityBaseUnits", "Quantity must be greater than zero.");
         }
 
+        StockQuantity.EnsureStorable(input.QuantityBaseUnits, "QuantityBaseUnits");
+
         var requiredDirection = RequiredDirection[input.Type];
         if (requiredDirection is not null && requiredDirection != input.Direction)
         {
@@ -63,6 +65,7 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         };
 
         Guid? batchId = null;
+        IReadOnlyList<(PurchaseBatch Batch, decimal Qty)> consumed = [];
 
         if (input.Direction == AdjustmentDirection.Decrease)
         {
@@ -71,7 +74,7 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
                 throw new DomainValidationException("QuantityBaseUnits", $"Cannot remove {input.QuantityBaseUnits} {product.BaseUnit.ShortCode} — only {beforeQty} {product.BaseUnit.ShortCode} is currently in stock.");
             }
 
-            await ConsumeBatchesFifoAsync(product.Id, input.QuantityBaseUnits, ct);
+            consumed = await ConsumeBatchesFifoAsync(product.Id, input.QuantityBaseUnits, ct);
             stockItem.QuantityOnHand = beforeQty - input.QuantityBaseUnits;
         }
         else
@@ -105,28 +108,44 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         adjustment.AfterQty = stockItem.QuantityOnHand;
 
         db.StockAdjustments.Add(adjustment);
-        db.StockMovements.Add(new StockMovement
+
+        StockMovement Movement(decimal signedQty, Guid? forBatchId) => new()
         {
             Id = Guid.NewGuid(),
             ProductId = product.Id,
-            PurchaseBatchId = batchId,
+            PurchaseBatchId = forBatchId,
             Type = StockMovementType.Adjustment,
-            QuantityBaseUnits = input.Direction == AdjustmentDirection.Increase ? input.QuantityBaseUnits : -input.QuantityBaseUnits,
+            QuantityBaseUnits = signedQty,
             ReferenceType = "StockAdjustment",
             ReferenceId = adjustment.Id,
             ReferenceNo = adjustmentNo,
             UserId = userId,
             Notes = input.Type.ToString(),
-        });
+        };
+
+        if (input.Direction == AdjustmentDirection.Increase)
+        {
+            db.StockMovements.Add(Movement(input.QuantityBaseUnits, batchId));
+        }
+        else
+        {
+            // One ledger row per batch the removal drew from, so each batch's history shows exactly what the
+            // adjustment took out of it; together they sum to the adjusted quantity.
+            foreach (var (batch, qty) in consumed)
+            {
+                db.StockMovements.Add(Movement(-qty, batch.Id));
+            }
+        }
 
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
         return adjustment;
     }
 
-    private async Task ConsumeBatchesFifoAsync(Guid productId, decimal quantityToConsume, CancellationToken ct)
+    private async Task<IReadOnlyList<(PurchaseBatch Batch, decimal Qty)>> ConsumeBatchesFifoAsync(Guid productId, decimal quantityToConsume, CancellationToken ct)
     {
         var remaining = quantityToConsume;
+        var consumed = new List<(PurchaseBatch, decimal)>();
         var batches = await db.PurchaseBatches
             .Where(b => b.ProductId == productId && b.RemainingBaseQty > 0)
             .OrderBy(b => b.CreatedAt).ThenBy(b => b.BatchSequence)
@@ -138,11 +157,20 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
             var take = Math.Min(batch.RemainingBaseQty, remaining);
             batch.RemainingBaseQty -= take;
             remaining -= take;
+            consumed.Add((batch, take));
         }
+
+        if (remaining > 0)
+        {
+            throw new DomainValidationException("QuantityBaseUnits", $"Batch stock is short by {remaining} — cannot remove {quantityToConsume}.");
+        }
+
+        return consumed;
     }
 
     private async Task<string> NextAdjustmentNoAsync(CancellationToken ct)
     {
+        await StockLocks.LockDocumentNumberAsync(db, "ADJ", ct);
         var count = await db.StockAdjustments.CountAsync(ct);
         return $"ADJ-{count + 1:D4}";
     }

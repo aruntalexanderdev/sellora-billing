@@ -16,6 +16,8 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             throw new DomainValidationException("Lines", "Add at least one item.");
         }
 
+        await using var transaction = await BeginAsync(ct);
+
         var supplier = await db.Suppliers.SingleOrDefaultAsync(s => s.Id == input.SupplierId, ct)
             ?? throw new DomainValidationException("SupplierId", "Select a valid supplier.");
         if (!supplier.IsActive)
@@ -26,6 +28,9 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         await FinancialAccountRules.EnsureUsableAsync(db, input.PaidAmount > 0 ? input.AccountId : null, ct);
 
         var purchaseNo = await NextPurchaseNoAsync(ct);
+
+        // Stock on hand and its average cost are read-modify-written below, so hold each product's lock to commit.
+        await StockLocks.LockStockItemsAsync(db, input.Lines.Select(l => l.ProductId), ct);
 
         // The supplier's *current* currency becomes this purchase's own snapshot; the rate is resolved for
         // the purchase date and stored on the purchase so later changes to the rate master never touch it.
@@ -82,6 +87,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         db.PurchaseOrders.Add(purchase);
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
 
         return purchase;
     }
@@ -365,6 +371,8 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         var currency = await db.Currencies.SingleAsync(c => c.Id == purchase.CurrencyId, ct);
         var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+        // Lock the stock rows before reading the batches, so the remaining quantities checked below are current.
+        await StockLocks.LockStockItemsAsync(db, await db.PurchaseOrderLines.Where(l => l.PurchaseOrderId == purchase.Id).Select(l => l.ProductId).ToListAsync(ct), ct);
         var lines = await db.PurchaseOrderLines.Include(l => l.Product).Include(l => l.Batch)
             .Where(l => l.PurchaseOrderId == purchase.Id).ToListAsync(ct);
         var priorReturns = await db.PurchaseReturnLines
@@ -373,7 +381,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         var purchaseReturn = new PurchaseReturn
         {
             Id = Guid.NewGuid(),
-            ReturnNo = $"PRT-{await db.PurchaseReturns.CountAsync(ct) + 1:D4}",
+            ReturnNo = await NextReturnNoAsync(ct),
             PurchaseOrderId = purchase.Id,
             ReturnDate = input.ReturnDate,
             Reason = string.IsNullOrWhiteSpace(input.Reason) ? null : input.Reason.Trim(),
@@ -403,6 +411,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             // paisa of credit unissued (or issue one too many) once an item is fully returned.
             var last = qty == returnable;
             var baseQty = last ? line.BaseQty - prior.Sum(r => r.BaseQty) : qty * line.ConversionFactorToBase;
+            StockQuantity.EnsureStorable(baseQty, "Lines");
             if (baseQty > batch.RemainingBaseQty)
             {
                 var inStock = batch.RemainingBaseQty / line.ConversionFactorToBase;
@@ -500,10 +509,13 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
     public async Task CancelPurchaseAsync(Guid purchaseOrderId, CancellationToken ct = default)
     {
+        await using var transaction = await BeginAsync(ct);
+        _ = await LockPurchaseAsync(purchaseOrderId, ct) ?? throw new DomainValidationException("Id", "Purchase not found.");
+        await StockLocks.LockStockItemsAsync(db, await db.PurchaseOrderLines.Where(l => l.PurchaseOrderId == purchaseOrderId).Select(l => l.ProductId).ToListAsync(ct), ct);
+
         var purchase = await db.PurchaseOrders
             .Include(p => p.Lines).ThenInclude(l => l.Batch)
-            .SingleOrDefaultAsync(p => p.Id == purchaseOrderId, ct)
-            ?? throw new DomainValidationException("Id", "Purchase not found.");
+            .SingleAsync(p => p.Id == purchaseOrderId, ct);
 
         if (purchase.Status == PurchaseStatus.Cancelled)
         {
@@ -563,6 +575,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         purchase.CancelledAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
     }
 
     // The supplier's lot number is kept exactly as entered; a blank entry just means "none given".
@@ -576,8 +589,15 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         return value;
     }
 
+    private async Task<string> NextReturnNoAsync(CancellationToken ct)
+    {
+        await StockLocks.LockDocumentNumberAsync(db, "PRT", ct);
+        return $"PRT-{await db.PurchaseReturns.CountAsync(ct) + 1:D4}";
+    }
+
     private async Task<string> NextPurchaseNoAsync(CancellationToken ct)
     {
+        await StockLocks.LockDocumentNumberAsync(db, "PUR", ct);
         var count = await db.PurchaseOrders.CountAsync(ct);
         return $"PUR-{count + 1:D4}";
     }
@@ -616,6 +636,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         var tax = await db.Taxes.SingleAsync(t => t.Id == product.TaxId, ct);
 
         var baseQty = input.Qty * sellingMode.ConversionFactorToBase;
+        StockQuantity.EnsureStorable(baseQty, "Lines");
         var foreign = rateToBase != 1m;
 
         // A foreign invoice's figures exist in whole units of its own currency, so each is rounded to that

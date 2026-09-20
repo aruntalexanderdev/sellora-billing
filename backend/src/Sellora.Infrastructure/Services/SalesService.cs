@@ -286,6 +286,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("ReturnDate", "Return date cannot be before the sale date.");
         }
 
+        // Lock the stock rows before reading the batches the goods go back into.
+        await StockLocks.LockStockItemsAsync(db, await db.SalesInvoiceLines.Where(l => l.SalesInvoiceId == invoice.Id).Select(l => l.ProductId).ToListAsync(ct), ct);
         var lines = await db.SalesInvoiceLines
             .Include(l => l.Product)
             .Include(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch)
@@ -297,7 +299,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         var salesReturn = new SalesReturn
         {
             Id = Guid.NewGuid(),
-            ReturnNo = $"SRT-{await db.SalesReturns.CountAsync(ct) + 1:D4}",
+            ReturnNo = await NextReturnNoAsync(ct),
             SalesInvoiceId = invoice.Id,
             ReturnDate = input.ReturnDate,
             Reason = string.IsNullOrWhiteSpace(input.Reason) ? null : input.Reason.Trim(),
@@ -328,6 +330,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
             var taxable = last ? line.TaxableValue - prior.Sum(r => r.TaxableValue) : Math.Round(line.TaxableValue * qty / line.Qty, precision, MidpointRounding.AwayFromZero);
             var tax = last ? line.TaxAmount - prior.Sum(r => r.TaxAmount) : Math.Round(line.TaxAmount * qty / line.Qty, precision, MidpointRounding.AwayFromZero);
             var baseQty = last ? line.BaseQty - prior.Sum(r => r.BaseQty) : qty * line.ConversionFactorToBase;
+            StockQuantity.EnsureStorable(baseQty, "Lines");
 
             // Put the goods back into the batches they were sold from, oldest first.
             var remaining = baseQty;
@@ -401,10 +404,13 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
     public async Task CancelSaleAsync(Guid salesInvoiceId, CancellationToken ct = default)
     {
+        await using var transaction = await BeginAsync(ct);
+        _ = await LockInvoiceAsync(salesInvoiceId, ct) ?? throw new DomainValidationException("Id", "Sale not found.");
+        await StockLocks.LockStockItemsAsync(db, await db.SalesInvoiceLines.Where(l => l.SalesInvoiceId == salesInvoiceId).Select(l => l.ProductId).ToListAsync(ct), ct);
+
         var invoice = await db.SalesInvoices
             .Include(i => i.Lines).ThenInclude(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch)
-            .SingleOrDefaultAsync(i => i.Id == salesInvoiceId, ct)
-            ?? throw new DomainValidationException("Id", "Sale not found.");
+            .SingleAsync(i => i.Id == salesInvoiceId, ct);
 
         if (invoice.Status == SalesStatus.Cancelled)
         {
@@ -449,10 +455,18 @@ public class SalesService(SelloraDbContext db) : ISalesService
         invoice.CancelledAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
+    }
+
+    private async Task<string> NextReturnNoAsync(CancellationToken ct)
+    {
+        await StockLocks.LockDocumentNumberAsync(db, "SRT", ct);
+        return $"SRT-{await db.SalesReturns.CountAsync(ct) + 1:D4}";
     }
 
     private async Task<string> NextInvoiceNoAsync(CancellationToken ct)
     {
+        await StockLocks.LockDocumentNumberAsync(db, "INV", ct);
         var settings = await db.BusinessSettings.FirstOrDefaultAsync(ct);
         var prefix = settings?.InvoicePrefix ?? "INV";
         var count = await db.SalesInvoices.CountAsync(ct);
@@ -487,6 +501,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         var tax = await db.Taxes.SingleAsync(t => t.Id == product.TaxId, ct);
 
         var baseQty = input.Qty * sellingMode.ConversionFactorToBase;
+        StockQuantity.EnsureStorable(baseQty, "Lines");
         var taxableValue = input.Qty * input.UnitPrice - input.Discount;
         var taxAmount = taxableValue * tax.RatePercent / 100;
         var lineTotal = taxableValue + taxAmount;

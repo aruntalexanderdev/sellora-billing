@@ -50,7 +50,7 @@ public class StockAdjustmentServiceTests
     }
 
     [Fact]
-    public async Task CreateAdjustmentAsync_Increase_LinksMovementToNewBatch_DecreaseDoesNot()
+    public async Task CreateAdjustmentAsync_Increase_AndDecrease_BothLinkTheirMovementToTheBatch()
     {
         var f = await SeedAsync();
         await SeedOpeningStockAsync(f, 100, 50m);
@@ -60,10 +60,71 @@ public class StockAdjustmentServiceTests
             new CreateAdjustmentInput(f.Product.Id, AdjustmentType.Damage, AdjustmentDirection.Decrease, 10, null, "Damaged"),
             f.UserId);
 
-        var movements = await f.Db.StockMovements.OrderBy(m => m.OccurredAt).ToListAsync();
-        Assert.Equal(batch.Id, movements.Single(m => m.QuantityBaseUnits > 0).PurchaseBatchId);
-        Assert.Null(movements.Single(m => m.QuantityBaseUnits < 0).PurchaseBatchId);
+        var movements = await f.Db.StockMovements.ToListAsync();
+        Assert.Equal(2, movements.Count);
+        Assert.All(movements, m => Assert.Equal(batch.Id, m.PurchaseBatchId));
         Assert.Equal(90m, await f.Db.PurchaseBatches.SumAsync(b => b.RemainingBaseQty));
+    }
+
+    [Fact]
+    public async Task CreateAdjustmentAsync_DecreaseAcrossTwoBatches_WritesOneMovementPerBatchSummingToTheAdjustment()
+    {
+        var f = await SeedAsync();
+        await SeedOpeningStockAsync(f, 100, 50m); // older batch
+        await SeedOpeningStockAsync(f, 100, 60m); // newer batch
+
+        var adjustment = await f.Service.CreateAdjustmentAsync(
+            new CreateAdjustmentInput(f.Product.Id, AdjustmentType.Loss, AdjustmentDirection.Decrease, 130, null, "Stolen"),
+            f.UserId);
+
+        var batches = await f.Db.PurchaseBatches.OrderBy(b => b.CreatedAt).ToListAsync();
+        Assert.Equal(0m, batches[0].RemainingBaseQty);
+        Assert.Equal(70m, batches[1].RemainingBaseQty);
+        Assert.Equal(100m, batches[0].PurchasedBaseQty); // history untouched
+
+        var removals = await f.Db.StockMovements.Where(m => m.ReferenceId == adjustment.Id && m.QuantityBaseUnits < 0).ToListAsync();
+        Assert.Equal(2, removals.Count);
+        Assert.Equal(-130m, removals.Sum(m => m.QuantityBaseUnits));
+        Assert.Equal(-100m, removals.Single(m => m.PurchaseBatchId == batches[0].Id).QuantityBaseUnits);
+        Assert.Equal(-30m, removals.Single(m => m.PurchaseBatchId == batches[1].Id).QuantityBaseUnits);
+        Assert.Equal(70m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
+    }
+
+    [Fact]
+    public async Task CreateAdjustmentAsync_BatchesShortOfStockOnHand_RefusesAndChangesNothing()
+    {
+        var f = await SeedAsync();
+        await SeedOpeningStockAsync(f, 100, 50m);
+        var stock = await f.Db.StockItems.SingleAsync();
+        stock.QuantityOnHand = 200; // drift: on-hand claims more than the batches hold
+        await f.Db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateAdjustmentAsync(
+            new CreateAdjustmentInput(f.Product.Id, AdjustmentType.Loss, AdjustmentDirection.Decrease, 150, null, null), f.UserId));
+
+        // Read untracked: what was persisted, not the failed request's half-modified in-memory entities.
+        Assert.Equal(100m, (await f.Db.PurchaseBatches.AsNoTracking().SingleAsync()).RemainingBaseQty);
+        Assert.Single(await f.Db.StockAdjustments.AsNoTracking().ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public async Task CreateAdjustmentAsync_ZeroOrNegativeQuantity_IsRejected(double qty)
+    {
+        var f = await SeedAsync();
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateAdjustmentAsync(
+            new CreateAdjustmentInput(f.Product.Id, AdjustmentType.OpeningStock, AdjustmentDirection.Increase, (decimal)qty, 10m, null), f.UserId));
+    }
+
+    [Fact]
+    public async Task CreateAdjustmentAsync_QuantityBeyondThreeDecimals_IsRejected()
+    {
+        var f = await SeedAsync();
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateAdjustmentAsync(
+            new CreateAdjustmentInput(f.Product.Id, AdjustmentType.OpeningStock, AdjustmentDirection.Increase, 1.2345m, 10m, null), f.UserId));
     }
 
     [Fact]
