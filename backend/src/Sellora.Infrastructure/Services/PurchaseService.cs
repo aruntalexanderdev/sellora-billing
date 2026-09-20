@@ -56,6 +56,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         foreach (var lineInput in input.Lines)
         {
+            var supplierBatchNumber = NormalizeSupplierBatchNumber(lineInput.SupplierBatchNumber);
             var (line, lineSubtotal, originalLineTotal) = await BuildLineAsync(purchase, lineInput, rateToBase, transactionCurrency.DecimalPrecision, basePrecision, ct);
             purchase.Lines.Add(line);
 
@@ -65,7 +66,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             discountTotal += line.Discount;
             originalGrandTotal += originalLineTotal;
 
-            await ApplyPurchaseLineToStockAsync(line, purchaseNo, input.PurchaseDate, createdByUserId, ct);
+            await ApplyPurchaseLineToStockAsync(line, purchaseNo, input.PurchaseDate, supplierBatchNumber, createdByUserId, ct);
         }
 
         purchase.Subtotal = subtotal;
@@ -562,6 +563,17 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         await db.SaveChangesAsync(ct);
     }
 
+    // The supplier's lot number is kept exactly as entered; a blank entry just means "none given".
+    private static string? NormalizeSupplierBatchNumber(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (value.Length > 60)
+        {
+            throw new DomainValidationException("SupplierBatchNumber", "Supplier batch number can be at most 60 characters.");
+        }
+        return value;
+    }
+
     private async Task<string> NextPurchaseNoAsync(CancellationToken ct)
     {
         var count = await db.PurchaseOrders.CountAsync(ct);
@@ -648,13 +660,14 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         return (line, subtotal, originalLineTotal);
     }
 
-    private async Task ApplyPurchaseLineToStockAsync(PurchaseOrderLine line, string purchaseNo, DateOnly receivedDate, Guid userId, CancellationToken ct)
+    private async Task ApplyPurchaseLineToStockAsync(PurchaseOrderLine line, string purchaseNo, DateOnly receivedDate, string? supplierBatchNumber, Guid userId, CancellationToken ct)
     {
         db.PurchaseBatches.Add(new PurchaseBatch
         {
             Id = Guid.NewGuid(),
             PurchaseOrderLineId = line.Id,
             ProductId = line.ProductId,
+            SupplierBatchNumber = supplierBatchNumber,
             ReceivedDate = receivedDate,
             PurchasedBaseQty = line.BaseQty,
             RemainingBaseQty = line.BaseQty,

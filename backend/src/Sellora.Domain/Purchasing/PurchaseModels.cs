@@ -9,7 +9,8 @@ public sealed record PurchaseLineInput(
     decimal Qty,
     decimal Rate,
     decimal OtherCharges,
-    decimal Discount
+    decimal Discount,
+    string? SupplierBatchNumber = null
 );
 
 public sealed record CreatePurchaseInput(

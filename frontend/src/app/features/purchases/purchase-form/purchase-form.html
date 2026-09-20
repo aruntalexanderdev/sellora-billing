@@ -82,6 +82,22 @@
               </div>
 
               <button type="button" class="remove-line-btn" (click)="removeLine(i)">✕</button>
+
+              <div class="batch-details">
+                <label class="batch-field">
+                  <span class="batch-label">Supplier batch no. <span class="batch-optional">(optional)</span></span>
+                  <input type="text" formControlName="supplierBatchNumber" class="field-input" maxlength="60" placeholder="e.g. RICE-001" />
+                </label>
+                <div class="batch-facts">
+                  <span>Received: <strong>{{ (previews()[i]?.baseQty ?? 0).toFixed(3) }} {{ previews()[i]?.baseUnitLabel }}</strong></span>
+                  <span>Unit cost: <strong>{{ currencySymbol() + (previews()[i]?.unitCost ?? 0).toFixed(4) }}{{ previews()[i]?.baseUnitLabel ? ' / ' + previews()[i]?.baseUnitLabel : '' }}</strong></span>
+                  <span>Received on: <strong>{{ form.controls.purchaseDate.value }}</strong></span>
+                  <span class="batch-note">Batch number is assigned automatically on save.</span>
+                </div>
+                @if (row.controls.supplierBatchNumber.invalid) {
+                  <div class="field-error">Supplier batch number can be at most 60 characters.</div>
+                }
+              </div>
             </div>
           }
         </div>

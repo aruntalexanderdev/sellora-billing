@@ -14,7 +14,8 @@ public record PurchaseLineDto(
     decimal Qty, decimal BaseQty, string BaseUnitLabel, decimal Rate,
     decimal TaxRatePercent, decimal OtherCharges, decimal Discount,
     decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal UnitCost,
-    decimal ReturnedQty, decimal ReturnableQty
+    decimal ReturnedQty, decimal ReturnableQty,
+    string? InternalBatchNo, string? SupplierBatchNumber, DateOnly? ReceivedDate
 );
 
 public record PurchasePaymentDto(
@@ -45,7 +46,8 @@ public record CreatePurchaseLineRequest(
     [Range(0.001, double.MaxValue)] decimal Qty,
     [Range(0, double.MaxValue)] decimal Rate,
     [Range(0, double.MaxValue)] decimal OtherCharges,
-    [Range(0, double.MaxValue)] decimal Discount
+    [Range(0, double.MaxValue)] decimal Discount,
+    [MaxLength(60)] string? SupplierBatchNumber = null
 );
 
 public record CreatePurchaseRequest(

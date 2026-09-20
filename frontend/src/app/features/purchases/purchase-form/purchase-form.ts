@@ -27,6 +27,7 @@ type LineGroup = FormGroup<{
   rate: FormControl<number | null>;
   otherCharges: FormControl<number>;
   discount: FormControl<number>;
+  supplierBatchNumber: FormControl<string>;
 }>;
 
 interface LinePreview {
@@ -39,13 +40,15 @@ interface LinePreview {
   taxableValue: number;
   taxAmount: number;
   lineTotal: number;
+  // Landed cost per base unit before tax, in the supplier's currency.
+  unitCost: number;
   // The same line converted to the base currency (only meaningful for a foreign supplier).
   baseTotal: number;
 }
 
 const EMPTY_PREVIEW: LinePreview = {
   valid: false, baseQty: 0, baseUnitLabel: '', subtotal: 0, otherCharges: 0, discount: 0,
-  taxableValue: 0, taxAmount: 0, lineTotal: 0, baseTotal: 0,
+  taxableValue: 0, taxAmount: 0, lineTotal: 0, unitCost: 0, baseTotal: 0,
 };
 
 const roundTo = (n: number, places: number) => {
@@ -123,7 +126,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
       const baseTotal = toBase(subtotal) + toBase(otherCharges) - toBase(discount) + toBase(taxAmount);
       return {
         valid: true, baseQty, baseUnitLabel: product.baseUnitLabel, subtotal, otherCharges, discount,
-        taxableValue, taxAmount, lineTotal: taxableValue + taxAmount, baseTotal,
+        taxableValue, taxAmount, lineTotal: taxableValue + taxAmount, unitCost: baseQty > 0 ? taxableValue / baseQty : 0, baseTotal,
       };
     });
   });
@@ -267,6 +270,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
         rate: [null as number | null, [Validators.required, Validators.min(0)]],
         otherCharges: [0],
         discount: [0],
+        supplierBatchNumber: ['', [Validators.maxLength(60)]],
       }),
     );
   }
@@ -305,6 +309,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
           rate: l.rate!,
           otherCharges: l.otherCharges,
           discount: l.discount,
+          supplierBatchNumber: l.supplierBatchNumber.trim() === '' ? null : l.supplierBatchNumber,
         })),
       })
       .subscribe({

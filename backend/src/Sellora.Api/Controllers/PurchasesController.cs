@@ -83,7 +83,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         var input = new CreatePurchaseInput(
             request.SupplierId!.Value, request.PurchaseDate, request.SupplierInvoiceNumber, request.Notes,
             request.PaymentMethod, request.PaidAmount,
-            request.Lines.Select(l => new PurchaseLineInput(l.ProductId!.Value, l.SellingModeId!.Value, l.Qty, l.Rate, l.OtherCharges, l.Discount)).ToList(),
+            request.Lines.Select(l => new PurchaseLineInput(l.ProductId!.Value, l.SellingModeId!.Value, l.Qty, l.Rate, l.OtherCharges, l.Discount, l.SupplierBatchNumber)).ToList(),
             request.AccountId);
 
         try
@@ -236,7 +236,8 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             l.Id, l.ProductId, l.Product.Name, l.SellingModeId, l.SellingMode.Label,
             l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Rate,
             l.TaxRatePercent, l.OtherCharges, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.UnitCost,
-            returnedByLine.GetValueOrDefault(l.Id), p.Status == PurchaseStatus.Cancelled ? 0 : Returnable(l, returnedByLine.GetValueOrDefault(l.Id))
+            returnedByLine.GetValueOrDefault(l.Id), p.Status == PurchaseStatus.Cancelled ? 0 : Returnable(l, returnedByLine.GetValueOrDefault(l.Id)),
+            l.Batch != null ? l.Batch.InternalBatchNo : null, l.Batch != null ? l.Batch.SupplierBatchNumber : null, l.Batch != null ? l.Batch.ReceivedDate : null
         )).ToList(),
         p.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => ToPaymentDto(pay, reversed)).ToList(),
         p.ReturnedAmount, p.OriginalReturnedAmount, p.NetTotal, p.OriginalNetTotal, p.OriginalRefundableAmount,

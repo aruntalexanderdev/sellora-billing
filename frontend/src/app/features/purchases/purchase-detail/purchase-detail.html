@@ -210,6 +210,7 @@
             <th class="num">Qty</th>
             <th class="num">Rate</th>
             <th class="num">Tax</th>
+            <th>Batch</th>
             <th class="num">Line total</th>
           </tr>
         </thead>
@@ -221,6 +222,12 @@
               <td class="num">{{ line.qty }}{{ line.returnedQty > 0 ? ' (' + line.returnedQty + ' returned)' : '' }}</td>
               <td class="num">{{ base(line.rate) }}</td>
               <td class="num">{{ line.taxRatePercent }}%</td>
+              <td>
+                @if (line.internalBatchNo) {
+                  <span class="strong">{{ line.internalBatchNo }}</span>
+                  <span class="muted"> · {{ line.supplierBatchNumber ?? 'no supplier batch no.' }}</span>
+                }
+              </td>
               <td class="num strong">{{ base(line.lineTotal) }}</td>
             </tr>
           }

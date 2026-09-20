@@ -67,6 +67,54 @@ public class PurchaseServiceTests
         Assert.Equal(BatchNo(batch.BatchSequence), batch.InternalBatchNo);
     }
 
+    private static CreatePurchaseInput WithBatch(Fixture f, string? supplierBatchNumber, decimal qty = 10) =>
+        new(f.Supplier.Id, new DateOnly(2026, 9, 15), null, null, PaymentMethod.Cash, 0,
+            [new PurchaseLineInput(f.Product.Id, f.Bag.Id, qty, 580, 0, 0, supplierBatchNumber)]);
+
+    [Fact]
+    public async Task CreatePurchaseAsync_StoresSupplierBatchNumberExactlyAsEntered()
+    {
+        var f = await SeedAsync();
+
+        await f.Service.CreatePurchaseAsync(WithBatch(f, " rice-001/A "), f.UserId);
+
+        Assert.Equal(" rice-001/A ", (await f.Db.PurchaseBatches.SingleAsync()).SupplierBatchNumber);
+    }
+
+    [Fact]
+    public async Task CreatePurchaseAsync_TreatsBlankSupplierBatchNumberAsNone()
+    {
+        var f = await SeedAsync();
+
+        await f.Service.CreatePurchaseAsync(WithBatch(f, "   "), f.UserId);
+
+        Assert.Null((await f.Db.PurchaseBatches.SingleAsync()).SupplierBatchNumber);
+    }
+
+    [Fact]
+    public async Task CreatePurchaseAsync_AllowsSameSupplierBatchNumberOnSeparatePurchases()
+    {
+        var f = await SeedAsync();
+
+        await f.Service.CreatePurchaseAsync(WithBatch(f, "RICE-001"), f.UserId);
+        await f.Service.CreatePurchaseAsync(WithBatch(f, "RICE-001"), f.UserId);
+
+        var batches = await f.Db.PurchaseBatches.ToListAsync();
+        Assert.Equal(2, batches.Count);
+        Assert.All(batches, b => Assert.Equal("RICE-001", b.SupplierBatchNumber));
+        Assert.Equal(2, batches.Select(b => b.Id).Distinct().Count());
+    }
+
+    [Fact]
+    public async Task CreatePurchaseAsync_RejectsOverlongSupplierBatchNumber()
+    {
+        var f = await SeedAsync();
+
+        await Assert.ThrowsAsync<DomainValidationException>(() =>
+            f.Service.CreatePurchaseAsync(WithBatch(f, new string('x', 61)), f.UserId));
+        Assert.Empty(await f.Db.PurchaseBatches.ToListAsync());
+    }
+
     private static string BatchNo(long sequence) => PurchaseBatch.FormatInternalBatchNo(sequence);
 
     [Fact]

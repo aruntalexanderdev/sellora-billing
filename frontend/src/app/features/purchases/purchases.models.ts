@@ -34,6 +34,9 @@ export interface PurchaseLine {
   unitCost: number;
   returnedQty: number;
   returnableQty: number;
+  internalBatchNo: string | null;
+  supplierBatchNumber: string | null;
+  receivedDate: string | null;
 }
 
 export interface PurchasePayment {
@@ -109,6 +112,7 @@ export interface CreatePurchaseLineRequest {
   rate: number;
   otherCharges: number;
   discount: number;
+  supplierBatchNumber?: string | null;
 }
 
 export interface CreatePurchaseRequest {
