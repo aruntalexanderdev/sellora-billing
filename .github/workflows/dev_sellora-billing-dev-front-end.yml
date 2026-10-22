@@ -1,4 +1,4 @@
-```yaml
+
 # Build and deploy Sellora Billing Angular frontend to Azure App Service
 
 name: Build and deploy Angular frontend to Azure Web App - sellora-billing-dev-front-end
@@ -184,4 +184,3 @@ jobs:
           app-name: sellora-billing-dev-front-end
           slot-name: Production
           package: ./deploy
-```
