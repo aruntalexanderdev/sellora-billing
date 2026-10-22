@@ -33,6 +33,20 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+          
+      # Add this diagnostic step
+      - name: Verify backend paths
+        run: |
+          echo "Repository root:"
+          pwd
+
+          echo "Backend files:"
+          find backend -maxdepth 4 -type f \
+            \( -name "*.slnx" -o -name "*.sln" -o -name "*.csproj" \)
+
+          echo "Checking expected files:"
+          test -f "${{ env.SOLUTION_PATH }}"
+          test -f "${{ env.API_PROJECT_PATH }}"
 
       - name: Restore dependencies
         run: dotnet restore "${{ env.SOLUTION_PATH }}"
