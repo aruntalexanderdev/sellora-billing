@@ -89,10 +89,23 @@ using (var scope = app.Services.CreateScope())
     await DbSeeder.SeedAsync(db, hasher);
 }
 
+/*
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+}
+*/
+var enableSwagger = app.Configuration.GetValue<bool>("Swagger:Enabled", false);
+
+if (app.Environment.IsDevelopment() || enableSwagger)
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "Sellora API v1");
+        options.RoutePrefix = "swagger";
+    });
 }
 
 app.UseCors(AngularDevCorsPolicy);
