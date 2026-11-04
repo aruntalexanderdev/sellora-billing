@@ -1,0 +1,122 @@
+name: Build and deploy Sellora Billing Backend
+
+on:
+  push:
+    branches:
+      - claude_dev
+    paths:
+      - "backend/**"
+      - ".github/workflows/dev_sellora-billing-dev-api-claude.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  SOLUTION_PATH: "backend/Sellora.slnx"
+  API_PROJECT_PATH: "backend/src/Sellora.Api/Sellora.Api.csproj"
+  PUBLISH_DIR: "${{ github.workspace }}/publish"
+  AZURE_WEBAPP_NAME: "sellora-billing-dev-api-claude"
+
+jobs:
+  build:
+    name: Build and Publish Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Verify backend paths
+        run: |
+          echo "Checking solution and API project paths..."
+          test -f "${{ env.SOLUTION_PATH }}" || {
+            echo "ERROR: Solution not found: ${{ env.SOLUTION_PATH }}"
+            find backend -maxdepth 3 -type f \
+              \( -name "*.sln" -o -name "*.slnx" \)
+            exit 1
+          }
+          test -f "${{ env.API_PROJECT_PATH }}" || {
+            echo "ERROR: API project not found: ${{ env.API_PROJECT_PATH }}"
+            find backend -maxdepth 5 -type f -name "*.csproj"
+            exit 1
+          }
+
+      - name: Restore dependencies
+        run: dotnet restore "${{ env.SOLUTION_PATH }}"
+
+      - name: Build solution
+        run: >
+          dotnet build "${{ env.SOLUTION_PATH }}"
+          --configuration Release
+          --no-restore
+
+      - name: Test
+        run: >
+          dotnet test "${{ env.SOLUTION_PATH }}"
+          --configuration Release
+          --no-build
+          --logger trx
+          --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: TestResults/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish API
+        run: >
+          dotnet publish "${{ env.API_PROJECT_PATH }}"
+          --configuration Release
+          --no-build
+          --output "${{ env.PUBLISH_DIR }}"
+
+      - name: Upload published API
+        uses: actions/upload-artifact@v4
+        with:
+          name: sellora-backend-publish
+          path: ${{ env.PUBLISH_DIR }}/
+          if-no-files-found: error
+          retention-days: 3
+
+  deploy:
+    name: Deploy to Azure App Service
+    runs-on: ubuntu-latest
+    needs: build
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download published API
+        uses: actions/download-artifact@v4
+        with:
+          name: sellora-backend-publish
+          path: ./publish
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_492AC88EFD674BFB80BF2238823AA7AD }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_730DE1AEAA364A79BBC165C6BA253DDD }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_39EB3DF310524F6AB2C51C97DF685964 }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          slot-name: Production
+          package: ./publish
