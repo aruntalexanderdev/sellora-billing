@@ -797,7 +797,9 @@ In practice, Phase 8 activities (rehearsal, validation, snapshot) happen **at th
 
 ## 27. Open decisions and unresolved questions
 
-| # | Decision | Recommendation |
+> **Status (2026-11-04): all recommendations below were accepted by the product owner.** D5 still needs the detailed branch model before Phase B starts.
+
+| # | Decision | Recommendation (accepted) |
 |---|---|---|
 | D1 | Rename `SellingMode` → `ProductUnit` in DB and code, or keep the old names to reduce churn? | Rename. It is used for purchases too, and it's cheaper now than later. |
 | D2 | If a unit has no explicit price, derive it as base price × factor, or refuse to sell? | Refuse in the POS but show the suggested derived price in the pricing grid (explicit is safer for hypermarket promotions). |
