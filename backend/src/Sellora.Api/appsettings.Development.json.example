@@ -14,5 +14,8 @@
     "SigningKey": "REPLACE_WITH_YOUR_OWN_LOCAL_DEV_SIGNING_KEY",
     "AccessTokenMinutes": 15,
     "RefreshTokenDays": 14
+  },
+  "Database": {
+    "ApplyMigrationsOnStartup": true
   }
 }

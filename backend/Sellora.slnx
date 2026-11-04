@@ -5,6 +5,7 @@
     <Project Path="src/Sellora.Infrastructure/Sellora.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Sellora.IntegrationTests/Sellora.IntegrationTests.csproj" />
     <Project Path="tests/Sellora.Tests/Sellora.Tests.csproj" />
   </Folder>
 </Solution>
