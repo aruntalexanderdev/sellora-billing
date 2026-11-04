@@ -1598,8 +1598,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<short>("DecimalPlaces")
+                        .HasColumnType("smallint");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("MeasurementCategory")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1611,10 +1619,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
 
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                    b.Property<decimal?>("StandardFactor")
+                        .HasColumnType("numeric(28,10)");
 
                     b.HasKey("Id");
 
@@ -1624,7 +1630,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("ShortCode")
                         .IsUnique();
 
-                    b.ToTable("Units");
+                    b.ToTable("Units", t =>
+                        {
+                            t.HasCheckConstraint("CK_Units_DecimalPlaces_Category", "\"MeasurementCategory\" NOT IN ('Count','Packaging') OR \"DecimalPlaces\" = 0");
+
+                            t.HasCheckConstraint("CK_Units_DecimalPlaces_Range", "\"DecimalPlaces\" BETWEEN 0 AND 3");
+
+                            t.HasCheckConstraint("CK_Units_MeasurementCategory_Domain", "\"MeasurementCategory\" IN ('Count','Weight','Volume','Length','Packaging')");
+
+                            t.HasCheckConstraint("CK_Units_StandardFactor_Category", "\"StandardFactor\" IS NULL OR (\"MeasurementCategory\" IN ('Weight','Volume','Length') AND \"StandardFactor\" > 0)");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.User", b =>

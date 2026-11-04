@@ -13,37 +13,80 @@
   <form [formGroup]="form" (ngSubmit)="submit()">
     <div class="grid-2">
       <div>
-        <label class="field-label">Name</label>
-        <input type="text" formControlName="name" class="field-input" placeholder="Kilogram" />
-        @if (form.get('name')?.touched && form.get('name')?.errors?.['required']) {
+        <label class="field-label" for="unit-name">Name</label>
+        <input id="unit-name" type="text" formControlName="name" class="field-input" maxlength="60" placeholder="Kilogram" />
+        @if (form.controls.name.touched && form.controls.name.errors?.['required']) {
           <div class="field-error">Name is required.</div>
         }
-        @if (form.get('name')?.errors?.['server']) {
-          <div class="field-error">{{ form.get('name')?.errors?.['server'] }}</div>
+        @if (form.controls.name.errors?.['maxlength']) {
+          <div class="field-error">Name must be 60 characters or fewer.</div>
+        }
+        @if (form.controls.name.errors?.['server']) {
+          <div class="field-error">{{ form.controls.name.errors?.['server'] }}</div>
         }
       </div>
       <div>
-        <label class="field-label">Short code</label>
-        <input type="text" formControlName="shortCode" class="field-input" placeholder="kg" />
-        @if (form.get('shortCode')?.touched && form.get('shortCode')?.errors?.['required']) {
+        <label class="field-label" for="unit-code">Short code</label>
+        <input id="unit-code" type="text" formControlName="shortCode" class="field-input" maxlength="10" placeholder="kg" />
+        @if (form.controls.shortCode.touched && form.controls.shortCode.errors?.['required']) {
           <div class="field-error">Short code is required.</div>
         }
-        @if (form.get('shortCode')?.errors?.['server']) {
-          <div class="field-error">{{ form.get('shortCode')?.errors?.['server'] }}</div>
+        @if (form.controls.shortCode.errors?.['maxlength']) {
+          <div class="field-error">Short code must be 10 characters or fewer.</div>
+        }
+        @if (form.controls.shortCode.errors?.['server']) {
+          <div class="field-error">{{ form.controls.shortCode.errors?.['server'] }}</div>
         }
       </div>
     </div>
 
+    @if (isInUse()) {
+      <div class="field-hint" data-testid="in-use-note">Used by products — create a new unit to change these.</div>
+    }
+
     <div class="grid-2">
       <div>
-        <label class="field-label">Type</label>
-        <select formControlName="type" class="field-input">
-          @for (t of unitTypes; track t) {
-            <option [value]="t">{{ t }}</option>
+        <label class="field-label" for="unit-category">Category</label>
+        <select id="unit-category" formControlName="measurementCategory" class="field-input">
+          @for (c of categories; track c) {
+            <option [ngValue]="c">{{ c }}</option>
           }
         </select>
+        @if (form.controls.measurementCategory.errors?.['server']) {
+          <div class="field-error">{{ form.controls.measurementCategory.errors?.['server'] }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label" for="unit-decimals">Decimal places</label>
+        <select id="unit-decimals" formControlName="decimalPlaces" class="field-input">
+          @for (d of decimalOptions; track d) {
+            <option [ngValue]="d">{{ d }}</option>
+          }
+        </select>
+        @if (!isMeasurable()) {
+          <div class="field-hint">Count and packaging units are always whole numbers.</div>
+        }
+        @if (form.controls.decimalPlaces.errors?.['server']) {
+          <div class="field-error">{{ form.controls.decimalPlaces.errors?.['server'] }}</div>
+        }
       </div>
     </div>
+
+    @if (isMeasurable()) {
+      <div class="grid-2">
+        <div>
+          <label class="field-label" for="unit-factor">Standard factor (optional)</label>
+          <input id="unit-factor" type="number" step="any" min="0" formControlName="standardFactor" class="field-input" />
+          <div class="field-hint">1 {{ unitLabel() }} = ___ {{ referenceUnit() }}</div>
+          @if (form.controls.standardFactor.touched && form.controls.standardFactor.errors?.['positive']) {
+            <div class="field-error">Standard factor must be greater than 0.</div>
+          }
+          @if (form.controls.standardFactor.errors?.['server']) {
+            <div class="field-error">{{ form.controls.standardFactor.errors?.['server'] }}</div>
+          }
+        </div>
+      </div>
+    }
 
     <div class="actions">
       <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>

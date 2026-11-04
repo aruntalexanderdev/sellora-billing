@@ -33,7 +33,7 @@ public sealed record StockScenario(Guid UserId, Guid SupplierId, Guid CustomerId
             Id = Guid.NewGuid(), FirstName = "Ravi", LastName = "Krishnan", Username = "admin",
             Email = "admin@selloramart.in", PasswordHash = "x", RoleId = role.Id, Role = role,
         };
-        var unit = new Unit { Id = Guid.NewGuid(), Name = "Kilogram", ShortCode = "kg", Type = UnitType.Weight };
+        var unit = new Unit { Id = Guid.NewGuid(), Name = "Kilogram", ShortCode = "kg", MeasurementCategory = MeasurementCategory.Weight, DecimalPlaces = 3, StandardFactor = 1m };
         var tax = new Tax { Id = Guid.NewGuid(), Name = "GST 5%", RatePercent = 5m };
         var supplier = new Supplier { Id = Guid.NewGuid(), Name = "Annapoorna Traders", CurrencyId = inr.Id };
         var customer = new Customer { Id = Guid.NewGuid(), Name = "Walk-in Customer", IsWalkIn = true };

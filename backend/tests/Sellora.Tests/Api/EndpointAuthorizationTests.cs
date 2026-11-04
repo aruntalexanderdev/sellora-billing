@@ -75,6 +75,18 @@ public class EndpointAuthorizationTests
         Assert.Contains(policy, Policies(controller, method));
     }
 
+    [Theory]
+    [InlineData("List", "Masters.View")]
+    [InlineData("Get", "Masters.View")]
+    [InlineData("Create", "Masters.Edit")]
+    [InlineData("Update", "Masters.Edit")]
+    [InlineData("SetActive", "Masters.Edit")]
+    public void UnitEndpoints_RequireMastersPermission(string action, string policy)
+    {
+        var method = typeof(UnitsController).GetMethod(action)!;
+        Assert.Contains(policy, Policies(typeof(UnitsController), method));
+    }
+
     [Fact]
     public void NoEndpointLetsAClientWriteBatchesDirectly()
     {

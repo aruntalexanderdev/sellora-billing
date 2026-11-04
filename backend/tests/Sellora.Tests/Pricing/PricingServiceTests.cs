@@ -27,7 +27,7 @@ public class PricingServiceTests
             Id = Guid.NewGuid(), FirstName = "Ravi", LastName = "Krishnan", Username = "admin",
             Email = "admin@selloramart.in", PasswordHash = "x", RoleId = role.Id, Role = role,
         };
-        var unit = new Unit { Id = Guid.NewGuid(), Name = "Kilogram", ShortCode = "kg", Type = UnitType.Weight };
+        var unit = new Unit { Id = Guid.NewGuid(), Name = "Kilogram", ShortCode = "kg", MeasurementCategory = MeasurementCategory.Weight, DecimalPlaces = 3, StandardFactor = 1m };
         var tax = new Tax { Id = Guid.NewGuid(), Name = "GST 5%", RatePercent = 5m };
         var product = new Product
         {

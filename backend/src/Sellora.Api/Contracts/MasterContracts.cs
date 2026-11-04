@@ -3,12 +3,14 @@ using Sellora.Domain.Entities;
 
 namespace Sellora.Api.Contracts;
 
-public record UnitDto(Guid Id, string Name, string ShortCode, UnitType Type, bool IsActive);
+public record UnitDto(Guid Id, string Name, string ShortCode, MeasurementCategory MeasurementCategory, short DecimalPlaces, decimal? StandardFactor, bool IsActive, bool IsInUse);
 
 public record UpsertUnitRequest(
     [Required, MaxLength(60)] string Name,
     [Required, MaxLength(10)] string ShortCode,
-    UnitType Type
+    [Required] MeasurementCategory? MeasurementCategory,
+    [Range(0, 3)] short DecimalPlaces,
+    [Range(typeof(decimal), "0.0000000001", "1000000000", ParseLimitsInInvariantCulture = true, ConvertValueInInvariantCulture = true)] decimal? StandardFactor
 );
 
 public record TaxDto(Guid Id, string Name, decimal RatePercent, bool IsActive);

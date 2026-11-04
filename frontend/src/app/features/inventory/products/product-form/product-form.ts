@@ -37,7 +37,18 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
   readonly productId = this.route.snapshot.paramMap.get('id');
   readonly isEdit = computed(() => this.productId !== null && this.productId !== 'new');
 
-  readonly units = signal<UnitItem[]>([]);
+  /** All units from the master (active and inactive). */
+  private readonly allUnits = signal<UnitItem[]>([]);
+  /** Base unit of the loaded product (edit only); always kept selectable so edit never blanks. */
+  private readonly currentBaseUnitId = signal<string | null>(null);
+
+  /** Base-unit options: active, non-Packaging units, plus the product's current base unit. */
+  readonly units = computed<UnitItem[]>(() => {
+    const current = this.currentBaseUnitId();
+    return this.allUnits().filter(
+      (u) => u.id === current || (u.isActive && u.measurementCategory !== 'Packaging'),
+    );
+  });
   readonly taxes = signal<TaxItem[]>([]);
 
   readonly form = this.fb.nonNullable.group({
@@ -63,12 +74,13 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
   }
 
   ngOnInit(): void {
-    this.unitsService.list().subscribe({ next: (units) => this.units.set(units.filter((u) => u.isActive)) });
+    this.unitsService.list().subscribe({ next: (units) => this.allUnits.set(units) });
     this.taxesService.list().subscribe({ next: (taxes) => this.taxes.set(taxes.filter((t) => t.isActive)) });
 
     if (this.isEdit()) {
       this.productsService.get(this.productId!).subscribe({
         next: (p) => {
+          this.currentBaseUnitId.set(p.baseUnitId);
           this.form.patchValue({
             sku: p.sku,
             name: p.name,
