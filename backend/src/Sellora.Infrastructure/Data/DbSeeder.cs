@@ -185,26 +185,43 @@ public static class DbSeeder
         await db.SaveChangesAsync(ct);
     }
 
-    private static readonly (string Name, string ShortCode, UnitType Type)[] UnitSeed =
+    private static readonly (string Name, string ShortCode, MeasurementCategory Category, short DecimalPlaces, decimal? StandardFactor)[] UnitSeed =
     [
-        ("Kilogram", "kg", UnitType.Weight),
-        ("Litre", "litre", UnitType.Volume),
-        ("Box", "box", UnitType.Count),
-        ("Piece", "pc", UnitType.Count),
+        ("Kilogram", "kg", MeasurementCategory.Weight, 3, 1m),
+        ("Litre", "litre", MeasurementCategory.Volume, 3, 1m),
+        ("Piece", "pc", MeasurementCategory.Count, 0, null),
+        ("Box", "box", MeasurementCategory.Packaging, 0, null),
+        ("Half Carton", "hctn", MeasurementCategory.Packaging, 0, null),
+        ("Full Carton", "fctn", MeasurementCategory.Packaging, 0, null),
+        ("Gram", "g", MeasurementCategory.Weight, 0, 0.001m),
+        ("Millilitre", "ml", MeasurementCategory.Volume, 0, 0.001m),
     ];
 
     private static async Task<Dictionary<string, Unit>> SeedUnitsAsync(SelloraDbContext db, CancellationToken ct)
     {
         var existing = await db.Units.ToListAsync(ct);
-        foreach (var (name, shortCode, type) in UnitSeed)
+        // Keyed by the seed short code so product seeds resolve even when an existing unit
+        // matched on name (different code) or differs only in case.
+        var bySeedCode = new Dictionary<string, Unit>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, shortCode, category, decimalPlaces, standardFactor) in UnitSeed)
         {
-            if (existing.Any(u => u.ShortCode == shortCode)) continue;
-            var unit = new Unit { Id = Guid.NewGuid(), Name = name, ShortCode = shortCode, Type = type };
-            db.Units.Add(unit);
-            existing.Add(unit);
+            // Never update existing rows; skip when the code or name is already taken (case-insensitive).
+            var match = existing.FirstOrDefault(u => string.Equals(u.ShortCode, shortCode, StringComparison.OrdinalIgnoreCase))
+                        ?? existing.FirstOrDefault(u => string.Equals(u.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                match = new Unit
+                {
+                    Id = Guid.NewGuid(), Name = name, ShortCode = shortCode,
+                    MeasurementCategory = category, DecimalPlaces = decimalPlaces, StandardFactor = standardFactor,
+                };
+                db.Units.Add(match);
+                existing.Add(match);
+            }
+            bySeedCode[shortCode] = match;
         }
         await db.SaveChangesAsync(ct);
-        return existing.ToDictionary(u => u.ShortCode);
+        return bySeedCode;
     }
 
     private static readonly (string Name, decimal Rate)[] TaxSeed =
@@ -264,7 +281,7 @@ public static class DbSeeder
         new("SUG-01", "Sugar", "Staples", "kg", 5m, 60m, [new("1 kg pack", 1m)]),
         new("SALT-IOD", "Iodised Salt", "Staples", "kg", 5m, 30m, [new("1 kg pack", 1m)]),
         new("SPC-TUR", "Turmeric Powder", "Spices", "kg", 5m, 10m, [new("200 g box", 0.2m), new("Loose kg", 1m)]),
-        new("SNK-MIX", "Namkeen Mixture", "Snacks", "box", 12m, 25m, [new("1 box", 1m)]),
+        new("SNK-MIX", "Namkeen Mixture", "Snacks", "pc", 12m, 25m, [new("Piece", 1m)]),
     ];
 
     private static async Task SeedProductsAsync(SelloraDbContext db, Dictionary<string, Unit> units, Dictionary<decimal, Tax> taxes, CancellationToken ct)
@@ -274,13 +291,19 @@ public static class DbSeeder
         {
             if (existingSkus.Contains(seed.Sku)) continue;
 
+            // Never attach a seeded product to an unsuitable base unit (Packaging or inactive), e.g. when an
+            // existing database already had a unit with the seed's code or name.
+            if (!units.TryGetValue(seed.UnitCode, out var baseUnit)
+                || !baseUnit.IsActive
+                || baseUnit.MeasurementCategory == MeasurementCategory.Packaging) continue;
+
             var product = new Product
             {
                 Id = Guid.NewGuid(),
                 Sku = seed.Sku,
                 Name = seed.Name,
                 Category = seed.Category,
-                BaseUnitId = units[seed.UnitCode].Id,
+                BaseUnitId = baseUnit.Id,
                 TaxId = taxes[seed.TaxRate].Id,
                 ReorderLevel = seed.ReorderLevel,
             };

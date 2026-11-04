@@ -51,7 +51,7 @@
         <select formControlName="baseUnitId" class="field-input">
           <option value="" disabled>Select a unit…</option>
           @for (u of units(); track u.id) {
-            <option [value]="u.id">{{ u.name }} ({{ u.shortCode }})</option>
+            <option [value]="u.id">{{ u.name }} ({{ u.shortCode }}){{ u.isActive ? '' : ' — inactive' }}</option>
           }
         </select>
         @if (form.get('baseUnitId')?.touched && form.get('baseUnitId')?.invalid) {

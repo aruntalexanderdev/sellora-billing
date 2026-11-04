@@ -4,6 +4,7 @@ using Sellora.Domain.Entities;
 using Sellora.Domain.Inventory;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
+using Sellora.Tests.TestData;
 
 namespace Sellora.Tests.Inventory;
 
@@ -29,7 +30,7 @@ public class ProductServiceTests
             Id = Guid.NewGuid(), FirstName = "Ravi", LastName = "Krishnan", Username = "admin",
             Email = "admin@selloramart.in", PasswordHash = "x", RoleId = role.Id, Role = role,
         };
-        var unit = new Unit { Id = Guid.NewGuid(), Name = "Kilogram", ShortCode = "kg", Type = UnitType.Weight };
+        var unit = new Unit { Id = Guid.NewGuid(), Name = "Kilogram", ShortCode = "kg", MeasurementCategory = MeasurementCategory.Weight, DecimalPlaces = 3, StandardFactor = 1m };
         var tax = new Tax { Id = Guid.NewGuid(), Name = "GST 5%", RatePercent = 5m };
         var inr = new Currency { Id = Guid.NewGuid(), Code = "INR", Name = "Indian Rupee", Symbol = "₹" };
         var supplier = new Supplier { Id = Guid.NewGuid(), Name = "Annapoorna Traders", CurrencyId = inr.Id };
@@ -75,7 +76,7 @@ public class ProductServiceTests
     public async Task UpdateProductAsync_ChangingBaseUnit_IsBlockedOnceStockHistoryExists()
     {
         var f = await SeedAsync();
-        var gram = new Unit { Id = Guid.NewGuid(), Name = "Gram", ShortCode = "g", Type = UnitType.Weight };
+        var gram = new Unit { Id = Guid.NewGuid(), Name = "Gram", ShortCode = "g", MeasurementCategory = MeasurementCategory.Weight, DecimalPlaces = 0, StandardFactor = 0.001m };
         f.Db.Units.Add(gram);
         f.Db.PurchaseBatches.Add(new PurchaseBatch { Id = Guid.NewGuid(), ProductId = f.Product.Id, PurchasedBaseQty = 10, RemainingBaseQty = 10, UnitCost = 5 });
         await f.Db.SaveChangesAsync();
@@ -90,7 +91,7 @@ public class ProductServiceTests
     public async Task UpdateProductAsync_ChangingBaseUnit_IsAllowedWhenNoStockHistory()
     {
         var f = await SeedAsync();
-        var gram = new Unit { Id = Guid.NewGuid(), Name = "Gram", ShortCode = "g", Type = UnitType.Weight };
+        var gram = new Unit { Id = Guid.NewGuid(), Name = "Gram", ShortCode = "g", MeasurementCategory = MeasurementCategory.Weight, DecimalPlaces = 0, StandardFactor = 0.001m };
         f.Db.Units.Add(gram);
         await f.Db.SaveChangesAsync();
 
@@ -191,5 +192,138 @@ public class ProductServiceTests
         var input = BuildInput(f, new SellingModeInputItem(Guid.NewGuid(), "Ghost", 1m));
 
         await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.UpdateProductAsync(f.Product.Id, input));
+    }
+
+    // ---------- Base unit rules (Phase 1: Unit Master) ----------
+
+    private static UpsertProductInput NewProductInput(Fixture f, Guid baseUnitId) => new(
+        "NEW-SKU", "New product", "Test", baseUnitId, f.Tax.Id, 0m, [new SellingModeInputItem(null, "Each", 1m)]);
+
+    private static UpsertProductInput UnchangedInput(Fixture f) => BuildInput(f,
+        new SellingModeInputItem(f.Bag.Id, f.Bag.Label, f.Bag.ConversionFactorToBase),
+        new SellingModeInputItem(f.LooseKg.Id, f.LooseKg.Label, f.LooseKg.ConversionFactorToBase));
+
+    private static async Task<Unit> AddUnitAsync(Fixture f, Unit unit)
+    {
+        f.Db.Units.Add(unit);
+        await f.Db.SaveChangesAsync();
+        return unit;
+    }
+
+    [Fact]
+    public async Task CreateProductAsync_PackagingBaseUnit_RejectedOnBaseUnitId()
+    {
+        var f = await SeedAsync();
+        var box = await AddUnitAsync(f, TestUnits.Box());
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateProductAsync(NewProductInput(f, box.Id)));
+
+        Assert.Equal(nameof(UpsertProductInput.BaseUnitId), ex.Field);
+        Assert.Equal(1, await f.Db.Products.CountAsync());
+    }
+
+    [Fact]
+    public async Task CreateProductAsync_ActiveCountBaseUnit_Created()
+    {
+        var f = await SeedAsync();
+        var piece = await AddUnitAsync(f, TestUnits.Piece());
+
+        var product = await f.Service.CreateProductAsync(NewProductInput(f, piece.Id));
+
+        Assert.Equal(piece.Id, product.BaseUnitId);
+    }
+
+    [Fact]
+    public async Task CreateProductAsync_InactiveBaseUnit_RejectedOnBaseUnitId()
+    {
+        var f = await SeedAsync();
+        var piece = await AddUnitAsync(f, TestUnits.Piece().Inactive());
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateProductAsync(NewProductInput(f, piece.Id)));
+
+        Assert.Equal(nameof(UpsertProductInput.BaseUnitId), ex.Field);
+        Assert.Equal(1, await f.Db.Products.CountAsync());
+    }
+
+    [Fact]
+    public async Task CreateProductAsync_UnknownBaseUnit_RejectedOnBaseUnitId()
+    {
+        var f = await SeedAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateProductAsync(NewProductInput(f, Guid.NewGuid())));
+
+        Assert.Equal(nameof(UpsertProductInput.BaseUnitId), ex.Field);
+    }
+
+    [Fact]
+    public async Task UpdateProductAsync_ChangingToPackagingBaseUnit_RejectedOnBaseUnitId()
+    {
+        var f = await SeedAsync();
+        var box = await AddUnitAsync(f, TestUnits.Box());
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(
+            () => f.Service.UpdateProductAsync(f.Product.Id, UnchangedInput(f) with { BaseUnitId = box.Id }));
+
+        Assert.Equal(nameof(UpsertProductInput.BaseUnitId), ex.Field);
+        Assert.Equal(f.Unit.Id, (await f.Db.Products.AsNoTracking().SingleAsync()).BaseUnitId);
+    }
+
+    [Fact]
+    public async Task UpdateProductAsync_KeepingLegacyPackagingBaseUnit_RejectedOnBaseUnitId()
+    {
+        // A product whose base unit is (still) a Packaging unit cannot be saved until its base is fixed.
+        var f = await SeedAsync();
+        f.Unit.MeasurementCategory = MeasurementCategory.Packaging;
+        f.Unit.DecimalPlaces = 0;
+        f.Unit.StandardFactor = null;
+        await f.Db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.UpdateProductAsync(f.Product.Id, UnchangedInput(f)));
+
+        Assert.Equal(nameof(UpsertProductInput.BaseUnitId), ex.Field);
+    }
+
+    [Fact]
+    public async Task UpdateProductAsync_ChangingToInactiveBaseUnit_RejectedOnBaseUnitId()
+    {
+        var f = await SeedAsync();
+        var gram = await AddUnitAsync(f, TestUnits.Gram().Inactive());
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(
+            () => f.Service.UpdateProductAsync(f.Product.Id, UnchangedInput(f) with { BaseUnitId = gram.Id }));
+
+        Assert.Equal(nameof(UpsertProductInput.BaseUnitId), ex.Field);
+        Assert.Equal(f.Unit.Id, (await f.Db.Products.AsNoTracking().SingleAsync()).BaseUnitId);
+    }
+
+    [Fact]
+    public async Task UpdateProductAsync_KeepingAlreadyInactiveBaseUnit_Allowed()
+    {
+        var f = await SeedAsync();
+        f.Unit.IsActive = false;
+        await f.Db.SaveChangesAsync();
+
+        var updated = await f.Service.UpdateProductAsync(f.Product.Id, UnchangedInput(f) with { Name = "Ponni Rice (old stock)" });
+
+        Assert.NotNull(updated);
+        Assert.Equal(f.Unit.Id, updated!.BaseUnitId);
+        Assert.Equal("Ponni Rice (old stock)", updated.Name);
+    }
+
+    [Fact]
+    public async Task UpdateProductAsync_MissingProduct_ReturnsNull()
+    {
+        var f = await SeedAsync();
+
+        Assert.Null(await f.Service.UpdateProductAsync(Guid.NewGuid(), UnchangedInput(f)));
+    }
+
+    [Fact]
+    public async Task UpdateProductAsync_MissingProductWithInvalidBaseUnit_ReturnsNullNotValidationError()
+    {
+        var f = await SeedAsync();
+        var box = await AddUnitAsync(f, TestUnits.Box());
+
+        Assert.Null(await f.Service.UpdateProductAsync(Guid.NewGuid(), UnchangedInput(f) with { BaseUnitId = box.Id }));
     }
 }

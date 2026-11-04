@@ -33,7 +33,7 @@ public class MultiCurrencyPurchaseTests
             Id = Guid.NewGuid(), FirstName = "Ravi", LastName = "Krishnan", Username = "admin",
             Email = "admin@selloramart.in", PasswordHash = "x", RoleId = role.Id, Role = role,
         };
-        var unit = new Unit { Id = Guid.NewGuid(), Name = "Kilogram", ShortCode = "kg", Type = UnitType.Weight };
+        var unit = new Unit { Id = Guid.NewGuid(), Name = "Kilogram", ShortCode = "kg", MeasurementCategory = MeasurementCategory.Weight, DecimalPlaces = 3, StandardFactor = 1m };
         var tax = new Tax { Id = Guid.NewGuid(), Name = $"GST {taxRate}%", RatePercent = taxRate };
         var inr = new Currency { Id = Guid.NewGuid(), Code = "INR", Name = "Indian Rupee", Symbol = "₹" };
         var usd = new Currency { Id = Guid.NewGuid(), Code = "USD", Name = "US Dollar", Symbol = "$" };

@@ -6,11 +6,17 @@ using Sellora.Infrastructure.Data;
 
 namespace Sellora.Infrastructure.Services;
 
+/// <remarks>Create and update run in a transaction that holds a <c>FOR SHARE</c> lock on the base unit row
+/// from validation until commit. <see cref="UnitService"/> takes <c>FOR UPDATE</c> on the same row before its
+/// in-use check, so a concurrent unit edit/deactivation and a product save are serialised: neither can pass its
+/// validation against state the other is about to change.</remarks>
 public class ProductService(SelloraDbContext db) : IProductService
 {
     public async Task<Product> CreateProductAsync(UpsertProductInput input, CancellationToken ct = default)
     {
-        await ValidateReferencesAsync(input, ct);
+        await using var transaction = await StockLocks.BeginAsync(db, ct);
+
+        await ValidateReferencesAsync(input, currentBaseUnitId: null, ct);
 
         if (await db.Products.AnyAsync(p => p.Sku.ToLower() == input.Sku.Trim().ToLower(), ct))
         {
@@ -41,6 +47,7 @@ public class ProductService(SelloraDbContext db) : IProductService
 
         db.Products.Add(product);
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
 
         await db.Entry(product).Reference(p => p.BaseUnit).LoadAsync(ct);
         await db.Entry(product).Reference(p => p.Tax).LoadAsync(ct);
@@ -49,11 +56,13 @@ public class ProductService(SelloraDbContext db) : IProductService
 
     public async Task<Product?> UpdateProductAsync(Guid productId, UpsertProductInput input, CancellationToken ct = default)
     {
-        await ValidateReferencesAsync(input, ct);
+        await using var transaction = await StockLocks.BeginAsync(db, ct);
 
         var product = await db.Products.Include(p => p.SellingModes).Include(p => p.BaseUnit).Include(p => p.Tax)
             .SingleOrDefaultAsync(p => p.Id == productId, ct);
         if (product is null) return null;
+
+        await ValidateReferencesAsync(input, product.BaseUnitId, ct);
 
         if (await db.Products.AnyAsync(p => p.Id != productId && p.Sku.ToLower() == input.Sku.Trim().ToLower(), ct))
         {
@@ -78,6 +87,7 @@ public class ProductService(SelloraDbContext db) : IProductService
         await ReconcileSellingModesAsync(product, input.SellingModes, ct);
 
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
 
         if (product.BaseUnitId != product.BaseUnit.Id) await db.Entry(product).Reference(p => p.BaseUnit).LoadAsync(ct);
         if (product.TaxId != product.Tax.Id) await db.Entry(product).Reference(p => p.Tax).LoadAsync(ct);
@@ -146,11 +156,29 @@ public class ProductService(SelloraDbContext db) : IProductService
         }
     }
 
-    private async Task ValidateReferencesAsync(UpsertProductInput input, CancellationToken ct)
+    /// <param name="currentBaseUnitId">The product's stored base unit on update; null on create. An inactive
+    /// base unit is only rejected when it is being newly assigned, so legacy products whose base unit has
+    /// since been deactivated remain editable.</param>
+    private async Task ValidateReferencesAsync(UpsertProductInput input, Guid? currentBaseUnitId, CancellationToken ct)
     {
-        if (!await db.Units.AnyAsync(u => u.Id == input.BaseUnitId, ct))
+        // FOR SHARE (relational only): blocks a concurrent unit update/deactivation until this product commits.
+        // Not composed further, so the locking clause stays at the top level of the statement.
+        var baseUnit = db.Database.IsRelational()
+            ? (await db.Units.FromSqlInterpolated($"SELECT * FROM \"Units\" WHERE \"Id\" = {input.BaseUnitId} FOR SHARE")
+                .AsNoTracking().ToListAsync(ct)).SingleOrDefault()
+            : await db.Units.AsNoTracking().SingleOrDefaultAsync(u => u.Id == input.BaseUnitId, ct);
+        if (baseUnit is null)
         {
             throw new DomainValidationException(nameof(input.BaseUnitId), "Select a valid base unit.");
+        }
+        if (baseUnit.MeasurementCategory == MeasurementCategory.Packaging)
+        {
+            throw new DomainValidationException(nameof(input.BaseUnitId),
+                "A packaging unit cannot be a base unit; choose the unit stock is counted in (e.g. Piece).");
+        }
+        if (!baseUnit.IsActive && input.BaseUnitId != currentBaseUnitId)
+        {
+            throw new DomainValidationException(nameof(input.BaseUnitId), "Select an active base unit.");
         }
         if (!await db.Taxes.AnyAsync(t => t.Id == input.TaxId, ct))
         {

@@ -79,14 +79,33 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 app.UseExceptionHandler();
 
-// Apply pending EF Core migrations and idempotent seed data on every startup, in every environment.
-// This keeps Neon (or any deployed DB) in sync automatically on each deploy - no manual migration step.
-using (var scope = app.Services.CreateScope())
+// Startup migrations + idempotent seed data are gated by Database:ApplyMigrationsOnStartup (decision D10).
+// The code default when the key is missing is false, BUT the base appsettings.json currently ships true so the
+// existing dev Azure App Service keeps migrating/seeding on deploy. Follow-up (user action): set
+// Database__ApplyMigrationsOnStartup=true on the dev App Service, then flip appsettings.json to false.
+// Production must set Database__ApplyMigrationsOnStartup=false and apply a reviewed
+// `dotnet ef migrations script --idempotent` output after taking a database snapshot/branch.
+var applyMigrationsOnStartup = app.Configuration.GetValue("Database:ApplyMigrationsOnStartup", false);
+if (applyMigrationsOnStartup)
 {
+    if (app.Environment.IsProduction())
+    {
+        // Not blocking: the dev Azure app currently runs with the Production environment name.
+        app.Logger.LogWarning(
+            "Applying EF Core migrations and seed on startup in Production — D10 requires reviewed scripts for production; set Database__ApplyMigrationsOnStartup=false.");
+    }
+
+    app.Logger.LogInformation("Applying EF Core migrations and seed data on startup.");
+    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<SelloraDbContext>();
     var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
     await db.Database.MigrateAsync();
     await DbSeeder.SeedAsync(db, hasher);
+}
+else
+{
+    app.Logger.LogInformation(
+        "Database:ApplyMigrationsOnStartup is false; EF Core migrations and seed data were not applied on startup.");
 }
 
 /*

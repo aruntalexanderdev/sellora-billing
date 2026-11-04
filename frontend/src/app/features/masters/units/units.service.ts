@@ -14,6 +14,10 @@ export class UnitsService {
     return this.http.get<UnitItem[]>(BASE_URL);
   }
 
+  get(id: string): Observable<UnitItem> {
+    return this.http.get<UnitItem>(`${BASE_URL}/${id}`);
+  }
+
   create(request: UpsertUnitRequest): Observable<UnitItem> {
     return this.http.post<UnitItem>(BASE_URL, request);
   }
