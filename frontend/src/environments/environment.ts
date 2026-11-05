@@ -1,4 +1,4 @@
 export const environment = {
   production: true,
-  apiBaseUrl: '/api/v1',
+  apiBaseUrl: 'https://sellora-billing-dev-api-claude-cvhtdaaacyd7hkfw.southindia-01.azurewebsites.net/api/v1',
 };
