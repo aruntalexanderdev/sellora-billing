@@ -1,0 +1,206 @@
+<div class="units-editor">
+  <div class="units-header">
+    <span class="field-label header-label">Units and packaging</span>
+    <button type="button" class="link-btn" (click)="addRow()">+ Add unit</button>
+  </div>
+  <p class="units-hint">
+    Describe each pack by what it contains, e.g. "1 Box contains 10 Piece". Conversion to the base unit is worked out
+    for you.
+  </p>
+
+  @if (arrayError()) {
+    <div class="field-error array-error">{{ arrayError() }}</div>
+  }
+
+  @for (row of units().controls; track row; let i = $index) {
+    @let v = rows()[i];
+    @if (v) {
+      <div
+        class="unit-row"
+        [formGroup]="row"
+        [class.is-base]="v.isBaseUnit"
+        [class.is-locked]="v.isLocked"
+        [class.is-inactive]="!v.isActive"
+        [attr.data-row]="i"
+      >
+        <div class="row-structure">
+          @if (v.isBaseUnit) {
+            <div class="structure-text">
+              <span class="tag tag-base">Base</span>
+              <strong>{{ v.unitId ? unitName(v.unitId) : 'Select a base unit above' }}</strong>
+              <span class="muted">1 of this is 1 in stock</span>
+            </div>
+          } @else if (v.isLocked) {
+            <div class="structure-text">
+              <strong>{{ unitName(v.unitId) }}</strong>
+              <span class="muted">contains</span>
+              <strong>{{ formatFactor(v.innerQuantity ?? 0) }}</strong>
+              <span class="muted">of</span>
+              <strong>{{ innerName(i) }}</strong>
+            </div>
+          } @else {
+            <div class="structure-inputs">
+              <select
+                formControlName="unitId"
+                class="field-input unit-select"
+                aria-label="Unit"
+                (change)="selectUnit(i, $any($event.target).value)"
+              >
+                <option value="" disabled>Select a unit…</option>
+                @for (u of unitOptions()[i]; track u.id) {
+                  <option [value]="u.id">{{ u.name }} ({{ u.shortCode }}){{ u.isActive ? '' : ' — inactive' }}</option>
+                }
+              </select>
+              <span class="muted">contains</span>
+              <input
+                type="number"
+                formControlName="innerQuantity"
+                class="field-input qty-input"
+                min="0"
+                [step]="quantitySteps()[i]"
+                aria-label="Quantity of the inner unit"
+              />
+              <span class="muted">of</span>
+              <select
+                formControlName="innerUnitId"
+                class="field-input inner-select"
+                aria-label="Inner unit"
+                (change)="selectInner(i, $any($event.target).value)"
+              >
+                <option value="" disabled>Select…</option>
+                @for (o of innerOptions()[i]; track o.unitId) {
+                  <option [value]="o.unitId">{{ o.name }}</option>
+                }
+              </select>
+            </div>
+          }
+          <div class="factor">
+            @if (rowFactors()[i] !== null && baseUnit()) {
+              = {{ formatFactor(rowFactors()[i]!) }} {{ baseUnit()!.shortCode }}
+            }
+          </div>
+        </div>
+
+        @for (name of ['unitId', 'innerQuantity', 'innerUnitId']; track name) {
+          @if (controlError(i, $any(name)); as message) {
+            <div class="field-error">{{ message }}</div>
+          }
+        }
+
+        @if (v.isLocked) {
+          <div class="lock-note">
+            <svg class="lock-icon" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M4 7V5a4 4 0 1 1 8 0v2h.5A1.5 1.5 0 0 1 14 8.5v5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-5A1.5 1.5 0 0 1 3.5 7H4Zm1.5 0h5V5a2.5 2.5 0 0 0-5 0v2Z"
+              />
+            </svg>
+            <span>Locked: {{ reasonText(v.lockReason) }}. Its contents cannot change.</span>
+            @if (!v.isBaseUnit && v.isActive) {
+              <button type="button" class="link-btn" (click)="replaceRow(i)">Replace</button>
+            }
+          </div>
+        }
+
+        <div class="row-details">
+          <div class="detail-field">
+            <input type="text" formControlName="label" class="field-input" placeholder="Label (optional)" aria-label="Label" />
+            @if (controlError(i, 'label'); as message) {
+              <div class="field-error">{{ message }}</div>
+            }
+          </div>
+          <div class="detail-field">
+            <input type="text" formControlName="barcode" class="field-input" placeholder="Barcode" aria-label="Barcode" />
+            @if (controlError(i, 'barcode'); as message) {
+              <div class="field-error">{{ message }}</div>
+            }
+          </div>
+          <div class="flags">
+            <label class="flag">
+              <input type="checkbox" formControlName="isPurchasable" (change)="setFlag(i, 'isPurchasable', $any($event.target).checked)" />
+              Purchasable
+            </label>
+            <label class="flag">
+              <input type="checkbox" formControlName="isSellable" (change)="setFlag(i, 'isSellable', $any($event.target).checked)" />
+              Sellable
+            </label>
+            <label class="flag" [class.flag-disabled]="!canBeDefault(i, 'purchase')">
+              <input
+                type="checkbox"
+                [checked]="v.isDefaultPurchaseUnit"
+                [disabled]="!canBeDefault(i, 'purchase')"
+                (change)="setDefault(i, 'purchase', $any($event.target).checked)"
+              />
+              Default purchase
+            </label>
+            <label class="flag" [class.flag-disabled]="!canBeDefault(i, 'sales')">
+              <input
+                type="checkbox"
+                [checked]="v.isDefaultSalesUnit"
+                [disabled]="!canBeDefault(i, 'sales')"
+                (change)="setDefault(i, 'sales', $any($event.target).checked)"
+              />
+              Default sales
+            </label>
+            @if (!v.isBaseUnit) {
+              <label class="flag">
+                <input type="checkbox" formControlName="isActive" (change)="setFlag(i, 'isActive', $any($event.target).checked)" />
+                Active
+              </label>
+            }
+          </div>
+          @if (removable()[i]) {
+            <button type="button" class="remove-btn" (click)="removeRow(i)">Remove</button>
+          }
+        </div>
+
+        @if (rowError(i); as message) {
+          <div class="field-error">{{ message }}</div>
+        }
+        @for (issue of rowIssues()[i]; track issue) {
+          <div class="row-issue">{{ issue }}</div>
+        }
+        @for (message of rowPreviewErrors()[i]; track message) {
+          <div class="field-error">{{ message }}</div>
+        }
+      </div>
+    }
+  }
+
+  <div class="preview-panel" aria-live="polite">
+    <div class="preview-head">
+      <span class="field-label header-label">Preview</span>
+      <span class="preview-status">
+        @switch (previewStatus()) {
+          @case ('pending') { Checking… }
+          @case ('ok') { {{ preview()?.isValid ? 'Looks good' : 'Needs attention' }} }
+          @case ('failed') { Could not check units }
+          @case ('incomplete') { Complete each unit to check it }
+        }
+      </span>
+    </div>
+    @if (chains().length === 0) {
+      <p class="muted">Select a base unit to see conversions.</p>
+    } @else {
+      <ul class="chains">
+        @for (line of chains(); track line.index) {
+          <li class="chain">{{ line.chain }}</li>
+        }
+      </ul>
+    }
+    @if (previewErrors().length > 0) {
+      <ul class="preview-errors">
+        @for (e of previewErrors(); track $index) {
+          <li>{{ e.text }}</li>
+        }
+      </ul>
+    }
+    @if (previewWarnings().length > 0) {
+      <ul class="preview-warnings">
+        @for (w of previewWarnings(); track $index) {
+          <li>{{ w.text }}</li>
+        }
+      </ul>
+    }
+  </div>
+</div>

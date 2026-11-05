@@ -73,6 +73,36 @@ internal static class StockLocks
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtext({"sellora:docno:" + series}))", ct);
     }
 
+    /// <summary>
+    /// Takes FOR KEY SHARE locks on the given products (distinct, product-id order). Document creates hold this
+    /// before the StockItems lock so a concurrent product-unit edit (which takes FOR UPDATE on the product) cannot
+    /// change or deactivate the units a line is being built from. KEY SHARE does not conflict with other creates.
+    /// </summary>
+    public static async Task LockProductsKeyShareAsync(SelloraDbContext db, IEnumerable<Guid> productIds, CancellationToken ct)
+    {
+        if (!db.Database.IsRelational()) return;
+
+        var ids = productIds.Distinct().Order().ToArray();
+        if (ids.Length == 0) return;
+
+        await db.Database
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Products\" WHERE \"Id\" = ANY({ids}) ORDER BY \"Id\" FOR KEY SHARE")
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Exclusive FOR UPDATE lock on one product row: serialises product-unit edits and price changes against each
+    /// other and against document creates holding KEY SHARE. Callers must be inside a transaction.
+    /// </summary>
+    public static async Task LockProductForUpdateAsync(SelloraDbContext db, Guid productId, CancellationToken ct)
+    {
+        if (!db.Database.IsRelational()) return;
+
+        await db.Database
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Products\" WHERE \"Id\" = {productId} FOR UPDATE")
+            .ToListAsync(ct);
+    }
+
     public static async Task LockStockItemsAsync(SelloraDbContext db, IEnumerable<Guid> productIds, CancellationToken ct)
     {
         if (!db.Database.IsRelational()) return;

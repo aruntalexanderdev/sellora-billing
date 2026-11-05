@@ -4,6 +4,7 @@ using Sellora.Domain.Entities;
 using Sellora.Domain.Purchasing;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
+using Sellora.Tests.TestData;
 
 namespace Sellora.Tests.Purchasing;
 
@@ -20,7 +21,7 @@ public class MultiCurrencyPurchaseTests
     private sealed record Fixture(
         SelloraDbContext Db, PurchaseService Purchases, ExchangeRateService Rates,
         Currency Inr, Currency Usd, Supplier UsdSupplier, Supplier InrSupplier,
-        Product Product, ProductSellingMode Bag, ExchangeRate UsdRate, Guid UserId);
+        Product Product, ProductUnit Bag, ExchangeRate UsdRate, Guid UserId);
 
     // Zero-rated tax so the worked example (USD 1,000 @ 83.20 = INR 83,200) is exact.
     private static async Task<Fixture> SeedAsync(decimal taxRate = 0m)
@@ -45,8 +46,8 @@ public class MultiCurrencyPurchaseTests
             Id = Guid.NewGuid(), Sku = "RICE-BP10", Name = "Ponni Rice", BaseUnitId = unit.Id, BaseUnit = unit,
             TaxId = tax.Id, Tax = tax, ReorderLevel = 100,
         };
-        var bag = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = product.Id, Label = "10 kg bag", ConversionFactorToBase = 10m };
-        product.SellingModes.Add(bag);
+        var looseKg = TestProductUnits.Base(product, "Loose kg");
+        var bag = TestProductUnits.Pack(product, TestUnits.Bag(), looseKg, 10m, "10 kg bag");
         var usdRate = new ExchangeRate
         {
             Id = Guid.NewGuid(), CurrencyId = usd.Id, RateToBase = 83.20m,

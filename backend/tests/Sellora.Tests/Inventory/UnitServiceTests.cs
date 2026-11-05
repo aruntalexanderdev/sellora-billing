@@ -554,6 +554,98 @@ public class UnitServiceTests
             nameof(UpsertUnitInput.StandardFactor));
     }
 
+    // ---------- Product units (Phase 2): in use via ProductUnits, deactivation guard, UnitDto projection ----------
+
+    /// <summary>A Piece-based product whose Box row ("1 Box contains 10 Piece") is active or inactive.</summary>
+    private static async Task<ProductUnit> AddBoxedProductAsync(Fixture f, bool boxRowActive)
+    {
+        ProductUnit? box = null;
+        var product = new ProductBuilder().WithSku("STN-PEN").WithBaseUnit(f.Piece)
+            .WithUnits(p => { var pc = TestProductUnits.Base(p); box = TestProductUnits.Pack(p, f.Box, pc, 10m); box.IsActive = boxRowActive; })
+            .Build();
+        f.Db.Add(product);
+        await f.Db.SaveChangesAsync();
+        return box!;
+    }
+
+    [Fact]
+    public async Task IsInUseAsync_UnitUsedOnlyAsNonBaseProductUnit_True()
+    {
+        var f = await SeedAsync();
+        await AddBoxedProductAsync(f, boxRowActive: true);
+
+        Assert.True(await f.Service.IsInUseAsync(f.Box.Id));
+        Assert.True(await f.Service.IsUsedByActiveProductAsync(f.Box.Id));
+    }
+
+    [Fact]
+    public async Task UpdateUnitAsync_UnitUsedByProductUnit_CategoryFrozen()
+    {
+        var f = await SeedAsync();
+        await AddBoxedProductAsync(f, boxRowActive: true);
+
+        await AssertRejected(() => f.Service.UpdateUnitAsync(f.Box.Id, Same(f.Box) with { MeasurementCategory = MeasurementCategory.Count }),
+            nameof(UpsertUnitInput.MeasurementCategory));
+        await AssertUnchangedAsync(f, f.Box.Id, MeasurementCategory.Packaging, 0, null);
+    }
+
+    [Fact]
+    public async Task UpdateUnitAsync_UnitUsedOnlyByInactiveProductUnit_CategoryStillFrozen()
+    {
+        // History rows are interpreted through the unit, so an inactive row keeps it frozen.
+        var f = await SeedAsync();
+        await AddBoxedProductAsync(f, boxRowActive: false);
+
+        Assert.True(await f.Service.IsInUseAsync(f.Box.Id));
+        await AssertRejected(() => f.Service.UpdateUnitAsync(f.Box.Id, Same(f.Box) with { MeasurementCategory = MeasurementCategory.Count }),
+            nameof(UpsertUnitInput.MeasurementCategory));
+    }
+
+    [Fact]
+    public async Task SetActiveAsync_UnitUsedByActiveProductUnit_RejectedOnIsActive()
+    {
+        var f = await SeedAsync();
+        await AddBoxedProductAsync(f, boxRowActive: true);
+
+        await AssertRejected(() => f.Service.SetActiveAsync(f.Box.Id, false), nameof(Unit.IsActive));
+        Assert.True((await f.Db.Units.AsNoTracking().SingleAsync(u => u.Id == f.Box.Id)).IsActive);
+    }
+
+    [Fact]
+    public async Task SetActiveAsync_UnitUsedOnlyByInactiveProductUnit_Deactivates()
+    {
+        var f = await SeedAsync();
+        await AddBoxedProductAsync(f, boxRowActive: false);
+
+        Assert.False(await f.Service.IsUsedByActiveProductAsync(f.Box.Id));
+        var unit = await f.Service.SetActiveAsync(f.Box.Id, false);
+
+        Assert.False(unit!.IsActive);
+    }
+
+    [Theory]
+    [InlineData("unused", false, true)]
+    [InlineData("activeRow", true, false)]
+    [InlineData("inactiveRow", true, true)]
+    [InlineData("productBase", true, false)]
+    public async Task UnitsControllerGet_IsInUseAndCanDeactivate_MatchServiceRules(string usage, bool isInUse, bool canDeactivate)
+    {
+        var f = await SeedAsync();
+        var unitId = usage switch
+        {
+            "unused" => f.Box.Id,
+            "productBase" => f.Kg.Id,
+            _ => (await AddBoxedProductAsync(f, boxRowActive: usage == "activeRow")).UnitId,
+        };
+        var controller = new Sellora.Api.Controllers.UnitsController(f.Db, f.Service);
+
+        var dto = (Sellora.Api.Contracts.UnitDto)((Microsoft.AspNetCore.Mvc.OkObjectResult)(await controller.Get(unitId, default)).Result!).Value!;
+
+        Assert.Equal((isInUse, canDeactivate), (dto.IsInUse, dto.CanDeactivate));
+        Assert.Equal(isInUse, await f.Service.IsInUseAsync(unitId));
+        Assert.Equal(!canDeactivate, await f.Service.IsUsedByActiveProductAsync(unitId));
+    }
+
     private static async Task AssertUnchangedAsync(Fixture f, Guid id, MeasurementCategory category, short decimals, decimal? factor)
     {
         var stored = await f.Db.Units.AsNoTracking().SingleAsync(u => u.Id == id);

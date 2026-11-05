@@ -16,6 +16,7 @@ function unit(overrides: Partial<UnitItem> = {}): UnitItem {
     standardFactor: 1,
     isActive: true,
     isInUse: false,
+    canDeactivate: true,
     ...overrides,
   };
 }

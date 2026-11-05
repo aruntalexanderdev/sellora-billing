@@ -62,12 +62,14 @@
                 }
               </select>
 
-              <select formControlName="sellingModeId" class="field-input">
+              <select formControlName="productUnitId" class="field-input">
                 @if (!productDetail(row.controls.productId.value)) {
                   <option value="">—</option>
+                } @else if (unitOptions(row.controls.productId.value).length === 0) {
+                  <option value="" disabled>No purchasable unit</option>
                 }
-                @for (m of productDetail(row.controls.productId.value)?.sellingModes; track m.id) {
-                  <option [value]="m.id">{{ m.label }}</option>
+                @for (u of unitOptions(row.controls.productId.value); track u.id) {
+                  <option [value]="u.id">{{ u.displayName }}</option>
                 }
               </select>
 

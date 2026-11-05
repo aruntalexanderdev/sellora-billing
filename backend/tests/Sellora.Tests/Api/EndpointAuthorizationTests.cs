@@ -87,6 +87,39 @@ public class EndpointAuthorizationTests
         Assert.Contains(policy, Policies(typeof(UnitsController), method));
     }
 
+    [Theory]
+    [InlineData(typeof(ProductsController), "PreviewUnits", "Inventory.View", "POST", "unit-preview")]
+    [InlineData(typeof(ProductsController), "Create", "Inventory.Create", "POST", null)]
+    [InlineData(typeof(ProductsController), "Update", "Inventory.Edit", "PUT", "{id:guid}")]
+    [InlineData(typeof(ProductsController), "Get", "Inventory.View", "GET", "{id:guid}")]
+    [InlineData(typeof(PricingController), "List", "Inventory.Price", "GET", null)]
+    [InlineData(typeof(PricingController), "History", "Inventory.Price", "GET", "{productUnitId:guid}/history")]
+    [InlineData(typeof(PricingController), "SetPrice", "Inventory.Price", "PUT", "{productUnitId:guid}")]
+    [InlineData(typeof(SalesController), "Catalog", "Sales.Create", "GET", "catalog")]
+    public void ProductUnitEndpoints_RequireTheirPermissionOnTheirRoute(Type controller, string action, string policy, string verb, string? template)
+    {
+        var method = controller.GetMethod(action)!;
+        var http = method.GetCustomAttributes<HttpMethodAttribute>().Single();
+
+        Assert.Contains(policy, Policies(controller, method));
+        Assert.Equal(verb, http.HttpMethods.Single());
+        Assert.Equal(template, http.Template);
+    }
+
+    [Fact]
+    public void PricingRoutes_AreKeyedByProductUnitId()
+    {
+        var parameters = typeof(PricingController).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(m => m.GetCustomAttributes<HttpMethodAttribute>().Any(a => a.Template?.Contains('{') == true))
+            .Select(m => m.GetParameters()[0].Name)
+            .ToList();
+
+        Assert.NotEmpty(parameters);
+        Assert.All(parameters, p => Assert.Equal("productUnitId", p));
+        Assert.Equal("api/v1/pricing", typeof(PricingController).GetCustomAttribute<RouteAttribute>()!.Template);
+        Assert.Equal("api/v1/products", typeof(ProductsController).GetCustomAttribute<RouteAttribute>()!.Template);
+    }
+
     [Fact]
     public void NoEndpointLetsAClientWriteBatchesDirectly()
     {

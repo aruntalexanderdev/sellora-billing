@@ -6,6 +6,7 @@ using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Inventory;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
@@ -40,9 +41,8 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
     [Authorize(Policy = "Inventory.View")]
     public async Task<ActionResult<ProductDetailDto>> Get(Guid id, CancellationToken ct)
     {
-        var product = await db.Products.Include(p => p.BaseUnit).Include(p => p.Tax).Include(p => p.SellingModes)
-            .SingleOrDefaultAsync(p => p.Id == id, ct);
-        return product is null ? NotFound() : Ok(ToDetail(product));
+        var detail = await LoadDetailAsync(id, ct);
+        return detail is null ? NotFound() : Ok(detail);
     }
 
     [HttpPost]
@@ -54,12 +54,11 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
         try
         {
             var product = await productService.CreateProductAsync(ToInput(request), ct);
-            return CreatedAtAction(nameof(Get), new { id = product.Id }, ToDetail(product));
+            return CreatedAtAction(nameof(Get), new { id = product.Id }, await LoadDetailAsync(product.Id, ct));
         }
         catch (DomainValidationException ex)
         {
-            ModelState.AddModelError(ex.Field, ex.Message);
-            return ValidationProblem(ModelState);
+            return ToValidationProblem(ex);
         }
     }
 
@@ -72,13 +71,32 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
         try
         {
             var product = await productService.UpdateProductAsync(id, ToInput(request), ct);
-            return product is null ? NotFound() : Ok(ToDetail(product));
+            return product is null ? NotFound() : Ok(await LoadDetailAsync(product.Id, ct));
         }
         catch (DomainValidationException ex)
         {
-            ModelState.AddModelError(ex.Field, ex.Message);
-            return ValidationProblem(ModelState);
+            return ToValidationProblem(ex);
         }
+    }
+
+    /// <summary>Validates a unit hierarchy exactly as save would, without saving. Stateless (no locks, nothing
+    /// persisted), so it only needs view access. 200 even when the configuration is invalid; 400 only for a malformed
+    /// request; 404 when <c>ProductId</c> is given but unknown.</summary>
+    [HttpPost("unit-preview")]
+    [Authorize(Policy = "Inventory.View")]
+    public async Task<ActionResult<UnitPreviewResponse>> PreviewUnits(UnitPreviewRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        var preview = await productService.PreviewUnitsAsync(request.ProductId, request.BaseUnitId!.Value, ToUnitInputs(request.Units), ct);
+        if (preview is null) return NotFound();
+
+        return Ok(new UnitPreviewResponse(
+            preview.IsValid,
+            preview.Rows.Select(r => new UnitPreviewRowDto(r.Index, r.UnitId, r.UnitCode, r.DisplayName, r.ConversionFactorToBase,
+                r.Depth, r.SortOrder, r.Chain, r.IsLocked)).ToList(),
+            preview.Errors.Select(e => new FieldErrorDto(e.Field, e.Message)).ToList(),
+            preview.Warnings.Select(e => new FieldErrorDto(e.Field, e.Message)).ToList()));
     }
 
     [HttpPost("{id:guid}/status")]
@@ -93,11 +111,48 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
         return NoContent();
     }
 
+    private ActionResult ToValidationProblem(DomainValidationException ex)
+    {
+        foreach (var error in ex.Errors) ModelState.AddModelError(error.Field, error.Message);
+        return ValidationProblem(ModelState);
+    }
+
     private static UpsertProductInput ToInput(UpsertProductRequest request) => new(
         request.Sku, request.Name, request.Category, request.BaseUnitId!.Value, request.TaxId!.Value, request.ReorderLevel,
-        request.SellingModes.Select(m => new SellingModeInputItem(m.Id, m.Label, m.ConversionFactorToBase)).ToList());
+        ToUnitInputs(request.Units));
 
-    private static ProductDetailDto ToDetail(Product p) => new(
-        p.Id, p.Sku, p.Name, p.Category, p.BaseUnitId, p.BaseUnit.ShortCode, p.TaxId, p.Tax.Name, p.Tax.RatePercent,
-        p.ReorderLevel, p.IsActive, p.SellingModes.Select(m => new SellingModeDto(m.Id, m.Label, m.ConversionFactorToBase, m.IsActive)).ToList());
+    private static List<ProductUnitInputItem> ToUnitInputs(IEnumerable<UpsertProductUnitRequest> units) => units
+        .Select(u => new ProductUnitInputItem(u.Id, u.UnitId!.Value, u.InnerUnitId, u.InnerQuantity, u.Label, u.Barcode,
+            u.IsPurchasable, u.IsSellable, u.IsDefaultPurchaseUnit, u.IsDefaultSalesUnit, u.IsActive))
+        .ToList();
+
+    private async Task<ProductDetailDto?> LoadDetailAsync(Guid id, CancellationToken ct)
+    {
+        var product = await db.Products.AsNoTracking()
+            .Include(p => p.BaseUnit).Include(p => p.Tax).Include(p => p.Units).ThenInclude(u => u.Unit)
+            .SingleOrDefaultAsync(p => p.Id == id, ct);
+        if (product is null) return null;
+
+        var units = product.Units.ToList();
+        var locks = await ProductUnitUsage.GetLockReasonsAsync(db, units, ct);
+        var isBaseUnitLocked = await ProductUnitUsage.IsBaseUnitLockedAsync(db, product.Id, locks, ct);
+        var graph = ProductUnitGraph.Compute(units.Select(u => new ProductUnitGraph.Node(u.Id, u.IsBaseUnit ? null : u.InnerProductUnitId, u.InnerQuantity)));
+        var byId = units.ToDictionary(u => u.Id);
+
+        var dtos = units
+            .OrderBy(u => u.SortOrder).ThenByDescending(u => u.IsBaseUnit).ThenBy(u => u.ConversionFactorToBase)
+            .Select(u => new ProductUnitDto(
+                u.Id, u.UnitId, u.Unit.ShortCode, u.Unit.Name, u.Unit.MeasurementCategory, u.Unit.DecimalPlaces,
+                u.InnerProductUnitId, u.InnerProductUnitId is { } inner && byId.TryGetValue(inner, out var innerRow) ? innerRow.UnitId : null,
+                u.InnerQuantity, u.ConversionFactorToBase, u.IsBaseUnit,
+                u.Label, u.Label ?? u.Unit.Name, u.Barcode, u.IsPurchasable, u.IsSellable,
+                u.IsDefaultPurchaseUnit, u.IsDefaultSalesUnit, u.SortOrder, graph.TryGetValue(u.Id, out var r) ? r.Depth ?? 0 : 0,
+                u.IsActive, locks.ContainsKey(u.Id), locks.GetValueOrDefault(u.Id)))
+            .ToList();
+
+        return new ProductDetailDto(
+            product.Id, product.Sku, product.Name, product.Category, product.BaseUnitId, product.BaseUnit.ShortCode,
+            product.TaxId, product.Tax.Name, product.Tax.RatePercent, product.ReorderLevel, product.IsActive,
+            isBaseUnitLocked, dtos);
+    }
 }

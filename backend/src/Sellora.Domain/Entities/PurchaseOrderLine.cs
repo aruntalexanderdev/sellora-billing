@@ -10,13 +10,13 @@ public class PurchaseOrderLine
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = null!;
 
-    /// <summary>The selling mode used as the purchase unit, e.g. "10 kg bag".</summary>
-    public Guid SellingModeId { get; set; }
-    public ProductSellingMode SellingMode { get; set; } = null!;
+    /// <summary>The product unit purchased in, e.g. "10 kg bag".</summary>
+    public Guid ProductUnitId { get; set; }
+    public ProductUnit ProductUnit { get; set; } = null!;
 
     public decimal Qty { get; set; }
 
-    /// <summary>Snapshot of the mode's conversion factor at purchase time — never recomputed later (docx §17).</summary>
+    /// <summary>Snapshot of the product unit's conversion factor at purchase time — never recomputed later (docx §17).</summary>
     public decimal ConversionFactorToBase { get; set; }
     public decimal BaseQty { get; set; }
 

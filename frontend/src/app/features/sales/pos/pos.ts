@@ -9,7 +9,9 @@ import { ToastService } from '../../../shared/ui/toast/toast.service';
 import { SalesService } from '../sales.service';
 import { CustomersService } from '../customers/customers.service';
 import type { CustomerItem } from '../customers/customers.models';
-import type { SaleCatalogProduct } from '../sales.models';
+import type { SaleCatalogProduct, SaleCatalogUnit } from '../sales.models';
+import { defaultSaleUnit } from './pos-units';
+import { convert } from '../../../shared/units/unit-conversion';
 import type { ApiProblem } from '../../../core/auth/auth.models';
 import type { PaymentMethod } from '../sales.models';
 import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
@@ -19,7 +21,7 @@ import type { HasUnsavedChanges } from '../../../core/unsaved-changes.guard';
 
 type LineGroup = FormGroup<{
   productId: FormControl<string>;
-  sellingModeId: FormControl<string>;
+  productUnitId: FormControl<string>;
   qty: FormControl<number>;
   unitPrice: FormControl<number>;
   discount: FormControl<number>;
@@ -102,8 +104,9 @@ export class Pos implements OnInit, HasUnsavedChanges {
 
     const baseQtys = rows.map((row) => {
       const product = row?.productId ? catalog.find((p) => p.productId === row.productId) : undefined;
-      const mode = product?.sellingModes.find((m) => m.id === row?.sellingModeId);
-      return product && mode && row?.qty ? row.qty * mode.conversionFactorToBase : 0;
+      const unit = product?.units.find((u) => u.productUnitId === row?.productUnitId);
+      // Preview only; the server computes and validates the stored base quantity.
+      return product && unit && row?.qty ? convert(row.qty, unit.conversionFactorToBase, 1) : 0;
     });
 
     const requestedByProduct = new Map<string, number>();
@@ -116,8 +119,8 @@ export class Pos implements OnInit, HasUnsavedChanges {
     return rows.map((row, i) => {
       const productId = row?.productId;
       const product = productId ? catalog.find((p) => p.productId === productId) : undefined;
-      const mode = product?.sellingModes.find((m) => m.id === row?.sellingModeId);
-      if (!product || !mode || !row?.qty || !productId) return EMPTY_PREVIEW;
+      const unit = product?.units.find((u) => u.productUnitId === row?.productUnitId);
+      if (!product || !unit || !row?.qty || !productId) return EMPTY_PREVIEW;
 
       const taxableValue = row.qty * (row.unitPrice ?? 0) - (row.discount ?? 0);
       const taxAmount = (taxableValue * product.taxRatePercent) / 100;
@@ -192,32 +195,35 @@ export class Pos implements OnInit, HasUnsavedChanges {
   }
 
   addToCart(product: SaleCatalogProduct): void {
-    const firstMode = product.sellingModes.find((m) => m.conversionFactorToBase) ?? product.sellingModes[0];
-    if (!firstMode) {
-      this.toast.show(`${product.name} has no selling mode configured yet.`);
+    const unit = defaultSaleUnit(product.units);
+    if (!unit) {
+      this.toast.show(`${product.name} has no sellable unit configured yet.`);
       return;
     }
 
     this.lines.push(
       this.fb.nonNullable.group({
         productId: [product.productId, Validators.required],
-        sellingModeId: [firstMode.id, Validators.required],
+        productUnitId: [unit.productUnitId, Validators.required],
         qty: [1, [Validators.required, Validators.min(0.001)]],
-        unitPrice: [firstMode.currentPrice ?? 0, [Validators.required, Validators.min(0)]],
+        unitPrice: [unit.currentPrice ?? 0, [Validators.required, Validators.min(0)]],
         discount: [0],
       }),
     );
     this.productQuery.set('');
   }
 
-  onSellingModeChange(row: LineGroup): void {
-    const product = this.catalog().find((p) => p.productId === row.controls.productId.value);
-    const mode = product?.sellingModes.find((m) => m.id === row.controls.sellingModeId.value);
-    row.controls.unitPrice.setValue(mode?.currentPrice ?? 0);
+  onUnitChange(row: LineGroup): void {
+    const unit = this.selectedUnit(row);
+    row.controls.unitPrice.setValue(unit?.currentPrice ?? 0);
   }
 
-  sellingModesFor(productId: string): SaleCatalogProduct['sellingModes'] {
-    return this.catalog().find((p) => p.productId === productId)?.sellingModes ?? [];
+  unitsFor(productId: string): SaleCatalogUnit[] {
+    return this.catalog().find((p) => p.productId === productId)?.units ?? [];
+  }
+
+  private selectedUnit(row: LineGroup): SaleCatalogUnit | undefined {
+    return this.unitsFor(row.controls.productId.value).find((u) => u.productUnitId === row.controls.productUnitId.value);
   }
 
   productName(productId: string): string {
@@ -255,7 +261,7 @@ export class Pos implements OnInit, HasUnsavedChanges {
         accountId: v.accountId || null,
         lines: v.lines.map((l) => ({
           productId: l.productId,
-          sellingModeId: l.sellingModeId,
+          productUnitId: l.productUnitId,
           qty: l.qty,
           unitPrice: l.unitPrice,
           discount: l.discount,

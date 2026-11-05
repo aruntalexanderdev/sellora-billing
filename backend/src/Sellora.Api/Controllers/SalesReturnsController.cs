@@ -55,7 +55,7 @@ public class SalesReturnsController(SelloraDbContext db, ISalesService salesServ
             .Include(x => x.SalesInvoice).ThenInclude(i => i.Customer)
             .Include(x => x.CreatedByUser)
             .Include(x => x.Lines).ThenInclude(l => l.Product).ThenInclude(p => p.BaseUnit)
-            .Include(x => x.Lines).ThenInclude(l => l.SalesInvoiceLine).ThenInclude(l => l.SellingMode)
+            .Include(x => x.Lines).ThenInclude(l => l.SalesInvoiceLine).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
             .AsSplitQuery()
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         if (r is null) return NotFound();
@@ -69,7 +69,7 @@ public class SalesReturnsController(SelloraDbContext db, ISalesService salesServ
             r.Reason, r.TaxableTotal, r.TaxTotal, r.Total, refunds.Sum(p => p.Amount),
             $"{r.CreatedByUser.FirstName} {r.CreatedByUser.LastName}", r.CreatedAt,
             r.Lines.Select(l => new SalesReturnLineDto(
-                l.Id, l.Product.Name, l.SalesInvoiceLine.SellingMode.Label, l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode,
+                l.Id, l.Product.Name, l.SalesInvoiceLine.ProductUnit.Label ?? l.SalesInvoiceLine.ProductUnit.Unit.Name, l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode,
                 l.TaxableValue, l.TaxAmount, l.LineTotal)).ToList(),
             refunds.Select(p => SalesController.ToPaymentDto(p, noReversed)).ToList()));
     }

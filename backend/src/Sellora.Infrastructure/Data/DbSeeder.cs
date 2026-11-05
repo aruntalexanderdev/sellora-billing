@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Inventory;
 using Sellora.Domain.Permissions;
 
 namespace Sellora.Infrastructure.Data;
@@ -195,6 +196,7 @@ public static class DbSeeder
         ("Full Carton", "fctn", MeasurementCategory.Packaging, 0, null),
         ("Gram", "g", MeasurementCategory.Weight, 0, 0.001m),
         ("Millilitre", "ml", MeasurementCategory.Volume, 0, 0.001m),
+        ("Bag", "bag", MeasurementCategory.Packaging, 0, null),
     ];
 
     private static async Task<Dictionary<string, Unit>> SeedUnitsAsync(SelloraDbContext db, CancellationToken ct)
@@ -269,19 +271,25 @@ public static class DbSeeder
         await db.SaveChangesAsync(ct);
     }
 
-    private record ProductSeedMode(string Label, decimal Factor);
-    private record ProductSeed(string Sku, string Name, string Category, string UnitCode, decimal TaxRate, decimal ReorderLevel, ProductSeedMode[] Modes);
+    /// <summary>One unit row: <paramref name="InnerCode"/> null for the base row ("1 Bag contains 10 kg" is
+    /// <c>("bag", "kg", 10m, ...)</c>).</summary>
+    private record ProductSeedUnit(string UnitCode, string? InnerCode, decimal InnerQty, string? Label = null, bool Sellable = true, bool Purchasable = true);
+    private record ProductSeed(string Sku, string Name, string Category, decimal TaxRate, decimal ReorderLevel, ProductSeedUnit[] Units);
 
     private static readonly ProductSeed[] ProductSeedData =
     [
-        new("RICE-BP10", "Ponni Rice", "Grains", "kg", 5m, 100m, [new("10 kg bag", 10m), new("Loose kg", 1m)]),
-        new("ATTA-CH05", "Chakki Atta", "Grains", "kg", 5m, 60m, [new("5 kg bag", 5m), new("Loose kg", 1m)]),
-        new("DAL-TUR", "Toor Dal", "Pulses", "kg", 5m, 50m, [new("1 kg pack", 1m)]),
-        new("OIL-SUN", "Sunflower Oil", "Oils", "litre", 5m, 40m, [new("1 L bottle", 1m)]),
-        new("SUG-01", "Sugar", "Staples", "kg", 5m, 60m, [new("1 kg pack", 1m)]),
-        new("SALT-IOD", "Iodised Salt", "Staples", "kg", 5m, 30m, [new("1 kg pack", 1m)]),
-        new("SPC-TUR", "Turmeric Powder", "Spices", "kg", 5m, 10m, [new("200 g box", 0.2m), new("Loose kg", 1m)]),
-        new("SNK-MIX", "Namkeen Mixture", "Snacks", "pc", 12m, 25m, [new("Piece", 1m)]),
+        new("RICE-BP10", "Ponni Rice", "Grains", 5m, 100m, [new("kg", null, 1m, "Loose kg"), new("bag", "kg", 10m, "10 kg bag")]),
+        new("ATTA-CH05", "Chakki Atta", "Grains", 5m, 60m, [new("kg", null, 1m, "Loose kg"), new("bag", "kg", 5m, "5 kg bag")]),
+        new("DAL-TUR", "Toor Dal", "Pulses", 5m, 50m, [new("kg", null, 1m, "1 kg pack")]),
+        new("OIL-SUN", "Sunflower Oil", "Oils", 5m, 40m, [new("litre", null, 1m, "1 L bottle")]),
+        new("SUG-01", "Sugar", "Staples", 5m, 60m, [new("kg", null, 1m, "1 kg pack")]),
+        new("SALT-IOD", "Iodised Salt", "Staples", 5m, 30m, [new("kg", null, 1m, "1 kg pack")]),
+        // Gram only defines the 200 g box; it is not bought or sold on its own.
+        new("SPC-TUR", "Turmeric Powder", "Spices", 5m, 10m,
+            [new("kg", null, 1m, "Loose kg"), new("g", "kg", 0.001m, Sellable: false, Purchasable: false), new("box", "g", 200m, "200 g box")]),
+        new("SNK-MIX", "Namkeen Mixture", "Snacks", 12m, 25m, [new("pc", null, 1m)]),
+        new("STN-PEN", "Ball Pen", "Stationery", 12m, 200m,
+            [new("pc", null, 1m), new("box", "pc", 10m), new("hctn", "box", 5m), new("fctn", "hctn", 2m)]),
     ];
 
     private static async Task SeedProductsAsync(SelloraDbContext db, Dictionary<string, Unit> units, Dictionary<decimal, Tax> taxes, CancellationToken ct)
@@ -291,11 +299,11 @@ public static class DbSeeder
         {
             if (existingSkus.Contains(seed.Sku)) continue;
 
-            // Never attach a seeded product to an unsuitable base unit (Packaging or inactive), e.g. when an
-            // existing database already had a unit with the seed's code or name.
-            if (!units.TryGetValue(seed.UnitCode, out var baseUnit)
-                || !baseUnit.IsActive
-                || baseUnit.MeasurementCategory == MeasurementCategory.Packaging) continue;
+            // Never attach a seeded product to an unsuitable unit (base Packaging, any unit inactive or missing), e.g.
+            // when an existing database already had a unit with the seed's code or name.
+            var baseSeed = seed.Units.Single(u => u.InnerCode is null);
+            if (!seed.Units.All(u => units.TryGetValue(u.UnitCode, out var unit) && unit.IsActive)
+                || units[baseSeed.UnitCode].MeasurementCategory == MeasurementCategory.Packaging) continue;
 
             var product = new Product
             {
@@ -303,18 +311,51 @@ public static class DbSeeder
                 Sku = seed.Sku,
                 Name = seed.Name,
                 Category = seed.Category,
-                BaseUnitId = baseUnit.Id,
+                BaseUnitId = units[baseSeed.UnitCode].Id,
                 TaxId = taxes[seed.TaxRate].Id,
                 ReorderLevel = seed.ReorderLevel,
             };
-            foreach (var mode in seed.Modes)
+
+            // Factors and sort order come from the same validator/graph code the product service saves with, so seeds
+            // cannot drift; a seed that would be invalid against existing units (e.g. a legacy Count "box" under a kg
+            // base, or kg with fewer decimals than the gram row needs) is skipped like an unsuitable base unit.
+            var idByCode = seed.Units.ToDictionary(u => u.UnitCode, _ => Guid.NewGuid(), StringComparer.OrdinalIgnoreCase);
+            var drafts = seed.Units.Select((u, i) => new ProductUnitDraft
             {
-                product.SellingModes.Add(new ProductSellingMode
+                Index = i,
+                Id = idByCode[u.UnitCode],
+                Unit = UnitInfo.From(units[u.UnitCode]),
+                UnitId = units[u.UnitCode].Id,
+                InnerUnitId = u.InnerCode is null ? null : units[u.InnerCode].Id,
+                InnerRef = u.InnerCode is null ? null : idByCode[u.InnerCode],
+                InnerQuantity = u.InnerQty,
+                Label = u.Label,
+                IsSellable = u.Sellable,
+                IsPurchasable = u.Purchasable,
+                IsActive = true,
+                IsNew = true,
+            }).ToList();
+            var result = ProductUnitConfigurationValidator.Validate(
+                new ProductUnitValidationContext(product.BaseUnitId, UnitInfo.From(units[baseSeed.UnitCode]), null, false, new HashSet<string>()),
+                drafts);
+            if (!result.IsValid) continue;
+
+            foreach (var draft in drafts)
+            {
+                var computed = result.Row(draft.Id);
+                product.Units.Add(new ProductUnit
                 {
-                    Id = Guid.NewGuid(),
+                    Id = draft.Id,
                     ProductId = product.Id,
-                    Label = mode.Label,
-                    ConversionFactorToBase = mode.Factor,
+                    UnitId = draft.UnitId,
+                    InnerProductUnitId = draft.InnerRef,
+                    InnerQuantity = draft.IsBaseCandidate ? 1m : draft.InnerQuantity!.Value,
+                    ConversionFactorToBase = computed.Factor!.Value,
+                    IsBaseUnit = draft.IsBaseCandidate,
+                    Label = draft.Label,
+                    IsSellable = draft.IsSellable,
+                    IsPurchasable = draft.IsPurchasable,
+                    SortOrder = computed.SortOrder,
                 });
             }
             db.Products.Add(product);

@@ -3,7 +3,13 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { PagedResult } from '../../../core/api.models';
-import type { ProductDetail, ProductListItem, UpsertProductRequest } from './products.models';
+import type {
+  ProductDetail,
+  ProductListItem,
+  UnitPreviewRequest,
+  UnitPreviewResponse,
+  UpsertProductRequest,
+} from './products.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/products`;
 
@@ -33,6 +39,11 @@ export class ProductsService {
 
   update(id: string, request: UpsertProductRequest): Observable<ProductDetail> {
     return this.http.put<ProductDetail>(`${BASE_URL}/${id}`, request);
+  }
+
+  /** Validates a unit hierarchy without saving (stateless; 200 even when invalid). */
+  previewUnits(request: UnitPreviewRequest): Observable<UnitPreviewResponse> {
+    return this.http.post<UnitPreviewResponse>(`${BASE_URL}/unit-preview`, request);
   }
 
   setActive(id: string, isActive: boolean): Observable<void> {

@@ -133,7 +133,7 @@ public class PurchaseOrderLineConfiguration : IEntityTypeConfiguration<PurchaseO
 
         builder.HasOne(l => l.PurchaseOrder).WithMany(p => p.Lines).HasForeignKey(l => l.PurchaseOrderId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(l => l.Product).WithMany().HasForeignKey(l => l.ProductId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne(l => l.SellingMode).WithMany().HasForeignKey(l => l.SellingModeId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(l => l.ProductUnit).WithMany().HasForeignKey(l => l.ProductUnitId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(l => l.Tax).WithMany().HasForeignKey(l => l.TaxId).OnDelete(DeleteBehavior.Restrict);
     }
 }

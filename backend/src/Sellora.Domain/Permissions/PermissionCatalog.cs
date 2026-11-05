@@ -37,7 +37,7 @@ public static class PermissionCatalog
         new("Inventory.Create", "Inventory", "Create", "Create new products."),
         new("Inventory.Edit", "Inventory", "Edit", "Edit existing products."),
         new("Inventory.Adjust", "Inventory", "Adjust", "Post stock adjustments (damage, loss, correction, etc.)."),
-        new("Inventory.Price", "Inventory", "Price", "Configure selling modes and prices."),
+        new("Inventory.Price", "Inventory", "Price", "Configure product units and prices."),
 
         // Purchase — Suppliers
         new("Suppliers.View", "Purchase", "View", "View the supplier list."),

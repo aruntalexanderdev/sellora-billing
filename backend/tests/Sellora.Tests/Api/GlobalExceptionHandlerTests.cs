@@ -31,6 +31,37 @@ public class GlobalExceptionHandlerTests
     }
 
     [Fact]
+    public async Task DomainValidationExceptionWithSeveralErrors_EmitsEveryFieldAndMessage()
+    {
+        var (status, body) = await RunAsync(new DomainValidationException(
+        [
+            new FieldError("Units[1].InnerUnitId", "A unit cannot contain itself."),
+            new FieldError("Units[2].InnerQuantity", "Quantity must be greater than 0."),
+            new FieldError("Units[2].InnerQuantity", "1 Box would be 2.5 Piece; it must be a whole number of Piece."),
+            new FieldError("Units[2].InnerQuantity", "Quantity must be greater than 0."),
+            new FieldError("BaseUnitId", "Select a valid base unit."),
+        ]));
+
+        Assert.Equal(400, status);
+        var errors = body.GetProperty("errors");
+        Assert.Equal(new[] { "BaseUnitId", "Units[1].InnerUnitId", "Units[2].InnerQuantity" }, errors.EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal(new[] { "Quantity must be greater than 0.", "1 Box would be 2.5 Piece; it must be a whole number of Piece." },
+            errors.GetProperty("Units[2].InnerQuantity").EnumerateArray().Select(e => e.GetString()));
+        Assert.Equal(400, body.GetProperty("status").GetInt32());
+    }
+
+    [Fact]
+    public void DomainValidationException_MultiErrorCtor_FirstErrorIsFieldAndMessage()
+    {
+        var ex = new DomainValidationException([new FieldError("BaseUnitId", "First."), new FieldError("Units", "Second.")]);
+
+        Assert.Equal(("BaseUnitId", "First."), (ex.Field, ex.Message));
+        Assert.Equal(2, ex.Errors.Count);
+        Assert.Throws<ArgumentException>(() => new DomainValidationException(Array.Empty<FieldError>()));
+        Assert.Single(new DomainValidationException("Lines", "Only 5 in stock.").Errors);
+    }
+
+    [Fact]
     public async Task ConcurrencyConflict_BecomesA409()
     {
         var (status, _) = await RunAsync(new DbUpdateConcurrencyException("stale"));

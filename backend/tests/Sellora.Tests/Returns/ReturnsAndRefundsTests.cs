@@ -7,6 +7,7 @@ using Sellora.Domain.Purchasing;
 using Sellora.Domain.Sales;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
+using Sellora.Tests.TestData;
 
 namespace Sellora.Tests.Returns;
 
@@ -15,7 +16,7 @@ public class ReturnsAndRefundsTests
     private sealed record Fixture(
         SelloraDbContext Db, PurchaseService Purchases, SalesService Sales, FinancialAccountService Accounts,
         Currency Inr, Currency Usd, Supplier InrSupplier, Supplier UsdSupplier, Customer Customer,
-        Product Product, ProductSellingMode Kg, Guid UserId);
+        Product Product, ProductUnit Kg, Guid UserId);
 
     // 5% tax makes per-line rounding matter; USD @ 83.20 covers foreign-currency purchases.
     private static async Task<Fixture> SeedAsync(decimal taxRate = 5m)
@@ -38,8 +39,7 @@ public class ReturnsAndRefundsTests
         var usdSupplier = new Supplier { Id = Guid.NewGuid(), Name = "Global Ingredients", CurrencyId = usd.Id };
         var customer = new Customer { Id = Guid.NewGuid(), Name = "Walk-in Customer", IsWalkIn = true };
         var product = new Product { Id = Guid.NewGuid(), Sku = "RICE", Name = "Rice", BaseUnitId = unit.Id, BaseUnit = unit, TaxId = tax.Id, Tax = tax, ReorderLevel = 1 };
-        var kg = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = product.Id, Label = "kg", ConversionFactorToBase = 1m };
-        product.SellingModes.Add(kg);
+        var kg = TestProductUnits.Base(product, "kg");
         var rate = new ExchangeRate { Id = Guid.NewGuid(), CurrencyId = usd.Id, RateToBase = 83.20m, EffectiveDate = new DateOnly(2026, 9, 1), CreatedByUserId = user.Id };
 
         db.AddRange(role, user, unit, tax, inr, usd, settings, inrSupplier, usdSupplier, customer, product, rate);

@@ -12,9 +12,10 @@ import { ProductsService } from '../../inventory/products/products.service';
 import { ExchangeRatesService } from '../../administration/exchange-rates/exchange-rates.service';
 import type { ResolvedExchangeRate } from '../../administration/exchange-rates/exchange-rates.models';
 import type { SupplierItem } from '../suppliers/suppliers.models';
-import type { ProductDetail } from '../../inventory/products/products.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
-import type { PaymentMethod } from '../purchases.models';
+import type { PaymentMethod, PurchaseProduct, PurchaseProductUnit } from '../purchases.models';
+import { defaultPurchaseUnit, purchaseUnitOptions } from './purchase-units';
+import { convert } from '../../../shared/units/unit-conversion';
 import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
 import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
 
@@ -23,7 +24,7 @@ import { newIdempotencyKey } from '../../../core/idempotency';
 
 type LineGroup = FormGroup<{
   productId: FormControl<string>;
-  sellingModeId: FormControl<string>;
+  productUnitId: FormControl<string>;
   qty: FormControl<number | null>;
   rate: FormControl<number | null>;
   otherCharges: FormControl<number>;
@@ -80,7 +81,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
   readonly accountOptions = signal<AccountOption[]>([]);
   readonly suppliers = signal<SupplierItem[]>([]);
   readonly products = signal<{ id: string; name: string; sku: string }[]>([]);
-  private readonly productCache = signal<Map<string, ProductDetail>>(new Map());
+  private readonly productCache = signal<Map<string, PurchaseProduct>>(new Map());
 
   readonly form = this.fb.nonNullable.group({
     supplierId: ['', Validators.required],
@@ -106,10 +107,11 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
     const cache = this.productCache();
     return this.linesValue().map((row) => {
       const product = row?.productId ? cache.get(row.productId) : undefined;
-      const mode = product?.sellingModes.find((m) => m.id === row?.sellingModeId);
-      if (!product || !mode || !row?.qty || row.rate == null) return EMPTY_PREVIEW;
+      const unit = product?.units.find((u) => u.id === row?.productUnitId);
+      if (!product || !unit || !row?.qty || row.rate == null) return EMPTY_PREVIEW;
 
-      const baseQty = row.qty * mode.conversionFactorToBase;
+      // Preview only; the server computes and validates the stored base quantity.
+      const baseQty = convert(row.qty, unit.conversionFactorToBase, 1);
 
       // Mirrors the server: for a foreign supplier every invoice figure (tax included) is rounded to the
       // supplier currency's precision, and each rounded figure is then converted and rounded to the base
@@ -239,36 +241,43 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
     });
   }
 
-  productDetail(productId: string): ProductDetail | undefined {
+  productDetail(productId: string): PurchaseProduct | undefined {
     return this.productCache().get(productId);
+  }
+
+  /** Active, purchasable units of the product, in hierarchy order. */
+  unitOptions(productId: string): PurchaseProductUnit[] {
+    return purchaseUnitOptions(this.productDetail(productId)?.units);
   }
 
   onProductChange(row: LineGroup, productId: string): void {
     if (!productId) return;
-    if (this.productCache().has(productId)) {
-      this.applyFirstMode(row, this.productCache().get(productId)!);
+    const cached = this.productCache().get(productId);
+    if (cached) {
+      this.applyDefaultUnit(row, cached);
       return;
     }
+    row.controls.productUnitId.setValue('');
     this.productsService.get(productId).subscribe({
       next: (detail) => {
         const next = new Map(this.productCache());
         next.set(productId, detail);
         this.productCache.set(next);
-        this.applyFirstMode(row, detail);
+        // The user may have picked another product while this one was loading.
+        if (row.controls.productId.value === productId) this.applyDefaultUnit(row, detail);
       },
     });
   }
 
-  private applyFirstMode(row: LineGroup, product: ProductDetail): void {
-    const firstMode = product.sellingModes.find((m) => m.isActive) ?? product.sellingModes[0];
-    row.controls.sellingModeId.setValue(firstMode?.id ?? '');
+  private applyDefaultUnit(row: LineGroup, product: PurchaseProduct): void {
+    row.controls.productUnitId.setValue(defaultPurchaseUnit(product.units)?.id ?? '');
   }
 
   addLine(): void {
     this.lines.push(
       this.fb.nonNullable.group({
         productId: ['', Validators.required],
-        sellingModeId: ['', Validators.required],
+        productUnitId: ['', Validators.required],
         qty: [null as number | null, [Validators.required, Validators.min(0.001)]],
         rate: [null as number | null, [Validators.required, Validators.min(0)]],
         otherCharges: [0],
@@ -307,7 +316,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
         accountId: v.accountId || null,
         lines: v.lines.map((l) => ({
           productId: l.productId,
-          sellingModeId: l.sellingModeId,
+          productUnitId: l.productUnitId,
           qty: l.qty!,
           rate: l.rate!,
           otherCharges: l.otherCharges,

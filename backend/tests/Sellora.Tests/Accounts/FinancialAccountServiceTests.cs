@@ -7,6 +7,7 @@ using Sellora.Domain.Purchasing;
 using Sellora.Domain.Sales;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
+using Sellora.Tests.TestData;
 
 namespace Sellora.Tests.Accounts;
 
@@ -14,7 +15,7 @@ public class FinancialAccountServiceTests
 {
     private sealed record Fixture(
         SelloraDbContext Db, FinancialAccountService Accounts, PurchaseService Purchases, SalesService Sales, ExpenseService Expenses,
-        Supplier Supplier, Customer Customer, Product Product, ProductSellingMode Kg, ExpenseCategory Rent, Guid UserId);
+        Supplier Supplier, Customer Customer, Product Product, ProductUnit Kg, ExpenseCategory Rent, Guid UserId);
 
     private static async Task<Fixture> SeedAsync()
     {
@@ -34,8 +35,7 @@ public class FinancialAccountServiceTests
         var supplier = new Supplier { Id = Guid.NewGuid(), Name = "Annapoorna Traders", CurrencyId = inr.Id };
         var customer = new Customer { Id = Guid.NewGuid(), Name = "Walk-in Customer", IsWalkIn = true };
         var product = new Product { Id = Guid.NewGuid(), Sku = "RICE", Name = "Rice", BaseUnitId = unit.Id, BaseUnit = unit, TaxId = tax.Id, Tax = tax, ReorderLevel = 1 };
-        var kg = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = product.Id, Label = "kg", ConversionFactorToBase = 1m };
-        product.SellingModes.Add(kg);
+        var kg = TestProductUnits.Base(product, "kg");
         var rent = new ExpenseCategory { Id = Guid.NewGuid(), Name = "Rent" };
 
         db.AddRange(role, user, unit, tax, inr, settings, supplier, customer, product, rent);

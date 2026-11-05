@@ -10,6 +10,7 @@ using Sellora.Domain.Purchasing;
 using Sellora.Domain.Sales;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
+using Sellora.Tests.TestData;
 
 namespace Sellora.Tests.Reports;
 
@@ -19,7 +20,7 @@ public class AccountsReportsTests
         SelloraDbContext Db, AccountsReportsController Reports, PurchaseService Purchases, SalesService Sales,
         FinancialAccountService Accounts, ExpenseService Expenses,
         Currency Inr, Currency Usd, Supplier InrSupplier, Supplier UsdSupplier, Customer Customer, Customer Regular,
-        Product Product, ProductSellingMode Kg, ExpenseCategory Rent, ExpenseCategory Power, Guid UserId);
+        Product Product, ProductUnit Kg, ExpenseCategory Rent, ExpenseCategory Power, Guid UserId);
 
     private static async Task<Fixture> SeedAsync()
     {
@@ -42,8 +43,7 @@ public class AccountsReportsTests
         var walkIn = new Customer { Id = Guid.NewGuid(), Name = "Walk-in Customer", IsWalkIn = true };
         var regular = new Customer { Id = Guid.NewGuid(), Name = "Kavitha Stores" };
         var product = new Product { Id = Guid.NewGuid(), Sku = "RICE", Name = "Rice", BaseUnitId = unit.Id, BaseUnit = unit, TaxId = tax.Id, Tax = tax, ReorderLevel = 1 };
-        var kg = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = product.Id, Label = "kg", ConversionFactorToBase = 1m };
-        product.SellingModes.Add(kg);
+        var kg = TestProductUnits.Base(product, "kg");
         var rate = new ExchangeRate { Id = Guid.NewGuid(), CurrencyId = usd.Id, RateToBase = 83.20m, EffectiveDate = new DateOnly(2026, 9, 1), CreatedByUserId = user.Id };
         var rent = new ExpenseCategory { Id = Guid.NewGuid(), Name = "Rent" };
         var power = new ExpenseCategory { Id = Guid.NewGuid(), Name = "Electricity" };

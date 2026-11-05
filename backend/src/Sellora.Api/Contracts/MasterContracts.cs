@@ -3,7 +3,10 @@ using Sellora.Domain.Entities;
 
 namespace Sellora.Api.Contracts;
 
-public record UnitDto(Guid Id, string Name, string ShortCode, MeasurementCategory MeasurementCategory, short DecimalPlaces, decimal? StandardFactor, bool IsActive, bool IsInUse);
+/// <summary><see cref="IsInUse"/>: a product uses the unit as base unit or any product unit row (active or inactive) uses
+/// it; category, decimal places and standard factor are then frozen. <see cref="CanDeactivate"/>: no product uses it as
+/// base unit and no <em>active</em> product unit row uses it.</summary>
+public record UnitDto(Guid Id, string Name, string ShortCode, MeasurementCategory MeasurementCategory, short DecimalPlaces, decimal? StandardFactor, bool IsActive, bool IsInUse, bool CanDeactivate);
 
 public record UpsertUnitRequest(
     [Required, MaxLength(60)] string Name,

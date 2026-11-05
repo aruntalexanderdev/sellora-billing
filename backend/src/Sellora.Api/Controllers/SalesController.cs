@@ -22,8 +22,8 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
     [Authorize(Policy = "Sales.Create")]
     public async Task<ActionResult<IReadOnlyList<SaleCatalogProductDto>>> Catalog([FromQuery] string? search, CancellationToken ct)
     {
-        var query = db.Products.Where(p => p.IsActive)
-            .Include(p => p.BaseUnit).Include(p => p.Tax).Include(p => p.SellingModes.Where(m => m.IsActive))
+        var query = db.Products.AsNoTracking().Where(p => p.IsActive)
+            .Include(p => p.BaseUnit).Include(p => p.Tax).Include(p => p.Units.Where(u => u.IsActive && u.IsSellable).OrderBy(u => u.SortOrder)).ThenInclude(u => u.Unit)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -34,20 +34,23 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
 
         var products = await query.OrderBy(p => p.Name).Take(50).ToListAsync(ct);
         var productIds = products.Select(p => p.Id).ToList();
-        var modeIds = products.SelectMany(p => p.SellingModes).Select(m => m.Id).ToList();
+        var unitIds = products.SelectMany(p => p.Units).Select(u => u.Id).ToList();
 
         var qtyByProduct = await db.StockItems
             .Where(s => productIds.Contains(s.ProductId))
             .ToDictionaryAsync(s => s.ProductId, s => s.QuantityOnHand, ct);
 
-        var priceByMode = await db.SellingPrices
-            .Where(p => modeIds.Contains(p.ProductSellingModeId) && p.EffectiveTo == null)
-            .ToDictionaryAsync(p => p.ProductSellingModeId, p => p.Price, ct);
+        var priceByUnit = await db.SellingPrices
+            .Where(p => unitIds.Contains(p.ProductUnitId) && p.EffectiveTo == null)
+            .ToDictionaryAsync(p => p.ProductUnitId, p => p.Price, ct);
 
         var items = products.Select(p => new SaleCatalogProductDto(
             p.Id, p.Sku, p.Name, p.Category, p.BaseUnit.ShortCode,
             qtyByProduct.GetValueOrDefault(p.Id, 0m), p.Tax.RatePercent,
-            p.SellingModes.Select(m => new SaleCatalogModeDto(m.Id, m.Label, m.ConversionFactorToBase, priceByMode.GetValueOrDefault(m.Id))).ToList()
+            p.Units.OrderBy(u => u.SortOrder).Select(u => new SaleCatalogUnitDto(
+                u.Id, u.UnitId, u.Unit.ShortCode, u.Label ?? u.Unit.Name,
+                u.ConversionFactorToBase, u.Unit.DecimalPlaces, u.IsBaseUnit, u.IsDefaultSalesUnit,
+                priceByUnit.TryGetValue(u.Id, out var price) ? price : null)).ToList()
         )).ToList();
 
         return Ok(items);
@@ -107,7 +110,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             .Include(i => i.Customer)
             .Include(i => i.CreatedByUser)
             .Include(i => i.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.BaseUnit)
-            .Include(i => i.Lines).ThenInclude(l => l.SellingMode)
+            .Include(i => i.Lines).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
             .Include(i => i.Lines).ThenInclude(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch).ThenInclude(b => b.PurchaseOrderLine).ThenInclude(pl => pl!.PurchaseOrder)
             .Include(i => i.Lines).ThenInclude(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch).ThenInclude(b => b.StockAdjustment)
             .Include(i => i.Payments).ThenInclude(pay => pay.CreatedByUser)
@@ -128,7 +131,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
 
         var input = new CreateSaleInput(
             request.CustomerId!.Value, request.InvoiceDate, request.PaymentMethod, request.PaidAmount,
-            request.Lines.Select(l => new SaleLineInput(l.ProductId!.Value, l.SellingModeId!.Value, l.Qty, l.UnitPrice, l.Discount)).ToList(),
+            request.Lines.Select(l => new SaleLineInput(l.ProductId!.Value, l.ProductUnitId!.Value, l.Qty, l.UnitPrice, l.Discount)).ToList(),
             request.AccountId, key);
 
         try
@@ -242,7 +245,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
         i.Subtotal, i.TaxTotal, i.DiscountTotal, i.GrandTotal,
         i.Status, $"{i.CreatedByUser.FirstName} {i.CreatedByUser.LastName}", i.CreatedAt, i.CancelledAt,
         i.Lines.Select(l => new SalesInvoiceLineDto(
-            l.Id, l.ProductId, l.Product.Name, l.SellingModeId, l.SellingMode.Label,
+            l.Id, l.ProductId, l.Product.Name, l.ProductUnitId, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name,
             l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.UnitPrice,
             l.TaxRatePercent, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.CostOfGoodsSold,
             returnedByLine.GetValueOrDefault(l.Id), l.Qty - returnedByLine.GetValueOrDefault(l.Id),

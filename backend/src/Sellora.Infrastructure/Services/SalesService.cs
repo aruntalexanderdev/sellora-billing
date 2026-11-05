@@ -47,8 +47,12 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         decimal subtotal = 0, taxTotal = 0, discountTotal = 0;
 
+        // Product KEY SHARE before building lines: a concurrent product-unit edit (FOR UPDATE) waits for this sale to
+        // commit, so the factors snapshotted below cannot change underneath it. StockItems locks follow (§5.4).
+        await StockLocks.LockProductsKeyShareAsync(db, input.Lines.Select(l => l.ProductId), ct);
+
         // Requested base quantity per product, summed across lines, so a product picked in two
-        // different selling modes (e.g. one bag + some loose kg) can't together oversell stock.
+        // different units (e.g. one bag + some loose kg) can't together oversell stock.
         var requestedBaseQtyByProduct = new Dictionary<Guid, decimal>();
 
         foreach (var lineInput in input.Lines)
@@ -498,16 +502,28 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("Lines", $"{product.Name} is inactive.");
         }
 
-        var sellingMode = await db.ProductSellingModes.SingleOrDefaultAsync(m => m.Id == input.SellingModeId, ct)
-            ?? throw new DomainValidationException("Lines", "Select a valid selling mode.");
-        if (sellingMode.ProductId != product.Id)
+        var productUnit = await db.ProductUnits
+            .Include(u => u.Unit)
+            .SingleOrDefaultAsync(u => u.Id == input.ProductUnitId, ct)
+            ?? throw new DomainValidationException("Lines", "Select a valid unit.");
+        if (productUnit.ProductId != product.Id)
         {
-            throw new DomainValidationException("Lines", "The selected selling mode does not belong to this product.");
+            throw new DomainValidationException("Lines", "The selected unit does not belong to this product.");
+        }
+        var unitDisplay = productUnit.Label ?? productUnit.Unit.Name;
+        if (!productUnit.IsActive)
+        {
+            throw new DomainValidationException("Lines", $"{unitDisplay} is no longer active.");
+        }
+        if (!productUnit.IsSellable)
+        {
+            throw new DomainValidationException("Lines", $"{unitDisplay} cannot be sold for {product.Name}.");
         }
 
         var tax = await db.Taxes.SingleAsync(t => t.Id == product.TaxId, ct);
 
-        var baseQty = input.Qty * sellingMode.ConversionFactorToBase;
+        // The stored factor is snapshotted onto the line; history is never recomputed from configuration.
+        var baseQty = input.Qty * productUnit.ConversionFactorToBase;
         StockQuantity.EnsureStorable(baseQty, "Lines");
         var taxableValue = input.Qty * input.UnitPrice - input.Discount;
         var taxAmount = taxableValue * tax.RatePercent / 100;
@@ -518,9 +534,9 @@ public class SalesService(SelloraDbContext db) : ISalesService
             Id = Guid.NewGuid(),
             SalesInvoiceId = invoice.Id,
             ProductId = product.Id,
-            SellingModeId = sellingMode.Id,
+            ProductUnitId = productUnit.Id,
             Qty = input.Qty,
-            ConversionFactorToBase = sellingMode.ConversionFactorToBase,
+            ConversionFactorToBase = productUnit.ConversionFactorToBase,
             BaseQty = baseQty,
             UnitPrice = input.UnitPrice,
             TaxId = tax.Id,

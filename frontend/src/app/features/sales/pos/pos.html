@@ -64,7 +64,7 @@
           <div class="cart-grid-scroll">
             <div class="lines-grid-head">
               <span>Item</span>
-              <span>Selling mode</span>
+              <span>Unit</span>
               <span>Qty</span>
               <span>Unit price</span>
               <span>Tax</span>
@@ -77,9 +77,9 @@
               <div class="lines-grid-row" [formGroup]="row" [class.row-error]="previews()[i]?.exceedsStock">
                 <span class="cart-item-name">{{ productName(row.controls.productId.value) }}</span>
 
-                <select formControlName="sellingModeId" class="field-input" (change)="onSellingModeChange(row)">
-                  @for (m of sellingModesFor(row.controls.productId.value); track m.id) {
-                    <option [value]="m.id">{{ m.label }}</option>
+                <select formControlName="productUnitId" class="field-input" (change)="onUnitChange(row)">
+                  @for (u of unitsFor(row.controls.productId.value); track u.productUnitId) {
+                    <option [value]="u.productUnitId">{{ u.displayName }}{{ u.currentPrice === null ? ' (no price)' : '' }}</option>
                   }
                 </select>
 

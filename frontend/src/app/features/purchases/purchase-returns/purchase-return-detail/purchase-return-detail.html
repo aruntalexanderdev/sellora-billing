@@ -34,7 +34,7 @@
           @for (l of r.lines; track l.id) {
             <tr>
               <td class="strong">{{ l.productName }}</td>
-              <td>{{ l.sellingModeLabel }} <span class="muted">({{ l.baseQty }} {{ l.baseUnitLabel }})</span></td>
+              <td>{{ l.unitLabel }} <span class="muted">({{ l.baseQty }} {{ l.baseUnitLabel }})</span></td>
               <td class="num">{{ l.qty }}</td>
               <td class="num">{{ base(l.taxableValue) }}</td>
               <td class="num">{{ base(l.taxAmount) }}</td>

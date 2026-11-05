@@ -61,7 +61,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             .Include(p => p.Currency)
             .Include(p => p.CreatedByUser)
             .Include(p => p.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.BaseUnit)
-            .Include(p => p.Lines).ThenInclude(l => l.SellingMode)
+            .Include(p => p.Lines).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
             .Include(p => p.Lines).ThenInclude(l => l.Batch)
             .Include(p => p.Payments).ThenInclude(pay => pay.CreatedByUser)
             .Include(p => p.Payments).ThenInclude(pay => pay.PurchaseReturn)
@@ -85,7 +85,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         var input = new CreatePurchaseInput(
             request.SupplierId!.Value, request.PurchaseDate, request.SupplierInvoiceNumber, request.Notes,
             request.PaymentMethod, request.PaidAmount,
-            request.Lines.Select(l => new PurchaseLineInput(l.ProductId!.Value, l.SellingModeId!.Value, l.Qty, l.Rate, l.OtherCharges, l.Discount, l.SupplierBatchNumber)).ToList(),
+            request.Lines.Select(l => new PurchaseLineInput(l.ProductId!.Value, l.ProductUnitId!.Value, l.Qty, l.Rate, l.OtherCharges, l.Discount, l.SupplierBatchNumber)).ToList(),
             request.AccountId, key);
 
         try
@@ -235,7 +235,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         p.CurrencyId, p.Currency.Code, p.Currency.Symbol, p.ExchangeRateToBase, p.OriginalGrandTotal, p.OriginalPaidAmount, p.OriginalDueAmount,
         baseCurrency.Code, baseCurrency.Symbol, p.Currency.DecimalPrecision, baseCurrency.DecimalPrecision,
         p.Lines.Select(l => new PurchaseLineDto(
-            l.Id, l.ProductId, l.Product.Name, l.SellingModeId, l.SellingMode.Label,
+            l.Id, l.ProductId, l.Product.Name, l.ProductUnitId, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name,
             l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Rate,
             l.TaxRatePercent, l.OtherCharges, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.UnitCost,
             returnedByLine.GetValueOrDefault(l.Id), p.Status == PurchaseStatus.Cancelled ? 0 : Returnable(l, returnedByLine.GetValueOrDefault(l.Id)),

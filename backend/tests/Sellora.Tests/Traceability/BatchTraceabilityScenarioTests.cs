@@ -7,6 +7,7 @@ using Sellora.Domain.Purchasing;
 using Sellora.Domain.Sales;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
+using Sellora.Tests.TestData;
 
 namespace Sellora.Tests.Traceability;
 
@@ -17,7 +18,7 @@ namespace Sellora.Tests.Traceability;
 public class BatchTraceabilityScenarioTests
 {
     private sealed record Fixture(SelloraDbContext Db, PurchaseService Purchases, SalesService Sales, StockController Stock,
-        Supplier Supplier, Customer Customer, Product Rice, ProductSellingMode LooseKg, Guid UserId);
+        Supplier Supplier, Customer Customer, Product Rice, ProductUnit LooseKg, Guid UserId);
 
     private static async Task<Fixture> SeedAsync()
     {
@@ -36,8 +37,7 @@ public class BatchTraceabilityScenarioTests
         var supplier = new Supplier { Id = Guid.NewGuid(), Name = "Annapoorna Traders", CurrencyId = inr.Id };
         var customer = new Customer { Id = Guid.NewGuid(), Name = "Walk-in Customer", IsWalkIn = true };
         var rice = new Product { Id = Guid.NewGuid(), Sku = "RICE", Name = "Ponni Rice", BaseUnitId = kg.Id, BaseUnit = kg, TaxId = tax.Id, Tax = tax, ReorderLevel = 5 };
-        var looseKg = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = rice.Id, Label = "Loose kg", ConversionFactorToBase = 1m };
-        rice.SellingModes.Add(looseKg);
+        var looseKg = TestProductUnits.Base(rice, "Loose kg");
 
         db.AddRange(role, user, kg, tax, inr, settings, supplier, customer, rice);
         await db.SaveChangesAsync();

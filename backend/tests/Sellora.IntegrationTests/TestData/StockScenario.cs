@@ -43,12 +43,13 @@ public sealed record StockScenario(Guid UserId, Guid SupplierId, Guid CustomerId
             Id = Guid.NewGuid(), Sku = "RICE-BP10", Name = "Ponni Rice", BaseUnitId = unit.Id, BaseUnit = unit,
             TaxId = tax.Id, Tax = tax, ReorderLevel = 100,
         };
-        var bag = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = product.Id, Label = "10 kg bag", ConversionFactorToBase = BagFactor };
-        var looseKg = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = product.Id, Label = "Loose kg", ConversionFactorToBase = 1m };
-        product.SellingModes.Add(bag);
-        product.SellingModes.Add(looseKg);
+        var looseKg = new ProductUnit { Id = Guid.NewGuid(), ProductId = product.Id, UnitId = product.BaseUnitId, IsBaseUnit = true, Label = "Loose kg", ConversionFactorToBase = 1m };
+        var bagUnit = new Unit { Id = Guid.NewGuid(), Name = "Bag", ShortCode = "bag", MeasurementCategory = MeasurementCategory.Packaging, DecimalPlaces = 0 };
+        var bag = new ProductUnit { Id = Guid.NewGuid(), ProductId = product.Id, UnitId = bagUnit.Id, InnerProductUnitId = looseKg.Id, InnerQuantity = BagFactor, Label = "10 kg bag", ConversionFactorToBase = BagFactor };
+        product.Units.Add(bag);
+        product.Units.Add(looseKg);
 
-        db.AddRange(role, user, unit, tax, supplier, customer, settings, product);
+        db.AddRange(role, user, unit, bagUnit, tax, supplier, customer, settings, product);
         await db.SaveChangesAsync();
 
         return new StockScenario(user.Id, supplier.Id, customer.Id, product.Id, bag.Id, looseKg.Id);

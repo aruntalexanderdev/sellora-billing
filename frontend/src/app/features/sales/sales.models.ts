@@ -3,10 +3,17 @@ export type PaymentStatus = 'Due' | 'PartiallyPaid' | 'Paid';
 export type PaymentMethod = 'Cash' | 'Upi' | 'Card' | 'Credit' | 'BankTransfer';
 export type PaymentEntryKind = 'Payment' | 'Refund' | 'Reversal';
 
-export interface SaleCatalogMode {
-  id: string;
-  label: string;
+/** Mirrors `SaleCatalogUnitDto`: an active, sellable product unit with its current list price. */
+export interface SaleCatalogUnit {
+  productUnitId: string;
+  unitId: string;
+  unitCode: string;
+  displayName: string;
   conversionFactorToBase: number;
+  decimalPlaces: number;
+  isBaseUnit: boolean;
+  /** The product's default sales unit. */
+  isDefault: boolean;
   currentPrice: number | null;
 }
 
@@ -18,7 +25,7 @@ export interface SaleCatalogProduct {
   baseUnitLabel: string;
   quantityOnHand: number;
   taxRatePercent: number;
-  sellingModes: SaleCatalogMode[];
+  units: SaleCatalogUnit[];
 }
 
 export interface SalesInvoiceListItem {
@@ -50,8 +57,8 @@ export interface SalesInvoiceLine {
   id: string;
   productId: string;
   productName: string;
-  sellingModeId: string;
-  sellingModeLabel: string;
+  productUnitId: string;
+  unitLabel: string;
   qty: number;
   baseQty: number;
   baseUnitLabel: string;
@@ -116,7 +123,7 @@ export interface SalesInvoiceDetail {
 
 export interface CreateSaleLineRequest {
   productId: string;
-  sellingModeId: string;
+  productUnitId: string;
   qty: number;
   unitPrice: number;
   discount: number;
@@ -172,7 +179,7 @@ export interface SalesReturnListItem {
 export interface SalesReturnLine {
   id: string;
   productName: string;
-  sellingModeLabel: string;
+  unitLabel: string;
   qty: number;
   baseQty: number;
   baseUnitLabel: string;

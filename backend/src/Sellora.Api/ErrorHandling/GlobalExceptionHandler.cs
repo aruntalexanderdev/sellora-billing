@@ -21,8 +21,11 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
         switch (exception)
         {
             case DomainValidationException validation:
-                logger.LogWarning("Validation failed on {Path}: {Field} — {Message}", httpContext.Request.Path, validation.Field, validation.Message);
-                problem = new ValidationProblemDetails(new Dictionary<string, string[]> { [validation.Field] = [validation.Message] })
+                logger.LogWarning("Validation failed on {Path}: {Field} — {Message} ({Count} error(s))",
+                    httpContext.Request.Path, validation.Field, validation.Message, validation.Errors.Count);
+                problem = new ValidationProblemDetails(validation.Errors
+                    .GroupBy(e => e.Field)
+                    .ToDictionary(g => g.Key, g => g.Select(e => e.Message).Distinct().ToArray()))
                 {
                     Status = StatusCodes.Status400BadRequest,
                 };

@@ -1,7 +1,7 @@
 <div class="page-head">
   <div>
     <h1>{{ isEdit() ? 'Edit product' : 'New product' }}</h1>
-    <p>Every product has one base unit and one or more units it can be sold in.</p>
+    <p>Every product has one base unit; packs such as Box or Carton are defined by what they contain.</p>
   </div>
 </div>
 
@@ -54,8 +54,14 @@
             <option [value]="u.id">{{ u.name }} ({{ u.shortCode }}){{ u.isActive ? '' : ' — inactive' }}</option>
           }
         </select>
-        @if (form.get('baseUnitId')?.touched && form.get('baseUnitId')?.invalid) {
+        @if (form.get('baseUnitId')?.touched && form.get('baseUnitId')?.errors?.['required']) {
           <div class="field-error">Select a base unit.</div>
+        }
+        @if (form.get('baseUnitId')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('baseUnitId')?.errors?.['server'] }}</div>
+        }
+        @if (isBaseUnitLocked()) {
+          <div class="field-hint">The base unit cannot change once the product has stock history or units in use.</div>
         }
       </div>
       <div>
@@ -72,25 +78,7 @@
       </div>
     </div>
 
-    <div class="modes-section">
-      <div class="modes-header">
-        <span class="field-label" style="margin: 0">Selling modes</span>
-        <button type="button" class="add-mode-btn" (click)="addMode()">+ Add mode</button>
-      </div>
-      <p class="modes-hint">The units this product can be sold in, e.g. "10 kg bag" (factor 10) or "Loose kg" (factor 1), relative to the base unit above.</p>
-
-      @for (mode of sellingModes.controls; track mode; let i = $index) {
-        <div class="mode-row" [formGroup]="mode">
-          <div>
-            <input type="text" formControlName="label" class="field-input" placeholder="10 kg bag" />
-          </div>
-          <div>
-            <input type="number" step="0.001" formControlName="conversionFactorToBase" class="field-input" placeholder="Factor" />
-          </div>
-          <button type="button" class="remove-mode-btn" (click)="removeMode(i)">Remove</button>
-        </div>
-      }
-    </div>
+    <app-product-units-editor [units]="unitRows" [allUnits]="allUnits()" [productId]="isEdit() ? productId : null" />
 
     <div class="actions">
       <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
