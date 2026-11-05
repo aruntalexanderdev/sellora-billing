@@ -2,7 +2,7 @@
 name: frontend-engineer
 description: Angular 22 engineer for Sellora. Use for units master UI, product packaging hierarchy editor with live preview, purchase/POS/return unit selectors, barcode scan flow, stock/report quantity display and shared conversion utilities.
 tools: Read, Edit, Write, Grep, Glob, Bash
-model: inherit
+model: sonnet
 skills:
   - angular-conventions
   - unit-conversion-rules
@@ -24,3 +24,5 @@ You are the Frontend Engineer for Sellora Billing.
 ## Done means
 - `npm --prefix frontend run build` passes.
 - Report: components/files changed, new routes/permissions used, UX notes, items for test-engineer.
+
+Keep the report to the lead ≤ 15 lines. Never paste file contents; cite `path:line`.

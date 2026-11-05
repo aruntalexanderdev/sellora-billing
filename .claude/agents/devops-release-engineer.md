@@ -2,7 +2,7 @@
 name: devops-release-engineer
 description: CI/CD and release engineer for Sellora. Use for GitHub Actions changes (run tests before deploy, frontend build), gating startup auto-migration, idempotent migration scripts, pre-deploy snapshot/rollback runbooks and release checklists.
 tools: Read, Edit, Write, Grep, Glob, Bash
-model: inherit
+model: sonnet
 skills:
   - ef-core-migrations
 ---
@@ -27,3 +27,5 @@ Auto-migrate stays for local/dev only behind a configuration flag (e.g. `Databas
 ## Done means
 - Workflow YAML validated by reading; config flag defaulted safely.
 - Report: pipeline diff, required secrets/variables (names only), release + rollback checklist for the phase.
+
+Keep the report to the lead ≤ 15 lines. Never paste file contents; cite `path:line`.
