@@ -18,5 +18,5 @@ public class Product
 
     public bool IsActive { get; set; } = true;
 
-    public ICollection<ProductSellingMode> SellingModes { get; set; } = new List<ProductSellingMode>();
+    public ICollection<ProductUnit> Units { get; set; } = new List<ProductUnit>();
 }

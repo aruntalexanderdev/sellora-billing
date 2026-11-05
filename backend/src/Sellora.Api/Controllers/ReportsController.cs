@@ -54,24 +54,30 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
         var rows = await query.OrderBy(p => p.Name).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
 
         var productIds = rows.Select(p => p.Id).ToList();
-        var sellingPricePerBaseUnit = await db.ProductSellingModes
-            .Where(m => productIds.Contains(m.ProductId))
-            .Select(m => new
+        var pricedUnits = await db.ProductUnits
+            .Where(u => productIds.Contains(u.ProductId) && u.IsActive && u.IsSellable)
+            .Select(u => new
             {
-                m.ProductId,
-                m.ConversionFactorToBase,
-                Price = db.SellingPrices.Where(sp => sp.ProductSellingModeId == m.Id && sp.EffectiveTo == null).Select(sp => (decimal?)sp.Price).FirstOrDefault(),
+                u.ProductId,
+                u.IsBaseUnit,
+                u.ConversionFactorToBase,
+                Price = db.SellingPrices.Where(sp => sp.ProductUnitId == u.Id && sp.EffectiveTo == null).Select(sp => (decimal?)sp.Price).FirstOrDefault(),
             })
-            .Where(m => m.Price != null)
+            .Where(u => u.Price != null && u.ConversionFactorToBase > 0)
             .ToListAsync(ct);
 
-        // When a product has more than one currently-priced selling mode, the finest-grained one
-        // (smallest conversion factor) is the most representative per-base-unit rate.
-        var bestPriceByProduct = sellingPricePerBaseUnit
-            .GroupBy(m => m.ProductId)
+        // Per-base-unit selling rate: the base unit's own price when it is priced, otherwise the finest-grained
+        // (smallest factor) priced active unit's price divided by its factor. Inactive and non-sellable units are ignored,
+        // matching the pricing grid's SuggestedPrice anchor.
+        var bestPriceByProduct = pricedUnits
+            .GroupBy(u => u.ProductId)
             .ToDictionary(
                 g => g.Key,
-                g => (decimal?)(g.OrderBy(m => m.ConversionFactorToBase).First().Price!.Value / g.OrderBy(m => m.ConversionFactorToBase).First().ConversionFactorToBase));
+                g =>
+                {
+                    var best = g.OrderByDescending(u => u.IsBaseUnit).ThenBy(u => u.ConversionFactorToBase).First();
+                    return (decimal?)(best.Price!.Value / best.ConversionFactorToBase);
+                });
 
         var items = rows.Select(p =>
         {

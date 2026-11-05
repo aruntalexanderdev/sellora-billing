@@ -34,6 +34,10 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         var purchaseNo = await NextPurchaseNoAsync(ct);
 
+        // Product KEY SHARE first: a concurrent product-unit edit (FOR UPDATE) waits for this purchase to commit, so
+        // the factor snapshotted below cannot change underneath it. Then the StockItems locks (fixed order, §5.4).
+        await StockLocks.LockProductsKeyShareAsync(db, input.Lines.Select(l => l.ProductId), ct);
+
         // Stock on hand and its average cost are read-modify-written below, so hold each product's lock to commit.
         await StockLocks.LockStockItemsAsync(db, input.Lines.Select(l => l.ProductId), ct);
 
@@ -633,16 +637,28 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             throw new DomainValidationException("Lines", $"{product.Name} is inactive.");
         }
 
-        var sellingMode = await db.ProductSellingModes.SingleOrDefaultAsync(m => m.Id == input.SellingModeId, ct)
+        var productUnit = await db.ProductUnits
+            .Include(u => u.Unit)
+            .SingleOrDefaultAsync(u => u.Id == input.ProductUnitId, ct)
             ?? throw new DomainValidationException("Lines", "Select a valid unit.");
-        if (sellingMode.ProductId != product.Id)
+        if (productUnit.ProductId != product.Id)
         {
             throw new DomainValidationException("Lines", "The selected unit does not belong to this product.");
+        }
+        var unitDisplay = productUnit.Label ?? productUnit.Unit.Name;
+        if (!productUnit.IsActive)
+        {
+            throw new DomainValidationException("Lines", $"{unitDisplay} is no longer active.");
+        }
+        if (!productUnit.IsPurchasable)
+        {
+            throw new DomainValidationException("Lines", $"{unitDisplay} cannot be purchased for {product.Name}.");
         }
 
         var tax = await db.Taxes.SingleAsync(t => t.Id == product.TaxId, ct);
 
-        var baseQty = input.Qty * sellingMode.ConversionFactorToBase;
+        // The stored factor is snapshotted onto the line; history is never recomputed from configuration.
+        var baseQty = input.Qty * productUnit.ConversionFactorToBase;
         StockQuantity.EnsureStorable(baseQty, "Lines");
         var foreign = rateToBase != 1m;
 
@@ -672,9 +688,9 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             Id = Guid.NewGuid(),
             PurchaseOrderId = purchase.Id,
             ProductId = product.Id,
-            SellingModeId = sellingMode.Id,
+            ProductUnitId = productUnit.Id,
             Qty = input.Qty,
-            ConversionFactorToBase = sellingMode.ConversionFactorToBase,
+            ConversionFactorToBase = productUnit.ConversionFactorToBase,
             BaseQty = baseQty,
             Rate = rateToBase == 1m ? input.Rate : Math.Round(input.Rate * rateToBase, 4, MidpointRounding.AwayFromZero),
             TaxId = tax.Id,

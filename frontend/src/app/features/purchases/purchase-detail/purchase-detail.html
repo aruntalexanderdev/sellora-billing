@@ -218,7 +218,7 @@
           @for (line of p.lines; track line.id) {
             <tr>
               <td class="strong">{{ line.productName }}</td>
-              <td>{{ line.sellingModeLabel }} <span class="muted">({{ line.baseQty }} {{ line.baseUnitLabel }})</span></td>
+              <td>{{ line.unitLabel }} <span class="muted">({{ line.baseQty }} {{ line.baseUnitLabel }})</span></td>
               <td class="num">{{ line.qty }}{{ line.returnedQty > 0 ? ' (' + line.returnedQty + ' returned)' : '' }}</td>
               <td class="num">{{ base(line.rate) }}</td>
               <td class="num">{{ line.taxRatePercent }}%</td>

@@ -11,9 +11,10 @@ public class SellingPriceConfiguration : IEntityTypeConfiguration<SellingPrice>
         builder.HasKey(p => p.Id);
         builder.Property(p => p.Price).HasColumnType("numeric(18,4)");
 
-        builder.HasOne(p => p.ProductSellingMode).WithMany().HasForeignKey(p => p.ProductSellingModeId).OnDelete(DeleteBehavior.Cascade);
+        // Restrict: price history must never be deleted silently with its product unit.
+        builder.HasOne(p => p.ProductUnit).WithMany().HasForeignKey(p => p.ProductUnitId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(p => p.CreatedByUser).WithMany().HasForeignKey(p => p.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasIndex(p => new { p.ProductSellingModeId, p.EffectiveFrom });
+        builder.HasIndex(p => new { p.ProductUnitId, p.EffectiveFrom });
     }
 }

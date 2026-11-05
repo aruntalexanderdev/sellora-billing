@@ -3,11 +3,14 @@ using Sellora.Domain.Entities;
 
 namespace Sellora.Api.Contracts;
 
-public record SaleCatalogModeDto(Guid Id, string Label, decimal ConversionFactorToBase, decimal? CurrentPrice);
+/// <summary>An active, sellable unit of a catalog product. <c>IsDefault</c> mirrors IsDefaultSalesUnit;
+/// <c>CurrentPrice</c> is null when the unit is not priced (POS refuses it).</summary>
+public record SaleCatalogUnitDto(Guid ProductUnitId, Guid UnitId, string UnitCode, string DisplayName,
+    decimal ConversionFactorToBase, short DecimalPlaces, bool IsBaseUnit, bool IsDefault, decimal? CurrentPrice);
 
 public record SaleCatalogProductDto(
     Guid ProductId, string Sku, string Name, string? Category, string BaseUnitLabel,
-    decimal QuantityOnHand, decimal TaxRatePercent, IReadOnlyList<SaleCatalogModeDto> SellingModes
+    decimal QuantityOnHand, decimal TaxRatePercent, IReadOnlyList<SaleCatalogUnitDto> Units
 );
 
 public record SalesInvoiceListItemDto(
@@ -23,7 +26,7 @@ public record SaleBatchConsumptionDto(
 );
 
 public record SalesInvoiceLineDto(
-    Guid Id, Guid ProductId, string ProductName, Guid SellingModeId, string SellingModeLabel,
+    Guid Id, Guid ProductId, string ProductName, Guid ProductUnitId, string UnitLabel,
     decimal Qty, decimal BaseQty, string BaseUnitLabel, decimal UnitPrice,
     decimal TaxRatePercent, decimal Discount, decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal CostOfGoodsSold,
     decimal ReturnedQty, decimal ReturnableQty,
@@ -50,7 +53,7 @@ public record SalesInvoiceDetailDto(
 
 public record CreateSaleLineRequest(
     [Required] Guid? ProductId,
-    [Required] Guid? SellingModeId,
+    [Required] Guid? ProductUnitId,
     [Range(0.001, 999999999)] decimal Qty,
     [Range(0, 999999999)] decimal UnitPrice,
     [Range(0, 999999999)] decimal Discount
@@ -106,7 +109,7 @@ public record SalesReturnListItemDto(
 );
 
 public record SalesReturnLineDto(
-    Guid Id, string ProductName, string SellingModeLabel, decimal Qty, decimal BaseQty, string BaseUnitLabel,
+    Guid Id, string ProductName, string UnitLabel, decimal Qty, decimal BaseQty, string BaseUnitLabel,
     decimal TaxableValue, decimal TaxAmount, decimal LineTotal
 );
 

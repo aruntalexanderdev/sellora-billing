@@ -16,11 +16,11 @@ export class PricingService {
     return this.http.get<PricingRow[]>(BASE_URL, { params });
   }
 
-  history(sellingModeId: string): Observable<SellingPriceHistoryEntry[]> {
-    return this.http.get<SellingPriceHistoryEntry[]>(`${BASE_URL}/${sellingModeId}/history`);
+  history(productUnitId: string): Observable<SellingPriceHistoryEntry[]> {
+    return this.http.get<SellingPriceHistoryEntry[]>(`${BASE_URL}/${productUnitId}/history`);
   }
 
-  setPrice(sellingModeId: string, price: number): Observable<void> {
-    return this.http.put<void>(`${BASE_URL}/${sellingModeId}`, { price });
+  setPrice(productUnitId: string, price: number): Observable<void> {
+    return this.http.put<void>(`${BASE_URL}/${productUnitId}`, { price });
   }
 }

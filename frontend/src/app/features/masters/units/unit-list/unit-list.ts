@@ -21,15 +21,16 @@ export function formatStandardFactor(u: Pick<UnitItem, 'measurementCategory' | '
 export const IN_USE_DEACTIVATE_TITLE = 'Used by products — cannot be deactivated';
 
 /**
- * Activate/Deactivate row action. An active unit used as a product base unit cannot be
- * deactivated (server rejects it), so the action is rendered disabled with an explanatory title.
+ * Activate/Deactivate row action. An active unit the server reports as `canDeactivate === false`
+ * (a product base unit, or used by an active product unit) is rendered with a disabled Deactivate
+ * and an explanatory title. `isInUse` only drives the unit-form locks, not this action.
  */
 export function statusAction(
-  u: Pick<UnitItem, 'isActive' | 'isInUse'>,
+  u: Pick<UnitItem, 'isActive' | 'canDeactivate'>,
   onToggle: () => void,
 ): DataTableRowAction {
   if (!u.isActive) return { label: 'Activate', onClick: onToggle };
-  if (u.isInUse) return { label: 'Deactivate', onClick: () => undefined, disabled: true, title: IN_USE_DEACTIVATE_TITLE };
+  if (!u.canDeactivate) return { label: 'Deactivate', onClick: () => undefined, disabled: true, title: IN_USE_DEACTIVATE_TITLE };
   return { label: 'Deactivate', onClick: onToggle };
 }
 

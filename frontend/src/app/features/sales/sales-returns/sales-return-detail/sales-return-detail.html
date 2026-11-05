@@ -15,7 +15,7 @@
         <thead>
           <tr>
             <th>Product</th>
-            <th>Selling mode</th>
+            <th>Unit</th>
             <th class="num">Qty returned</th>
             <th class="num">Value</th>
             <th class="num">Tax</th>
@@ -26,7 +26,7 @@
           @for (l of r.lines; track l.id) {
             <tr>
               <td class="strong">{{ l.productName }}</td>
-              <td>{{ l.sellingModeLabel }} <span class="muted">({{ l.baseQty }} {{ l.baseUnitLabel }})</span></td>
+              <td>{{ l.unitLabel }} <span class="muted">({{ l.baseQty }} {{ l.baseUnitLabel }})</span></td>
               <td class="num">{{ l.qty }}</td>
               <td class="num">{{ INR(l.taxableValue) }}</td>
               <td class="num">{{ INR(l.taxAmount) }}</td>

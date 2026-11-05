@@ -19,8 +19,8 @@ export interface PurchaseLine {
   id: string;
   productId: string;
   productName: string;
-  sellingModeId: string;
-  sellingModeLabel: string;
+  productUnitId: string;
+  unitLabel: string;
   qty: number;
   baseQty: number;
   baseUnitLabel: string;
@@ -61,6 +61,31 @@ export interface PurchaseReturnSummary {
   total: number;
   originalTotal: number;
   refundedAmount: number;
+}
+
+/**
+ * The subset of `ProductUnitDto` (GET products/{id}, `units`) the purchase form needs.
+ * Field names are identical to the product contract so `ProductDetail` is assignable to `PurchaseProduct`.
+ */
+export interface PurchaseProductUnit {
+  id: string;
+  unitCode: string;
+  displayName: string;
+  decimalPlaces: number;
+  conversionFactorToBase: number;
+  isBaseUnit: boolean;
+  isPurchasable: boolean;
+  isDefaultPurchaseUnit: boolean;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+/** The subset of `ProductDetailDto` the purchase form needs. */
+export interface PurchaseProduct {
+  id: string;
+  baseUnitLabel: string;
+  taxRatePercent: number;
+  units: PurchaseProductUnit[];
 }
 
 export interface PurchaseDetail {
@@ -107,7 +132,7 @@ export interface PurchaseDetail {
 
 export interface CreatePurchaseLineRequest {
   productId: string;
-  sellingModeId: string;
+  productUnitId: string;
   qty: number;
   rate: number;
   otherCharges: number;
@@ -174,7 +199,7 @@ export interface PurchaseReturnListItem {
 export interface PurchaseReturnLine {
   id: string;
   productName: string;
-  sellingModeLabel: string;
+  unitLabel: string;
   qty: number;
   baseQty: number;
   baseUnitLabel: string;

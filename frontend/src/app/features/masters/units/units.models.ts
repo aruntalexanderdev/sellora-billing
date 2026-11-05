@@ -24,8 +24,14 @@ export interface UnitItem {
   decimalPlaces: number;
   standardFactor: number | null;
   isActive: boolean;
-  /** True when at least one product uses this unit as its base unit. */
+  /**
+   * True when the unit is referenced by any product, as its base unit or by any product unit row
+   * (active or inactive). Category, decimal places and standard factor are then frozen.
+   * Drives the unit-form locks only; deactivation is governed by `canDeactivate`.
+   */
   isInUse: boolean;
+  /** False when the unit is a product base unit or used by an active product unit (server rejects deactivation). */
+  canDeactivate: boolean;
 }
 
 /** Mirrors backend `UpsertUnitRequest`. */

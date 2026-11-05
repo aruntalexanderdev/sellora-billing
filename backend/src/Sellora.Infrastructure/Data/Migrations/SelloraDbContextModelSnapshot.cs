@@ -534,31 +534,100 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("Products");
                 });
 
-            modelBuilder.Entity("Sellora.Domain.Entities.ProductSellingMode", b =>
+            modelBuilder.Entity("Sellora.Domain.Entities.ProductUnit", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Barcode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<decimal>("ConversionFactorToBase")
-                        .HasColumnType("numeric(18,3)");
+                        .HasColumnType("numeric(28,10)");
+
+                    b.Property<Guid?>("InnerProductUnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("InnerQuantity")
+                        .HasColumnType("numeric(18,6)");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsBaseUnit")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDefaultPurchaseUnit")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDefaultSalesUnit")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsPurchasable")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsSellable")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Label")
-                        .IsRequired()
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
 
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
+                    b.Property<short>("SortOrder")
+                        .HasColumnType("smallint");
+
+                    b.Property<Guid>("UnitId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("ProductId");
+                    b.HasIndex("UnitId");
 
-                    b.ToTable("ProductSellingModes");
+                    b.HasIndex("ProductId", "InnerProductUnitId");
+
+                    b.HasIndex(new[] { "Barcode" }, "IX_ProductUnits_Barcode")
+                        .IsUnique()
+                        .HasFilter("\"Barcode\" IS NOT NULL AND \"IsActive\"");
+
+                    b.HasIndex(new[] { "ProductId" }, "IX_ProductUnits_ProductId_Base")
+                        .IsUnique()
+                        .HasFilter("\"IsBaseUnit\"");
+
+                    b.HasIndex(new[] { "ProductId" }, "IX_ProductUnits_ProductId_DefaultPurchase")
+                        .IsUnique()
+                        .HasFilter("\"IsDefaultPurchaseUnit\"");
+
+                    b.HasIndex(new[] { "ProductId" }, "IX_ProductUnits_ProductId_DefaultSales")
+                        .IsUnique()
+                        .HasFilter("\"IsDefaultSalesUnit\"");
+
+                    b.HasIndex(new[] { "ProductId", "UnitId" }, "IX_ProductUnits_ProductId_UnitId")
+                        .IsUnique()
+                        .HasFilter("\"IsActive\"");
+
+                    b.ToTable("ProductUnits", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProductUnits_Base_Active", "NOT \"IsBaseUnit\" OR \"IsActive\"");
+
+                            t.HasCheckConstraint("CK_ProductUnits_Base_Identity", "NOT \"IsBaseUnit\" OR (\"InnerQuantity\" = 1 AND \"ConversionFactorToBase\" = 1)");
+
+                            t.HasCheckConstraint("CK_ProductUnits_Base_NoInner", "\"IsBaseUnit\" = (\"InnerProductUnitId\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_ProductUnits_DefaultPurchase", "NOT \"IsDefaultPurchaseUnit\" OR (\"IsPurchasable\" AND \"IsActive\")");
+
+                            t.HasCheckConstraint("CK_ProductUnits_DefaultSales", "NOT \"IsDefaultSalesUnit\" OR (\"IsSellable\" AND \"IsActive\")");
+
+                            t.HasCheckConstraint("CK_ProductUnits_Factor_Positive", "\"ConversionFactorToBase\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductUnits_InnerQuantity_Positive", "\"InnerQuantity\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductUnits_Inner_NotSelf", "\"InnerProductUnitId\" IS NULL OR \"InnerProductUnitId\" <> \"Id\"");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseBatch", b =>
@@ -745,6 +814,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("ProductUnitId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("PurchaseOrderId")
                         .HasColumnType("uuid");
 
@@ -753,9 +825,6 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.Property<decimal>("Rate")
                         .HasColumnType("numeric(18,4)");
-
-                    b.Property<Guid>("SellingModeId")
-                        .HasColumnType("uuid");
 
                     b.Property<decimal>("TaxAmount")
                         .HasColumnType("numeric(18,4)");
@@ -776,9 +845,9 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("ProductId");
 
-                    b.HasIndex("PurchaseOrderId");
+                    b.HasIndex("ProductUnitId");
 
-                    b.HasIndex("SellingModeId");
+                    b.HasIndex("PurchaseOrderId");
 
                     b.HasIndex("TaxId");
 
@@ -1132,13 +1201,13 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("ProductUnitId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("Qty")
                         .HasColumnType("numeric(18,3)");
 
                     b.Property<Guid>("SalesInvoiceId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("SellingModeId")
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("TaxAmount")
@@ -1160,9 +1229,9 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("ProductId");
 
-                    b.HasIndex("SalesInvoiceId");
+                    b.HasIndex("ProductUnitId");
 
-                    b.HasIndex("SellingModeId");
+                    b.HasIndex("SalesInvoiceId");
 
                     b.HasIndex("TaxId");
 
@@ -1389,14 +1458,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("Price")
                         .HasColumnType("numeric(18,4)");
 
-                    b.Property<Guid>("ProductSellingModeId")
+                    b.Property<Guid>("ProductUnitId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByUserId");
 
-                    b.HasIndex("ProductSellingModeId", "EffectiveFrom");
+                    b.HasIndex("ProductUnitId", "EffectiveFrom");
 
                     b.ToTable("SellingPrices");
                 });
@@ -1851,15 +1920,31 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("Tax");
                 });
 
-            modelBuilder.Entity("Sellora.Domain.Entities.ProductSellingMode", b =>
+            modelBuilder.Entity("Sellora.Domain.Entities.ProductUnit", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.Product", "Product")
-                        .WithMany("SellingModes")
+                        .WithMany("Units")
                         .HasForeignKey("ProductId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.Unit", "Unit")
+                        .WithMany()
+                        .HasForeignKey("UnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.ProductUnit", "InnerProductUnit")
+                        .WithMany()
+                        .HasForeignKey("ProductId", "InnerProductUnitId")
+                        .HasPrincipalKey("ProductId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("InnerProductUnit");
+
                     b.Navigation("Product");
+
+                    b.Navigation("Unit");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseBatch", b =>
@@ -1927,16 +2012,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.ProductUnit", "ProductUnit")
+                        .WithMany()
+                        .HasForeignKey("ProductUnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Sellora.Domain.Entities.PurchaseOrder", "PurchaseOrder")
                         .WithMany("Lines")
                         .HasForeignKey("PurchaseOrderId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Sellora.Domain.Entities.ProductSellingMode", "SellingMode")
-                        .WithMany()
-                        .HasForeignKey("SellingModeId")
-                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("Sellora.Domain.Entities.Tax", "Tax")
@@ -1947,9 +2032,9 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.Navigation("Product");
 
-                    b.Navigation("PurchaseOrder");
+                    b.Navigation("ProductUnit");
 
-                    b.Navigation("SellingMode");
+                    b.Navigation("PurchaseOrder");
 
                     b.Navigation("Tax");
                 });
@@ -2095,16 +2180,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.ProductUnit", "ProductUnit")
+                        .WithMany()
+                        .HasForeignKey("ProductUnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Sellora.Domain.Entities.SalesInvoice", "SalesInvoice")
                         .WithMany("Lines")
                         .HasForeignKey("SalesInvoiceId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Sellora.Domain.Entities.ProductSellingMode", "SellingMode")
-                        .WithMany()
-                        .HasForeignKey("SellingModeId")
-                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("Sellora.Domain.Entities.Tax", "Tax")
@@ -2115,9 +2200,9 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.Navigation("Product");
 
-                    b.Navigation("SalesInvoice");
+                    b.Navigation("ProductUnit");
 
-                    b.Navigation("SellingMode");
+                    b.Navigation("SalesInvoice");
 
                     b.Navigation("Tax");
                 });
@@ -2228,15 +2313,15 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Sellora.Domain.Entities.ProductSellingMode", "ProductSellingMode")
+                    b.HasOne("Sellora.Domain.Entities.ProductUnit", "ProductUnit")
                         .WithMany()
-                        .HasForeignKey("ProductSellingModeId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasForeignKey("ProductUnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("CreatedByUser");
 
-                    b.Navigation("ProductSellingMode");
+                    b.Navigation("ProductUnit");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.StockAdjustment", b =>
@@ -2324,7 +2409,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Sellora.Domain.Entities.Product", b =>
                 {
-                    b.Navigation("SellingModes");
+                    b.Navigation("Units");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrder", b =>

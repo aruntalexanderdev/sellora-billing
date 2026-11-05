@@ -57,7 +57,7 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
             .Include(x => x.PurchaseOrder).ThenInclude(p => p.Currency)
             .Include(x => x.CreatedByUser)
             .Include(x => x.Lines).ThenInclude(l => l.Product).ThenInclude(p => p.BaseUnit)
-            .Include(x => x.Lines).ThenInclude(l => l.PurchaseOrderLine).ThenInclude(l => l.SellingMode)
+            .Include(x => x.Lines).ThenInclude(l => l.PurchaseOrderLine).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
             .AsSplitQuery()
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         if (r is null) return NotFound();
@@ -74,7 +74,7 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
             baseCurrency.Code, baseCurrency.Symbol, baseCurrency.DecimalPrecision,
             $"{r.CreatedByUser.FirstName} {r.CreatedByUser.LastName}", r.CreatedAt,
             r.Lines.Select(l => new PurchaseReturnLineDto(
-                l.Id, l.Product.Name, l.PurchaseOrderLine.SellingMode.Label, l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode,
+                l.Id, l.Product.Name, l.PurchaseOrderLine.ProductUnit.Label ?? l.PurchaseOrderLine.ProductUnit.Unit.Name, l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode,
                 l.TaxableValue, l.TaxAmount, l.LineTotal)).ToList(),
             refunds.Select(p => PurchasesController.ToPaymentDto(p, new HashSet<Guid>())).ToList()));
     }

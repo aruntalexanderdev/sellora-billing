@@ -25,9 +25,9 @@ describe('formatStandardFactor', () => {
 });
 
 describe('statusAction', () => {
-  it('disables Deactivate with an explanatory title for an active unit used by products', () => {
+  it('disables Deactivate with an explanatory title for an active unit that cannot be deactivated', () => {
     const onToggle = vi.fn();
-    const action = statusAction({ isActive: true, isInUse: true }, onToggle);
+    const action = statusAction({ isActive: true, canDeactivate: false }, onToggle);
     expect(action.label).toBe('Deactivate');
     expect(action.disabled).toBe(true);
     expect(action.title).toBe(IN_USE_DEACTIVATE_TITLE);
@@ -35,18 +35,27 @@ describe('statusAction', () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
-  it('offers an enabled Deactivate for an active unit not in use', () => {
+  it('offers an enabled Deactivate for an active unit that can be deactivated', () => {
     const onToggle = vi.fn();
-    const action = statusAction({ isActive: true, isInUse: false }, onToggle);
+    const action = statusAction({ isActive: true, canDeactivate: true }, onToggle);
     expect(action).toMatchObject({ label: 'Deactivate' });
     expect(action.disabled).toBeFalsy();
     action.onClick();
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
-  it.each([true, false])('keeps Activate available for an inactive unit (isInUse=%s)', (isInUse) => {
+  it('ignores isInUse: a unit used only by inactive product units can still be deactivated', () => {
     const onToggle = vi.fn();
-    const action = statusAction({ isActive: false, isInUse }, onToggle);
+    const unit = { isActive: true, isInUse: true, canDeactivate: true };
+    const action = statusAction(unit, onToggle);
+    expect(action.disabled).toBeFalsy();
+    action.onClick();
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([true, false])('keeps Activate available for an inactive unit (canDeactivate=%s)', (canDeactivate) => {
+    const onToggle = vi.fn();
+    const action = statusAction({ isActive: false, canDeactivate }, onToggle);
     expect(action.label).toBe('Activate');
     expect(action.disabled).toBeFalsy();
     action.onClick();

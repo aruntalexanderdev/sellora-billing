@@ -5,7 +5,7 @@ namespace Sellora.Domain.Sales;
 
 public sealed record SaleLineInput(
     Guid ProductId,
-    Guid SellingModeId,
+    Guid ProductUnitId,
     decimal Qty,
     decimal UnitPrice,
     decimal Discount

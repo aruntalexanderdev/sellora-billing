@@ -10,7 +10,7 @@ public record PurchaseListItemDto(
 );
 
 public record PurchaseLineDto(
-    Guid Id, Guid ProductId, string ProductName, Guid SellingModeId, string SellingModeLabel,
+    Guid Id, Guid ProductId, string ProductName, Guid ProductUnitId, string UnitLabel,
     decimal Qty, decimal BaseQty, string BaseUnitLabel, decimal Rate,
     decimal TaxRatePercent, decimal OtherCharges, decimal Discount,
     decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal UnitCost,
@@ -42,7 +42,7 @@ public record PurchaseDetailDto(
 
 public record CreatePurchaseLineRequest(
     [Required] Guid? ProductId,
-    [Required] Guid? SellingModeId,
+    [Required] Guid? ProductUnitId,
     [Range(0.001, 999999999)] decimal Qty,
     [Range(0, 999999999)] decimal Rate,
     [Range(0, 999999999)] decimal OtherCharges,
@@ -105,7 +105,7 @@ public record PurchaseReturnListItemDto(
 );
 
 public record PurchaseReturnLineDto(
-    Guid Id, string ProductName, string SellingModeLabel, decimal Qty, decimal BaseQty, string BaseUnitLabel,
+    Guid Id, string ProductName, string UnitLabel, decimal Qty, decimal BaseQty, string BaseUnitLabel,
     decimal TaxableValue, decimal TaxAmount, decimal LineTotal
 );
 

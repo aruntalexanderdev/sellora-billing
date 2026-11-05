@@ -3,6 +3,7 @@ using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
+using Sellora.Tests.TestData;
 
 namespace Sellora.Tests.Pricing;
 
@@ -16,7 +17,7 @@ public class PricingServiceTests
         return new SelloraDbContext(options);
     }
 
-    private sealed record Fixture(SelloraDbContext Db, PricingService Service, ProductSellingMode Mode, Guid UserId);
+    private sealed record Fixture(SelloraDbContext Db, PricingService Service, ProductUnit Bag, Guid UserId);
 
     private static async Task<Fixture> SeedAsync()
     {
@@ -34,12 +35,13 @@ public class PricingServiceTests
             Id = Guid.NewGuid(), Sku = "RICE-BP10", Name = "Ponni Rice", BaseUnitId = unit.Id, BaseUnit = unit,
             TaxId = tax.Id, Tax = tax, ReorderLevel = 100,
         };
-        var mode = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = product.Id, Product = product, Label = "10 kg bag", ConversionFactorToBase = 10m };
+        var looseKg = TestProductUnits.Base(product, "Loose kg");
+        var bag = TestProductUnits.Pack(product, TestUnits.Bag(), looseKg, 10m, "10 kg bag");
 
-        db.AddRange(role, user, unit, tax, product, mode);
+        db.AddRange(role, user, unit, tax, product);
         await db.SaveChangesAsync();
 
-        return new Fixture(db, new PricingService(db), mode, user.Id);
+        return new Fixture(db, new PricingService(db), bag, user.Id);
     }
 
     [Fact]
@@ -47,9 +49,9 @@ public class PricingServiceTests
     {
         var f = await SeedAsync();
 
-        await f.Service.SetPriceAsync(f.Mode.Id, 620m, f.UserId);
+        await f.Service.SetPriceAsync(f.Bag.Id, 620m, f.UserId);
 
-        var prices = await f.Db.SellingPrices.Where(p => p.ProductSellingModeId == f.Mode.Id).ToListAsync();
+        var prices = await f.Db.SellingPrices.Where(p => p.ProductUnitId == f.Bag.Id).ToListAsync();
         Assert.Single(prices);
         Assert.Equal(620m, prices[0].Price);
         Assert.Null(prices[0].EffectiveTo);
@@ -59,12 +61,12 @@ public class PricingServiceTests
     public async Task SetPriceAsync_SecondPrice_ClosesPreviousAndOpensNew()
     {
         var f = await SeedAsync();
-        await f.Service.SetPriceAsync(f.Mode.Id, 620m, f.UserId);
+        await f.Service.SetPriceAsync(f.Bag.Id, 620m, f.UserId);
 
         await Task.Delay(5); // ensure a distinct timestamp
-        await f.Service.SetPriceAsync(f.Mode.Id, 650m, f.UserId);
+        await f.Service.SetPriceAsync(f.Bag.Id, 650m, f.UserId);
 
-        var prices = await f.Db.SellingPrices.Where(p => p.ProductSellingModeId == f.Mode.Id).OrderBy(p => p.EffectiveFrom).ToListAsync();
+        var prices = await f.Db.SellingPrices.Where(p => p.ProductUnitId == f.Bag.Id).OrderBy(p => p.EffectiveFrom).ToListAsync();
         Assert.Equal(2, prices.Count);
 
         Assert.Equal(620m, prices[0].Price);
@@ -79,14 +81,57 @@ public class PricingServiceTests
     {
         var f = await SeedAsync();
 
-        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.SetPriceAsync(f.Mode.Id, -1m, f.UserId));
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.SetPriceAsync(f.Bag.Id, -1m, f.UserId));
     }
 
     [Fact]
-    public async Task SetPriceAsync_UnknownSellingMode_Throws()
+    public async Task SetPriceAsync_UnknownProductUnit_Throws()
     {
         var f = await SeedAsync();
 
-        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.SetPriceAsync(Guid.NewGuid(), 100m, f.UserId));
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.SetPriceAsync(Guid.NewGuid(), 100m, f.UserId));
+
+        Assert.Equal(("ProductUnitId", "Select a valid product unit."), (ex.Field, ex.Message));
+        Assert.False(await f.Db.SellingPrices.AnyAsync());
+    }
+
+    [Fact]
+    public async Task SetPriceAsync_InactiveProductUnit_RejectedOnProductUnitId()
+    {
+        var f = await SeedAsync();
+        f.Bag.IsActive = false;
+        await f.Db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.SetPriceAsync(f.Bag.Id, 620m, f.UserId));
+
+        Assert.Equal(("ProductUnitId", "10 kg bag is no longer active and cannot be priced."), (ex.Field, ex.Message));
+        Assert.False(await f.Db.SellingPrices.AnyAsync());
+    }
+
+    [Fact]
+    public async Task SetPriceAsync_InactiveUnlabelledProductUnit_MessageUsesUnitName()
+    {
+        var f = await SeedAsync();
+        f.Bag.IsActive = false;
+        f.Bag.Label = null;
+        await f.Db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.SetPriceAsync(f.Bag.Id, 620m, f.UserId));
+
+        Assert.Equal("Bag is no longer active and cannot be priced.", ex.Message);
+    }
+
+    [Fact]
+    public async Task SetPriceAsync_InactiveRowKeepsItsPriceHistory()
+    {
+        var f = await SeedAsync();
+        await f.Service.SetPriceAsync(f.Bag.Id, 620m, f.UserId);
+        f.Bag.IsActive = false;
+        await f.Db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.SetPriceAsync(f.Bag.Id, 650m, f.UserId));
+
+        var price = await f.Db.SellingPrices.SingleAsync();
+        Assert.Equal((620m, (DateTimeOffset?)null), (price.Price, price.EffectiveTo));
     }
 }

@@ -9,7 +9,7 @@ namespace Sellora.Infrastructure.Services;
 
 /// <remarks>
 /// Update and SetActive lock the unit row (<c>FOR UPDATE</c>) inside a transaction before the in-use check, and
-/// <see cref="ProductService"/> reads the base unit <c>FOR SHARE</c> in its own transaction. This serialises the
+/// <see cref="ProductService"/> reads every unit it references <c>FOR SHARE</c> in its own transaction. This serialises the
 /// two sides: a product cannot start using a unit while its category/decimals/factor are being changed or it is
 /// being deactivated, and a unit cannot be changed between a product's validation and its commit. Unique-index
 /// violations from concurrent duplicate creates/renames are mapped back to the duplicate field error.
@@ -84,7 +84,7 @@ public class UnitService(SelloraDbContext db) : IUnitService
         var unit = await LockUnitAsync(id, ct);
         if (unit is null) return null;
 
-        if (!isActive && await IsInUseAsync(id, ct))
+        if (!isActive && await IsUsedByActiveProductAsync(id, ct))
         {
             throw new DomainValidationException(nameof(Unit.IsActive), "This unit is used by products and cannot be deactivated.");
         }
@@ -96,9 +96,14 @@ public class UnitService(SelloraDbContext db) : IUnitService
     }
 
     /// <inheritdoc />
-    /// <remarks>Phase 2 extends this check to <c>ProductUnits.UnitId</c>.</remarks>
-    public Task<bool> IsInUseAsync(Guid id, CancellationToken ct = default) =>
-        db.Products.AnyAsync(p => p.BaseUnitId == id, ct);
+    public async Task<bool> IsInUseAsync(Guid id, CancellationToken ct = default) =>
+        await db.Products.AnyAsync(p => p.BaseUnitId == id, ct)
+        || await db.ProductUnits.AnyAsync(u => u.UnitId == id, ct);
+
+    /// <inheritdoc />
+    public async Task<bool> IsUsedByActiveProductAsync(Guid id, CancellationToken ct = default) =>
+        await db.Products.AnyAsync(p => p.BaseUnitId == id, ct)
+        || await db.ProductUnits.AnyAsync(u => u.UnitId == id && u.IsActive, ct);
 
     private static void ValidateShape(UpsertUnitInput input)
     {

@@ -10,8 +10,8 @@ public class SellingPrice
 {
     public Guid Id { get; set; }
 
-    public Guid ProductSellingModeId { get; set; }
-    public ProductSellingMode ProductSellingMode { get; set; } = null!;
+    public Guid ProductUnitId { get; set; }
+    public ProductUnit ProductUnit { get; set; } = null!;
 
     public decimal Price { get; set; }
 

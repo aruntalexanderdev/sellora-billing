@@ -5,6 +5,7 @@ using Sellora.Domain.Purchasing;
 using Sellora.Domain.Sales;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
+using Sellora.Tests.TestData;
 
 namespace Sellora.Tests.Sales;
 
@@ -20,7 +21,7 @@ public class SalesServiceTests
 
     private sealed record Fixture(
         SelloraDbContext Db, SalesService Service, PurchaseService PurchaseService,
-        Supplier Supplier, Customer Customer, Product Product, ProductSellingMode Bag, ProductSellingMode LooseKg, Guid UserId);
+        Supplier Supplier, Customer Customer, Product Product, ProductUnit Bag, ProductUnit LooseKg, Guid UserId);
 
     private static async Task<Fixture> SeedAsync()
     {
@@ -43,10 +44,8 @@ public class SalesServiceTests
             Id = Guid.NewGuid(), Sku = "RICE-BP10", Name = "Ponni Rice", BaseUnitId = unit.Id, BaseUnit = unit,
             TaxId = tax.Id, Tax = tax, ReorderLevel = 100,
         };
-        var bag = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = product.Id, Label = "10 kg bag", ConversionFactorToBase = 10m };
-        var looseKg = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = product.Id, Label = "Loose kg", ConversionFactorToBase = 1m };
-        product.SellingModes.Add(bag);
-        product.SellingModes.Add(looseKg);
+        var looseKg = TestProductUnits.Base(product, "Loose kg");
+        var bag = TestProductUnits.Pack(product, TestUnits.Bag(), looseKg, 10m, "10 kg bag");
 
         db.AddRange(role, user, unit, tax, inr, supplier, customer, settings, product);
         await db.SaveChangesAsync();
@@ -145,12 +144,14 @@ public class SalesServiceTests
     }
 
     [Fact]
-    public async Task CreateSaleAsync_LooseSellingMode_ConsumesBaseQuantityFromBatch()
+    public async Task CreateSaleAsync_QuarterKgPackUnit_ConsumesBaseQuantityFromBatch()
     {
         var f = await SeedAsync();
         await PurchaseAsync(f, 1, 580); // 10 kg @ 58/kg
-        var gram250 = new ProductSellingMode { Id = Guid.NewGuid(), ProductId = f.Product.Id, Label = "250 g", ConversionFactorToBase = 0.25m };
-        f.Db.ProductSellingModes.Add(gram250);
+        var pack250 = TestUnits.New("250 g pack", "p250", MeasurementCategory.Packaging, 0, null);
+        var gram250 = TestProductUnits.Pack(f.Product, pack250, f.LooseKg, 0.25m, "250 g");
+        f.Db.Units.Add(pack250);
+        f.Db.ProductUnits.Add(gram250);
         await f.Db.SaveChangesAsync();
 
         var sale = await f.Service.CreateSaleAsync(
@@ -162,6 +163,81 @@ public class SalesServiceTests
         Assert.Equal(0.75m * 58m, sale.Lines.Single().CostOfGoodsSold);
         Assert.Equal(9.25m, (await f.Db.PurchaseBatches.SingleAsync()).RemainingBaseQty);
         Assert.Equal(0.75m, (await f.Db.SalesInvoiceLineBatchConsumptions.SingleAsync()).QtyBaseUnits);
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_InactiveProductUnit_RejectedOnLinesAndStockUntouched()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580);
+        f.LooseKg.IsActive = false; // legacy data: the service must not rely on the base-row CHECK
+        await f.Db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateSaleAsync(BuildInput(f, 2, 65), f.UserId));
+
+        Assert.Equal(("Lines", "Loose kg is no longer active."), (ex.Field, ex.Message));
+        Assert.False(await f.Db.SalesInvoices.AnyAsync());
+        Assert.Equal(10m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_ProductUnitNotSellable_RejectedOnLines()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580);
+        f.LooseKg.IsSellable = false;
+        await f.Db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateSaleAsync(BuildInput(f, 2, 65), f.UserId));
+
+        Assert.Equal(("Lines", "Loose kg cannot be sold for Ponni Rice."), (ex.Field, ex.Message));
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_NotPurchasableButSellableUnit_Accepted()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580);
+        f.LooseKg.IsPurchasable = false;
+        await f.Db.SaveChangesAsync();
+
+        var sale = await f.Service.CreateSaleAsync(BuildInput(f, 2, 65), f.UserId);
+
+        Assert.Equal(2m, sale.Lines.Single().BaseQty);
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_ProductUnitFromDifferentProduct_RejectedOnLines()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580);
+        var other = new ProductBuilder().WithSku("OTHER").WithBaseUnit(f.Product.BaseUnit).WithTax(f.Product.Tax).Build();
+        var otherUnit = TestProductUnits.Base(other);
+        f.Db.Add(other);
+        await f.Db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateSaleAsync(
+            new CreateSaleInput(f.Customer.Id, new DateOnly(2026, 9, 18), PaymentMethod.Cash, 0,
+                [new SaleLineInput(f.Product.Id, otherUnit.Id, 1, 65, 0)]), f.UserId));
+
+        Assert.Equal(("Lines", "The selected unit does not belong to this product."), (ex.Field, ex.Message));
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_SecondLineInactive_RejectsWholeSale()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 2, 580);
+        f.Bag.IsActive = false;
+        await f.Db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateSaleAsync(
+            new CreateSaleInput(f.Customer.Id, new DateOnly(2026, 9, 18), PaymentMethod.Cash, 0,
+                [new SaleLineInput(f.Product.Id, f.LooseKg.Id, 1, 65, 0), new SaleLineInput(f.Product.Id, f.Bag.Id, 1, 600, 0)]), f.UserId));
+
+        Assert.Equal("10 kg bag is no longer active.", ex.Message);
+        Assert.False(await f.Db.SalesInvoices.AnyAsync());
+        Assert.Equal(20m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
     }
 
     [Fact]

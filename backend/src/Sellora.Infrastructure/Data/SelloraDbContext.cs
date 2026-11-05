@@ -19,7 +19,7 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options) : DbCo
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Product> Products => Set<Product>();
-    public DbSet<ProductSellingMode> ProductSellingModes => Set<ProductSellingMode>();
+    public DbSet<ProductUnit> ProductUnits => Set<ProductUnit>();
 
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
     public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();

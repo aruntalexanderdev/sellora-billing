@@ -17,20 +17,14 @@ public class UnitsController(SelloraDbContext db, IUnitService unitService) : Co
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<UnitDto>>> List(CancellationToken ct)
     {
-        var units = await db.Units.OrderBy(u => u.Name)
-            .Select(u => new UnitDto(u.Id, u.Name, u.ShortCode, u.MeasurementCategory, u.DecimalPlaces, u.StandardFactor,
-                u.IsActive, db.Products.Any(p => p.BaseUnitId == u.Id)))
-            .ToListAsync(ct);
+        var units = await Project(db.Units.OrderBy(u => u.Name)).ToListAsync(ct);
         return Ok(units);
     }
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<UnitDto>> Get(Guid id, CancellationToken ct)
     {
-        var unit = await db.Units.Where(u => u.Id == id)
-            .Select(u => new UnitDto(u.Id, u.Name, u.ShortCode, u.MeasurementCategory, u.DecimalPlaces, u.StandardFactor,
-                u.IsActive, db.Products.Any(p => p.BaseUnitId == u.Id)))
-            .SingleOrDefaultAsync(ct);
+        var unit = await Project(db.Units.Where(u => u.Id == id)).SingleOrDefaultAsync(ct);
         return unit is null ? NotFound() : Ok(unit);
     }
 
@@ -43,11 +37,11 @@ public class UnitsController(SelloraDbContext db, IUnitService unitService) : Co
         try
         {
             var unit = await unitService.CreateUnitAsync(ToInput(request), ct);
-            return Ok(ToDto(unit, isInUse: false));
+            return Ok(ToDto(unit, isInUse: false, canDeactivate: true));
         }
         catch (DomainValidationException ex)
         {
-            ModelState.AddModelError(ex.Field, ex.Message);
+            foreach (var error in ex.Errors) ModelState.AddModelError(error.Field, error.Message);
             return ValidationProblem(ModelState);
         }
     }
@@ -62,11 +56,11 @@ public class UnitsController(SelloraDbContext db, IUnitService unitService) : Co
         {
             var unit = await unitService.UpdateUnitAsync(id, ToInput(request), ct);
             if (unit is null) return NotFound();
-            return Ok(ToDto(unit, await unitService.IsInUseAsync(unit.Id, ct)));
+            return Ok(ToDto(unit, await unitService.IsInUseAsync(unit.Id, ct), !await unitService.IsUsedByActiveProductAsync(unit.Id, ct)));
         }
         catch (DomainValidationException ex)
         {
-            ModelState.AddModelError(ex.Field, ex.Message);
+            foreach (var error in ex.Errors) ModelState.AddModelError(error.Field, error.Message);
             return ValidationProblem(ModelState);
         }
     }
@@ -82,7 +76,7 @@ public class UnitsController(SelloraDbContext db, IUnitService unitService) : Co
         }
         catch (DomainValidationException ex)
         {
-            ModelState.AddModelError(ex.Field, ex.Message);
+            foreach (var error in ex.Errors) ModelState.AddModelError(error.Field, error.Message);
             return ValidationProblem(ModelState);
         }
     }
@@ -90,6 +84,12 @@ public class UnitsController(SelloraDbContext db, IUnitService unitService) : Co
     private static UpsertUnitInput ToInput(UpsertUnitRequest request) => new(
         request.Name, request.ShortCode, request.MeasurementCategory!.Value, request.DecimalPlaces, request.StandardFactor);
 
-    private static UnitDto ToDto(Unit u, bool isInUse) => new(
-        u.Id, u.Name, u.ShortCode, u.MeasurementCategory, u.DecimalPlaces, u.StandardFactor, u.IsActive, isInUse);
+    private static UnitDto ToDto(Unit u, bool isInUse, bool canDeactivate) => new(
+        u.Id, u.Name, u.ShortCode, u.MeasurementCategory, u.DecimalPlaces, u.StandardFactor, u.IsActive, isInUse, canDeactivate);
+
+    /// <summary>Same rules as <see cref="IUnitService.IsInUseAsync"/> and <see cref="IUnitService.IsUsedByActiveProductAsync"/>.</summary>
+    private IQueryable<UnitDto> Project(IQueryable<Unit> units) => units.Select(u => new UnitDto(
+        u.Id, u.Name, u.ShortCode, u.MeasurementCategory, u.DecimalPlaces, u.StandardFactor, u.IsActive,
+        db.Products.Any(p => p.BaseUnitId == u.Id) || db.ProductUnits.Any(pu => pu.UnitId == u.Id),
+        !db.Products.Any(p => p.BaseUnitId == u.Id) && !db.ProductUnits.Any(pu => pu.UnitId == u.Id && pu.IsActive)));
 }

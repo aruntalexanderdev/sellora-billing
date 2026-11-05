@@ -42,7 +42,7 @@ public class UnitLockConcurrencyTests(PostgresFixture postgres)
 
     private static Task CreateProductAsync(SelloraDbContext db, Seed seed) =>
         new ProductService(db).CreateProductAsync(new UpsertProductInput(
-            "SNK-MIX", "Namkeen Mixture", "Snacks", seed.PieceId, seed.TaxId, 25m, [new SellingModeInputItem(null, "Piece", 1m)]));
+            "SNK-MIX", "Namkeen Mixture", "Snacks", seed.PieceId, seed.TaxId, 25m, [new ProductUnitInputItem(null, seed.PieceId, null, 1m, "Piece", null, true, true, false, false, true)]));
 
     [Theory]
     [InlineData(1)]

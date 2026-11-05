@@ -28,7 +28,7 @@
         <thead>
           <tr>
             <th>Product</th>
-            <th>Selling mode</th>
+            <th>Unit</th>
             <th class="num">Cost / unit</th>
             <th class="num">Sell price</th>
             <th class="num">Margin</th>
@@ -37,33 +37,60 @@
           </tr>
         </thead>
         <tbody>
-          @for (row of rows(); track row.sellingModeId) {
-            <tr>
-              <td>
-                <div class="product-name">{{ row.productName }}</div>
-                <div class="product-sku">{{ row.productSku }}</div>
-              </td>
-              <td class="muted">{{ row.sellingModeLabel }}</td>
-              <td class="num muted">{{ INR(row.costPerUnit) }}</td>
-              <td class="num">
-                <input
-                  type="number"
-                  step="0.01"
-                  class="price-input"
-                  [value]="row.currentPrice ?? ''"
-                  [disabled]="savingModeId() === row.sellingModeId"
-                  (change)="onPriceChange(row, $event)"
-                  placeholder="Set price"
-                />
-              </td>
-              <td class="num" [class.warn-margin]="row.marginPercent !== null && row.marginPercent < 10">
-                {{ row.marginPercent !== null ? row.marginPercent + '%' : '—' }}
-              </td>
-              <td class="muted">{{ row.taxLabel }}</td>
-              <td class="actions-cell">
-                <button type="button" class="history-btn" (click)="viewHistory(row)">History</button>
-              </td>
-            </tr>
+          @for (group of groups(); track group.productId) {
+            @for (row of group.rows; track row.productUnitId; let first = $first) {
+              <tr [class.group-start]="first">
+                <td>
+                  @if (first) {
+                    <div class="product-name">{{ group.productName }}</div>
+                    <div class="product-sku">{{ group.productSku }}</div>
+                  }
+                </td>
+                <td>
+                  <div class="unit-label">
+                    {{ row.unitLabel }}
+                    @if (row.isBaseUnit) {
+                      <span class="base-tag">Base</span>
+                    }
+                  </div>
+                  @if (!row.isBaseUnit) {
+                    <div class="unit-factor">= {{ FACTOR(row.conversionFactorToBase) }} {{ row.baseUnitLabel }}</div>
+                  }
+                </td>
+                <td class="num muted">{{ INR(row.costPerUnit) }}</td>
+                <td class="num">
+                  <input
+                    #priceInput
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    class="price-input"
+                    [value]="row.currentPrice ?? ''"
+                    [disabled]="savingUnitId() === row.productUnitId"
+                    (change)="onPriceChange(row, $event)"
+                    [placeholder]="row.suggestedPrice !== null ? row.suggestedPrice.toString() : 'Set price'"
+                  />
+                  @if (row.suggestedPrice !== null && row.suggestedPrice !== row.currentPrice) {
+                    <div class="suggested-hint">
+                      Suggested {{ INR(row.suggestedPrice) }}
+                      <button
+                        type="button"
+                        class="use-suggested-btn"
+                        [disabled]="savingUnitId() === row.productUnitId"
+                        (click)="applySuggested(row, priceInput)"
+                      >Use</button>
+                    </div>
+                  }
+                </td>
+                <td class="num" [class.warn-margin]="row.marginPercent !== null && row.marginPercent < 10">
+                  {{ row.marginPercent !== null ? row.marginPercent + '%' : '—' }}
+                </td>
+                <td class="muted">{{ row.taxLabel }}</td>
+                <td class="actions-cell">
+                  <button type="button" class="history-btn" (click)="viewHistory(row)">History</button>
+                </td>
+              </tr>
+            }
           }
         </tbody>
       </table>
@@ -74,7 +101,7 @@
 @if (historyRow(); as hr) {
   <div class="backdrop" (click)="closeHistory()">
     <div class="history-panel" (click)="$event.stopPropagation()">
-      <div class="history-title">{{ hr.productName }} · {{ hr.sellingModeLabel }}</div>
+      <div class="history-title">{{ hr.productName }} · {{ hr.unitLabel }}</div>
       <div class="history-subtitle">Price history — old prices are kept, never overwritten.</div>
 
       @if (historyLoading()) {
