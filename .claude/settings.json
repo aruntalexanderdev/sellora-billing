@@ -1,0 +1,54 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(scripts/verify.sh:*)",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet ef migrations add:*)",
+      "Bash(dotnet ef migrations script:*)",
+      "Bash(dotnet ef migrations list:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm test:*)",
+      "Bash(npx ng build:*)",
+      "Bash(npx ng test:*)",
+      "Bash(npm --prefix frontend run build:*)",
+      "Bash(npm --prefix frontend test:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(dotnet ef database update:*)",
+      "Bash(dotnet ef migrations remove:*)",
+      "Bash(npm install:*)"
+    ],
+    "deny": [
+      "Bash(dotnet ef database drop:*)",
+      "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)",
+      "Read(./backend/**/bin/**)",
+      "Read(./backend/**/obj/**)",
+      "Read(./frontend/node_modules/**)",
+      "Read(./frontend/dist/**)",
+      "Read(./frontend/.angular/**)",
+      "Read(./backend/**/Migrations/*.Designer.cs)",
+      "Read(./backend/**/Migrations/*ModelSnapshot.cs)",
+      "Read(./docs/*.zip)",
+      "Read(./**/appsettings.Development.json)",
+      "Read(./**/.env)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-bash.sh" }]
+      }
+    ]
+  }
+}

@@ -32,18 +32,7 @@ Typical order — skip agents with no work in this phase; run independent packag
 Each work package states: goal, files in scope, contracts it must honour (DTO shapes, migration names), acceptance criteria, and "report format: files changed, decisions, risks, follow-ups".
 
 ## 3. Integrate & verify (lead does this itself)
-```bash
-dotnet build backend/Sellora.slnx
-```
-```bash
-dotnet test backend/Sellora.slnx
-```
-```bash
-npm --prefix frontend run build
-```
-```bash
-npm --prefix frontend test
-```
+Run `scripts/verify.sh unit` while fixing, then `scripts/verify.sh all` (needs Docker for the integration tests) before reporting.
 Check the diff is within phase scope. Re-dispatch fixes for any failure or reviewer Blocker/Major finding, then re-run.
 
 ## 4. Definition of done

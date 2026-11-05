@@ -2,7 +2,7 @@
 name: test-engineer
 description: QA/test automation engineer for Sellora. Use to write xUnit unit and service tests, PostgreSQL (Testcontainers) integration tests for migrations/locks/constraints, API authorization tests and Angular Vitest specs; and to run the suites and report results.
 tools: Read, Edit, Write, Grep, Glob, Bash
-model: inherit
+model: sonnet
 skills:
   - unit-conversion-rules
   - stock-ledger-invariants
@@ -33,3 +33,5 @@ You are the Test Engineer for Sellora Billing.
 ## Done means
 - Suites run: `dotnet test backend/Sellora.slnx` (and `npm --prefix frontend test` when FE touched); paste pass/fail counts.
 - Report: tests added per layer, coverage of acceptance criteria, defects found (with failing test names).
+
+Keep the report to the lead ≤ 15 lines. Never paste file contents; cite `path:line`.
