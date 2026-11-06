@@ -41,8 +41,9 @@ public sealed record AddPurchasePaymentInput(
     Guid? AccountId = null
 );
 
-/// <summary><see cref="Qty"/> is in the purchase unit the line was bought in.</summary>
-public sealed record PurchaseReturnLineInput(Guid PurchaseOrderLineId, decimal Qty);
+/// <summary><see cref="Qty"/> is in <see cref="ProductUnitId"/>: the line's own unit (even if since deactivated) or any
+/// active unit of the product. Null means the line's own unit.</summary>
+public sealed record PurchaseReturnLineInput(Guid PurchaseOrderLineId, Guid? ProductUnitId, decimal Qty);
 
 /// <summary>Goods sent back to a supplier. An optional <see cref="Refund"/> records money the supplier paid
 /// back in the same step, in the purchase's transaction currency.</summary>

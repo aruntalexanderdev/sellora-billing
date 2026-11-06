@@ -100,18 +100,33 @@ public class PurchaseReturnLineConfiguration : IEntityTypeConfiguration<Purchase
     {
         builder.HasKey(l => l.Id);
         builder.Property(l => l.Qty).HasColumnType("numeric(18,3)");
+        builder.Property(l => l.ConversionFactorToBase).HasColumnType("numeric(28,10)");
+        builder.Property(l => l.UnitCode).HasMaxLength(10).IsRequired();
         builder.Property(l => l.BaseQty).HasColumnType("numeric(18,3)");
         foreach (var money in new[] { nameof(PurchaseReturnLine.TaxableValue), nameof(PurchaseReturnLine.TaxAmount), nameof(PurchaseReturnLine.LineTotal), nameof(PurchaseReturnLine.CostRemoved) })
         {
             builder.Property(money).HasColumnType("numeric(18,4)");
         }
 
-        builder.ToTable(t => t.HasCheckConstraint("CK_PurchaseReturnLines_Qty_Positive", "\"Qty\" > 0"));
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_PurchaseReturnLines_Qty_Positive", "\"Qty\" > 0");
+            t.HasCheckConstraint("CK_PurchaseReturnLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
+            t.HasCheckConstraint("CK_PurchaseReturnLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
+            t.HasCheckConstraint("CK_PurchaseReturnLines_BaseQty_Arithmetic", "\"Qty\" * \"ConversionFactorToBase\" = \"BaseQty\"");
+        });
         builder.HasIndex(l => l.PurchaseOrderLineId);
 
         builder.HasOne(l => l.PurchaseReturn).WithMany(r => r.Lines).HasForeignKey(l => l.PurchaseReturnId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(l => l.PurchaseOrderLine).WithMany().HasForeignKey(l => l.PurchaseOrderLineId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(l => l.Product).WithMany().HasForeignKey(l => l.ProductId).OnDelete(DeleteBehavior.Restrict);
+        // (ProductId, ProductUnitId) -> ProductUnits (ProductId, Id): the return unit must belong to the returned product.
+        builder.HasOne(l => l.ProductUnit).WithMany()
+            .HasForeignKey(l => new { l.ProductId, l.ProductUnitId })
+            .HasPrincipalKey(u => new { u.ProductId, u.Id })
+            .IsRequired()
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(l => l.Unit).WithMany().HasForeignKey(l => l.UnitId).OnDelete(DeleteBehavior.Restrict);
     }
 }
 
@@ -122,18 +137,36 @@ public class PurchaseOrderLineConfiguration : IEntityTypeConfiguration<PurchaseO
         builder.HasKey(l => l.Id);
 
         builder.Property(l => l.Qty).HasColumnType("numeric(18,3)");
-        builder.Property(l => l.ConversionFactorToBase).HasColumnType("numeric(18,3)");
+        builder.Property(l => l.ConversionFactorToBase).HasColumnType("numeric(28,10)");
+        builder.Property(l => l.UnitCode).HasMaxLength(10).IsRequired();
         builder.Property(l => l.BaseQty).HasColumnType("numeric(18,3)");
         builder.Property(l => l.TaxRatePercent).HasColumnType("numeric(6,3)");
 
-        foreach (var money in new[] { nameof(PurchaseOrderLine.Rate), nameof(PurchaseOrderLine.OtherCharges), nameof(PurchaseOrderLine.Discount), nameof(PurchaseOrderLine.TaxableValue), nameof(PurchaseOrderLine.TaxAmount), nameof(PurchaseOrderLine.LineTotal), nameof(PurchaseOrderLine.UnitCost) })
+        foreach (var money in new[] { nameof(PurchaseOrderLine.Rate), nameof(PurchaseOrderLine.OtherCharges), nameof(PurchaseOrderLine.Discount), nameof(PurchaseOrderLine.TaxableValue), nameof(PurchaseOrderLine.TaxAmount), nameof(PurchaseOrderLine.LineTotal) })
         {
             builder.Property(money).HasColumnType("numeric(18,4)");
         }
 
+        // Landed cost per BASE unit (M7: 6 dp).
+        builder.Property(l => l.UnitCost).HasColumnType("numeric(18,6)");
+
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_PurchaseOrderLines_Qty_Positive", "\"Qty\" > 0");
+            t.HasCheckConstraint("CK_PurchaseOrderLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
+            t.HasCheckConstraint("CK_PurchaseOrderLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
+            t.HasCheckConstraint("CK_PurchaseOrderLines_BaseQty_Arithmetic", "\"Qty\" * \"ConversionFactorToBase\" = \"BaseQty\"");
+        });
+
         builder.HasOne(l => l.PurchaseOrder).WithMany(p => p.Lines).HasForeignKey(l => l.PurchaseOrderId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(l => l.Product).WithMany().HasForeignKey(l => l.ProductId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne(l => l.ProductUnit).WithMany().HasForeignKey(l => l.ProductUnitId).OnDelete(DeleteBehavior.Restrict);
+        // (ProductId, ProductUnitId) -> ProductUnits (ProductId, Id) via AK_ProductUnits_ProductId_Id: same-product guaranteed by the DB.
+        builder.HasOne(l => l.ProductUnit).WithMany()
+            .HasForeignKey(l => new { l.ProductId, l.ProductUnitId })
+            .HasPrincipalKey(u => new { u.ProductId, u.Id })
+            .IsRequired()
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(l => l.Unit).WithMany().HasForeignKey(l => l.UnitId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(l => l.Tax).WithMany().HasForeignKey(l => l.TaxId).OnDelete(DeleteBehavior.Restrict);
     }
 }
@@ -145,7 +178,7 @@ public class PurchaseBatchConfiguration : IEntityTypeConfiguration<PurchaseBatch
         builder.HasKey(b => b.Id);
         builder.Property(b => b.PurchasedBaseQty).HasColumnType("numeric(18,3)");
         builder.Property(b => b.RemainingBaseQty).HasColumnType("numeric(18,3)");
-        builder.Property(b => b.UnitCost).HasColumnType("numeric(18,4)");
+        builder.Property(b => b.UnitCost).HasColumnType("numeric(18,6)");
 
         builder.Property(b => b.BatchSequence).UseIdentityAlwaysColumn();
         builder.Ignore(b => b.InternalBatchNo);

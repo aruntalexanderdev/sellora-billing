@@ -66,7 +66,7 @@ public class ReturnsAndRefundsTests
 
     private static Task<PurchaseReturn> ReturnPurchase(Fixture f, PurchaseOrder p, decimal qty, RefundDetails? refund = null) =>
         f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(p.Id, D, "wrong grade",
-            [new PurchaseReturnLineInput(p.Lines.Single().Id, qty)], refund), f.UserId);
+            [new PurchaseReturnLineInput(p.Lines.Single().Id, null, qty)], refund), f.UserId);
 
     private static async Task<decimal> Balance(Fixture f, Guid accountId) =>
         (await f.Db.FinancialTransactions.AsNoTracking().Where(t => t.AccountId == accountId && t.Status == FinancialTransactionStatus.Active).ToListAsync())
@@ -366,9 +366,9 @@ public class ReturnsAndRefundsTests
         await Fails(() => ReturnPurchase(f, purchase, 0), "Lines");
         await Fails(() => f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(purchase.Id, D, null, []), f.UserId), "Lines");
         await Fails(() => f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(purchase.Id, D, null,
-            [new PurchaseReturnLineInput(lineId, 1), new PurchaseReturnLineInput(lineId, 1)]), f.UserId), "Lines");
-        await Fails(() => f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(Guid.NewGuid(), D, null, [new PurchaseReturnLineInput(lineId, 1)]), f.UserId), "PurchaseOrderId");
-        await Fails(() => f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(purchase.Id, D.AddDays(-5), null, [new PurchaseReturnLineInput(lineId, 1)]), f.UserId), "ReturnDate");
+            [new PurchaseReturnLineInput(lineId, null, 1), new PurchaseReturnLineInput(lineId, null, 1)]), f.UserId), "Lines");
+        await Fails(() => f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(Guid.NewGuid(), D, null, [new PurchaseReturnLineInput(lineId, null, 1)]), f.UserId), "PurchaseOrderId");
+        await Fails(() => f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(purchase.Id, D.AddDays(-5), null, [new PurchaseReturnLineInput(lineId, null, 1)]), f.UserId), "ReturnDate");
 
         Assert.Single(await f.Db.PurchaseReturns.ToListAsync());
         Assert.Equal(10m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);

@@ -135,7 +135,7 @@ public class SalesInvoiceLineBatchConsumptionConfiguration : IEntityTypeConfigur
         builder.Property(c => c.QtyBaseUnits).HasColumnType("numeric(18,3)");
         builder.Property(c => c.ReturnedQtyBaseUnits).HasColumnType("numeric(18,3)");
         builder.ToTable(t => t.HasCheckConstraint("CK_SalesConsumption_ReturnedWithinConsumed", "\"ReturnedQtyBaseUnits\" >= 0 AND \"ReturnedQtyBaseUnits\" <= \"QtyBaseUnits\""));
-        builder.Property(c => c.UnitCost).HasColumnType("numeric(18,4)");
+        builder.Property(c => c.UnitCost).HasColumnType("numeric(18,6)");
 
         builder.HasOne(c => c.SalesInvoiceLine).WithMany(l => l.BatchConsumptions).HasForeignKey(c => c.SalesInvoiceLineId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(c => c.PurchaseBatch).WithMany().HasForeignKey(c => c.PurchaseBatchId).OnDelete(DeleteBehavior.Restrict);

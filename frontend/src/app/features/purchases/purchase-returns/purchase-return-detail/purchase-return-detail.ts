@@ -1,6 +1,7 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { PurchasesService } from '../../purchases.service';
+import { formatQuantity } from '../../../../shared/units/unit-conversion';
 import type { PurchaseReturnDetail as PurchaseReturnDetailModel } from '../../purchases.models';
 
 const FORMAT = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -13,6 +14,7 @@ const FORMAT = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits:
   styleUrl: '../../purchase-detail/purchase-detail.scss',
 })
 export class PurchaseReturnDetail implements OnInit {
+  readonly formatQuantity = formatQuantity;
   private readonly purchasesService = inject(PurchasesService);
   private readonly route = inject(ActivatedRoute);
 

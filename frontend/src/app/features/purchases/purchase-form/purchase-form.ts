@@ -14,8 +14,9 @@ import type { ResolvedExchangeRate } from '../../administration/exchange-rates/e
 import type { SupplierItem } from '../suppliers/suppliers.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
 import type { PaymentMethod, PurchaseProduct, PurchaseProductUnit } from '../purchases.models';
-import { defaultPurchaseUnit, purchaseUnitOptions } from './purchase-units';
-import { convert } from '../../../shared/units/unit-conversion';
+import { defaultPurchaseUnit, purchaseBaseDecimalsError, purchaseUnitOptions } from './purchase-units';
+import { convert, formatQuantity } from '../../../shared/units/unit-conversion';
+import { quantityStep, quantityValidators } from '../../../shared/forms/quantity-input';
 import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
 import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
 
@@ -36,6 +37,9 @@ interface LinePreview {
   valid: boolean;
   baseQty: number;
   baseUnitLabel: string;
+  baseUnitDecimalPlaces: number;
+  /** Server-mirrored base-decimals error for the entered quantity, if any. */
+  baseDecimalsError: string | null;
   subtotal: number;
   otherCharges: number;
   discount: number;
@@ -49,7 +53,7 @@ interface LinePreview {
 }
 
 const EMPTY_PREVIEW: LinePreview = {
-  valid: false, baseQty: 0, baseUnitLabel: '', subtotal: 0, otherCharges: 0, discount: 0,
+  valid: false, baseQty: 0, baseUnitLabel: '', baseUnitDecimalPlaces: 3, baseDecimalsError: null, subtotal: 0, otherCharges: 0, discount: 0,
   taxableValue: 0, taxAmount: 0, lineTotal: 0, unitCost: 0, baseTotal: 0,
 };
 
@@ -112,6 +116,8 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
 
       // Preview only; the server computes and validates the stored base quantity.
       const baseQty = convert(row.qty, unit.conversionFactorToBase, 1);
+      const baseUnitDecimalPlaces = product.units.find((u) => u.isBaseUnit)?.decimalPlaces ?? 3;
+      const baseDecimalsError = purchaseBaseDecimalsError(row.qty, unit, baseUnitDecimalPlaces, product.baseUnitLabel);
 
       // Mirrors the server: for a foreign supplier every invoice figure (tax included) is rounded to the
       // supplier currency's precision, and each rounded figure is then converted and rounded to the base
@@ -130,7 +136,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
       const taxAmount = inOriginal((taxableValue * product.taxRatePercent) / 100);
       const baseTotal = toBase(subtotal) + toBase(otherCharges) - toBase(discount) + toBase(taxAmount);
       return {
-        valid: true, baseQty, baseUnitLabel: product.baseUnitLabel, subtotal, otherCharges, discount,
+        valid: true, baseQty, baseUnitLabel: product.baseUnitLabel, baseUnitDecimalPlaces, baseDecimalsError, subtotal, otherCharges, discount,
         taxableValue, taxAmount, lineTotal: taxableValue + taxAmount, unitCost: baseQty > 0 ? taxableValue / baseQty : 0, baseTotal,
       };
     });
@@ -271,20 +277,36 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
 
   private applyDefaultUnit(row: LineGroup, product: PurchaseProduct): void {
     row.controls.productUnitId.setValue(defaultPurchaseUnit(product.units)?.id ?? '');
+    this.applyQtyRules(row);
+  }
+
+  readonly quantityStep = quantityStep;
+  readonly formatQuantity = formatQuantity;
+
+  /** Decimal places of the unit currently selected on a row (3 until a unit is chosen). */
+  unitDecimals(row: LineGroup): number {
+    const unit = this.productDetail(row.controls.productId.value)?.units.find((u) => u.id === row.controls.productUnitId.value);
+    return unit?.decimalPlaces ?? 3;
+  }
+
+  /** Re-apply the quantity validators from the selected unit's decimal places (mirrors the server rule). */
+  applyQtyRules(row: LineGroup): void {
+    row.controls.qty.setValidators(quantityValidators(this.unitDecimals(row)));
+    row.controls.qty.updateValueAndValidity();
   }
 
   addLine(): void {
-    this.lines.push(
-      this.fb.nonNullable.group({
+    const group = this.fb.nonNullable.group({
         productId: ['', Validators.required],
         productUnitId: ['', Validators.required],
-        qty: [null as number | null, [Validators.required, Validators.min(0.001)]],
+        qty: [null as number | null, quantityValidators(3)],
         rate: [null as number | null, [Validators.required, Validators.min(0)]],
         otherCharges: [0],
         discount: [0],
         supplierBatchNumber: ['', [Validators.maxLength(60)]],
-      }),
-    );
+      });
+    group.controls.productUnitId.valueChanges.subscribe(() => this.applyQtyRules(group));
+    this.lines.push(group);
   }
 
   removeLine(index: number): void {
@@ -298,7 +320,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
       this.serverError.set('Add at least one item.');
       return;
     }
-    if (this.form.invalid) {
+    if (this.form.invalid || this.previews().some((p) => p.baseDecimalsError)) {
       this.form.markAllAsTouched();
       return;
     }

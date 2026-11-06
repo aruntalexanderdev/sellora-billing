@@ -251,7 +251,8 @@ public class ProductUnitConstraintTests(PostgresFixture postgres)
         {
             "FK_ProductUnits_Products_ProductId", "FK_ProductUnits_Units_UnitId",
             "FK_ProductUnits_ProductUnits_ProductId_InnerProductUnitId", "FK_SellingPrices_ProductUnits_ProductUnitId",
-            "FK_PurchaseOrderLines_ProductUnits_ProductUnitId", "FK_SalesInvoiceLines_ProductUnits_ProductUnitId",
+            "FK_PurchaseOrderLines_ProductUnits_ProductId_ProductUnitId", "FK_PurchaseReturnLines_ProductUnits_ProductId_ProductUnitId",
+            "FK_SalesInvoiceLines_ProductUnits_ProductUnitId",
         })
         {
             Assert.True(byName.TryGetValue(name, out var fk), $"Foreign key {name} is missing. Found: {string.Join(", ", byName.Keys)}");
@@ -263,6 +264,15 @@ public class ProductUnitConstraintTests(PostgresFixture postgres)
         Assert.Equal(2, composite.Columns);
         Assert.Contains("(\"ProductId\", \"InnerProductUnitId\")", composite.Definition);
         Assert.Contains("\"ProductUnits\"(\"ProductId\", \"Id\")", composite.Definition);
+
+        // Phase 4: purchase and purchase-return lines reference a unit of the SAME product (composite), not by Id alone.
+        foreach (var name in new[] { "FK_PurchaseOrderLines_ProductUnits_ProductId_ProductUnitId", "FK_PurchaseReturnLines_ProductUnits_ProductId_ProductUnitId" })
+        {
+            Assert.Equal(2, byName[name].Columns);
+            Assert.Contains("(\"ProductId\", \"ProductUnitId\")", byName[name].Definition);
+            Assert.Contains("\"ProductUnits\"(\"ProductId\", \"Id\")", byName[name].Definition);
+        }
+        Assert.DoesNotContain("FK_PurchaseOrderLines_ProductUnits_ProductUnitId", byName.Keys);
     }
 
     [Fact]

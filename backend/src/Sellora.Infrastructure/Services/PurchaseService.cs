@@ -382,12 +382,18 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         var currency = await db.Currencies.SingleAsync(c => c.Id == purchase.CurrencyId, ct);
         var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+        var purchaseLineProductIds = await db.PurchaseOrderLines.Where(l => l.PurchaseOrderId == purchase.Id).Select(l => l.ProductId).ToListAsync(ct);
+        // Lock order: PurchaseOrders (above) -> Products KEY SHARE -> StockItems. The return reads the factor of a unit
+        // that history may not yet reference, so a concurrent product-unit edit must wait until this commits.
+        await StockLocks.LockProductsKeyShareAsync(db, purchaseLineProductIds, ct);
         // Lock the stock rows before reading the batches, so the remaining quantities checked below are current.
-        await StockLocks.LockStockItemsAsync(db, await db.PurchaseOrderLines.Where(l => l.PurchaseOrderId == purchase.Id).Select(l => l.ProductId).ToListAsync(ct), ct);
-        var lines = await db.PurchaseOrderLines.Include(l => l.Product).Include(l => l.Batch)
+        await StockLocks.LockStockItemsAsync(db, purchaseLineProductIds, ct);
+        var lines = await db.PurchaseOrderLines.Include(l => l.Product).ThenInclude(p => p.BaseUnit).Include(l => l.Batch)
             .Where(l => l.PurchaseOrderId == purchase.Id).ToListAsync(ct);
         var priorReturns = await db.PurchaseReturnLines
             .Where(r => r.PurchaseOrderLine.PurchaseOrderId == purchase.Id).ToListAsync(ct);
+        var productUnits = await db.ProductUnits.Include(u => u.Unit)
+            .Where(u => purchaseLineProductIds.Contains(u.ProductId)).ToListAsync(ct);
 
         var purchaseReturn = new PurchaseReturn
         {
@@ -404,33 +410,51 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             var line = lines.SingleOrDefault(l => l.Id == requested.PurchaseOrderLineId)
                 ?? throw new DomainValidationException("Lines", "One of the items does not belong to this purchase.");
             var batch = line.Batch ?? throw new InvalidOperationException($"Purchase line {line.Id} has no batch.");
+            var baseUnit = line.Product.BaseUnit;
 
-            var qty = Math.Round(requested.Qty, 3, MidpointRounding.AwayFromZero);
+            // The return unit: the line's own unit (even if deactivated since) or any active unit of the product.
+            // Purchasable/sellable flags do not apply - a return reverses goods that were physically received.
+            var unitId = requested.ProductUnitId ?? line.ProductUnitId;
+            var productUnit = productUnits.SingleOrDefault(u => u.Id == unitId)
+                ?? throw new DomainValidationException("Lines", "Select a valid unit.");
+            if (productUnit.ProductId != line.ProductId)
+            {
+                throw new DomainValidationException("Lines", $"The selected unit does not belong to {line.Product.Name}.");
+            }
+            var unitDisplay = productUnit.Label ?? productUnit.Unit.Name;
+            if (!productUnit.IsActive && productUnit.Id != line.ProductUnitId)
+            {
+                throw new DomainValidationException("Lines", $"{unitDisplay} is no longer active.");
+            }
+
+            var qty = requested.Qty;
             if (qty <= 0)
             {
                 throw new DomainValidationException("Lines", $"Quantity for {line.Product.Name} must be greater than zero.");
             }
+            StockQuantity.EnsureEnteredDecimals(qty, productUnit.Unit.DecimalPlaces, unitDisplay, "Lines");
+
+            var baseQty = qty * productUnit.ConversionFactorToBase;
+            StockQuantity.EnsureStorable(baseQty, "Lines");
+            StockQuantity.EnsureWithinBaseDecimals(qty, productUnit.Unit.ShortCode, baseQty, baseUnit, "Lines");
 
             var prior = priorReturns.Where(r => r.PurchaseOrderLineId == line.Id).ToList();
-            var returnable = line.Qty - prior.Sum(r => r.Qty);
-            if (qty > returnable)
+            var returnableBase = line.BaseQty - prior.Sum(r => r.BaseQty);
+            if (baseQty > returnableBase)
             {
-                throw new DomainValidationException("Lines", $"Only {returnable:0.###} of {line.Product.Name} can still be returned.");
+                throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(returnableBase)} {baseUnit.ShortCode} of {line.Product.Name} can still be returned.");
+            }
+            if (baseQty > batch.RemainingBaseQty)
+            {
+                throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(batch.RemainingBaseQty)} {baseUnit.ShortCode} of {line.Product.Name} from this purchase is still in stock to return.");
             }
 
             // Returning whatever is left takes the exact remainder, so per-line rounding can never leave a stray
-            // paisa of credit unissued (or issue one too many) once an item is fully returned.
-            var last = qty == returnable;
-            var baseQty = last ? line.BaseQty - prior.Sum(r => r.BaseQty) : qty * line.ConversionFactorToBase;
-            StockQuantity.EnsureStorable(baseQty, "Lines");
-            if (baseQty > batch.RemainingBaseQty)
-            {
-                var inStock = batch.RemainingBaseQty / line.ConversionFactorToBase;
-                throw new DomainValidationException("Lines", $"Only {inStock:0.###} of {line.Product.Name} from this purchase is still in stock to return.");
-            }
-
-            var taxable = last ? line.TaxableValue - prior.Sum(r => r.TaxableValue) : Math.Round(line.TaxableValue * qty / line.Qty, basePrecision, MidpointRounding.AwayFromZero);
-            var tax = last ? line.TaxAmount - prior.Sum(r => r.TaxAmount) : Math.Round(line.TaxAmount * qty / line.Qty, basePrecision, MidpointRounding.AwayFromZero);
+            // paisa of credit unissued (or issue one too many) once an item is fully returned. Credit is prorated
+            // by base quantity, so returns in different units of the same line add up.
+            var last = baseQty == returnableBase;
+            var taxable = last ? line.TaxableValue - prior.Sum(r => r.TaxableValue) : Math.Round(line.TaxableValue * baseQty / line.BaseQty, basePrecision, MidpointRounding.AwayFromZero);
+            var tax = last ? line.TaxAmount - prior.Sum(r => r.TaxAmount) : Math.Round(line.TaxAmount * baseQty / line.BaseQty, basePrecision, MidpointRounding.AwayFromZero);
 
             var returnLine = new PurchaseReturnLine
             {
@@ -438,12 +462,16 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
                 PurchaseReturnId = purchaseReturn.Id,
                 PurchaseOrderLineId = line.Id,
                 ProductId = line.ProductId,
+                ProductUnitId = productUnit.Id,
+                UnitId = productUnit.UnitId,
+                UnitCode = productUnit.Unit.ShortCode,
+                ConversionFactorToBase = productUnit.ConversionFactorToBase,
                 Qty = qty,
                 BaseQty = baseQty,
                 TaxableValue = taxable,
                 TaxAmount = tax,
                 LineTotal = taxable + tax,
-                CostRemoved = baseQty * batch.UnitCost,
+                CostRemoved = StockCost.Money(baseQty * batch.UnitCost),
             };
             purchaseReturn.Lines.Add(returnLine);
             priorReturns.Add(returnLine);
@@ -457,7 +485,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             if (qtyAfter > 0)
             {
                 var valueAfter = stockItem.QuantityOnHand * stockItem.AverageCost - baseQty * batch.UnitCost;
-                stockItem.AverageCost = Math.Max(0, valueAfter / qtyAfter);
+                stockItem.AverageCost = StockCost.PerBaseUnit(Math.Max(0, valueAfter / qtyAfter));
                 stockItem.QuantityOnHand = qtyAfter;
             }
             else
@@ -556,7 +584,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             {
                 var totalValueBefore = stockItem.QuantityOnHand * stockItem.AverageCost;
                 var totalValueRemoved = batch.PurchasedBaseQty * batch.UnitCost;
-                stockItem.AverageCost = Math.Max(0, (totalValueBefore - totalValueRemoved) / qtyAfter);
+                stockItem.AverageCost = StockCost.PerBaseUnit(Math.Max(0, (totalValueBefore - totalValueRemoved) / qtyAfter));
                 stockItem.QuantityOnHand = qtyAfter;
             }
             else
@@ -631,7 +659,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             throw new DomainValidationException("Lines", "Rate cannot be negative.");
         }
 
-        var product = await db.Products.SingleOrDefaultAsync(p => p.Id == input.ProductId, ct)
+        var product = await db.Products.Include(p => p.BaseUnit).SingleOrDefaultAsync(p => p.Id == input.ProductId, ct)
             ?? throw new DomainValidationException("Lines", "Select a valid product.");
         if (!product.IsActive)
         {
@@ -659,8 +687,10 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         var tax = await db.Taxes.SingleAsync(t => t.Id == product.TaxId, ct);
 
         // The stored factor is snapshotted onto the line; history is never recomputed from configuration.
+        StockQuantity.EnsureEnteredDecimals(input.Qty, productUnit.Unit.DecimalPlaces, unitDisplay, "Lines");
         var baseQty = input.Qty * productUnit.ConversionFactorToBase;
         StockQuantity.EnsureStorable(baseQty, "Lines");
+        StockQuantity.EnsureWithinBaseDecimals(input.Qty, productUnit.Unit.ShortCode, baseQty, product.BaseUnit, "Lines");
         var foreign = rateToBase != 1m;
 
         // A foreign invoice's figures exist in whole units of its own currency, so each is rounded to that
@@ -682,7 +712,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         var taxableValue = subtotal + otherCharges - discount;
         var taxAmount = ToBase(originalTax);
         var lineTotal = taxableValue + taxAmount;
-        var unitCost = baseQty > 0 ? taxableValue / baseQty : 0;
+        var unitCost = baseQty > 0 ? StockCost.PerBaseUnit(taxableValue / baseQty) : 0;
 
         var line = new PurchaseOrderLine
         {
@@ -690,6 +720,8 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             PurchaseOrderId = purchase.Id,
             ProductId = product.Id,
             ProductUnitId = productUnit.Id,
+            UnitId = productUnit.UnitId,
+            UnitCode = productUnit.Unit.ShortCode,
             Qty = input.Qty,
             ConversionFactorToBase = productUnit.ConversionFactorToBase,
             BaseQty = baseQty,
@@ -737,7 +769,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         var newQty = stockItem.QuantityOnHand + line.BaseQty;
         stockItem.AverageCost = newQty > 0
-            ? (stockItem.QuantityOnHand * stockItem.AverageCost + line.BaseQty * line.UnitCost) / newQty
+            ? StockCost.PerBaseUnit((stockItem.QuantityOnHand * stockItem.AverageCost + line.BaseQty * line.UnitCost) / newQty)
             : 0;
         stockItem.QuantityOnHand = newQty;
     }

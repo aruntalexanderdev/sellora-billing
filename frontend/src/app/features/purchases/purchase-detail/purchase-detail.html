@@ -218,8 +218,8 @@
           @for (line of p.lines; track line.id) {
             <tr>
               <td class="strong">{{ line.productName }}</td>
-              <td>{{ line.unitLabel }} <span class="muted">({{ line.baseQty }} {{ line.baseUnitLabel }})</span></td>
-              <td class="num">{{ line.qty }}{{ line.returnedQty > 0 ? ' (' + line.returnedQty + ' returned)' : '' }}</td>
+              <td>{{ line.unitLabel }} <span class="muted">({{ line.unitCode }} × {{ line.conversionFactorToBase }} = {{ formatQuantity(line.baseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }})</span></td>
+              <td class="num">{{ formatQuantity(line.qty, line.unitDecimalPlaces) }} {{ line.unitCode }}{{ line.returnedBaseQty > 0 ? ' (' + formatQuantity(line.returnedBaseQty, line.baseUnitDecimalPlaces) + ' ' + line.baseUnitLabel + ' returned)' : '' }}</td>
               <td class="num">{{ base(line.rate) }}</td>
               <td class="num">{{ line.taxRatePercent }}%</td>
               <td>

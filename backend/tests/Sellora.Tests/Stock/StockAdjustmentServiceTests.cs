@@ -472,13 +472,13 @@ public class StockAdjustmentServiceTests
 
         var stock = await f.Db.StockItems.AsNoTracking().SingleAsync();
         Assert.Equal(150m, stock.QuantityOnHand);
-        Assert.Equal((100m * 2m + 50m * 3m) / 150m, stock.AverageCost);
+        Assert.Equal(StockCost.PerBaseUnit((100m * 2m + 50m * 3m) / 150m), stock.AverageCost);
         Assert.Equal(new[] { 2m, 3m }, (await f.Db.PurchaseBatches.AsNoTracking().OrderBy(b => b.CreatedAt).ToListAsync()).Select(b => b.UnitCost));
     }
 
     /// <summary>§8 f: cost per base unit is rounded explicitly to 4 dp and the same value feeds batch, adjustment and average.</summary>
     [Fact]
-    public async Task CreateAdjustmentAsync_BoxOfTwelveAt100_PerBaseCostRoundedTo4dpEverywhere()
+    public async Task CreateAdjustmentAsync_BoxOfTwelveAt100_PerBaseCostRoundedTo6dpEverywhere()
     {
         var dozenBox = Guid.Empty;
         var f = await SeedPenAsync((p, _) =>
@@ -491,9 +491,9 @@ public class StockAdjustmentServiceTests
         var adjustment = await AdjustAsync(f, box12, AdjustmentDirection.Increase, 1m, 100m);
 
         var stored = await f.Db.StockAdjustments.AsNoTracking().SingleAsync();
-        Assert.Equal(((decimal?)100m, (decimal?)8.3333m, 12m, 12m), (stored.EnteredUnitCost, stored.UnitCost, stored.ConversionFactorToBase, stored.QuantityBaseUnits));
-        Assert.Equal(8.3333m, (await f.Db.PurchaseBatches.AsNoTracking().SingleAsync()).UnitCost);
-        Assert.Equal(8.3333m, (await f.Db.StockItems.AsNoTracking().SingleAsync()).AverageCost);
+        Assert.Equal(((decimal?)100m, (decimal?)8.333333m, 12m, 12m), (stored.EnteredUnitCost, stored.UnitCost, stored.ConversionFactorToBase, stored.QuantityBaseUnits));
+        Assert.Equal(8.333333m, (await f.Db.PurchaseBatches.AsNoTracking().SingleAsync()).UnitCost);
+        Assert.Equal(8.333333m, (await f.Db.StockItems.AsNoTracking().SingleAsync()).AverageCost);
         Assert.Equal(adjustment.Id, stored.Id);
     }
 
@@ -504,7 +504,7 @@ public class StockAdjustmentServiceTests
 
         var adjustment = await AdjustAsync(f, f.Box, AdjustmentDirection.Increase, 1m, 25.00005m);
 
-        Assert.Equal(((decimal?)25.0001m, (decimal?)2.5000m), (adjustment.EnteredUnitCost, adjustment.UnitCost));
+        Assert.Equal(((decimal?)25.0001m, (decimal?)2.50001m), (adjustment.EnteredUnitCost, adjustment.UnitCost));
     }
 
     [Fact]

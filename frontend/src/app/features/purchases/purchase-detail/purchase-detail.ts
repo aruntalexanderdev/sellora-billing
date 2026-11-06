@@ -11,6 +11,7 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { PurchasesService } from '../purchases.service';
 import type { PurchaseDetail as PurchaseDetailModel, PurchasePayment, PaymentMethod } from '../purchases.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
+import { formatQuantity } from '../../../shared/units/unit-conversion';
 import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
 import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
 
@@ -30,6 +31,7 @@ const FORMAT = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits:
   styleUrl: './purchase-detail.scss',
 })
 export class PurchaseDetail implements OnInit {
+  readonly formatQuantity = formatQuantity;
   private readonly fb = inject(FormBuilder);
   private readonly purchasesService = inject(PurchasesService);
   private readonly toast = inject(ToastService);
@@ -112,7 +114,7 @@ export class PurchaseDetail implements OnInit {
   // ---- Return items / refund / reverse ----
   readonly canReturn = computed(() => {
     const p = this.purchase();
-    return this.auth.hasPermission('Purchase.Return') && !!p && p.status === 'Completed' && p.lines.some((l) => l.returnableQty > 0);
+    return this.auth.hasPermission('Purchase.Return') && !!p && p.status === 'Completed' && p.lines.some((l) => l.returnableBaseQty > 0);
   });
   readonly canRefund = computed(() => this.auth.hasPermission('Purchase.Refund') && (this.purchase()?.originalRefundableAmount ?? 0) > 0);
   readonly canReverse = (x: PurchasePayment) => this.auth.hasPermission('Purchase.Refund') && x.kind === 'Payment' && !x.isReversed;

@@ -473,9 +473,10 @@ public class IntroduceProductUnitsMigrationTests(PostgresFixture postgres)
             Assert.False(db.Database.HasPendingModelChanges());
             var rows = await db.ProductUnits.AsNoTracking().ToDictionaryAsync(u => u.Id);
             Assert.All(LegacyModes, m => Assert.Equal(m.Factor, rows[m.Id].ConversionFactorToBase));
-            Assert.Equal(MRiceBag, (await db.PurchaseOrderLines.AsNoTracking().SingleAsync()).ProductUnitId);
-            Assert.Equal(MRiceLoose, (await db.SalesInvoiceLines.AsNoTracking().SingleAsync()).ProductUnitId);
         }
+        // Raw SQL: the current entity maps columns that later migrations add, which this older schema does not have.
+        Assert.Equal(MRiceBag, await ScalarAsync<Guid>(database, """SELECT "ProductUnitId" FROM "PurchaseOrderLines" """));
+        Assert.Equal(MRiceLoose, await ScalarAsync<Guid>(database, """SELECT "ProductUnitId" FROM "SalesInvoiceLines" """));
         Assert.Equal(LegacyUnitCount + GeneratedUnitCount, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Units" """));
 
         var signature = await SchemaSignatureAsync(database);

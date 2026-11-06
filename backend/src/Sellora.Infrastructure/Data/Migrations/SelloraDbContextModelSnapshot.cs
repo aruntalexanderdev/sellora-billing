@@ -69,7 +69,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("BaseCurrencyId");
 
-                    b.ToTable("BusinessSettings");
+                    b.ToTable("BusinessSettings", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Currency", b =>
@@ -104,7 +104,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Currencies");
+                    b.ToTable("Currencies", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Customer", b =>
@@ -136,7 +136,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("Name");
 
-                    b.ToTable("Customers");
+                    b.ToTable("Customers", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.ExchangeRate", b =>
@@ -167,7 +167,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("CurrencyId", "EffectiveDate")
                         .IsUnique();
 
-                    b.ToTable("ExchangeRates");
+                    b.ToTable("ExchangeRates", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Expense", b =>
@@ -251,7 +251,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("ExpenseNo")
                         .IsUnique();
 
-                    b.ToTable("Expenses", t =>
+                    b.ToTable("Expenses", null, t =>
                         {
                             t.HasCheckConstraint("CK_Expenses_Amount_Positive", "\"Amount\" > 0");
                         });
@@ -276,7 +276,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("ExpenseCategories");
+                    b.ToTable("ExpenseCategories", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.FinancialAccount", b =>
@@ -315,7 +315,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("FinancialAccounts");
+                    b.ToTable("FinancialAccounts", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.FinancialTransaction", b =>
@@ -413,7 +413,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("Type", "Status");
 
-                    b.ToTable("FinancialTransactions", t =>
+                    b.ToTable("FinancialTransactions", null, t =>
                         {
                             t.HasCheckConstraint("CK_FinancialTransactions_Amount_Positive", "\"Amount\" > 0");
 
@@ -453,7 +453,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("UserId", "Scope", "Key")
                         .IsUnique();
 
-                    b.ToTable("IdempotencyKeys");
+                    b.ToTable("IdempotencyKeys", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Permission", b =>
@@ -487,7 +487,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Permissions");
+                    b.ToTable("Permissions", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Product", b =>
@@ -531,7 +531,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("TaxId");
 
-                    b.ToTable("Products");
+                    b.ToTable("Products", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.ProductUnit", b =>
@@ -610,7 +610,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasFilter("\"IsActive\"");
 
-                    b.ToTable("ProductUnits", t =>
+                    b.ToTable("ProductUnits", null, t =>
                         {
                             t.HasCheckConstraint("CK_ProductUnits_Base_Active", "NOT \"IsBaseUnit\" OR \"IsActive\"");
 
@@ -668,7 +668,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(60)");
 
                     b.Property<decimal>("UnitCost")
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric(18,6)");
 
                     b.HasKey("Id");
 
@@ -685,7 +685,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("ProductId", "CreatedAt");
 
-                    b.ToTable("PurchaseBatches", t =>
+                    b.ToTable("PurchaseBatches", null, t =>
                         {
                             t.HasCheckConstraint("CK_PurchaseBatches_RemainingWithinPurchased", "\"RemainingBaseQty\" >= 0 AND \"RemainingBaseQty\" <= \"PurchasedBaseQty\"");
                         });
@@ -787,7 +787,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("SupplierId");
 
-                    b.ToTable("PurchaseOrders");
+                    b.ToTable("PurchaseOrders", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrderLine", b =>
@@ -800,7 +800,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(18,3)");
 
                     b.Property<decimal>("ConversionFactorToBase")
-                        .HasColumnType("numeric(18,3)");
+                        .HasColumnType("numeric(28,10)");
 
                     b.Property<decimal>("Discount")
                         .HasColumnType("numeric(18,4)");
@@ -838,20 +838,37 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("TaxableValue")
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<string>("UnitCode")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
                     b.Property<decimal>("UnitCost")
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<Guid>("UnitId")
+                        .HasColumnType("uuid");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ProductId");
-
-                    b.HasIndex("ProductUnitId");
 
                     b.HasIndex("PurchaseOrderId");
 
                     b.HasIndex("TaxId");
 
-                    b.ToTable("PurchaseOrderLines");
+                    b.HasIndex("UnitId");
+
+                    b.HasIndex("ProductId", "ProductUnitId");
+
+                    b.ToTable("PurchaseOrderLines", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PurchaseOrderLines_BaseQty_Arithmetic", "\"Qty\" * \"ConversionFactorToBase\" = \"BaseQty\"");
+
+                            t.HasCheckConstraint("CK_PurchaseOrderLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
+
+                            t.HasCheckConstraint("CK_PurchaseOrderLines_Qty_Positive", "\"Qty\" > 0");
+
+                            t.HasCheckConstraint("CK_PurchaseOrderLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchasePayment", b =>
@@ -914,7 +931,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("PurchaseOrderId", "CreatedAt");
 
-                    b.ToTable("PurchasePayments", t =>
+                    b.ToTable("PurchasePayments", null, t =>
                         {
                             t.HasCheckConstraint("CK_PurchasePayments_Amount_Positive", "\"Amount\" > 0");
 
@@ -970,7 +987,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("PurchaseOrderId", "CreatedAt");
 
-                    b.ToTable("PurchaseReturns", t =>
+                    b.ToTable("PurchaseReturns", null, t =>
                         {
                             t.HasCheckConstraint("CK_PurchaseReturns_Total_Positive", "\"Total\" >= 0");
                         });
@@ -985,6 +1002,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("BaseQty")
                         .HasColumnType("numeric(18,3)");
 
+                    b.Property<decimal>("ConversionFactorToBase")
+                        .HasColumnType("numeric(28,10)");
+
                     b.Property<decimal>("CostRemoved")
                         .HasColumnType("numeric(18,4)");
 
@@ -992,6 +1012,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(18,4)");
 
                     b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductUnitId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("PurchaseOrderLineId")
@@ -1009,17 +1032,33 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("TaxableValue")
                         .HasColumnType("numeric(18,4)");
 
-                    b.HasKey("Id");
+                    b.Property<string>("UnitCode")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
 
-                    b.HasIndex("ProductId");
+                    b.Property<Guid>("UnitId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
 
                     b.HasIndex("PurchaseOrderLineId");
 
                     b.HasIndex("PurchaseReturnId");
 
-                    b.ToTable("PurchaseReturnLines", t =>
+                    b.HasIndex("UnitId");
+
+                    b.HasIndex("ProductId", "ProductUnitId");
+
+                    b.ToTable("PurchaseReturnLines", null, t =>
                         {
+                            t.HasCheckConstraint("CK_PurchaseReturnLines_BaseQty_Arithmetic", "\"Qty\" * \"ConversionFactorToBase\" = \"BaseQty\"");
+
+                            t.HasCheckConstraint("CK_PurchaseReturnLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
+
                             t.HasCheckConstraint("CK_PurchaseReturnLines_Qty_Positive", "\"Qty\" > 0");
+
+                            t.HasCheckConstraint("CK_PurchaseReturnLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
                         });
                 });
 
@@ -1056,7 +1095,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("RefreshTokens");
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Role", b =>
@@ -1085,7 +1124,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("Roles");
+                    b.ToTable("Roles", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.RolePermission", b =>
@@ -1103,7 +1142,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("PermissionId");
 
-                    b.ToTable("RolePermissions");
+                    b.ToTable("RolePermissions", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoice", b =>
@@ -1174,7 +1213,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("InvoiceNo")
                         .IsUnique();
 
-                    b.ToTable("SalesInvoices");
+                    b.ToTable("SalesInvoices", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLine", b =>
@@ -1235,7 +1274,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("TaxId");
 
-                    b.ToTable("SalesInvoiceLines");
+                    b.ToTable("SalesInvoiceLines", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLineBatchConsumption", b =>
@@ -1257,7 +1296,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("UnitCost")
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric(18,6)");
 
                     b.HasKey("Id");
 
@@ -1265,7 +1304,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("SalesInvoiceLineId");
 
-                    b.ToTable("SalesInvoiceLineBatchConsumptions", t =>
+                    b.ToTable("SalesInvoiceLineBatchConsumptions", null, t =>
                         {
                             t.HasCheckConstraint("CK_SalesConsumption_ReturnedWithinConsumed", "\"ReturnedQtyBaseUnits\" >= 0 AND \"ReturnedQtyBaseUnits\" <= \"QtyBaseUnits\"");
                         });
@@ -1331,7 +1370,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("SalesInvoiceId", "CreatedAt");
 
-                    b.ToTable("SalesPayments", t =>
+                    b.ToTable("SalesPayments", null, t =>
                         {
                             t.HasCheckConstraint("CK_SalesPayments_Amount_Positive", "\"Amount\" > 0");
 
@@ -1384,7 +1423,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("SalesInvoiceId", "CreatedAt");
 
-                    b.ToTable("SalesReturns", t =>
+                    b.ToTable("SalesReturns", null, t =>
                         {
                             t.HasCheckConstraint("CK_SalesReturns_Total_Positive", "\"Total\" >= 0");
                         });
@@ -1431,7 +1470,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("SalesReturnId");
 
-                    b.ToTable("SalesReturnLines", t =>
+                    b.ToTable("SalesReturnLines", null, t =>
                         {
                             t.HasCheckConstraint("CK_SalesReturnLines_Qty_Positive", "\"Qty\" > 0");
                         });
@@ -1467,7 +1506,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("ProductUnitId", "EffectiveFrom");
 
-                    b.ToTable("SellingPrices");
+                    b.ToTable("SellingPrices", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.StockAdjustment", b =>
@@ -1528,7 +1567,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(10)");
 
                     b.Property<decimal?>("UnitCost")
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric(18,6)");
 
                     b.Property<Guid>("UnitId")
                         .HasColumnType("uuid");
@@ -1549,7 +1588,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("ProductId", "ProductUnitId");
 
-                    b.ToTable("StockAdjustments", t =>
+                    b.ToTable("StockAdjustments", null, t =>
                         {
                             t.HasCheckConstraint("CK_StockAdjustments_BaseQty_Arithmetic", "\"EnteredQuantity\" * \"ConversionFactorToBase\" = \"QuantityBaseUnits\"");
 
@@ -1567,14 +1606,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("AverageCost")
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric(18,6)");
 
                     b.Property<decimal>("QuantityOnHand")
                         .HasColumnType("numeric(18,3)");
 
                     b.HasKey("ProductId");
 
-                    b.ToTable("StockItems");
+                    b.ToTable("StockItems", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.StockMovement", b =>
@@ -1628,7 +1667,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("ProductId", "OccurredAt");
 
-                    b.ToTable("StockMovements");
+                    b.ToTable("StockMovements", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Supplier", b =>
@@ -1666,7 +1705,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("Name");
 
-                    b.ToTable("Suppliers");
+                    b.ToTable("Suppliers", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Tax", b =>
@@ -1691,7 +1730,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("Taxes");
+                    b.ToTable("Taxes", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Unit", b =>
@@ -1732,7 +1771,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("ShortCode")
                         .IsUnique();
 
-                    b.ToTable("Units", t =>
+                    b.ToTable("Units", null, t =>
                         {
                             t.HasCheckConstraint("CK_Units_DecimalPlaces_Category", "\"MeasurementCategory\" NOT IN ('Count','Packaging') OR \"DecimalPlaces\" = 0");
 
@@ -1802,7 +1841,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("Username")
                         .IsUnique();
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.BusinessSettings", b =>
@@ -2045,12 +2084,6 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Sellora.Domain.Entities.ProductUnit", "ProductUnit")
-                        .WithMany()
-                        .HasForeignKey("ProductUnitId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("Sellora.Domain.Entities.PurchaseOrder", "PurchaseOrder")
                         .WithMany("Lines")
                         .HasForeignKey("PurchaseOrderId")
@@ -2063,6 +2096,19 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.Unit", "Unit")
+                        .WithMany()
+                        .HasForeignKey("UnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.ProductUnit", "ProductUnit")
+                        .WithMany()
+                        .HasForeignKey("ProductId", "ProductUnitId")
+                        .HasPrincipalKey("ProductId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("Product");
 
                     b.Navigation("ProductUnit");
@@ -2070,6 +2116,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("PurchaseOrder");
 
                     b.Navigation("Tax");
+
+                    b.Navigation("Unit");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchasePayment", b =>
@@ -2144,11 +2192,28 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.Unit", "Unit")
+                        .WithMany()
+                        .HasForeignKey("UnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.ProductUnit", "ProductUnit")
+                        .WithMany()
+                        .HasForeignKey("ProductId", "ProductUnitId")
+                        .HasPrincipalKey("ProductId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("Product");
+
+                    b.Navigation("ProductUnit");
 
                     b.Navigation("PurchaseOrderLine");
 
                     b.Navigation("PurchaseReturn");
+
+                    b.Navigation("Unit");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.RefreshToken", b =>

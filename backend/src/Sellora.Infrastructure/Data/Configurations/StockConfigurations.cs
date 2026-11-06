@@ -31,7 +31,7 @@ public class StockItemConfiguration : IEntityTypeConfiguration<StockItem>
     {
         builder.HasKey(s => s.ProductId);
         builder.Property(s => s.QuantityOnHand).HasColumnType("numeric(18,3)");
-        builder.Property(s => s.AverageCost).HasColumnType("numeric(18,4)");
+        builder.Property(s => s.AverageCost).HasColumnType("numeric(18,6)");
 
         builder.HasOne(s => s.Product).WithOne().HasForeignKey<StockItem>(s => s.ProductId).OnDelete(DeleteBehavior.Cascade);
     }

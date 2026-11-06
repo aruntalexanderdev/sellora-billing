@@ -21,9 +21,13 @@ export interface PurchaseLine {
   productName: string;
   productUnitId: string;
   unitLabel: string;
+  unitCode: string;
+  conversionFactorToBase: number;
+  unitDecimalPlaces: number;
   qty: number;
   baseQty: number;
   baseUnitLabel: string;
+  baseUnitDecimalPlaces: number;
   rate: number;
   taxRatePercent: number;
   otherCharges: number;
@@ -32,11 +36,24 @@ export interface PurchaseLine {
   taxAmount: number;
   lineTotal: number;
   unitCost: number;
-  returnedQty: number;
-  returnableQty: number;
+  returnedBaseQty: number;
+  returnableBaseQty: number;
+  /** Units a return may be entered in (empty when cancelled or nothing is returnable). */
+  returnUnits: PurchaseReturnUnit[];
   internalBatchNo: string | null;
   supplierBatchNumber: string | null;
   receivedDate: string | null;
+}
+
+export interface PurchaseReturnUnit {
+  productUnitId: string;
+  unitCode: string;
+  displayName: string;
+  decimalPlaces: number;
+  conversionFactorToBase: number;
+  isLineUnit: boolean;
+  /** Returnable base quantity / factor, truncated to the unit's decimals. Guidance only. */
+  maxQty: number;
 }
 
 export interface PurchasePayment {
@@ -179,7 +196,7 @@ export interface CreatePurchaseReturnRequest {
   purchaseOrderId: string;
   returnDate: string;
   reason?: string | null;
-  lines: { purchaseOrderLineId: string; qty: number }[];
+  lines: { purchaseOrderLineId: string; productUnitId?: string | null; qty: number }[];
   refund?: PurchaseRefundDetails | null;
 }
 
@@ -199,10 +216,14 @@ export interface PurchaseReturnListItem {
 export interface PurchaseReturnLine {
   id: string;
   productName: string;
+  productUnitId: string;
   unitLabel: string;
+  unitCode: string;
+  conversionFactorToBase: number;
   qty: number;
   baseQty: number;
   baseUnitLabel: string;
+  baseUnitDecimalPlaces: number;
   taxableValue: number;
   taxAmount: number;
   lineTotal: number;
