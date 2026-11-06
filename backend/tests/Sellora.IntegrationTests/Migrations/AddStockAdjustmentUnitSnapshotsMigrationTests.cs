@@ -254,7 +254,8 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
     public async Task AddStockAdjustmentUnitSnapshots_Down_DropsSnapshotColumnsKeepsStockDataAndRestoresSchema()
     {
         await using var database = await CreateLegacyDatabaseAsync(postgres);
-        await using (var db = database.CreateDbContext()) await db.Database.MigrateAsync();
+        // Stop at this migration: later migrations (WidenCostPrecision) change cost scale and have their own Down tests.
+        await using (var db = database.CreateDbContext()) await db.GetService<IMigrator>().MigrateAsync(AddStockAdjustmentUnitSnapshots);
         await using (var db = database.CreateDbContext())
         {
             await new StockAdjustmentService(db).CreateAdjustmentAsync(
@@ -298,6 +299,8 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
                 new CreateAdjustmentInput(PPen, PenBox, AdjustmentType.OpeningStock, AdjustmentDirection.Increase, 2m, 30m, null), UserId);
         }
         var v1 = await QueryAsync(database, V1Sql, r => r.GetString(0));
+        // WidenCostPrecision Down refuses values beyond 4 dp (the service writes 6 dp); keep this test about the adjustment migration.
+        await ExecuteAsync(database, """UPDATE "StockItems" SET "AverageCost" = ROUND("AverageCost", 4); UPDATE "PurchaseBatches" SET "UnitCost" = ROUND("UnitCost", 4); UPDATE "StockAdjustments" SET "UnitCost" = ROUND("UnitCost", 4);""");
 
         await using (var db = database.CreateDbContext())
         {
@@ -331,7 +334,9 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
         await using (var db = database.CreateDbContext())
         {
             Assert.Contains(AddStockAdjustmentUnitSnapshots, await db.Database.GetAppliedMigrationsAsync());
-            Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+            // The script targets this migration: exactly the migrations after it remain pending, in order.
+            Assert.Equal(db.Database.GetMigrations().Where(m => string.CompareOrdinal(m, AddStockAdjustmentUnitSnapshots) > 0),
+                await db.Database.GetPendingMigrationsAsync());
             Assert.False(db.Database.HasPendingModelChanges());
         }
         await AssertBackfilledAsync(database);

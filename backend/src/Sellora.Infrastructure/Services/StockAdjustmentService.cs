@@ -83,11 +83,7 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         var baseQty = input.Quantity * factor;
         StockQuantity.EnsureStorable(baseQty, "Quantity");
         var baseUnit = product.BaseUnit;
-        if (Math.Round(baseQty, baseUnit.DecimalPlaces, MidpointRounding.AwayFromZero) != baseQty)
-        {
-            throw new DomainValidationException("Quantity",
-                $"{StockQuantity.Format(input.Quantity)} {productUnit.Unit.ShortCode} = {StockQuantity.Format(baseQty)} {baseUnit.ShortCode}; {baseUnit.Name} is tracked to {baseUnit.DecimalPlaces} decimal place(s).");
-        }
+        StockQuantity.EnsureWithinBaseDecimals(input.Quantity, productUnit.Unit.ShortCode, baseQty, baseUnit, "Quantity");
 
         // 7. StockItem: created at QOH 0 if this is the product's first stock, then held FOR UPDATE to commit.
         var stockItem = (await StockLocks.EnsureAndLockStockItemsAsync(db, [product.Id], ct))[product.Id];
@@ -138,10 +134,9 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         }
         else
         {
-            // 11. Increase: cost entered per entered unit; per-base cost rounded to 4 dp explicitly (the column scale
-            // until M7) and that same value feeds the batch, the adjustment and the average-cost maths.
+            // 11. Increase: cost entered per entered unit; per-base cost rounded to 6 dp explicitly (the column scale) and that same value feeds the batch, the adjustment and the average-cost maths.
             var enteredUnitCost = Math.Round(input.UnitCost!.Value, 4, MidpointRounding.AwayFromZero);
-            var unitCost = Math.Round(enteredUnitCost / factor, 4, MidpointRounding.AwayFromZero);
+            var unitCost = StockCost.PerBaseUnit(enteredUnitCost / factor);
             adjustment.EnteredUnitCost = enteredUnitCost;
             adjustment.UnitCost = unitCost;
 
@@ -159,7 +154,7 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
 
             var newQty = beforeQty + baseQty;
             stockItem.AverageCost = newQty > 0
-                ? (beforeQty * stockItem.AverageCost + baseQty * unitCost) / newQty
+                ? StockCost.PerBaseUnit((beforeQty * stockItem.AverageCost + baseQty * unitCost) / newQty)
                 : 0;
             stockItem.QuantityOnHand = newQty;
         }

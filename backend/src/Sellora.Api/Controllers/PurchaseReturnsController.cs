@@ -57,7 +57,7 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
             .Include(x => x.PurchaseOrder).ThenInclude(p => p.Currency)
             .Include(x => x.CreatedByUser)
             .Include(x => x.Lines).ThenInclude(l => l.Product).ThenInclude(p => p.BaseUnit)
-            .Include(x => x.Lines).ThenInclude(l => l.PurchaseOrderLine).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
+            .Include(x => x.Lines).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
             .AsSplitQuery()
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         if (r is null) return NotFound();
@@ -74,7 +74,8 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
             baseCurrency.Code, baseCurrency.Symbol, baseCurrency.DecimalPrecision,
             $"{r.CreatedByUser.FirstName} {r.CreatedByUser.LastName}", r.CreatedAt,
             r.Lines.Select(l => new PurchaseReturnLineDto(
-                l.Id, l.Product.Name, l.PurchaseOrderLine.ProductUnit.Label ?? l.PurchaseOrderLine.ProductUnit.Unit.Name, l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode,
+                l.Id, l.Product.Name, l.ProductUnitId, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name, l.UnitCode, l.ConversionFactorToBase,
+                l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Product.BaseUnit.DecimalPlaces,
                 l.TaxableValue, l.TaxAmount, l.LineTotal)).ToList(),
             refunds.Select(p => PurchasesController.ToPaymentDto(p, new HashSet<Guid>())).ToList()));
     }
@@ -91,7 +92,7 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
             var refund = request.Refund is null ? null : new RefundDetails(request.Refund.Amount, request.Refund.PaymentMethod, request.Refund.AccountId, request.Refund.Reason);
             var created = await purchaseService.CreateReturnAsync(
                 new CreatePurchaseReturnInput(request.PurchaseOrderId!.Value, request.ReturnDate, request.Reason,
-                    request.Lines.Select(l => new PurchaseReturnLineInput(l.PurchaseOrderLineId!.Value, l.Qty)).ToList(), refund),
+                    request.Lines.Select(l => new PurchaseReturnLineInput(l.PurchaseOrderLineId!.Value, l.ProductUnitId, l.Qty)).ToList(), refund),
                 userId, ct);
             return await Get(created.Id, ct);
         }

@@ -154,7 +154,7 @@ public class AccountsReportsTests
         var f = await SeedAsync();
         var a1 = await Buy(f, f.InrSupplier, D1, 100, 50m, paid: 2000m);         // 5,000; due 3,000
         var a2 = await Buy(f, f.InrSupplier, D2, 10, 50m);                       // 500; unpaid
-        await f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(a1.Id, D2, null, [new PurchaseReturnLineInput(a1.Lines.Single().Id, 20)]), f.UserId); // -1,000 → net 4,000, due 2,000
+        await f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(a1.Id, D2, null, [new PurchaseReturnLineInput(a1.Lines.Single().Id, null, 20)]), f.UserId); // -1,000 → net 4,000, due 2,000
         var cancelled = await Buy(f, f.InrSupplier, D3, 10, 50m, paid: 300m);    // paid 300 then cancelled → credit 300
         await f.Purchases.CancelPurchaseAsync(cancelled.Id, f.UserId);
         var foreign = await Buy(f, f.UsdSupplier, D2, 10, 100m, paid: 400m);     // USD 1,000; paid 400 → due USD 600 = ₹49,920
@@ -281,7 +281,7 @@ public class AccountsReportsTests
         await Spend(f, f.Rent, D2, 1500m, account: cash.Id);                                                    // out 1,500
         await f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D3, null, [new SaleReturnLineInput(sale.Lines.Single().Id, 2)], new RefundDetails(200m, PaymentMethod.Cash, cash.Id)), f.UserId); // out 200
         var back = await Buy(f, f.UsdSupplier, D3, 10, 100m, paid: 1000m);                                      // out 83,200
-        await f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(back.Id, D3, null, [new PurchaseReturnLineInput(back.Lines.Single().Id, 1)], new RefundDetails(100m, PaymentMethod.BankTransfer, bank.Id)), f.UserId); // in 8,320
+        await f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(back.Id, D3, null, [new PurchaseReturnLineInput(back.Lines.Single().Id, null, 1)], new RefundDetails(100m, PaymentMethod.BankTransfer, bank.Id)), f.UserId); // in 8,320
         var mistake = await Spend(f, f.Power, D3, 700m, account: cash.Id);
         await f.Expenses.CancelAsync(mistake.Id, null, f.UserId);                                               // never happened
         await f.Accounts.TransferAsync(new TransferInput(bank.Id, cash.Id, 5000m, D3, "withdrawal"), f.UserId); // internal

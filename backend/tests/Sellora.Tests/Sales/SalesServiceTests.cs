@@ -166,6 +166,24 @@ public class SalesServiceTests
     }
 
     [Fact]
+    public async Task CreateSaleAsync_SixDecimalBatchCost_CostOfGoodsSoldRoundedToFourDecimals()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580); // 10 kg
+        var batch = await f.Db.PurchaseBatches.SingleAsync();
+        batch.UnitCost = 7.129769m; // per-base cost at the widened 6-dp precision
+        await f.Db.SaveChangesAsync();
+
+        var sale = await f.Service.CreateSaleAsync(
+            new CreateSaleInput(f.Customer.Id, new DateOnly(2026, 9, 18), PaymentMethod.Cash, 0,
+                [new SaleLineInput(f.Product.Id, f.LooseKg.Id, 3, 20, 0)]), // 3 kg x 7.129769 = 21.389307
+            f.UserId);
+
+        Assert.Equal(21.3893m, sale.Lines.Single().CostOfGoodsSold);
+        Assert.Equal(7.129769m, (await f.Db.SalesInvoiceLineBatchConsumptions.SingleAsync()).UnitCost);
+    }
+
+    [Fact]
     public async Task CreateSaleAsync_InactiveProductUnit_RejectedOnLinesAndStockUntouched()
     {
         var f = await SeedAsync();

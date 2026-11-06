@@ -17,8 +17,7 @@ public class StockAdjustmentConfiguration : IEntityTypeConfiguration<StockAdjust
         builder.Property(a => a.ConversionFactorToBase).HasColumnType("numeric(28,10)");
         builder.Property(a => a.QuantityBaseUnits).HasColumnType("numeric(18,3)");
         builder.Property(a => a.EnteredUnitCost).HasColumnType("numeric(18,4)");
-        // Per BASE unit. Joins the M7 cost-widening list (Phase 4): numeric(18,4) -> numeric(18,6).
-        builder.Property(a => a.UnitCost).HasColumnType("numeric(18,4)");
+        builder.Property(a => a.UnitCost).HasColumnType("numeric(18,6)");
         builder.Property(a => a.BeforeQty).HasColumnType("numeric(18,3)");
         builder.Property(a => a.AfterQty).HasColumnType("numeric(18,3)");
         builder.Property(a => a.Reason).HasMaxLength(300);

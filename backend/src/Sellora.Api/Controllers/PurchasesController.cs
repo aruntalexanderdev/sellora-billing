@@ -61,6 +61,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             .Include(p => p.Currency)
             .Include(p => p.CreatedByUser)
             .Include(p => p.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.BaseUnit)
+            .Include(p => p.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.Units).ThenInclude(u => u.Unit)
             .Include(p => p.Lines).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
             .Include(p => p.Lines).ThenInclude(l => l.Batch)
             .Include(p => p.Payments).ThenInclude(pay => pay.CreatedByUser)
@@ -213,17 +214,59 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
 
     private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency)
     {
-        var returnedByLine = p.Returns.SelectMany(r => r.Lines).GroupBy(l => l.PurchaseOrderLineId).ToDictionary(g => g.Key, g => g.Sum(l => l.Qty));
+        var returnedByLine = p.Returns.SelectMany(r => r.Lines).GroupBy(l => l.PurchaseOrderLineId).ToDictionary(g => g.Key, g => g.Sum(l => l.BaseQty));
         var reversed = p.Payments.Where(x => x.ReversesPaymentId != null).Select(x => x.ReversesPaymentId!.Value).ToHashSet();
         return ToDetail(p, baseCurrency, returnedByLine, reversed);
     }
 
-    // What can still go back to the supplier: whatever was not returned yet, but no more than is still in stock
-    // from this purchase's batch (goods already sold cannot be returned).
-    private static decimal Returnable(PurchaseOrderLine l, decimal returned)
+    // What can still go back to the supplier, in base units: whatever was not returned yet, but no more than is still
+    // in stock from this purchase's batch (goods already sold cannot be returned).
+    private static decimal ReturnableBase(PurchaseOrderLine l, decimal returnedBase) =>
+        Math.Max(0, Math.Min(l.BaseQty - returnedBase, l.Batch?.RemainingBaseQty ?? 0));
+
+    // The line's own unit (even if deactivated since) plus every active unit of the product.
+    private static List<PurchaseReturnUnitDto> ReturnUnits(PurchaseOrderLine l, decimal returnableBase) =>
+        returnableBase <= 0
+            ? []
+            : l.Product.Units.Where(u => u.IsActive || u.Id == l.ProductUnitId).OrderBy(u => u.SortOrder)
+                .Select(u => new PurchaseReturnUnitDto(
+                    u.Id, u.Unit.ShortCode, u.Label ?? u.Unit.Name, u.Unit.DecimalPlaces, u.ConversionFactorToBase, u.Id == l.ProductUnitId,
+                    MaxReturnQty(returnableBase, u.ConversionFactorToBase, u.Unit.DecimalPlaces, l.Product.BaseUnit.DecimalPlaces)))
+                .ToList();
+
+    // Largest qty with at most `unitDp` decimals and qty x factor within `baseDp` decimals (the server's two rules),
+    // not above the returnable base quantity. Qty is n x 10^-unitDp; qty x factor is a base-dp multiple exactly when
+    // n x m is a whole number, m = factor x 10^(baseDp-unitDp), so n steps by n0 = the smallest n making n x m whole.
+    public static decimal MaxReturnQty(decimal returnableBase, decimal factor, int unitDp, int baseDp)
     {
-        var inStock = l.Batch is null || l.ConversionFactorToBase <= 0 ? 0 : l.Batch.RemainingBaseQty / l.ConversionFactorToBase;
-        return Math.Max(0, Math.Min(l.Qty - returned, inStock));
+        if (returnableBase <= 0 || factor <= 0) return 0;
+
+        var m = (decimal)Math.Pow(10, Math.Abs(baseDp - unitDp));
+        m = baseDp >= unitDp ? factor * m : factor / m;
+        var scale = (decimal.GetBits(m / 1.0000000000000000000000000000m)[3] >> 16) & 0xFF;
+        var pow = System.Numerics.BigInteger.Pow(10, scale);
+        var whole = new System.Numerics.BigInteger(m / 1.0000000000000000000000000000m * (decimal)pow);
+        var n0 = (int)(pow / System.Numerics.BigInteger.GreatestCommonDivisor(whole, pow));
+
+        var unitStep = 1m;
+        for (var i = 0; i < unitDp; i++) unitStep /= 10m;
+        var step = n0 * unitStep;
+        var qty = Math.Floor(returnableBase / factor / step) * step;
+        while (qty > 0 && qty * factor > returnableBase) qty -= step;
+        return Math.Max(0, qty);
+    }
+
+    private static PurchaseLineDto ToLineDto(PurchaseOrder p, PurchaseOrderLine l, Dictionary<Guid, decimal> returnedByLine)
+    {
+        var returned = returnedByLine.GetValueOrDefault(l.Id);
+        var returnable = p.Status == PurchaseStatus.Cancelled ? 0 : ReturnableBase(l, returned);
+        return new PurchaseLineDto(
+            l.Id, l.ProductId, l.Product.Name, l.ProductUnitId, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name,
+            l.UnitCode, l.ConversionFactorToBase, l.ProductUnit.Unit.DecimalPlaces,
+            l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Product.BaseUnit.DecimalPlaces, l.Rate,
+            l.TaxRatePercent, l.OtherCharges, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.UnitCost,
+            returned, returnable, ReturnUnits(l, returnable),
+            l.Batch?.InternalBatchNo, l.Batch?.SupplierBatchNumber, l.Batch?.ReceivedDate);
     }
 
     private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency, Dictionary<Guid, decimal> returnedByLine, HashSet<Guid> reversed) => new(
@@ -234,13 +277,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         p.Status, $"{p.CreatedByUser.FirstName} {p.CreatedByUser.LastName}", p.CreatedAt, p.CancelledAt,
         p.CurrencyId, p.Currency.Code, p.Currency.Symbol, p.ExchangeRateToBase, p.OriginalGrandTotal, p.OriginalPaidAmount, p.OriginalDueAmount,
         baseCurrency.Code, baseCurrency.Symbol, p.Currency.DecimalPrecision, baseCurrency.DecimalPrecision,
-        p.Lines.Select(l => new PurchaseLineDto(
-            l.Id, l.ProductId, l.Product.Name, l.ProductUnitId, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name,
-            l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Rate,
-            l.TaxRatePercent, l.OtherCharges, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.UnitCost,
-            returnedByLine.GetValueOrDefault(l.Id), p.Status == PurchaseStatus.Cancelled ? 0 : Returnable(l, returnedByLine.GetValueOrDefault(l.Id)),
-            l.Batch != null ? l.Batch.InternalBatchNo : null, l.Batch != null ? l.Batch.SupplierBatchNumber : null, l.Batch != null ? l.Batch.ReceivedDate : null
-        )).ToList(),
+        p.Lines.Select(l => ToLineDto(p, l, returnedByLine)).ToList(),
         p.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => ToPaymentDto(pay, reversed)).ToList(),
         p.ReturnedAmount, p.OriginalReturnedAmount, p.NetTotal, p.OriginalNetTotal, p.OriginalRefundableAmount,
         p.Returns.OrderBy(r => r.CreatedAt).Select(r => new PurchaseReturnSummaryDto(

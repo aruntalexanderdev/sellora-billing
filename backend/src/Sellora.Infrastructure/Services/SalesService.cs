@@ -372,7 +372,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
                 TaxableValue = taxable,
                 TaxAmount = tax,
                 LineTotal = taxable + tax,
-                CostRestored = costRestored,
+                CostRestored = StockCost.Money(costRestored),
             };
             salesReturn.Lines.Add(returnLine);
             priorReturns.Add(returnLine);
@@ -551,7 +551,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
     private async Task ApplySaleLineToStockAsync(SalesInvoiceLine line, string invoiceNo, Guid userId, CancellationToken ct)
     {
         var costConsumed = await ConsumeBatchesFifoAsync(line, ct);
-        line.CostOfGoodsSold = costConsumed;
+        line.CostOfGoodsSold = StockCost.Money(costConsumed);
 
         db.StockMovements.Add(new StockMovement
         {

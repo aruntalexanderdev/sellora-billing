@@ -10,10 +10,18 @@ public class PurchaseOrderLine
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = null!;
 
-    /// <summary>The product unit purchased in, e.g. "10 kg bag".</summary>
+    /// <summary>The product unit purchased in, e.g. "10 kg bag". The FK is (ProductId, ProductUnitId) -> ProductUnits (ProductId, Id).</summary>
     public Guid ProductUnitId { get; set; }
     public ProductUnit ProductUnit { get; set; } = null!;
 
+    /// <summary>Snapshot of <see cref="ProductUnit.UnitId"/> at posting time.</summary>
+    public Guid UnitId { get; set; }
+    public Unit Unit { get; set; } = null!;
+
+    /// <summary>Snapshot of <c>Unit.ShortCode</c> at posting time (legacy rows: the code current at migration).</summary>
+    public string UnitCode { get; set; } = string.Empty;
+
+    /// <summary>Quantity entered, in <see cref="ProductUnit"/>.</summary>
     public decimal Qty { get; set; }
 
     /// <summary>Snapshot of the product unit's conversion factor at purchase time — never recomputed later (docx §17).</summary>

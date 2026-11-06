@@ -7,7 +7,10 @@ import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { PurchasesService } from '../../purchases.service';
 import { CashBankService, defaultAccountId } from '../../../accounts/cash-bank/cash-bank.service';
 import type { AccountOption } from '../../../accounts/cash-bank/cash-bank.models';
-import type { PaymentMethod, PurchaseDetail } from '../../purchases.models';
+import { formatQuantity } from '../../../../shared/units/unit-conversion';
+import { quantityStep } from '../../../../shared/forms/quantity-input';
+import { defaultReturnUnit, proratedCredit, returnAllChoice, returnBaseQty, returnQtyError } from '../../purchase-form/purchase-units';
+import type { PaymentMethod, PurchaseDetail, PurchaseLine, PurchaseReturnUnit } from '../../purchases.models';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 
@@ -48,8 +51,24 @@ export class PurchaseReturnForm implements OnInit, HasUnsavedChanges {
   readonly base = (n: number) => (this.purchase()?.baseCurrencySymbol ?? '₹') + FORMAT(n);
   readonly original = (n: number) => (this.purchase()?.currencySymbol ?? '') + FORMAT(n);
 
+  readonly formatQuantity = formatQuantity;
+  readonly quantityStep = quantityStep;
+
   /** Quantity being returned per purchase line, keyed by line id. */
   readonly qty = signal<Record<string, number | null>>({});
+  /** Chosen return unit per purchase line (absent = the line's own unit). */
+  readonly unitChoice = signal<Record<string, string>>({});
+
+  /** The unit a line's return is entered in. */
+  unitFor(l: PurchaseLine): PurchaseReturnUnit | undefined {
+    const id = this.unitChoice()[l.id];
+    return l.returnUnits.find((u) => u.productUnitId === id) ?? defaultReturnUnit(l.returnUnits);
+  }
+
+  /** Client-side error for the quantity entered on a line, against the chosen unit's max (null when fine). */
+  qtyError(l: PurchaseLine): string | null {
+    return returnQtyError(this.qty()[l.id], this.unitFor(l), l.baseUnitDecimalPlaces, l.baseUnitLabel);
+  }
 
   readonly form = this.fb.nonNullable.group({
     returnDate: [todayIso(), Validators.required],
@@ -64,15 +83,17 @@ export class PurchaseReturnForm implements OnInit, HasUnsavedChanges {
   });
 
   // Goods already sold can't go back, so a line may be returnable only in part — or not at all.
-  readonly lines = computed(() => this.purchase()?.lines.filter((l) => l.returnableQty > 0) ?? []);
-  readonly blocked = computed(() => (this.purchase()?.lines ?? []).filter((l) => l.returnableQty <= 0 && l.returnedQty < l.qty));
+  readonly lines = computed(() => this.purchase()?.lines.filter((l) => l.returnableBaseQty > 0 && l.returnUnits.length > 0) ?? []);
+  readonly blocked = computed(() => (this.purchase()?.lines ?? []).filter((l) => l.returnableBaseQty <= 0 && l.returnedBaseQty < l.baseQty));
 
   /** Estimates of the credit, in the base currency and the purchase's own currency. The server works the exact figures. */
   readonly creditBase = computed(() => {
     let total = 0;
     for (const l of this.lines()) {
       const q = this.qty()[l.id] ?? 0;
-      if (q > 0) total += ((l.lineTotal) * q) / l.qty;
+      const unit = this.unitFor(l);
+      // Prorated by base quantity, the same way the server splits the credit.
+      if (q > 0 && unit) total += proratedCredit(l.lineTotal, returnBaseQty(q, unit), l.baseQty);
     }
     return roundTo(total, this.purchase()?.baseCurrencyDecimalPrecision ?? 2);
   });
@@ -83,11 +104,7 @@ export class PurchaseReturnForm implements OnInit, HasUnsavedChanges {
   });
 
   readonly chosen = computed(() => this.lines().filter((l) => (this.qty()[l.id] ?? 0) > 0));
-  readonly invalidLine = (id: string, max: number) => {
-    const q = this.qty()[id];
-    return q != null && (q < 0 || q > max);
-  };
-  readonly linesValid = computed(() => this.chosen().length > 0 && this.lines().every((l) => !this.invalidLine(l.id, l.returnableQty)));
+  readonly linesValid = computed(() => this.chosen().length > 0 && this.lines().every((l) => !this.qtyError(l)));
 
   /** What the supplier would then hold beyond what is owed, in the purchase's currency. */
   readonly refundableAfter = computed(() => {
@@ -122,8 +139,21 @@ export class PurchaseReturnForm implements OnInit, HasUnsavedChanges {
     this.qty.update((q) => ({ ...q, [id]: value === '' ? null : Number(value) }));
   }
 
+  setUnit(id: string, productUnitId: string): void {
+    this.unitChoice.update((c) => ({ ...c, [id]: productUnitId }));
+  }
+
   returnAll(): void {
-    this.qty.set(Object.fromEntries(this.lines().map((l) => [l.id, l.returnableQty])));
+    const qty: Record<string, number | null> = {};
+    const units: Record<string, string> = {};
+    for (const l of this.lines()) {
+      const choice = returnAllChoice(l);
+      if (!choice) continue;
+      qty[l.id] = choice.qty;
+      units[l.id] = choice.productUnitId;
+    }
+    this.qty.set(qty);
+    this.unitChoice.set(units);
   }
 
   toggleRefund(checked: boolean): void {
@@ -158,7 +188,7 @@ export class PurchaseReturnForm implements OnInit, HasUnsavedChanges {
         purchaseOrderId: p.id,
         returnDate: v.returnDate,
         reason: v.reason || null,
-        lines: this.chosen().map((l) => ({ purchaseOrderLineId: l.id, qty: this.qty()[l.id]! })),
+        lines: this.chosen().map((l) => ({ purchaseOrderLineId: l.id, productUnitId: this.unitFor(l)?.productUnitId ?? null, qty: this.qty()[l.id]! })),
         refund: this.refundNow() ? { amount: r.amount!, paymentMethod: r.paymentMethod, accountId: r.accountId || null } : null,
       })
       .subscribe({

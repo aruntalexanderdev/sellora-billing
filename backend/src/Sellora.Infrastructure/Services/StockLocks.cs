@@ -41,6 +41,28 @@ public static class StockQuantity
                 : $"{unitName} allows at most {decimalPlaces} decimal place(s).");
         }
     }
+
+    /// <summary>The base quantity must also fit the base unit's own decimal places (base kg at 2 dp, a 0.5 kg pack at
+    /// 2 dp: 0.01 pack = 0.005 kg is refused). Independent of the entered-decimals rule and of
+    /// <see cref="EnsureStorable"/>. Shared by purchases, purchase returns and adjustments.</summary>
+    public static void EnsureWithinBaseDecimals(decimal enteredQty, string unitCode, decimal baseQty, Unit baseUnit, string field)
+    {
+        if (Math.Round(baseQty, baseUnit.DecimalPlaces, MidpointRounding.AwayFromZero) != baseQty)
+        {
+            throw new Sellora.Domain.Abstractions.DomainValidationException(field,
+                $"{Format(enteredQty)} {unitCode} = {Format(baseQty)} {baseUnit.ShortCode}; {baseUnit.Name} is tracked to {baseUnit.DecimalPlaces} decimal place(s).");
+        }
+    }
+}
+
+/// <summary>The one place costs are rounded to their column scales, so InMemory behaves like Postgres and the database
+/// never rounds silently: per-base-unit costs (unit cost, average cost) are numeric(18,6); cost line totals
+/// (COGS, cost removed/restored) are numeric(18,4).</summary>
+public static class StockCost
+{
+    public static decimal PerBaseUnit(decimal value) => Math.Round(value, 6, MidpointRounding.AwayFromZero);
+
+    public static decimal Money(decimal value) => Math.Round(value, 4, MidpointRounding.AwayFromZero);
 }
 
 /// <summary>Duplicate-submission guard for create requests. See <see cref="Sellora.Domain.Entities.IdempotencyKey"/>.</summary>

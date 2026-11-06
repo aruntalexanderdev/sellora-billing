@@ -11,11 +11,19 @@ public record PurchaseListItemDto(
 
 public record PurchaseLineDto(
     Guid Id, Guid ProductId, string ProductName, Guid ProductUnitId, string UnitLabel,
-    decimal Qty, decimal BaseQty, string BaseUnitLabel, decimal Rate,
+    string UnitCode, decimal ConversionFactorToBase, short UnitDecimalPlaces,
+    decimal Qty, decimal BaseQty, string BaseUnitLabel, short BaseUnitDecimalPlaces, decimal Rate,
     decimal TaxRatePercent, decimal OtherCharges, decimal Discount,
     decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal UnitCost,
-    decimal ReturnedQty, decimal ReturnableQty,
+    decimal ReturnedBaseQty, decimal ReturnableBaseQty, IReadOnlyList<PurchaseReturnUnitDto> ReturnUnits,
     string? InternalBatchNo, string? SupplierBatchNumber, DateOnly? ReceivedDate
+);
+
+/// <summary>A unit a purchase line can be returned in. <see cref="MaxQty"/> is the returnable base quantity expressed in
+/// this unit, truncated to its decimal places (guidance only; the server re-validates).</summary>
+public record PurchaseReturnUnitDto(
+    Guid ProductUnitId, string UnitCode, string DisplayName, short DecimalPlaces,
+    decimal ConversionFactorToBase, bool IsLineUnit, decimal MaxQty
 );
 
 public record PurchasePaymentDto(
@@ -73,7 +81,8 @@ public record AddPurchasePaymentRequest(
     Guid? AccountId = null
 );
 
-public record PurchaseReturnLineRequest([Required] Guid? PurchaseOrderLineId, [Range(0.001, 999999999)] decimal Qty);
+/// <summary><c>ProductUnitId</c> is the unit <c>Qty</c> is entered in; omitted means the purchase line's own unit.</summary>
+public record PurchaseReturnLineRequest([Required] Guid? PurchaseOrderLineId, Guid? ProductUnitId, [Range(0.001, 999999999)] decimal Qty);
 
 public record PurchaseRefundRequest(
     [Range(0.000001, 999999999)] decimal Amount,
@@ -105,7 +114,8 @@ public record PurchaseReturnListItemDto(
 );
 
 public record PurchaseReturnLineDto(
-    Guid Id, string ProductName, string UnitLabel, decimal Qty, decimal BaseQty, string BaseUnitLabel,
+    Guid Id, string ProductName, Guid ProductUnitId, string UnitLabel, string UnitCode, decimal ConversionFactorToBase,
+    decimal Qty, decimal BaseQty, string BaseUnitLabel, short BaseUnitDecimalPlaces,
     decimal TaxableValue, decimal TaxAmount, decimal LineTotal
 );
 
