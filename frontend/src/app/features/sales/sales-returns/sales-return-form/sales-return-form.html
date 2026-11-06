@@ -16,10 +16,10 @@
           <thead>
             <tr>
               <th>Product</th>
-              <th>Unit</th>
               <th class="num">Sold</th>
               <th class="num">Already returned</th>
               <th class="num">Can return</th>
+              <th>Return unit</th>
               <th class="num">Return qty</th>
             </tr>
           </thead>
@@ -27,17 +27,30 @@
             @for (l of lines(); track l.id) {
               <tr>
                 <td class="strong">{{ l.productName }}</td>
-                <td>{{ l.unitLabel }}</td>
-                <td class="num">{{ l.qty }}</td>
-                <td class="num">{{ l.returnedQty }}</td>
-                <td class="num">{{ l.returnableQty }}</td>
+                <td class="num">{{ formatQuantity(l.qty, l.unitDecimalPlaces) }} {{ l.unitCode }}</td>
+                <td class="num">{{ formatQuantity(l.returnedBaseQty, l.baseUnitDecimalPlaces) }} {{ l.baseUnitLabel }}</td>
+                <td class="num">
+                  {{ formatQuantity(l.returnableBaseQty, l.baseUnitDecimalPlaces) }} {{ l.baseUnitLabel }}
+                  @if (unitFor(l); as u) {
+                    @if (!u.isLineUnit || u.conversionFactorToBase !== 1) {
+                      <div class="muted">max {{ formatQuantity(u.maxQty, u.decimalPlaces) }} {{ u.unitCode }}</div>
+                    }
+                  }
+                </td>
+                <td>
+                  <select class="field-input" data-testid="return-unit" [value]="unitFor(l)?.productUnitId" (change)="setUnit(l.id, $any($event.target).value)" [attr.aria-label]="'Return unit for ' + l.productName">
+                    @for (u of l.returnUnits; track u.productUnitId) {
+                      <option [value]="u.productUnitId" [selected]="u.productUnitId === unitFor(l)?.productUnitId">{{ u.displayName }}</option>
+                    }
+                  </select>
+                </td>
                 <td class="num">
                   <input
-                    type="number" min="0" step="0.001" [attr.max]="l.returnableQty" class="field-input qty-input"
+                    type="number" min="0" [step]="quantityStep(unitFor(l)?.decimalPlaces)" [attr.max]="unitFor(l)?.maxQty" class="field-input qty-input" data-testid="return-qty"
                     [value]="qty()[l.id] ?? ''" (input)="setQty(l.id, $any($event.target).value)" [attr.aria-label]="'Return quantity for ' + l.productName"
                   />
-                  @if (invalidLine(l.id, l.returnableQty)) {
-                    <div class="field-error">At most {{ l.returnableQty }}.</div>
+                  @if (qtyError(l); as msg) {
+                    <div class="field-error">{{ msg }}</div>
                   }
                 </td>
               </tr>
@@ -45,7 +58,7 @@
           </tbody>
         </table>
       </div>
-      <div style="padding: 10px 14px"><a class="link" (click)="returnAll()">Return everything that's left</a></div>
+      <div style="padding: 10px 14px"><a class="link" (click)="returnAll()">Return everything that can go back</a></div>
     </div>
 
     <form [formGroup]="form" (ngSubmit)="submit()" class="pay-card" style="margin-top: 16px">

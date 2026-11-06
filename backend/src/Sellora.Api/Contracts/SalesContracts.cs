@@ -6,7 +6,9 @@ namespace Sellora.Api.Contracts;
 /// <summary>An active, sellable unit of a catalog product. <c>IsDefault</c> mirrors IsDefaultSalesUnit;
 /// <c>CurrentPrice</c> is null when the unit is not priced (POS refuses it).</summary>
 public record SaleCatalogUnitDto(Guid ProductUnitId, Guid UnitId, string UnitCode, string DisplayName,
-    decimal ConversionFactorToBase, short DecimalPlaces, bool IsBaseUnit, bool IsDefault, decimal? CurrentPrice);
+    decimal ConversionFactorToBase, short DecimalPlaces, bool IsBaseUnit, bool IsDefault, decimal? CurrentPrice, string? Barcode);
+
+public record SaleBarcodeMatchDto(SaleCatalogProductDto Product, Guid ProductUnitId);
 
 public record SaleCatalogProductDto(
     Guid ProductId, string Sku, string Name, string? Category, string BaseUnitLabel,
@@ -25,11 +27,18 @@ public record SaleBatchConsumptionDto(
     decimal QtyBaseUnits, decimal ReturnedQtyBaseUnits, decimal UnitCost
 );
 
+/// <summary>A unit a sold line can be returned in. <c>MaxQty</c> is the largest entered quantity that satisfies both the unit's
+/// and the base unit's decimal rules without exceeding the returnable base quantity.</summary>
+public record SaleReturnUnitDto(Guid ProductUnitId, string UnitCode, string DisplayName, short DecimalPlaces,
+    decimal ConversionFactorToBase, bool IsLineUnit, decimal MaxQty);
+
 public record SalesInvoiceLineDto(
-    Guid Id, Guid ProductId, string ProductName, Guid ProductUnitId, string UnitLabel,
-    decimal Qty, decimal BaseQty, string BaseUnitLabel, decimal UnitPrice,
+    Guid Id, Guid ProductId, string ProductName, Guid ProductUnitId, string UnitLabel, string UnitCode,
+    decimal ConversionFactorToBase, short UnitDecimalPlaces,
+    decimal Qty, decimal BaseQty, string BaseUnitLabel, short BaseUnitDecimalPlaces,
+    decimal UnitPrice, decimal? ListUnitPrice, bool PriceOverridden,
     decimal TaxRatePercent, decimal Discount, decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal CostOfGoodsSold,
-    decimal ReturnedQty, decimal ReturnableQty,
+    decimal ReturnedBaseQty, decimal ReturnableBaseQty, IReadOnlyList<SaleReturnUnitDto> ReturnUnits,
     IReadOnlyList<SaleBatchConsumptionDto> BatchConsumptions
 );
 
@@ -56,7 +65,8 @@ public record CreateSaleLineRequest(
     [Required] Guid? ProductUnitId,
     [Range(0.001, 999999999)] decimal Qty,
     [Range(0, 999999999)] decimal UnitPrice,
-    [Range(0, 999999999)] decimal Discount
+    [Range(0, 999999999)] decimal Discount,
+    bool OverridePrice = false
 );
 
 public record CreateSaleRequest(
@@ -75,7 +85,7 @@ public record AddSalePaymentRequest(
     Guid? AccountId = null
 );
 
-public record SaleReturnLineRequest([Required] Guid? SalesInvoiceLineId, [Range(0.001, 999999999)] decimal Qty);
+public record SaleReturnLineRequest([Required] Guid? SalesInvoiceLineId, Guid? ProductUnitId, [Range(0.001, 999999999)] decimal Qty);
 
 public record RefundRequest(
     [Range(0.000001, 999999999)] decimal Amount,
@@ -109,7 +119,7 @@ public record SalesReturnListItemDto(
 );
 
 public record SalesReturnLineDto(
-    Guid Id, string ProductName, string UnitLabel, decimal Qty, decimal BaseQty, string BaseUnitLabel,
+    Guid Id, string ProductName, string UnitLabel, string UnitCode, decimal Qty, decimal BaseQty, string BaseUnitLabel, short BaseUnitDecimalPlaces,
     decimal TaxableValue, decimal TaxAmount, decimal LineTotal
 );
 

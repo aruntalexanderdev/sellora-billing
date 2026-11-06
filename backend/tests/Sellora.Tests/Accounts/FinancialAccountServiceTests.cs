@@ -14,7 +14,7 @@ namespace Sellora.Tests.Accounts;
 public class FinancialAccountServiceTests
 {
     private sealed record Fixture(
-        SelloraDbContext Db, FinancialAccountService Accounts, PurchaseService Purchases, SalesService Sales, ExpenseService Expenses,
+        SelloraDbContext Db, FinancialAccountService Accounts, PurchaseService Purchases, ISalesService Sales, ExpenseService Expenses,
         Supplier Supplier, Customer Customer, Product Product, ProductUnit Kg, ExpenseCategory Rent, Guid UserId);
 
     private static async Task<Fixture> SeedAsync()
@@ -42,7 +42,7 @@ public class FinancialAccountServiceTests
         await db.SaveChangesAsync();
 
         var rates = new ExchangeRateService(db);
-        return new Fixture(db, new FinancialAccountService(db), new PurchaseService(db, rates), new SalesService(db), new ExpenseService(db, rates),
+        return new Fixture(db, new FinancialAccountService(db), new PurchaseService(db, rates), ListPricedSales.For(db), new ExpenseService(db, rates),
             supplier, customer, product, kg, rent, user.Id);
     }
 

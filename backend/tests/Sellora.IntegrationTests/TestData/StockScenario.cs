@@ -18,6 +18,7 @@ namespace Sellora.IntegrationTests.TestData;
 public sealed record StockScenario(Guid UserId, Guid SupplierId, Guid CustomerId, Guid ProductId, Guid BagModeId, Guid LooseKgModeId)
 {
     public const decimal BagFactor = 10m;
+    public const decimal LooseKgPrice = 65m;
 
     public static readonly DateOnly PurchaseDate = new(2026, 9, 1);
     public static readonly DateOnly SaleDate = new(2026, 9, 18);
@@ -49,10 +50,29 @@ public sealed record StockScenario(Guid UserId, Guid SupplierId, Guid CustomerId
         product.Units.Add(bag);
         product.Units.Add(looseKg);
 
+        // Only the base row is priced up front: a priced unit is immutable, and many tests edit the bag. Price the bag
+        // with EnsureListPriceAsync in tests that sell it.
+        var prices = new[]
+        {
+            new SellingPrice { Id = Guid.NewGuid(), ProductUnitId = looseKg.Id, Price = LooseKgPrice, CreatedByUserId = user.Id },
+        };
+
         db.AddRange(role, user, unit, bagUnit, tax, supplier, customer, settings, product);
+        db.AddRange(prices);
         await db.SaveChangesAsync();
 
         return new StockScenario(user.Id, supplier.Id, customer.Id, product.Id, bag.Id, looseKg.Id);
+    }
+
+    /// <summary>Makes <paramref name="price"/> the open list price of a unit (the POS refuses unpriced units and
+    /// price mismatches). Closes any other open price.</summary>
+    public static async Task EnsureListPriceAsync(SelloraDbContext db, Guid userId, Guid productUnitId, decimal price)
+    {
+        var open = await db.SellingPrices.Where(p => p.ProductUnitId == productUnitId && p.EffectiveTo == null).ToListAsync();
+        if (open.Count == 1 && open[0].Price == price) return;
+        foreach (var p in open) p.EffectiveTo = DateTimeOffset.UtcNow;
+        db.SellingPrices.Add(new SellingPrice { Id = Guid.NewGuid(), ProductUnitId = productUnitId, Price = price, CreatedByUserId = userId });
+        await db.SaveChangesAsync();
     }
 
     /// <summary>Buys <paramref name="bags"/> 10 kg bags at <paramref name="ratePerBag"/> through <see cref="PurchaseService"/>.</summary>
@@ -63,7 +83,7 @@ public sealed record StockScenario(Guid UserId, Guid SupplierId, Guid CustomerId
             UserId);
 
     /// <summary>Sells <paramref name="kg"/> loose kg through <see cref="SalesService"/>.</summary>
-    public Task<SalesInvoice> SellLooseKgAsync(SelloraDbContext db, decimal kg, decimal pricePerKg = 65m) =>
+    public Task<SalesInvoice> SellLooseKgAsync(SelloraDbContext db, decimal kg, decimal pricePerKg = LooseKgPrice) =>
         new SalesService(db).CreateSaleAsync(
             new CreateSaleInput(CustomerId, SaleDate, PaymentMethod.Cash, 0,
                 [new SaleLineInput(ProductId, LooseKgModeId, kg, pricePerKg, 0)]),
@@ -73,7 +93,7 @@ public sealed record StockScenario(Guid UserId, Guid SupplierId, Guid CustomerId
     public Task<SalesReturn> ReturnAsync(SelloraDbContext db, Guid salesInvoiceId, Guid salesInvoiceLineId, decimal qty) =>
         new SalesService(db).CreateReturnAsync(
             new CreateSaleReturnInput(salesInvoiceId, ReturnDate, "Customer return",
-                [new SaleReturnLineInput(salesInvoiceLineId, qty)]),
+                [new SaleReturnLineInput(salesInvoiceLineId, null, qty)]),
             UserId);
 
     /// <summary>Posts a stock adjustment of <paramref name="baseQty"/> kg, entered in the base row (loose kg, factor 1, so

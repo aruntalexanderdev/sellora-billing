@@ -1,3 +1,4 @@
+using Sellora.Domain.Abstractions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
@@ -17,7 +18,7 @@ namespace Sellora.Tests.Traceability;
 /// </summary>
 public class BatchTraceabilityScenarioTests
 {
-    private sealed record Fixture(SelloraDbContext Db, PurchaseService Purchases, SalesService Sales, StockController Stock,
+    private sealed record Fixture(SelloraDbContext Db, PurchaseService Purchases, ISalesService Sales, StockController Stock,
         Supplier Supplier, Customer Customer, Product Rice, ProductUnit LooseKg, Guid UserId);
 
     private static async Task<Fixture> SeedAsync()
@@ -42,7 +43,7 @@ public class BatchTraceabilityScenarioTests
         db.AddRange(role, user, kg, tax, inr, settings, supplier, customer, rice);
         await db.SaveChangesAsync();
 
-        return new Fixture(db, new PurchaseService(db, new ExchangeRateService(db)), new SalesService(db), new StockController(db),
+        return new Fixture(db, new PurchaseService(db, new ExchangeRateService(db)), ListPricedSales.For(db), new StockController(db),
             supplier, customer, rice, looseKg, user.Id);
     }
 

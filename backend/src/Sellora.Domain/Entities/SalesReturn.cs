@@ -43,7 +43,21 @@ public class SalesReturnLine
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = null!;
 
-    /// <summary>Quantity returned, in the same selling unit the line was sold in.</summary>
+    /// <summary>The unit this return line was entered in (may differ from the sold line's unit). FK is (ProductId, ProductUnitId) -> ProductUnits (ProductId, Id).</summary>
+    public Guid ProductUnitId { get; set; }
+    public ProductUnit ProductUnit { get; set; } = null!;
+
+    /// <summary>Snapshot of <see cref="ProductUnit.UnitId"/> at return time.</summary>
+    public Guid UnitId { get; set; }
+    public Unit Unit { get; set; } = null!;
+
+    /// <summary>Snapshot of <c>Unit.ShortCode</c> at return time.</summary>
+    public string UnitCode { get; set; } = string.Empty;
+
+    /// <summary>Snapshot of the return unit's conversion factor.</summary>
+    public decimal ConversionFactorToBase { get; set; }
+
+    /// <summary>Quantity returned, entered in this line's own unit (<see cref="ProductUnitId"/>).</summary>
     public decimal Qty { get; set; }
     public decimal BaseQty { get; set; }
 

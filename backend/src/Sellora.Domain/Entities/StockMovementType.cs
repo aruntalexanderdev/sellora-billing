@@ -7,4 +7,5 @@ public enum StockMovementType
     Adjustment,
     SaleReturn,
     PurchaseReturn,
+    SaleCancellation,
 }

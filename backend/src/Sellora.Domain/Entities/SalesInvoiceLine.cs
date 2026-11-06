@@ -14,14 +14,27 @@ public class SalesInvoiceLine
     public Guid ProductUnitId { get; set; }
     public ProductUnit ProductUnit { get; set; } = null!;
 
+    /// <summary>Snapshot of <see cref="ProductUnit.UnitId"/> at sale time. The FK is (ProductId, ProductUnitId) -> ProductUnits (ProductId, Id).</summary>
+    public Guid UnitId { get; set; }
+    public Unit Unit { get; set; } = null!;
+
+    /// <summary>Snapshot of <c>Unit.ShortCode</c> at sale time.</summary>
+    public string UnitCode { get; set; } = string.Empty;
+
     public decimal Qty { get; set; }
 
     /// <summary>Snapshot of the product unit's conversion factor at sale time — never recomputed later (docx §17).</summary>
     public decimal ConversionFactorToBase { get; set; }
     public decimal BaseQty { get; set; }
 
-    /// <summary>Price per selling unit charged, snapshot from the catalogue at sale time (docx §9.3, §17).</summary>
+    /// <summary>Price per selling unit actually charged (the list price unless <see cref="PriceOverridden"/>).</summary>
     public decimal UnitPrice { get; set; }
+
+    /// <summary>The open list price of the product unit at sale time. NULL only for legacy rows ("not recorded").</summary>
+    public decimal? ListUnitPrice { get; set; }
+
+    /// <summary>True when <see cref="UnitPrice"/> differs from <see cref="ListUnitPrice"/> by an authorised override (Sales.PriceOverride).</summary>
+    public bool PriceOverridden { get; set; }
 
     public Guid TaxId { get; set; }
     public Tax Tax { get; set; } = null!;

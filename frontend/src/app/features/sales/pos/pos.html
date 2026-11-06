@@ -17,9 +17,11 @@
         <input
           type="text"
           class="field-input search-input"
-          placeholder="Type to search…"
+          placeholder="Type to search, or scan a barcode and press Enter…"
           [value]="productQuery()"
           (input)="productQuery.set($any($event.target).value)"
+          (keydown.enter)="scan($event)"
+          data-testid="pos-scan"
         />
         @if (searchResults().length > 0) {
           <div class="search-results">
@@ -27,7 +29,7 @@
               <button type="button" class="search-result-row" (click)="addToCart(p)">
                 <span class="sr-name">{{ p.name }} <span class="sr-sku">{{ p.sku }}</span></span>
                 <span class="sr-stock" [class.sr-stock-low]="p.quantityOnHand <= 0">
-                  {{ p.quantityOnHand }} {{ p.baseUnitLabel }} available
+                  {{ formatQuantity(p.quantityOnHand, 0) }} {{ p.baseUnitLabel }} available
                 </span>
               </button>
             }
@@ -74,7 +76,7 @@
             </div>
 
             @for (row of lines.controls; track row; let i = $index) {
-              <div class="lines-grid-row" [formGroup]="row" [class.row-error]="previews()[i]?.exceedsStock">
+              <div class="lines-grid-row" [formGroup]="row" [class.row-error]="previews()[i]?.exceedsStock || !!lineErrors()[i]">
                 <span class="cart-item-name">{{ productName(row.controls.productId.value) }}</span>
 
                 <select formControlName="productUnitId" class="field-input" (change)="onUnitChange(row)">
@@ -83,18 +85,25 @@
                   }
                 </select>
 
-                <input type="number" step="0.001" formControlName="qty" class="field-input" />
-                <input type="number" step="0.01" formControlName="unitPrice" class="field-input" />
+                <input type="number" [step]="stepFor(row)" formControlName="qty" class="field-input" data-testid="line-qty" [attr.aria-label]="'Quantity of ' + productName(row.controls.productId.value)" />
+                <div>
+                  <input type="number" step="0.01" formControlName="unitPrice" class="field-input" data-testid="line-price" [readOnly]="!canOverridePrice()" [attr.aria-label]="'Unit price of ' + productName(row.controls.productId.value)" />
+                  @if (canOverridePrice() && isOverride(row) && listPriceFor(row) !== null) {
+                    <div class="line-total-sub" data-testid="line-list-price">List {{ '₹' + listPriceFor(row)!.toFixed(2) }}</div>
+                  }
+                </div>
                 <span class="tax-cell">{{ previews()[i]?.taxRatePercent ?? 0 }}%</span>
-                <input type="number" step="0.01" formControlName="discount" class="field-input" />
+                <input type="number" step="0.01" formControlName="discount" class="field-input" data-testid="line-discount" [readOnly]="!canOverridePrice()" [attr.aria-label]="'Discount on ' + productName(row.controls.productId.value)" />
 
                 <div class="line-total-cell">
                   {{ '₹' + (previews()[i]?.lineTotal ?? 0).toFixed(2) }}
                   <div class="line-total-sub" [class.stock-warn]="previews()[i]?.exceedsStock">
-                    @if (previews()[i]?.exceedsStock) {
+                    @if (lineErrors()[i]; as lineError) {
+                      <span class="stock-warn">{{ lineError }}</span>
+                    } @else if (previews()[i]?.exceedsStock) {
                       Only {{ previews()[i]?.availableOnHand }} {{ previews()[i]?.baseUnitLabel }} in stock
                     } @else {
-                      {{ (previews()[i]?.baseQty ?? 0).toFixed(2) }} {{ previews()[i]?.baseUnitLabel }}
+                      {{ formatQuantity(previews()[i]?.baseQty ?? 0, 0) }} {{ previews()[i]?.baseUnitLabel }}
                     }
                   </div>
                 </div>

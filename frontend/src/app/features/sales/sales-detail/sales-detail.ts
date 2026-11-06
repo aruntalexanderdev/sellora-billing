@@ -9,6 +9,7 @@ import { ToastService } from '../../../shared/ui/toast/toast.service';
 import { ConfirmDialogService } from '../../../shared/ui/confirm-dialog/confirm-dialog.service';
 import { AuthService } from '../../../core/auth/auth.service';
 import { SalesService } from '../sales.service';
+import { formatQuantity } from '../../../shared/units/unit-conversion';
 import type { PaymentMethod, SalesInvoiceDetail as SalesInvoiceDetailModel, SalesPayment } from '../sales.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
 import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
@@ -25,6 +26,7 @@ const INR = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDi
   styleUrl: '../../purchases/purchase-detail/purchase-detail.scss',
 })
 export class SalesDetail implements OnInit {
+  readonly formatQuantity = formatQuantity;
   private readonly fb = inject(FormBuilder);
   private readonly salesService = inject(SalesService);
   private readonly toast = inject(ToastService);
@@ -73,7 +75,7 @@ export class SalesDetail implements OnInit {
   // ---- Return items / refund / reverse ----
   readonly canReturn = computed(() => {
     const i = this.invoice();
-    return this.auth.hasPermission('Sales.Return') && !!i && i.status === 'Completed' && i.lines.some((l) => l.returnableQty > 0);
+    return this.auth.hasPermission('Sales.Return') && !!i && i.status === 'Completed' && i.lines.some((l) => l.returnableBaseQty > 0);
   });
   readonly canRefund = computed(() => this.auth.hasPermission('Sales.Refund') && (this.invoice()?.refundableAmount ?? 0) > 0);
   readonly canReverse = (p: SalesPayment) => this.auth.hasPermission('Sales.Refund') && p.kind === 'Payment' && !p.isReversed;

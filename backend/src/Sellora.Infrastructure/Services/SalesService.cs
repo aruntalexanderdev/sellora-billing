@@ -57,7 +57,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         foreach (var lineInput in input.Lines)
         {
-            var line = await BuildLineAsync(invoice, lineInput, ct);
+            var line = await BuildLineAsync(invoice, lineInput, input.CanOverridePrice, ct);
             invoice.Lines.Add(line);
 
             subtotal += lineInput.Qty * lineInput.UnitPrice;
@@ -77,8 +77,9 @@ public class SalesService(SelloraDbContext db) : ISalesService
             var available = stockItem?.QuantityOnHand ?? 0;
             if (requestedBaseQty > available)
             {
-                var product = stockItem?.Product ?? await db.Products.SingleAsync(p => p.Id == productId, ct);
-                throw new DomainValidationException("Lines", $"Only {available} in stock for {product.Name} — cannot sell {requestedBaseQty}.");
+                var product = await db.Products.Include(p => p.BaseUnit).SingleAsync(p => p.Id == productId, ct);
+                var code = product.BaseUnit.ShortCode;
+                throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(available)} {code} of {product.Name} in stock — cannot sell {StockQuantity.Format(requestedBaseQty)} {code}.");
             }
         }
 
@@ -297,13 +298,19 @@ public class SalesService(SelloraDbContext db) : ISalesService
         }
 
         // Lock the stock rows before reading the batches the goods go back into.
-        await StockLocks.LockStockItemsAsync(db, await db.SalesInvoiceLines.Where(l => l.SalesInvoiceId == invoice.Id).Select(l => l.ProductId).ToListAsync(ct), ct);
+        var lineProductIds = await db.SalesInvoiceLines.Where(l => l.SalesInvoiceId == invoice.Id).Select(l => l.ProductId).ToListAsync(ct);
+        // Lock order: SalesInvoices (above) -> Products KEY SHARE -> StockItems. The return reads the factor of a unit
+        // that history may not yet reference, so a concurrent product-unit edit must wait until this commits.
+        await StockLocks.LockProductsKeyShareAsync(db, lineProductIds, ct);
+        await StockLocks.LockStockItemsAsync(db, lineProductIds, ct);
         var lines = await db.SalesInvoiceLines
-            .Include(l => l.Product)
+            .Include(l => l.Product).ThenInclude(p => p.BaseUnit)
             .Include(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch)
             .Where(l => l.SalesInvoiceId == invoice.Id).ToListAsync(ct);
         var priorReturns = await db.SalesReturnLines
             .Where(r => r.SalesInvoiceLine.SalesInvoiceId == invoice.Id).ToListAsync(ct);
+        var productUnits = await db.ProductUnits.Include(u => u.Unit)
+            .Where(u => lineProductIds.Contains(u.ProductId)).ToListAsync(ct);
         var precision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
 
         var salesReturn = new SalesReturn
@@ -321,31 +328,52 @@ public class SalesService(SelloraDbContext db) : ISalesService
             var line = lines.SingleOrDefault(l => l.Id == requested.SalesInvoiceLineId)
                 ?? throw new DomainValidationException("Lines", "One of the items does not belong to this sale.");
 
-            var qty = Math.Round(requested.Qty, 3, MidpointRounding.AwayFromZero);
+            var baseUnit = line.Product.BaseUnit;
+
+            // The return unit: the line's own unit (even if deactivated since) or any active unit of the product.
+            // The sellable flag does not apply - a return reverses goods that were physically sold.
+            var unitId = requested.ProductUnitId ?? line.ProductUnitId;
+            var productUnit = productUnits.SingleOrDefault(u => u.Id == unitId)
+                ?? throw new DomainValidationException("Lines", "Select a valid unit.");
+            if (productUnit.ProductId != line.ProductId)
+            {
+                throw new DomainValidationException("Lines", $"The selected unit does not belong to {line.Product.Name}.");
+            }
+            var unitDisplay = productUnit.Label ?? productUnit.Unit.Name;
+            if (!productUnit.IsActive && productUnit.Id != line.ProductUnitId)
+            {
+                throw new DomainValidationException("Lines", $"{unitDisplay} is no longer active.");
+            }
+
+            var qty = requested.Qty;
             if (qty <= 0)
             {
                 throw new DomainValidationException("Lines", $"Quantity for {line.Product.Name} must be greater than zero.");
             }
+            StockQuantity.EnsureEnteredDecimals(qty, productUnit.Unit.DecimalPlaces, unitDisplay, "Lines");
+
+            var baseQty = qty * productUnit.ConversionFactorToBase;
+            StockQuantity.EnsureStorable(baseQty, "Lines");
+            StockQuantity.EnsureWithinBaseDecimals(qty, productUnit.Unit.ShortCode, baseQty, baseUnit, "Lines");
 
             var prior = priorReturns.Where(r => r.SalesInvoiceLineId == line.Id).ToList();
-            var returnable = line.Qty - prior.Sum(r => r.Qty);
-            if (qty > returnable)
+            var returnableBase = line.BaseQty - prior.Sum(r => r.BaseQty);
+            if (baseQty > returnableBase)
             {
-                throw new DomainValidationException("Lines", $"Only {returnable:0.###} of {line.Product.Name} can still be returned.");
+                throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(returnableBase)} {baseUnit.ShortCode} of {line.Product.Name} can still be returned.");
             }
 
             // Returning whatever is left takes the exact remainder, so per-line rounding can never leave a stray
-            // paisa of credit unissued (or issue one too many) once an item is fully returned.
-            var last = qty == returnable;
-            var taxable = last ? line.TaxableValue - prior.Sum(r => r.TaxableValue) : Math.Round(line.TaxableValue * qty / line.Qty, precision, MidpointRounding.AwayFromZero);
-            var tax = last ? line.TaxAmount - prior.Sum(r => r.TaxAmount) : Math.Round(line.TaxAmount * qty / line.Qty, precision, MidpointRounding.AwayFromZero);
-            var baseQty = last ? line.BaseQty - prior.Sum(r => r.BaseQty) : qty * line.ConversionFactorToBase;
-            StockQuantity.EnsureStorable(baseQty, "Lines");
+            // paisa of credit unissued (or issue one too many) once an item is fully returned. Credit is prorated
+            // by base quantity, so returns in different units of the same line add up.
+            var last = baseQty == returnableBase;
+            var taxable = last ? line.TaxableValue - prior.Sum(r => r.TaxableValue) : Math.Round(line.TaxableValue * baseQty / line.BaseQty, precision, MidpointRounding.AwayFromZero);
+            var tax = last ? line.TaxAmount - prior.Sum(r => r.TaxAmount) : Math.Round(line.TaxAmount * baseQty / line.BaseQty, precision, MidpointRounding.AwayFromZero);
 
             // Put the goods back into the batches they were sold from, oldest first.
             var remaining = baseQty;
             decimal costRestored = 0;
-            foreach (var consumption in line.BatchConsumptions.OrderBy(c => c.PurchaseBatch.CreatedAt))
+            foreach (var consumption in line.BatchConsumptions.OrderBy(c => c.PurchaseBatch.CreatedAt).ThenBy(c => c.PurchaseBatch.BatchSequence))
             {
                 if (remaining <= 0) break;
                 var alloc = Math.Min(remaining, consumption.QtyBaseUnits - consumption.ReturnedQtyBaseUnits);
@@ -367,6 +395,10 @@ public class SalesService(SelloraDbContext db) : ISalesService
                 SalesReturnId = salesReturn.Id,
                 SalesInvoiceLineId = line.Id,
                 ProductId = line.ProductId,
+                ProductUnitId = productUnit.Id,
+                UnitId = productUnit.UnitId,
+                UnitCode = productUnit.Unit.ShortCode,
+                ConversionFactorToBase = productUnit.ConversionFactorToBase,
                 Qty = qty,
                 BaseQty = baseQty,
                 TaxableValue = taxable,
@@ -451,7 +483,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
             {
                 Id = Guid.NewGuid(),
                 ProductId = productId,
-                Type = StockMovementType.Sale,
+                Type = StockMovementType.SaleCancellation,
                 QuantityBaseUnits = baseQty,
                 ReferenceType = "SalesInvoice",
                 ReferenceId = invoice.Id,
@@ -484,7 +516,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         return $"{prefix}-{count + 1:D4}";
     }
 
-    private async Task<SalesInvoiceLine> BuildLineAsync(SalesInvoice invoice, SaleLineInput input, CancellationToken ct)
+    private async Task<SalesInvoiceLine> BuildLineAsync(SalesInvoice invoice, SaleLineInput input, bool canOverridePrice, CancellationToken ct)
     {
         if (input.Qty <= 0)
         {
@@ -494,8 +526,18 @@ public class SalesService(SelloraDbContext db) : ISalesService
         {
             throw new DomainValidationException("Lines", "Unit price cannot be negative.");
         }
+        if (input.Discount < 0)
+        {
+            throw new DomainValidationException("Lines", "Discount cannot be negative.");
+        }
+        // The column is numeric(18,4): a finer discount would be rounded on save while the line and header totals were
+        // computed from the unrounded value, so it is refused instead.
+        if (Math.Round(input.Discount, 4, MidpointRounding.AwayFromZero) != input.Discount)
+        {
+            throw new DomainValidationException("Lines", "Discount can have at most 4 decimal places.");
+        }
 
-        var product = await db.Products.SingleOrDefaultAsync(p => p.Id == input.ProductId, ct)
+        var product = await db.Products.Include(p => p.BaseUnit).SingleOrDefaultAsync(p => p.Id == input.ProductId, ct)
             ?? throw new DomainValidationException("Lines", "Select a valid product.");
         if (!product.IsActive)
         {
@@ -520,12 +562,47 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("Lines", $"{unitDisplay} cannot be sold for {product.Name}.");
         }
 
-        var tax = await db.Taxes.SingleAsync(t => t.Id == product.TaxId, ct);
+        StockQuantity.EnsureEnteredDecimals(input.Qty, productUnit.Unit.DecimalPlaces, unitDisplay, "Lines");
 
         // The stored factor is snapshotted onto the line; history is never recomputed from configuration.
         var baseQty = input.Qty * productUnit.ConversionFactorToBase;
         StockQuantity.EnsureStorable(baseQty, "Lines");
-        var taxableValue = input.Qty * input.UnitPrice - input.Discount;
+        StockQuantity.EnsureWithinBaseDecimals(input.Qty, productUnit.Unit.ShortCode, baseQty, product.BaseUnit, "Lines");
+
+        // The open list price is stable here: the product KEY SHARE lock blocks PricingService.SetPriceAsync (FOR UPDATE).
+        var listPrice = await db.SellingPrices
+            .Where(p => p.ProductUnitId == productUnit.Id && p.EffectiveTo == null)
+            .Select(p => (decimal?)p.Price)
+            .SingleOrDefaultAsync(ct);
+        if (listPrice is not { } list)
+        {
+            throw new DomainValidationException("Lines", $"{unitDisplay} of {product.Name} has no price. Set a price before selling it.");
+        }
+
+        if (Math.Round(input.UnitPrice, 4, MidpointRounding.AwayFromZero) != input.UnitPrice)
+        {
+            throw new DomainValidationException("Lines", "Unit price has too many decimals (at most 4).");
+        }
+        var priceDiffers = input.UnitPrice != list;
+        if (priceDiffers && !input.OverridePrice)
+        {
+            throw new DomainValidationException("Lines", $"The price of {product.Name} ({unitDisplay}) is now {list:F2}. Refresh the item and try again.");
+        }
+        if ((priceDiffers || input.OverridePrice || input.Discount > 0) && !canOverridePrice)
+        {
+            throw new DomainValidationException("Lines", priceDiffers || input.OverridePrice
+                ? $"You are not allowed to change the price of {product.Name}."
+                : $"You are not allowed to give a discount on {product.Name}.");
+        }
+
+        var gross = input.Qty * input.UnitPrice;
+        if (input.Discount > gross)
+        {
+            throw new DomainValidationException("Lines", $"Discount on {product.Name} cannot exceed the line amount of {gross:F2}.");
+        }
+
+        var tax = await db.Taxes.SingleAsync(t => t.Id == product.TaxId, ct);
+        var taxableValue = gross - input.Discount;
         var taxAmount = taxableValue * tax.RatePercent / 100;
         var lineTotal = taxableValue + taxAmount;
 
@@ -535,10 +612,14 @@ public class SalesService(SelloraDbContext db) : ISalesService
             SalesInvoiceId = invoice.Id,
             ProductId = product.Id,
             ProductUnitId = productUnit.Id,
+            UnitId = productUnit.UnitId,
+            UnitCode = productUnit.Unit.ShortCode,
             Qty = input.Qty,
             ConversionFactorToBase = productUnit.ConversionFactorToBase,
             BaseQty = baseQty,
             UnitPrice = input.UnitPrice,
+            ListUnitPrice = list,
+            PriceOverridden = priceDiffers,
             TaxId = tax.Id,
             TaxRatePercent = tax.RatePercent,
             Discount = input.Discount,

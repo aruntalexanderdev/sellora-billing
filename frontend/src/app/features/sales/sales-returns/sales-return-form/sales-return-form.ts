@@ -7,7 +7,10 @@ import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { SalesService } from '../../sales.service';
 import { CashBankService, defaultAccountId } from '../../../accounts/cash-bank/cash-bank.service';
 import type { AccountOption } from '../../../accounts/cash-bank/cash-bank.models';
-import type { PaymentMethod, SalesInvoiceDetail } from '../../sales.models';
+import { formatQuantity } from '../../../../shared/units/unit-conversion';
+import { quantityStep } from '../../../../shared/forms/quantity-input';
+import { defaultReturnUnit, proratedCredit, returnAllChoice, returnBaseQty, returnQtyError } from '../../../../shared/units/return-units';
+import type { PaymentMethod, SaleReturnUnit, SalesInvoiceDetail, SalesInvoiceLine } from '../../sales.models';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 
@@ -43,8 +46,24 @@ export class SalesReturnForm implements OnInit, HasUnsavedChanges {
   readonly error = signal<string | null>(null);
   private saved = false;
 
+  readonly formatQuantity = formatQuantity;
+  readonly quantityStep = quantityStep;
+
   /** Quantity being returned per invoice line, keyed by line id. */
   readonly qty = signal<Record<string, number | null>>({});
+  /** Chosen return unit per invoice line (absent = the line's own unit). */
+  readonly unitChoice = signal<Record<string, string>>({});
+
+  /** The unit a line's return is entered in. */
+  unitFor(l: SalesInvoiceLine): SaleReturnUnit | undefined {
+    const id = this.unitChoice()[l.id];
+    return l.returnUnits.find((u) => u.productUnitId === id) ?? defaultReturnUnit(l.returnUnits);
+  }
+
+  /** Client-side error for the quantity entered on a line, against the chosen unit's max (null when fine). */
+  qtyError(l: SalesInvoiceLine): string | null {
+    return returnQtyError(this.qty()[l.id], this.unitFor(l), l.baseUnitDecimalPlaces, l.baseUnitLabel);
+  }
 
   readonly form = this.fb.nonNullable.group({
     returnDate: [todayIso(), Validators.required],
@@ -58,24 +77,22 @@ export class SalesReturnForm implements OnInit, HasUnsavedChanges {
     accountId: [''],
   });
 
-  readonly lines = computed(() => this.invoice()?.lines.filter((l) => l.returnableQty > 0) ?? []);
+  readonly lines = computed(() => this.invoice()?.lines.filter((l) => l.returnableBaseQty > 0 && l.returnUnits.length > 0) ?? []);
 
   /** An estimate of the credit — the server works the exact figure, taking the remainder on a final return. */
   readonly credit = computed(() => {
     let total = 0;
     for (const l of this.lines()) {
       const q = this.qty()[l.id] ?? 0;
-      if (q > 0) total += (l.lineTotal * q) / l.qty;
+      const unit = this.unitFor(l);
+      // Prorated by base quantity, the same way the server splits the credit.
+      if (q > 0 && unit) total += proratedCredit(l.lineTotal, returnBaseQty(q, unit), l.baseQty);
     }
     return Math.round(total * 100) / 100;
   });
 
   readonly chosen = computed(() => this.lines().filter((l) => (this.qty()[l.id] ?? 0) > 0));
-  readonly invalidLine = (id: string, max: number) => {
-    const q = this.qty()[id];
-    return q != null && (q < 0 || q > max);
-  };
-  readonly linesValid = computed(() => this.chosen().length > 0 && this.lines().every((l) => !this.invalidLine(l.id, l.returnableQty)));
+  readonly linesValid = computed(() => this.chosen().length > 0 && this.lines().every((l) => !this.qtyError(l)));
 
   /** What could be paid back once this return is credited: what is held, less what is still owed for. */
   readonly refundableAfter = computed(() => {
@@ -108,8 +125,21 @@ export class SalesReturnForm implements OnInit, HasUnsavedChanges {
     this.qty.update((q) => ({ ...q, [id]: value === '' ? null : Number(value) }));
   }
 
+  setUnit(id: string, productUnitId: string): void {
+    this.unitChoice.update((c) => ({ ...c, [id]: productUnitId }));
+  }
+
   returnAll(): void {
-    this.qty.set(Object.fromEntries(this.lines().map((l) => [l.id, l.returnableQty])));
+    const qty: Record<string, number | null> = {};
+    const units: Record<string, string> = {};
+    for (const l of this.lines()) {
+      const choice = returnAllChoice(l);
+      if (!choice) continue;
+      qty[l.id] = choice.qty;
+      units[l.id] = choice.productUnitId;
+    }
+    this.qty.set(qty);
+    this.unitChoice.set(units);
   }
 
   toggleRefund(checked: boolean): void {
@@ -144,7 +174,7 @@ export class SalesReturnForm implements OnInit, HasUnsavedChanges {
         salesInvoiceId: i.id,
         returnDate: v.returnDate,
         reason: v.reason || null,
-        lines: this.chosen().map((l) => ({ salesInvoiceLineId: l.id, qty: this.qty()[l.id]! })),
+        lines: this.chosen().map((l) => ({ salesInvoiceLineId: l.id, productUnitId: this.unitFor(l)?.productUnitId ?? null, qty: this.qty()[l.id]! })),
         refund: this.refundNow() ? { amount: r.amount!, paymentMethod: r.paymentMethod, accountId: r.accountId || null } : null,
       })
       .subscribe({

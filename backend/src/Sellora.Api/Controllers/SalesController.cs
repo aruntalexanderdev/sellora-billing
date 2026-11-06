@@ -8,7 +8,9 @@ using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Payments;
 using Sellora.Domain.Sales;
+using Sellora.Domain.Auth;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
@@ -22,17 +24,47 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
     [Authorize(Policy = "Sales.Create")]
     public async Task<ActionResult<IReadOnlyList<SaleCatalogProductDto>>> Catalog([FromQuery] string? search, CancellationToken ct)
     {
-        var query = db.Products.AsNoTracking().Where(p => p.IsActive)
-            .Include(p => p.BaseUnit).Include(p => p.Tax).Include(p => p.Units.Where(u => u.IsActive && u.IsSellable).OrderBy(u => u.SortOrder)).ThenInclude(u => u.Unit)
-            .AsQueryable();
+        var query = CatalogQuery();
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var s = search.Trim().ToLower();
-            query = query.Where(p => p.Name.ToLower().Contains(s) || p.Sku.ToLower().Contains(s) || (p.Category != null && p.Category.ToLower().Contains(s)));
+            var term = search.Trim();
+            var s = term.ToLower();
+            query = query.Where(p => p.Name.ToLower().Contains(s) || p.Sku.ToLower().Contains(s) || (p.Category != null && p.Category.ToLower().Contains(s))
+                || p.Units.Any(u => u.IsActive && u.IsSellable && u.Barcode == term));
         }
 
-        var products = await query.OrderBy(p => p.Name).Take(50).ToListAsync(ct);
+        return Ok(await BuildCatalogItemsAsync(query.OrderBy(p => p.Name).Take(50), ct));
+    }
+
+    /// <summary>Exact barcode match on an active, sellable product unit. Lives under Sales (not Products) so a
+    /// cashier holding only Sales.* can scan. Weighed/price-embedded codes are not supported and simply miss.
+    /// An unpriced unit is returned with a null price; the POS refuses it.</summary>
+    [HttpGet("catalog/by-barcode/{code}")]
+    [Authorize(Policy = "Sales.Create")]
+    public async Task<ActionResult<SaleBarcodeMatchDto>> CatalogByBarcode(string code, CancellationToken ct)
+    {
+        var term = code.Trim();
+        var unit = string.IsNullOrEmpty(term) ? null : await db.ProductUnits.AsNoTracking()
+            .Where(u => u.Barcode == term && u.IsActive && u.IsSellable && u.Product.IsActive)
+            .Select(u => new { u.Id, u.ProductId })
+            .SingleOrDefaultAsync(ct);
+        if (unit is null)
+        {
+            return Problem(statusCode: 404, title: $"No sellable item has barcode {term}.");
+        }
+
+        var item = (await BuildCatalogItemsAsync(CatalogQuery().Where(p => p.Id == unit.ProductId), ct)).Single();
+        return Ok(new SaleBarcodeMatchDto(item, unit.Id));
+    }
+
+    private IQueryable<Product> CatalogQuery() =>
+        db.Products.AsNoTracking().Where(p => p.IsActive)
+            .Include(p => p.BaseUnit).Include(p => p.Tax).Include(p => p.Units.Where(u => u.IsActive && u.IsSellable).OrderBy(u => u.SortOrder)).ThenInclude(u => u.Unit);
+
+    private async Task<List<SaleCatalogProductDto>> BuildCatalogItemsAsync(IQueryable<Product> query, CancellationToken ct)
+    {
+        var products = await query.ToListAsync(ct);
         var productIds = products.Select(p => p.Id).ToList();
         var unitIds = products.SelectMany(p => p.Units).Select(u => u.Id).ToList();
 
@@ -44,16 +76,14 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             .Where(p => unitIds.Contains(p.ProductUnitId) && p.EffectiveTo == null)
             .ToDictionaryAsync(p => p.ProductUnitId, p => p.Price, ct);
 
-        var items = products.Select(p => new SaleCatalogProductDto(
+        return products.Select(p => new SaleCatalogProductDto(
             p.Id, p.Sku, p.Name, p.Category, p.BaseUnit.ShortCode,
             qtyByProduct.GetValueOrDefault(p.Id, 0m), p.Tax.RatePercent,
             p.Units.OrderBy(u => u.SortOrder).Select(u => new SaleCatalogUnitDto(
                 u.Id, u.UnitId, u.Unit.ShortCode, u.Label ?? u.Unit.Name,
                 u.ConversionFactorToBase, u.Unit.DecimalPlaces, u.IsBaseUnit, u.IsDefaultSalesUnit,
-                priceByUnit.TryGetValue(u.Id, out var price) ? price : null)).ToList()
+                priceByUnit.TryGetValue(u.Id, out var price) ? price : null, u.Barcode)).ToList()
         )).ToList();
-
-        return Ok(items);
     }
 
     [HttpGet]
@@ -111,6 +141,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             .Include(i => i.CreatedByUser)
             .Include(i => i.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.BaseUnit)
             .Include(i => i.Lines).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
+            .Include(i => i.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.Units).ThenInclude(u => u.Unit)
             .Include(i => i.Lines).ThenInclude(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch).ThenInclude(b => b.PurchaseOrderLine).ThenInclude(pl => pl!.PurchaseOrder)
             .Include(i => i.Lines).ThenInclude(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch).ThenInclude(b => b.StockAdjustment)
             .Include(i => i.Payments).ThenInclude(pay => pay.CreatedByUser)
@@ -131,8 +162,8 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
 
         var input = new CreateSaleInput(
             request.CustomerId!.Value, request.InvoiceDate, request.PaymentMethod, request.PaidAmount,
-            request.Lines.Select(l => new SaleLineInput(l.ProductId!.Value, l.ProductUnitId!.Value, l.Qty, l.UnitPrice, l.Discount)).ToList(),
-            request.AccountId, key);
+            request.Lines.Select(l => new SaleLineInput(l.ProductId!.Value, l.ProductUnitId!.Value, l.Qty, l.UnitPrice, l.Discount, l.OverridePrice)).ToList(),
+            request.AccountId, key, User.HasClaim(AuthClaimTypes.Permission, "Sales.PriceOverride"));
 
         try
         {
@@ -234,7 +265,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
 
     private static SalesInvoiceDetailDto ToDetail(SalesInvoice i)
     {
-        var returnedByLine = i.Returns.SelectMany(r => r.Lines).GroupBy(l => l.SalesInvoiceLineId).ToDictionary(g => g.Key, g => g.Sum(l => l.Qty));
+        var returnedByLine = i.Returns.SelectMany(r => r.Lines).GroupBy(l => l.SalesInvoiceLineId).ToDictionary(g => g.Key, g => g.Sum(l => l.BaseQty));
         var reversed = i.Payments.Where(p => p.ReversesPaymentId != null).Select(p => p.ReversesPaymentId!.Value).ToHashSet();
         return ToDetail(i, returnedByLine, reversed);
     }
@@ -245,10 +276,12 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
         i.Subtotal, i.TaxTotal, i.DiscountTotal, i.GrandTotal,
         i.Status, $"{i.CreatedByUser.FirstName} {i.CreatedByUser.LastName}", i.CreatedAt, i.CancelledAt,
         i.Lines.Select(l => new SalesInvoiceLineDto(
-            l.Id, l.ProductId, l.Product.Name, l.ProductUnitId, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name,
-            l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.UnitPrice,
+            l.Id, l.ProductId, l.Product.Name, l.ProductUnitId, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name, l.UnitCode,
+            l.ConversionFactorToBase, l.ProductUnit.Unit.DecimalPlaces,
+            l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Product.BaseUnit.DecimalPlaces,
+            l.UnitPrice, l.ListUnitPrice, l.PriceOverridden,
             l.TaxRatePercent, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.CostOfGoodsSold,
-            returnedByLine.GetValueOrDefault(l.Id), l.Qty - returnedByLine.GetValueOrDefault(l.Id),
+            returnedByLine.GetValueOrDefault(l.Id), ReturnableBase(i, l, returnedByLine), ReturnUnits(i, l, returnedByLine),
             l.BatchConsumptions.OrderBy(c => c.PurchaseBatch.BatchSequence).Select(c => new SaleBatchConsumptionDto(
                 c.PurchaseBatchId, PurchaseBatch.FormatInternalBatchNo(c.PurchaseBatch.BatchSequence), c.PurchaseBatch.SupplierBatchNumber,
                 c.PurchaseBatch.PurchaseOrderLine != null ? "Purchase" : "Adjustment",
@@ -262,6 +295,22 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             r.Id, r.ReturnNo, r.ReturnDate, r.Total,
             i.Payments.Where(p => p.SalesReturnId == r.Id && p.Kind == PaymentEntryKind.Refund).Sum(p => p.Amount)
         )).ToList());
+
+    private static decimal ReturnableBase(SalesInvoice i, SalesInvoiceLine l, Dictionary<Guid, decimal> returnedByLine) =>
+        i.Status == SalesStatus.Cancelled ? 0 : Math.Max(0, l.BaseQty - returnedByLine.GetValueOrDefault(l.Id));
+
+    // The line's own unit (even if deactivated since) plus every active unit of the product.
+    private static List<SaleReturnUnitDto> ReturnUnits(SalesInvoice i, SalesInvoiceLine l, Dictionary<Guid, decimal> returnedByLine)
+    {
+        var returnable = ReturnableBase(i, l, returnedByLine);
+        return returnable <= 0
+            ? []
+            : l.Product.Units.Where(u => u.IsActive || u.Id == l.ProductUnitId).OrderBy(u => u.SortOrder)
+                .Select(u => new SaleReturnUnitDto(
+                    u.Id, u.Unit.ShortCode, u.Label ?? u.Unit.Name, u.Unit.DecimalPlaces, u.ConversionFactorToBase, u.Id == l.ProductUnitId,
+                    StockQuantity.MaxEnterableQty(returnable, u.ConversionFactorToBase, u.Unit.DecimalPlaces, l.Product.BaseUnit.DecimalPlaces)))
+                .ToList();
+    }
 
     internal static SalesPaymentDto ToPaymentDto(SalesPayment pay, HashSet<Guid> reversed) => new(
         pay.Id, pay.Kind, pay.PaymentDate, pay.Amount, pay.PaymentMethod,

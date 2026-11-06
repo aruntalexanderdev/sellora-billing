@@ -11,6 +11,7 @@ import type {
   SalesReturnDetail,
   SalesReturnListItem,
   CreateSaleRequest,
+  SaleBarcodeMatch,
   SaleCatalogProduct,
   SalesInvoiceDetail,
   SalesInvoiceListItem,
@@ -35,6 +36,11 @@ export class SalesService {
     const params: Record<string, string> = {};
     if (search) params['search'] = search;
     return this.http.get<SaleCatalogProduct[]>(`${BASE_URL}/catalog`, { params });
+  }
+
+  /** Exact barcode lookup; 404 when no sellable item carries the code. */
+  lookupBarcode(code: string): Observable<SaleBarcodeMatch> {
+    return this.http.get<SaleBarcodeMatch>(`${BASE_URL}/catalog/by-barcode/${encodeURIComponent(code.trim())}`);
   }
 
   list(query: SalesListQuery): Observable<PagedResult<SalesInvoiceListItem>> {

@@ -63,6 +63,7 @@ public static class PermissionCatalog
         // Sales & Billing
         new("Sales.View", "Sales", "View", "View sales invoices."),
         new("Sales.Create", "Sales", "Create", "Create sales through POS billing."),
+        new("Sales.PriceOverride", "Sales", "PriceOverride", "Charge a price other than the list price, or give a discount, at the POS."),
         new("Sales.Edit", "Sales", "Edit", "Edit an in-progress sale."),
         new("Sales.Receive", "Sales", "Receive", "Record payments received against sales invoices."),
         new("Sales.Return", "Sales", "Return", "Take back goods from a customer."),

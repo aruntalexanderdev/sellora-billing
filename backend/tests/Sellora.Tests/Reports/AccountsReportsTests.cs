@@ -1,3 +1,4 @@
+using Sellora.Domain.Abstractions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
@@ -17,7 +18,7 @@ namespace Sellora.Tests.Reports;
 public class AccountsReportsTests
 {
     private sealed record Fixture(
-        SelloraDbContext Db, AccountsReportsController Reports, PurchaseService Purchases, SalesService Sales,
+        SelloraDbContext Db, AccountsReportsController Reports, PurchaseService Purchases, ISalesService Sales,
         FinancialAccountService Accounts, ExpenseService Expenses,
         Currency Inr, Currency Usd, Supplier InrSupplier, Supplier UsdSupplier, Customer Customer, Customer Regular,
         Product Product, ProductUnit Kg, ExpenseCategory Rent, ExpenseCategory Power, Guid UserId);
@@ -52,7 +53,7 @@ public class AccountsReportsTests
         await db.SaveChangesAsync();
 
         var rates = new ExchangeRateService(db);
-        return new Fixture(db, new AccountsReportsController(db), new PurchaseService(db, rates), new SalesService(db),
+        return new Fixture(db, new AccountsReportsController(db), new PurchaseService(db, rates), ListPricedSales.For(db),
             new FinancialAccountService(db), new ExpenseService(db, rates), inr, usd, inrSupplier, usdSupplier, walkIn, regular,
             product, kg, rent, power, user.Id);
     }
@@ -130,7 +131,7 @@ public class AccountsReportsTests
         await Buy(f, f.InrSupplier, D1, 100, 50m);
         var sale = await Sell(f, f.Customer, D2, 10, 100m, paid: 600m);
         await f.Sales.AddPaymentAsync(sale.Id, new AddSalePaymentInput(400m, PaymentMethod.Upi, 400m), f.UserId);
-        await f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D2, "damaged", [new SaleReturnLineInput(sale.Lines.Single().Id, 3)], new RefundDetails(300m, PaymentMethod.Cash)), f.UserId);
+        await f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D2, "damaged", [new SaleReturnLineInput(sale.Lines.Single().Id, null, 3)], new RefundDetails(300m, PaymentMethod.Cash)), f.UserId);
         var wrong = await Sell(f, f.Regular, D3, 1, 100m, paid: 50m);
         await f.Sales.ReversePaymentAsync(wrong.Id, (await f.Db.SalesPayments.FirstAsync(p => p.SalesInvoiceId == wrong.Id)).Id, new ReversePaymentInput(null), f.UserId);
 
@@ -208,7 +209,7 @@ public class AccountsReportsTests
         var s1 = await Sell(f, f.Regular, D2, 10, 100m, paid: 400m);     // 1,000; due 600
         await Sell(f, f.Regular, D2, 5, 100m);                           // 500; unpaid
         var s3 = await Sell(f, f.Customer, D2, 10, 100m, paid: 1000m);   // fully paid
-        await f.Sales.CreateReturnAsync(new CreateSaleReturnInput(s3.Id, D3, null, [new SaleReturnLineInput(s3.Lines.Single().Id, 4)]), f.UserId); // credit 400 → refundable
+        await f.Sales.CreateReturnAsync(new CreateSaleReturnInput(s3.Id, D3, null, [new SaleReturnLineInput(s3.Lines.Single().Id, null, 4)]), f.UserId); // credit 400 → refundable
         var cancelled = await Sell(f, f.Regular, D3, 1, 100m, paid: 100m);
         await f.Sales.CancelSaleAsync(cancelled.Id, f.UserId);
         Assert.NotNull(s1);
@@ -279,7 +280,7 @@ public class AccountsReportsTests
         var sale = await Sell(f, f.Customer, D2, 10, 100m, paid: 1000m, account: cash.Id);                      // in 1,000
         await f.Sales.CreateSaleAsync(new CreateSaleInput(f.Regular.Id, D2, PaymentMethod.Upi, 200m, [new SaleLineInput(f.Product.Id, f.Kg.Id, 5, 100, 0)], bank.Id), f.UserId); // in 200
         await Spend(f, f.Rent, D2, 1500m, account: cash.Id);                                                    // out 1,500
-        await f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D3, null, [new SaleReturnLineInput(sale.Lines.Single().Id, 2)], new RefundDetails(200m, PaymentMethod.Cash, cash.Id)), f.UserId); // out 200
+        await f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D3, null, [new SaleReturnLineInput(sale.Lines.Single().Id, null, 2)], new RefundDetails(200m, PaymentMethod.Cash, cash.Id)), f.UserId); // out 200
         var back = await Buy(f, f.UsdSupplier, D3, 10, 100m, paid: 1000m);                                      // out 83,200
         await f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(back.Id, D3, null, [new PurchaseReturnLineInput(back.Lines.Single().Id, null, 1)], new RefundDetails(100m, PaymentMethod.BankTransfer, bank.Id)), f.UserId); // in 8,320
         var mistake = await Spend(f, f.Power, D3, 700m, account: cash.Id);

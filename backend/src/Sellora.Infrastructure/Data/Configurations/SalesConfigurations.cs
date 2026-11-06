@@ -89,18 +89,33 @@ public class SalesReturnLineConfiguration : IEntityTypeConfiguration<SalesReturn
     {
         builder.HasKey(l => l.Id);
         builder.Property(l => l.Qty).HasColumnType("numeric(18,3)");
+        builder.Property(l => l.ConversionFactorToBase).HasColumnType("numeric(28,10)");
+        builder.Property(l => l.UnitCode).HasMaxLength(10).IsRequired();
         builder.Property(l => l.BaseQty).HasColumnType("numeric(18,3)");
         foreach (var money in new[] { nameof(SalesReturnLine.TaxableValue), nameof(SalesReturnLine.TaxAmount), nameof(SalesReturnLine.LineTotal), nameof(SalesReturnLine.CostRestored) })
         {
             builder.Property(money).HasColumnType("numeric(18,4)");
         }
 
-        builder.ToTable(t => t.HasCheckConstraint("CK_SalesReturnLines_Qty_Positive", "\"Qty\" > 0"));
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_SalesReturnLines_Qty_Positive", "\"Qty\" > 0");
+            t.HasCheckConstraint("CK_SalesReturnLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
+            t.HasCheckConstraint("CK_SalesReturnLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
+            t.HasCheckConstraint("CK_SalesReturnLines_BaseQty_Arithmetic", "\"Qty\" * \"ConversionFactorToBase\" = \"BaseQty\"");
+        });
         builder.HasIndex(l => l.SalesInvoiceLineId);
 
         builder.HasOne(l => l.SalesReturn).WithMany(r => r.Lines).HasForeignKey(l => l.SalesReturnId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(l => l.SalesInvoiceLine).WithMany().HasForeignKey(l => l.SalesInvoiceLineId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(l => l.Product).WithMany().HasForeignKey(l => l.ProductId).OnDelete(DeleteBehavior.Restrict);
+        // (ProductId, ProductUnitId) -> ProductUnits (ProductId, Id): the return unit must belong to the returned product.
+        builder.HasOne(l => l.ProductUnit).WithMany()
+            .HasForeignKey(l => new { l.ProductId, l.ProductUnitId })
+            .HasPrincipalKey(u => new { u.ProductId, u.Id })
+            .IsRequired()
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(l => l.Unit).WithMany().HasForeignKey(l => l.UnitId).OnDelete(DeleteBehavior.Restrict);
     }
 }
 
@@ -111,9 +126,23 @@ public class SalesInvoiceLineConfiguration : IEntityTypeConfiguration<SalesInvoi
         builder.HasKey(l => l.Id);
 
         builder.Property(l => l.Qty).HasColumnType("numeric(18,3)");
-        builder.Property(l => l.ConversionFactorToBase).HasColumnType("numeric(18,3)");
+        builder.Property(l => l.ConversionFactorToBase).HasColumnType("numeric(28,10)");
+        builder.Property(l => l.UnitCode).HasMaxLength(10).IsRequired();
+        builder.Property(l => l.ListUnitPrice).HasColumnType("numeric(18,4)");
+        builder.Property(l => l.PriceOverridden).HasDefaultValue(false);
         builder.Property(l => l.BaseQty).HasColumnType("numeric(18,3)");
         builder.Property(l => l.TaxRatePercent).HasColumnType("numeric(6,3)");
+
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_SalesInvoiceLines_Qty_Positive", "\"Qty\" > 0");
+            t.HasCheckConstraint("CK_SalesInvoiceLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
+            t.HasCheckConstraint("CK_SalesInvoiceLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
+            t.HasCheckConstraint("CK_SalesInvoiceLines_BaseQty_Arithmetic", "\"Qty\" * \"ConversionFactorToBase\" = \"BaseQty\"");
+            t.HasCheckConstraint("CK_SalesInvoiceLines_Override_HasList", "NOT \"PriceOverridden\" OR \"ListUnitPrice\" IS NOT NULL");
+            t.HasCheckConstraint("CK_SalesInvoiceLines_Price_MatchesList", "\"PriceOverridden\" OR \"ListUnitPrice\" IS NULL OR \"UnitPrice\" = \"ListUnitPrice\"");
+            t.HasCheckConstraint("CK_SalesInvoiceLines_Discount_WithinGross", "\"Discount\" >= 0 AND \"Discount\" <= \"Qty\" * \"UnitPrice\"");
+        });
 
         foreach (var money in new[] { nameof(SalesInvoiceLine.UnitPrice), nameof(SalesInvoiceLine.Discount), nameof(SalesInvoiceLine.TaxableValue), nameof(SalesInvoiceLine.TaxAmount), nameof(SalesInvoiceLine.LineTotal), nameof(SalesInvoiceLine.CostOfGoodsSold) })
         {
@@ -122,7 +151,13 @@ public class SalesInvoiceLineConfiguration : IEntityTypeConfiguration<SalesInvoi
 
         builder.HasOne(l => l.SalesInvoice).WithMany(i => i.Lines).HasForeignKey(l => l.SalesInvoiceId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(l => l.Product).WithMany().HasForeignKey(l => l.ProductId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne(l => l.ProductUnit).WithMany().HasForeignKey(l => l.ProductUnitId).OnDelete(DeleteBehavior.Restrict);
+        // (ProductId, ProductUnitId) -> ProductUnits (ProductId, Id) via AK_ProductUnits_ProductId_Id: same-product guaranteed by the DB.
+        builder.HasOne(l => l.ProductUnit).WithMany()
+            .HasForeignKey(l => new { l.ProductId, l.ProductUnitId })
+            .HasPrincipalKey(u => new { u.ProductId, u.Id })
+            .IsRequired()
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(l => l.Unit).WithMany().HasForeignKey(l => l.UnitId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(l => l.Tax).WithMany().HasForeignKey(l => l.TaxId).OnDelete(DeleteBehavior.Restrict);
     }
 }

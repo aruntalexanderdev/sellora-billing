@@ -177,7 +177,7 @@ public class PurchaseReturnUnitsEndpointTests
     [InlineData(163, 1, 0, 0, 163)]
     public void MaxReturnQty_SatisfiesUnitAndBaseDecimals(double returnable, double factor, int unitDp, int baseDp, double expected)
     {
-        var max = PurchasesController.MaxReturnQty((decimal)returnable, (decimal)factor, unitDp, baseDp);
+        var max = StockQuantity.MaxEnterableQty((decimal)returnable, (decimal)factor, unitDp, baseDp);
         Assert.Equal((decimal)expected, max);
         Assert.Equal(max * (decimal)factor, Math.Round(max * (decimal)factor, baseDp));
         Assert.True(max * (decimal)factor <= (decimal)returnable);
