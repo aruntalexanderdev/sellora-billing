@@ -191,9 +191,22 @@
           @for (line of i.lines; track line.id) {
             <tr>
               <td class="strong">{{ line.productName }}</td>
-              <td>{{ line.unitLabel }} <span class="muted">({{ line.baseQty }} {{ line.baseUnitLabel }})</span></td>
-              <td class="num">{{ line.qty }}{{ line.returnedQty > 0 ? ' (' + line.returnedQty + ' returned)' : '' }}</td>
-              <td class="num">{{ INR(line.unitPrice) }}</td>
+              <td>{{ line.unitLabel }} <span class="muted">({{ formatQuantity(line.baseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }})</span></td>
+              <td class="num">
+                {{ formatQuantity(line.qty, line.unitDecimalPlaces) }} {{ line.unitCode }}
+                @if (line.returnedBaseQty > 0) {
+                  <div class="muted">{{ formatQuantity(line.returnedBaseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }} returned</div>
+                }
+                @if (line.returnableBaseQty > 0 && i.status === 'Completed') {
+                  <div class="muted">{{ formatQuantity(line.returnableBaseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }} returnable</div>
+                }
+              </td>
+              <td class="num">
+                {{ INR(line.unitPrice) }}
+                @if (line.priceOverridden) {
+                  <div><ui-badge text="Override" tone="warn" /><span class="muted"> (list {{ line.listUnitPrice === null ? 'not recorded' : INR(line.listUnitPrice) }})</span></div>
+                }
+              </td>
               <td class="num">{{ line.taxRatePercent }}%</td>
               <td class="num strong">{{ INR(line.lineTotal) }}</td>
             </tr>

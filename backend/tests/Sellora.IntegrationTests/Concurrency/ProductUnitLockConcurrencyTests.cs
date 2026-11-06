@@ -213,6 +213,12 @@ public class ProductUnitLockConcurrencyTests(PostgresFixture postgres)
                 new ProductUnitInputItem(seed.Scenario.BagModeId, seed.BagUnitId, seed.KgUnitId, kgPerBag, $"{kgPerBag} kg bag", null, true, true, false, false, true),
             ]));
 
+    private static async Task PriceBagAsync(TestDatabase database, StockSeed seed)
+    {
+        await using var db = database.CreateDbContext();
+        await StockScenario.EnsureListPriceAsync(db, seed.Scenario.UserId, seed.Scenario.BagModeId, 600m);
+    }
+
     private static Task SellOneBagAsync(SelloraDbContext db, StockScenario scenario) =>
         new SalesService(db).CreateSaleAsync(new CreateSaleInput(scenario.CustomerId, StockScenario.SaleDate, PaymentMethod.Cash, 0,
             [new SaleLineInput(scenario.ProductId, scenario.BagModeId, 1m, 600m, 0)]), scenario.UserId);
@@ -232,6 +238,7 @@ public class ProductUnitLockConcurrencyTests(PostgresFixture postgres)
     {
         await using var database = await postgres.CreateDatabaseAsync();
         var seed = await SeedRiceWithStockAsync(database);
+        await PriceBagAsync(database, seed); // a sellable unit must be priced; the price makes the Bag immutable too
 
         await using var race = await LockRace.BeginAsync(database, LockRace.LockRow("StockItems", "ProductId", seed.Scenario.ProductId));
         var sale = await race.StartAsync("sale", db => SellOneBagAsync(db, seed.Scenario));
@@ -284,23 +291,20 @@ public class ProductUnitLockConcurrencyTests(PostgresFixture postgres)
         AssertRejected(outcomes[1], "Units[1].InnerQuantity", V.LockedMessage);
     }
 
-    /// <summary>Edit first: both wait behind a gate holding Products FOR UPDATE (edit in FOR UPDATE, sale in KEY
-    /// SHARE). The edit commits 12 kg; the sale then reads the new factor, so its line snapshots 12.</summary>
+    /// <summary>Sequential, not a race. Since Phase 5 a sellable unit needs an open price and a priced unit is immutable,
+    /// so an edit and a sale can no longer overlap on the same unit: the edit commits 12 kg, the unit is then priced, and
+    /// the sale snapshots the new factor 12. This does NOT cover the product KEY SHARE lock — the sale-first test above
+    /// and SalesReturnLockConcurrencyTests (SetPrice vs sale) do.</summary>
     [Fact]
-    public async Task EditBeforeSale_SaleWaitsAndSnapshotsTheNewFactor()
+    public async Task EditThenPriceThenSale_Sequential_SaleSnapshotsTheNewFactor()
     {
         await using var database = await postgres.CreateDatabaseAsync();
         var seed = await SeedRiceWithStockAsync(database);
 
-        await using var race = await LockRace.BeginAsync(database, LockRace.LockRow("Products", "Id", seed.Scenario.ProductId));
-        var edit = await race.StartAsync("edit", db => EditBagQuantityAsync(db, seed, 12m));
-        await race.WaitBlockedAsync(edit, ProductsForUpdate);
-        var sale = await race.StartAsync("sale", db => SellOneBagAsync(db, seed.Scenario));
-        await race.WaitBlockedAsync(sale, ProductsKeyShare);
-        var outcomes = await race.ReleaseAsync();
+        await using (var db = database.CreateDbContext()) await EditBagQuantityAsync(db, seed, 12m);
+        await PriceBagAsync(database, seed);
+        await using (var db = database.CreateDbContext()) await SellOneBagAsync(db, seed.Scenario);
 
-        AssertSucceeded(outcomes[0], "edit");
-        AssertSucceeded(outcomes[1], "sale");
         await using var check = database.CreateDbContext();
         await AssertLineFactorsMatchRowsAsync(check);
         await ProductUnitValidation.AssertHoldAsync(check);

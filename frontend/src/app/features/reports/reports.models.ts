@@ -1,5 +1,5 @@
 export type StockStatus = 'Normal' | 'Low' | 'OutOfStock';
-export type StockMovementType = 'Purchase' | 'Sale' | 'Adjustment' | 'SaleReturn' | 'PurchaseReturn';
+export type StockMovementType = 'Purchase' | 'Sale' | 'Adjustment' | 'SaleReturn' | 'PurchaseReturn' | 'SaleCancellation';
 export type PurchaseStatus = 'Completed' | 'Cancelled';
 export type SalesStatus = 'Completed' | 'Cancelled';
 export type PaymentMethod = 'Cash' | 'Upi' | 'Card' | 'Credit' | 'BankTransfer';

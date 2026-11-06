@@ -98,6 +98,7 @@ public class EndpointAuthorizationTests
     [InlineData(typeof(PricingController), "History", "Inventory.Price", "GET", "{productUnitId:guid}/history")]
     [InlineData(typeof(PricingController), "SetPrice", "Inventory.Price", "PUT", "{productUnitId:guid}")]
     [InlineData(typeof(SalesController), "Catalog", "Sales.Create", "GET", "catalog")]
+    [InlineData(typeof(SalesController), "CatalogByBarcode", "Sales.Create", "GET", "catalog/by-barcode/{code}")]
     public void ProductUnitEndpoints_RequireTheirPermissionOnTheirRoute(Type controller, string action, string policy, string verb, string? template)
     {
         var method = controller.GetMethod(action)!;

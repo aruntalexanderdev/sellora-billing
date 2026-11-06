@@ -3,6 +3,8 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { SalesService } from '../../sales.service';
 import type { SalesReturnDetail as SalesReturnDetailModel } from '../../sales.models';
 
+import { formatQuantity } from '../../../../shared/units/unit-conversion';
+
 const INR = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 @Component({
@@ -17,6 +19,7 @@ export class SalesReturnDetail implements OnInit {
   private readonly route = inject(ActivatedRoute);
 
   readonly INR = INR;
+  readonly formatQuantity = formatQuantity;
   readonly ret = signal<SalesReturnDetailModel | null>(null);
   readonly loading = signal(true);
 

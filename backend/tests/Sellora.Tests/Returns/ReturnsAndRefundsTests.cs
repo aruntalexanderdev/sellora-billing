@@ -14,7 +14,7 @@ namespace Sellora.Tests.Returns;
 public class ReturnsAndRefundsTests
 {
     private sealed record Fixture(
-        SelloraDbContext Db, PurchaseService Purchases, SalesService Sales, FinancialAccountService Accounts,
+        SelloraDbContext Db, PurchaseService Purchases, ISalesService Sales, FinancialAccountService Accounts,
         Currency Inr, Currency Usd, Supplier InrSupplier, Supplier UsdSupplier, Customer Customer,
         Product Product, ProductUnit Kg, Guid UserId);
 
@@ -46,7 +46,7 @@ public class ReturnsAndRefundsTests
         await db.SaveChangesAsync();
 
         var rates = new ExchangeRateService(db);
-        return new Fixture(db, new PurchaseService(db, rates), new SalesService(db), new FinancialAccountService(db),
+        return new Fixture(db, new PurchaseService(db, rates), ListPricedSales.For(db), new FinancialAccountService(db),
             inr, usd, inrSupplier, usdSupplier, customer, product, kg, user.Id);
     }
 
@@ -62,7 +62,7 @@ public class ReturnsAndRefundsTests
 
     private static Task<SalesReturn> ReturnSale(Fixture f, SalesInvoice sale, decimal qty, RefundDetails? refund = null) =>
         f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D, "damaged",
-            [new SaleReturnLineInput(sale.Lines.Single().Id, qty)], refund), f.UserId);
+            [new SaleReturnLineInput(sale.Lines.Single().Id, null, qty)], refund), f.UserId);
 
     private static Task<PurchaseReturn> ReturnPurchase(Fixture f, PurchaseOrder p, decimal qty, RefundDetails? refund = null) =>
         f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(p.Id, D, "wrong grade",
@@ -160,12 +160,12 @@ public class ReturnsAndRefundsTests
         await Fails(() => ReturnSale(f, sale, -1), "Lines");
         await Fails(() => f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D, null, []), f.UserId), "Lines");
         await Fails(() => f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D, null,
-            [new SaleReturnLineInput(lineId, 1), new SaleReturnLineInput(lineId, 1)]), f.UserId), "Lines");
+            [new SaleReturnLineInput(lineId, null, 1), new SaleReturnLineInput(lineId, null, 1)]), f.UserId), "Lines");
         await Fails(() => f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D, null,
-            [new SaleReturnLineInput(Guid.NewGuid(), 1)]), f.UserId), "Lines");
-        await Fails(() => f.Sales.CreateReturnAsync(new CreateSaleReturnInput(Guid.NewGuid(), D, null, [new SaleReturnLineInput(lineId, 1)]), f.UserId), "SalesInvoiceId");
-        await Fails(() => f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D.AddDays(-5), null, [new SaleReturnLineInput(lineId, 1)]), f.UserId), "ReturnDate");
-        await Fails(() => f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30)), null, [new SaleReturnLineInput(lineId, 1)]), f.UserId), "ReturnDate");
+            [new SaleReturnLineInput(Guid.NewGuid(), null, 1)]), f.UserId), "Lines");
+        await Fails(() => f.Sales.CreateReturnAsync(new CreateSaleReturnInput(Guid.NewGuid(), D, null, [new SaleReturnLineInput(lineId, null, 1)]), f.UserId), "SalesInvoiceId");
+        await Fails(() => f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D.AddDays(-5), null, [new SaleReturnLineInput(lineId, null, 1)]), f.UserId), "ReturnDate");
+        await Fails(() => f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30)), null, [new SaleReturnLineInput(lineId, null, 1)]), f.UserId), "ReturnDate");
 
         Assert.Single(await f.Db.SalesReturns.ToListAsync());
         Assert.Equal(stockBefore, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);

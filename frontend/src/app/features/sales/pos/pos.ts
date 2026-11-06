@@ -10,8 +10,10 @@ import { SalesService } from '../sales.service';
 import { CustomersService } from '../customers/customers.service';
 import type { CustomerItem } from '../customers/customers.models';
 import type { SaleCatalogProduct, SaleCatalogUnit } from '../sales.models';
-import { defaultSaleUnit } from './pos-units';
-import { convert } from '../../../shared/units/unit-conversion';
+import { defaultSaleUnit, isPriced, needsPriceOverride } from './pos-units';
+import { convert, formatQuantity } from '../../../shared/units/unit-conversion';
+import { quantityStep, quantityValidators } from '../../../shared/forms/quantity-input';
+import { AuthService } from '../../../core/auth/auth.service';
 import type { ApiProblem } from '../../../core/auth/auth.models';
 import type { PaymentMethod } from '../sales.models';
 import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
@@ -64,6 +66,12 @@ export class Pos implements OnInit, HasUnsavedChanges {
   private readonly customersService = inject(CustomersService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
+
+  /** Only holders of Sales.PriceOverride may change a price or discount; everyone else charges the list price. */
+  readonly canOverridePrice = computed(() => this.auth.hasPermission('Sales.PriceOverride'));
+  readonly formatQuantity = formatQuantity;
+  readonly quantityStep = quantityStep;
 
   private readonly cashBank = inject(CashBankService);
   readonly accountOptions = signal<AccountOption[]>([]);
@@ -76,7 +84,7 @@ export class Pos implements OnInit, HasUnsavedChanges {
     const q = this.productQuery().trim().toLowerCase();
     if (!q) return [];
     return this.catalog()
-      .filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
+      .filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.units.some((u) => u.barcode?.toLowerCase() === q))
       .slice(0, 8);
   });
 
@@ -141,8 +149,24 @@ export class Pos implements OnInit, HasUnsavedChanges {
 
   readonly hasStockError = computed(() => this.previews().some((p) => p.exceedsStock));
 
+  /** Per-line blocking problem (unpriced unit, or a price/discount change the user may not make); null when fine. */
+  readonly lineErrors = computed<(string | null)[]>(() => {
+    const catalog = this.catalog();
+    const canOverride = this.canOverridePrice();
+    return this.linesValue().map((row) => {
+      const unit = catalog.find((p) => p.productId === row?.productId)?.units.find((u) => u.productUnitId === row?.productUnitId);
+      if (!unit) return null;
+      if (!isPriced(unit)) return `${unit.displayName} has no price — set it in Pricing.`;
+      if (!canOverride && needsPriceOverride(row.unitPrice, unit.currentPrice, row.discount)) {
+        return 'You are not allowed to change the price or give a discount.';
+      }
+      return null;
+    });
+  });
+
   readonly completeSaleDisabledReason = computed(() => {
     if (this.linesValue().length === 0) return 'Add at least one item to the cart first.';
+    if (this.lineErrors().some((e) => !!e)) return 'Fix the highlighted items — a unit has no price or a price is not allowed.';
     if (this.hasStockError()) return 'Reduce quantity — not enough stock for one or more items.';
     return null;
   });
@@ -197,25 +221,82 @@ export class Pos implements OnInit, HasUnsavedChanges {
   addToCart(product: SaleCatalogProduct): void {
     const unit = defaultSaleUnit(product.units);
     if (!unit) {
-      this.toast.show(`${product.name} has no sellable unit configured yet.`);
+      this.toast.show(`${product.name} has no priced unit — set a price in Pricing.`);
       return;
     }
+    this.addLine(product, unit);
+    this.productQuery.set('');
+  }
 
+  /** Adds a cart line in the given unit, or bumps the quantity of an existing line in that same unit. */
+  addLine(product: SaleCatalogProduct, unit: SaleCatalogUnit): void {
+    if (!isPriced(unit)) {
+      this.toast.show(`${product.name} ${unit.displayName} has no price — set it in Pricing.`);
+      return;
+    }
+    const existing = this.lines.controls.find(
+      (r) => r.controls.productId.value === product.productId && r.controls.productUnitId.value === unit.productUnitId,
+    );
+    if (existing) {
+      existing.controls.qty.setValue(Math.round((existing.controls.qty.value + 1) * 1000) / 1000);
+      return;
+    }
     this.lines.push(
       this.fb.nonNullable.group({
         productId: [product.productId, Validators.required],
         productUnitId: [unit.productUnitId, Validators.required],
-        qty: [1, [Validators.required, Validators.min(0.001)]],
+        qty: [1, quantityValidators(unit.decimalPlaces)],
         unitPrice: [unit.currentPrice ?? 0, [Validators.required, Validators.min(0)]],
-        discount: [0],
+        discount: [0, [Validators.min(0)]],
       }),
     );
-    this.productQuery.set('');
+  }
+
+  /** Enter in the search box: an exact barcode lookup resolves product and unit (weighed codes are not supported). */
+  scan(event?: Event): void {
+    event?.preventDefault();
+    const code = this.productQuery().trim();
+    if (!code) return;
+    this.salesService.lookupBarcode(code).subscribe({
+      next: (match) => {
+        this.catalog.update((c) =>
+          c.some((p) => p.productId === match.product.productId)
+            ? c.map((p) => (p.productId === match.product.productId ? match.product : p))
+            : [...c, match.product],
+        );
+        const unit = match.product.units.find((u) => u.productUnitId === match.productUnitId);
+        if (!unit) {
+          this.toast.show(`No sellable item found for barcode ${code}.`);
+          return;
+        }
+        this.addLine(match.product, unit);
+        this.productQuery.set('');
+      },
+      error: (err: HttpErrorResponse) =>
+        this.toast.show(err.status === 404 ? `No sellable item found for barcode ${code}.` : 'Could not look up that barcode.'),
+    });
   }
 
   onUnitChange(row: LineGroup): void {
     const unit = this.selectedUnit(row);
+    // A new unit means a new list price: any earlier override is cleared.
     row.controls.unitPrice.setValue(unit?.currentPrice ?? 0);
+    row.controls.qty.setValidators(quantityValidators(unit?.decimalPlaces));
+    row.controls.qty.updateValueAndValidity();
+  }
+
+  /** Quantity `step` of a line, from its selected unit's decimal places. */
+  stepFor(row: LineGroup): string {
+    return quantityStep(this.selectedUnit(row)?.decimalPlaces);
+  }
+
+  /** List price of a line's selected unit (null when unpriced). */
+  listPriceFor(row: LineGroup): number | null {
+    return this.selectedUnit(row)?.currentPrice ?? null;
+  }
+
+  isOverride(row: LineGroup): boolean {
+    return needsPriceOverride(row.controls.unitPrice.value, this.listPriceFor(row), row.controls.discount.value);
   }
 
   unitsFor(productId: string): SaleCatalogUnit[] {
@@ -228,6 +309,31 @@ export class Pos implements OnInit, HasUnsavedChanges {
 
   productName(productId: string): string {
     return this.catalog().find((p) => p.productId === productId)?.name ?? '';
+  }
+
+  private unitPriceOf(productId: string, productUnitId: string): number | null {
+    return this.unitsFor(productId).find((u) => u.productUnitId === productUnitId)?.currentPrice ?? null;
+  }
+
+  /** After a "price is now X" rejection: reload the carted products and move un-overridden lines to the new list price. */
+  private refreshPrices(): void {
+    const skus = new Set(
+      this.lines.controls.map((r) => this.catalog().find((p) => p.productId === r.controls.productId.value)?.sku).filter((s): s is string => !!s),
+    );
+    for (const sku of skus) {
+      this.salesService.catalog(sku).subscribe({
+        next: (fresh) => {
+          for (const product of fresh.filter((p) => p.sku === sku)) {
+            for (const row of this.lines.controls.filter((r) => r.controls.productId.value === product.productId)) {
+              const oldList = this.unitPriceOf(product.productId, row.controls.productUnitId.value);
+              const newList = product.units.find((u) => u.productUnitId === row.controls.productUnitId.value)?.currentPrice;
+              if (newList != null && !needsPriceOverride(row.controls.unitPrice.value, oldList, 0)) row.controls.unitPrice.setValue(newList);
+            }
+            this.catalog.update((c) => c.map((p) => (p.productId === product.productId ? product : p)));
+          }
+        },
+      });
+    }
   }
 
   removeLine(index: number): void {
@@ -243,6 +349,10 @@ export class Pos implements OnInit, HasUnsavedChanges {
     }
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      return;
+    }
+    if (this.lineErrors().some((e) => !!e)) {
+      this.serverError.set(this.lineErrors().find((e) => !!e) ?? null);
       return;
     }
     if (this.hasStockError()) {
@@ -265,6 +375,7 @@ export class Pos implements OnInit, HasUnsavedChanges {
           qty: l.qty,
           unitPrice: l.unitPrice,
           discount: l.discount,
+          overridePrice: this.canOverridePrice() && needsPriceOverride(l.unitPrice, this.unitPriceOf(l.productId, l.productUnitId), l.discount),
         })),
       }, this.idempotencyKey)
       .subscribe({
@@ -277,7 +388,10 @@ export class Pos implements OnInit, HasUnsavedChanges {
         error: (err: HttpErrorResponse) => {
           this.saving.set(false);
           const problem = err.error as ApiProblem | undefined;
-          this.serverError.set(problem?.title ?? Object.values(problem?.errors ?? {})[0]?.[0] ?? 'Something went wrong.');
+          // Field errors (key "Lines") carry the specific message; the ProblemDetails title is generic.
+          const message = Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Something went wrong.';
+          this.serverError.set(message);
+          if (/price of .* is now/i.test(message)) this.refreshPrices();
         },
       });
   }

@@ -8,7 +8,8 @@ public sealed record SaleLineInput(
     Guid ProductUnitId,
     decimal Qty,
     decimal UnitPrice,
-    decimal Discount
+    decimal Discount,
+    bool OverridePrice = false
 );
 
 /// <summary>A payment received against a saved invoice's outstanding due. <see cref="ExpectedDue"/> is the due
@@ -27,11 +28,12 @@ public sealed record CreateSaleInput(
     decimal PaidAmount,
     IReadOnlyList<SaleLineInput> Lines,
     Guid? AccountId = null,
-    string? IdempotencyKey = null
+    string? IdempotencyKey = null,
+    bool CanOverridePrice = false
 );
 
-/// <summary><see cref="Qty"/> is in the selling unit the invoice line was sold in.</summary>
-public sealed record SaleReturnLineInput(Guid SalesInvoiceLineId, decimal Qty);
+/// <summary><see cref="Qty"/> is in <see cref="ProductUnitId"/> (default: the unit the invoice line was sold in).</summary>
+public sealed record SaleReturnLineInput(Guid SalesInvoiceLineId, Guid? ProductUnitId, decimal Qty);
 
 /// <summary>Goods a customer brings back. An optional <see cref="Refund"/> pays money back in the same step.</summary>
 public sealed record CreateSaleReturnInput(

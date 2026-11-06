@@ -26,8 +26,8 @@
           @for (l of r.lines; track l.id) {
             <tr>
               <td class="strong">{{ l.productName }}</td>
-              <td>{{ l.unitLabel }} <span class="muted">({{ l.baseQty }} {{ l.baseUnitLabel }})</span></td>
-              <td class="num">{{ l.qty }}</td>
+              <td>{{ l.unitLabel }} <span class="muted">({{ formatQuantity(l.baseQty, l.baseUnitDecimalPlaces) }} {{ l.baseUnitLabel }})</span></td>
+              <td class="num">{{ formatQuantity(l.qty, 3) }} {{ l.unitCode }}</td>
               <td class="num">{{ INR(l.taxableValue) }}</td>
               <td class="num">{{ INR(l.taxAmount) }}</td>
               <td class="num strong">{{ INR(l.lineTotal) }}</td>

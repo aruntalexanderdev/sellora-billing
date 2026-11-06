@@ -20,7 +20,7 @@ public class SalesServiceTests
     }
 
     private sealed record Fixture(
-        SelloraDbContext Db, SalesService Service, PurchaseService PurchaseService,
+        SelloraDbContext Db, ISalesService Service, PurchaseService PurchaseService,
         Supplier Supplier, Customer Customer, Product Product, ProductUnit Bag, ProductUnit LooseKg, Guid UserId);
 
     private static async Task<Fixture> SeedAsync()
@@ -50,7 +50,7 @@ public class SalesServiceTests
         db.AddRange(role, user, unit, tax, inr, supplier, customer, settings, product);
         await db.SaveChangesAsync();
 
-        return new Fixture(db, new SalesService(db), new PurchaseService(db, new ExchangeRateService(db)), supplier, customer, product, bag, looseKg, user.Id);
+        return new Fixture(db, ListPricedSales.For(db), new PurchaseService(db, new ExchangeRateService(db)), supplier, customer, product, bag, looseKg, user.Id);
     }
 
     private static Task<PurchaseOrder> PurchaseAsync(Fixture f, decimal bags, decimal ratePerBag) =>

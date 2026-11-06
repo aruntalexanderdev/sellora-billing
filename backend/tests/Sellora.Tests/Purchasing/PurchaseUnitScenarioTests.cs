@@ -22,7 +22,7 @@ public class PurchaseUnitScenarioTests
     private static readonly DateOnly D = new(2026, 9, 10);
 
     private sealed record Fixture(
-        SelloraDbContext Db, PurchaseService Purchases, SalesService Sales, ProductService Products,
+        SelloraDbContext Db, PurchaseService Purchases, ISalesService Sales, ProductService Products,
         Supplier InrSupplier, Supplier UsdSupplier, Customer Customer, Tax Tax, Guid UserId,
         Unit Pc, Unit Box, Unit HCtn, Unit FCtn, Unit Tray, Unit Kg, Unit Kg2, Unit Pack,
         Product Pen, Dictionary<Guid, ProductUnit> PenRows);
@@ -52,7 +52,7 @@ public class PurchaseUnitScenarioTests
         await db.SaveChangesAsync();
 
         var products = new ProductService(db);
-        var f0 = new Fixture(db, new PurchaseService(db, new ExchangeRateService(db)), new SalesService(db), products,
+        var f0 = new Fixture(db, new PurchaseService(db, new ExchangeRateService(db)), ListPricedSales.For(db), products,
             inrSupplier, usdSupplier, customer, tax, user.Id, pc, box, hctn, fctn, tray, kg, kg2, pack, null!, null!);
         var pen = await products.CreateProductAsync(Input(f0, "STN-PEN", pc.Id,
             Row(pc.Id, null, null), Row(box.Id, pc.Id, 10m), Row(hctn.Id, box.Id, 5m), Row(fctn.Id, hctn.Id, 2m)));

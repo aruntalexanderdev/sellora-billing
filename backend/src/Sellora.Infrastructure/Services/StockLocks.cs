@@ -53,6 +53,28 @@ public static class StockQuantity
                 $"{Format(enteredQty)} {unitCode} = {Format(baseQty)} {baseUnit.ShortCode}; {baseUnit.Name} is tracked to {baseUnit.DecimalPlaces} decimal place(s).");
         }
     }
+
+    // Largest qty with at most `unitDp` decimals and qty x factor within `baseDp` decimals (the server's two rules),
+    // not above the returnable base quantity. Qty is n x 10^-unitDp; qty x factor is a base-dp multiple exactly when
+    // n x m is a whole number, m = factor x 10^(baseDp-unitDp), so n steps by n0 = the smallest n making n x m whole.
+    public static decimal MaxEnterableQty(decimal returnableBase, decimal factor, int unitDp, int baseDp)
+    {
+        if (returnableBase <= 0 || factor <= 0) return 0;
+
+        var m = (decimal)Math.Pow(10, Math.Abs(baseDp - unitDp));
+        m = baseDp >= unitDp ? factor * m : factor / m;
+        var scale = (decimal.GetBits(m / 1.0000000000000000000000000000m)[3] >> 16) & 0xFF;
+        var pow = System.Numerics.BigInteger.Pow(10, scale);
+        var whole = new System.Numerics.BigInteger(m / 1.0000000000000000000000000000m * (decimal)pow);
+        var n0 = (int)(pow / System.Numerics.BigInteger.GreatestCommonDivisor(whole, pow));
+
+        var unitStep = 1m;
+        for (var i = 0; i < unitDp; i++) unitStep /= 10m;
+        var step = n0 * unitStep;
+        var qty = Math.Floor(returnableBase / factor / step) * step;
+        while (qty > 0 && qty * factor > returnableBase) qty -= step;
+        return Math.Max(0, qty);
+    }
 }
 
 /// <summary>The one place costs are rounded to their column scales, so InMemory behaves like Postgres and the database

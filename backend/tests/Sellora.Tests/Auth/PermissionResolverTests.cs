@@ -38,4 +38,23 @@ public class PermissionResolverTests
 
         Assert.Empty(resolved);
     }
+
+    [Fact]
+    public void Resolve_SystemRole_IncludesSalesPriceOverride()
+    {
+        var role = new Role { Id = Guid.NewGuid(), Name = "Administrator", IsSystem = true };
+
+        Assert.Contains("Sales.PriceOverride", PermissionResolver.Resolve(role));
+        Assert.Contains(PermissionCatalog.All, d => d.Code == "Sales.PriceOverride" && d.Module == "Sales");
+    }
+
+    [Fact]
+    public void Resolve_NonSystemRoleHoldingSalesCreate_DoesNotGetSalesPriceOverride()
+    {
+        var role = new Role { Id = Guid.NewGuid(), Name = "Cashier", IsSystem = false };
+        var create = new Permission { Id = Guid.NewGuid(), Code = "Sales.Create", Module = "Sales", Action = "Create", Description = "x" };
+        role.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = create.Id, Permission = create });
+
+        Assert.DoesNotContain("Sales.PriceOverride", PermissionResolver.Resolve(role));
+    }
 }

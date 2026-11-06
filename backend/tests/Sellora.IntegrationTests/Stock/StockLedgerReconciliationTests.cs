@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Sales;
 using Sellora.Domain.Stock;
 using Sellora.Infrastructure.Services;
 using Sellora.IntegrationTests.Infrastructure;
@@ -70,6 +71,51 @@ public class StockLedgerReconciliationTests(PostgresFixture postgres)
         var correctionBatch = await check.PurchaseBatches.AsNoTracking().SingleAsync(b => b.StockAdjustmentId == adjustments[2].Id);
         Assert.Equal((10m, 33.3330m), (correctionBatch.PurchasedBaseQty, correctionBatch.UnitCost));
         Assert.Equal(-10m, await check.StockMovements.Where(m => m.ReferenceId == adjustments[1].Id).SumAsync(m => m.QuantityBaseUnits));
+    }
+
+    /// <summary>Phase 5: sell in 10 kg bags, return in loose kg then in bags then the exact remainder in kg, and sell and cancel
+    /// another bag. Every sales and return line keeps Qty x factor = BaseQty with its own unit snapshot, the credits add up to the
+    /// line total, the cancellation is a SaleCancellation movement, and ledger, batches and QOH reconcile.</summary>
+    [Fact]
+    public async Task StockInvariants_AfterBagSaleMixedUnitReturnsAndACancellation_ReturnNoRows()
+    {
+        await using var database = await postgres.CreateDatabaseAsync();
+        StockScenario scenario;
+        await using (var db = database.CreateDbContext())
+        {
+            scenario = await StockScenario.SeedAsync(db);
+            await StockScenario.EnsureListPriceAsync(db, scenario.UserId, scenario.BagModeId, 600m);
+        }
+        await using (var db = database.CreateDbContext()) await scenario.PurchaseBagsAsync(db, 5, 580);   // +50 kg
+        SalesInvoice sale;
+        await using (var db = database.CreateDbContext())
+            sale = await new SalesService(db).CreateSaleAsync(new CreateSaleInput(scenario.CustomerId, StockScenario.SaleDate, PaymentMethod.Cash, 0,
+                [new SaleLineInput(scenario.ProductId, scenario.BagModeId, 2m, 600m, 0)]), scenario.UserId);                                    // -20 kg
+        var line = sale.Lines.Single();
+        Task<SalesReturn> ReturnInAsync(Sellora.Infrastructure.Data.SelloraDbContext db, Guid? unitId, decimal qty) =>
+            new SalesService(db).CreateReturnAsync(new CreateSaleReturnInput(sale.Id, StockScenario.ReturnDate, null, [new SaleReturnLineInput(line.Id, unitId, qty)]), scenario.UserId);
+        await using (var db = database.CreateDbContext()) await ReturnInAsync(db, scenario.LooseKgModeId, 5m);   // +5 kg, other unit than the line
+        await using (var db = database.CreateDbContext()) await ReturnInAsync(db, null, 1m);                      // +10 kg, the line's own unit (bag)
+        await using (var db = database.CreateDbContext()) await ReturnInAsync(db, scenario.LooseKgModeId, 5m);   // exactly the remainder
+        SalesInvoice second;
+        await using (var db = database.CreateDbContext())
+            second = await new SalesService(db).CreateSaleAsync(new CreateSaleInput(scenario.CustomerId, StockScenario.SaleDate, PaymentMethod.Cash, 0,
+                [new SaleLineInput(scenario.ProductId, scenario.BagModeId, 1m, 600m, 0)]), scenario.UserId);                                    // -10 kg
+        await using (var db = database.CreateDbContext()) await new SalesService(db).CancelSaleAsync(second.Id, scenario.UserId);                 // +10 kg
+
+        await using var check = database.CreateDbContext();
+        Assert.Equal(50m, (await check.StockItems.SingleAsync()).QuantityOnHand); // everything is back
+        await StockInvariants.AssertHoldAsync(check);
+        var returns = await check.SalesReturnLines.AsNoTracking().OrderBy(r => r.SalesReturn.CreatedAt).ToListAsync();
+        Assert.Equal(new[] { "kg", "bag", "kg" }, returns.Select(r => r.UnitCode));
+        Assert.All(returns, r => Assert.Equal(r.BaseQty, r.Qty * r.ConversionFactorToBase));
+        Assert.Equal(20m, returns.Sum(r => r.BaseQty));
+        var saved = await check.SalesInvoiceLines.AsNoTracking().SingleAsync(l => l.Id == line.Id);
+        Assert.Equal(saved.LineTotal, returns.Sum(r => r.LineTotal));
+        Assert.Equal(("bag", 600m, false), (saved.UnitCode, saved.ListUnitPrice, saved.PriceOverridden));
+        Assert.Equal(20m, await check.SalesInvoiceLineBatchConsumptions.Where(c => c.SalesInvoiceLineId == line.Id).SumAsync(c => c.ReturnedQtyBaseUnits));
+        Assert.Equal(10m, await check.StockMovements.Where(m => m.Type == StockMovementType.SaleCancellation).SumAsync(m => m.QuantityBaseUnits));
+        Assert.Empty(await check.StockMovements.Where(m => m.Type == StockMovementType.Sale && m.QuantityBaseUnits > 0).ToListAsync());
     }
 
     /// <summary>The refusal message is built from decimals loaded from numeric(18,3)/numeric(28,10) columns, which carry

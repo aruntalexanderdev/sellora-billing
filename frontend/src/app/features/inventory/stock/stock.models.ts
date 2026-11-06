@@ -1,5 +1,5 @@
 export type StockStatus = 'Normal' | 'Low' | 'OutOfStock';
-export type StockMovementType = 'Purchase' | 'Sale' | 'Adjustment';
+export type StockMovementType = 'Purchase' | 'Sale' | 'Adjustment' | 'SaleReturn' | 'PurchaseReturn' | 'SaleCancellation';
 
 export interface StockOverviewItem {
   productId: string;

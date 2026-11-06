@@ -15,6 +15,25 @@ export interface SaleCatalogUnit {
   /** The product's default sales unit. */
   isDefault: boolean;
   currentPrice: number | null;
+  barcode: string | null;
+}
+
+/** Mirrors `SaleBarcodeMatchDto`: the product (full catalog payload) and the exact unit the barcode identifies. */
+export interface SaleBarcodeMatch {
+  product: SaleCatalogProduct;
+  productUnitId: string;
+}
+
+/** Mirrors `SaleReturnUnitDto`: a unit a return line may be entered in. */
+export interface SaleReturnUnit {
+  productUnitId: string;
+  unitCode: string;
+  displayName: string;
+  decimalPlaces: number;
+  conversionFactorToBase: number;
+  isLineUnit: boolean;
+  /** Returnable base quantity / factor, truncated to the unit's decimals. Guidance only. */
+  maxQty: number;
 }
 
 export interface SaleCatalogProduct {
@@ -59,18 +78,27 @@ export interface SalesInvoiceLine {
   productName: string;
   productUnitId: string;
   unitLabel: string;
+  unitCode: string;
+  conversionFactorToBase: number;
+  unitDecimalPlaces: number;
   qty: number;
   baseQty: number;
   baseUnitLabel: string;
+  baseUnitDecimalPlaces: number;
   unitPrice: number;
+  /** Open list price at sale time; null on legacy lines ("not recorded"). */
+  listUnitPrice: number | null;
+  priceOverridden: boolean;
   taxRatePercent: number;
   discount: number;
   taxableValue: number;
   taxAmount: number;
   lineTotal: number;
   costOfGoodsSold: number;
-  returnedQty: number;
-  returnableQty: number;
+  returnedBaseQty: number;
+  returnableBaseQty: number;
+  /** Units a return may be entered in (empty when cancelled or nothing is returnable). */
+  returnUnits: SaleReturnUnit[];
   batchConsumptions: SaleBatchConsumption[];
 }
 
@@ -127,6 +155,8 @@ export interface CreateSaleLineRequest {
   qty: number;
   unitPrice: number;
   discount: number;
+  /** True when the cashier deliberately changed the price (or discounted); needs Sales.PriceOverride. */
+  overridePrice: boolean;
 }
 
 export interface CreateSaleRequest {
@@ -161,7 +191,7 @@ export interface CreateSaleReturnRequest {
   salesInvoiceId: string;
   returnDate: string;
   reason?: string | null;
-  lines: { salesInvoiceLineId: string; qty: number }[];
+  lines: { salesInvoiceLineId: string; productUnitId?: string | null; qty: number }[];
   refund?: RefundDetails | null;
 }
 
@@ -180,9 +210,11 @@ export interface SalesReturnLine {
   id: string;
   productName: string;
   unitLabel: string;
+  unitCode: string;
   qty: number;
   baseQty: number;
   baseUnitLabel: string;
+  baseUnitDecimalPlaces: number;
   taxableValue: number;
   taxAmount: number;
   lineTotal: number;
