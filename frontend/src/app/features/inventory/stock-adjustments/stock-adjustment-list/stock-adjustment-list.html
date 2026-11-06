@@ -1,0 +1,55 @@
+<div class="page-head">
+  <div>
+    <h1>Stock adjustments</h1>
+    <p>Opening stock, damage, loss, expiry and corrections. Entered in any unit of the product; stock is kept in base units.</p>
+  </div>
+  @if (canAdjust()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New adjustment</ui-button>
+  }
+</div>
+
+<div class="report-filters">
+  <div class="report-filter-field">
+    <label class="report-filter-label">Product</label>
+    <select class="report-filter-input" data-testid="product-filter" [value]="productId()" (change)="onProductChange($any($event.target).value)">
+      <option value="">All products</option>
+      @if (productOutsideList()) {
+        <option [value]="productId()">Selected product</option>
+      }
+      @for (p of products(); track p.id) {
+        <option [value]="p.id" [selected]="p.id === productId()">{{ p.name }} ({{ p.sku }})</option>
+      }
+    </select>
+  </div>
+  <div class="report-filter-field">
+    <label class="report-filter-label">From</label>
+    <input type="date" class="report-filter-input" [value]="dateFrom()" (change)="onDateFromChange($any($event.target).value)" />
+  </div>
+  <div class="report-filter-field">
+    <label class="report-filter-label">To</label>
+    <input type="date" class="report-filter-input" [value]="dateTo()" (change)="onDateToChange($any($event.target).value)" />
+  </div>
+  @if (hasExtraFilter()) {
+    <button type="button" class="report-filter-clear" (click)="clearFilters()">Clear filters</button>
+  }
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search adjustment no, product or SKU…"
+  [filters]="filters()"
+  emptyTitle="No adjustments match these filters"
+  emptyBody="Clear the search or filters, or post a new adjustment."
+  [emptyAction]="canAdjust() ? '+ New adjustment' : null"
+  (emptyActionClick)="goToCreate()"
+  (searchChange)="onSearch($event)"
+  (retry)="retry()"
+  [footerText]="total() + ' adjustment' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
+/>

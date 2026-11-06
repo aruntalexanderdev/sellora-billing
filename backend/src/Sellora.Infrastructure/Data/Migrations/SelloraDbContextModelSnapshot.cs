@@ -1487,6 +1487,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("BeforeQty")
                         .HasColumnType("numeric(18,3)");
 
+                    b.Property<decimal>("ConversionFactorToBase")
+                        .HasColumnType("numeric(28,10)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1495,7 +1498,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<decimal>("EnteredQuantity")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal?>("EnteredUnitCost")
+                        .HasColumnType("numeric(18,4)");
+
                     b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductUnitId")
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("QuantityBaseUnits")
@@ -1510,8 +1522,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("UnitCode")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
                     b.Property<decimal?>("UnitCost")
                         .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("UnitId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
@@ -1521,11 +1541,24 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("AdjustmentNo")
                         .IsUnique();
 
-                    b.HasIndex("ProductId");
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("UnitId");
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("StockAdjustments");
+                    b.HasIndex("ProductId", "ProductUnitId");
+
+                    b.ToTable("StockAdjustments", t =>
+                        {
+                            t.HasCheckConstraint("CK_StockAdjustments_BaseQty_Arithmetic", "\"EnteredQuantity\" * \"ConversionFactorToBase\" = \"QuantityBaseUnits\"");
+
+                            t.HasCheckConstraint("CK_StockAdjustments_Cost_Pairing", "(\"UnitCost\" IS NULL) = (\"EnteredUnitCost\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_StockAdjustments_EnteredQuantity_Positive", "\"EnteredQuantity\" > 0");
+
+                            t.HasCheckConstraint("CK_StockAdjustments_Factor_Positive", "\"ConversionFactorToBase\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.StockItem", b =>
@@ -2332,13 +2365,30 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.Unit", "Unit")
+                        .WithMany()
+                        .HasForeignKey("UnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Sellora.Domain.Entities.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.ProductUnit", "ProductUnit")
+                        .WithMany()
+                        .HasForeignKey("ProductId", "ProductUnitId")
+                        .HasPrincipalKey("ProductId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("Product");
+
+                    b.Navigation("ProductUnit");
+
+                    b.Navigation("Unit");
 
                     b.Navigation("User");
                 });

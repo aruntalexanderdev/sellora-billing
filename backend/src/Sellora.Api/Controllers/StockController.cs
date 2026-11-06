@@ -114,13 +114,14 @@ public class StockController(SelloraDbContext db) : ControllerBase
                 RefNo = b.PurchaseOrderLineId != null ? b.PurchaseOrderLine!.PurchaseOrder.PurchaseNo : b.StockAdjustment!.AdjustmentNo,
                 PurchaseOrderId = b.PurchaseOrderLineId != null ? b.PurchaseOrderLine!.PurchaseOrderId : (Guid?)null,
                 b.PurchaseOrderLineId,
+                b.StockAdjustmentId,
             })
             .ToListAsync(ct);
         var batches = batchRows.Select(b => new StockBatchDto(
             b.Id, b.CreatedAt, b.IsPurchase ? "Purchase" : "Adjustment", b.RefNo,
             b.PurchasedBaseQty, b.RemainingBaseQty, b.UnitCost,
             PurchaseBatch.FormatInternalBatchNo(b.BatchSequence), b.SupplierBatchNumber, b.ReceivedDate,
-            b.PurchaseOrderId, b.PurchaseOrderLineId)).ToList();
+            b.PurchaseOrderId, b.PurchaseOrderLineId, b.StockAdjustmentId)).ToList();
 
         return Ok(new StockDetailDto(
             product.Id, product.Sku, product.Name, product.Category, product.BaseUnit.ShortCode, product.Tax.Name,

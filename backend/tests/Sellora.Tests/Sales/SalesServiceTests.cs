@@ -354,6 +354,34 @@ public class SalesServiceTests
         await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateSaleAsync(input, f.UserId));
     }
 
+    /// <summary>Phase 3 §4 behaviour delta: line 1 (a bag) exactly drains the oldest batch; line 2 (loose kg) must draw
+    /// only from the next batch. Before the shared allocator, line 2 also wrote a zero-quantity consumption on the drained
+    /// batch (the DB filter sees the saved remainder, EF hands back the tracked, already drained instance).</summary>
+    [Fact]
+    public async Task CreateSaleAsync_LineOneDrainsOldestBatch_LineTwoWritesNoZeroQuantityConsumption()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 1, 580); // B1: 10 kg @ 58
+        await PurchaseAsync(f, 2, 620); // B2: 20 kg @ 62
+
+        var sale = await f.Service.CreateSaleAsync(new CreateSaleInput(f.Customer.Id, new DateOnly(2026, 9, 18), PaymentMethod.Cash, 0,
+            [
+                new SaleLineInput(f.Product.Id, f.Bag.Id, 1, 600, 0),      // 10 kg: all of B1
+                new SaleLineInput(f.Product.Id, f.LooseKg.Id, 5, 65, 0),   // 5 kg: from B2 only
+            ]), f.UserId);
+
+        var batches = await f.Db.PurchaseBatches.AsNoTracking().OrderBy(b => b.CreatedAt).ToListAsync();
+        var consumptions = await f.Db.SalesInvoiceLineBatchConsumptions.AsNoTracking().ToListAsync();
+        Assert.DoesNotContain(consumptions, c => c.QtyBaseUnits <= 0);
+        Assert.Equal(2, consumptions.Count);
+        var (bagLine, looseLine) = (sale.Lines.Single(l => l.ProductUnitId == f.Bag.Id), sale.Lines.Single(l => l.ProductUnitId == f.LooseKg.Id));
+        Assert.Equal((batches[0].Id, 10m, 58m), consumptions.Where(c => c.SalesInvoiceLineId == bagLine.Id).Select(c => (c.PurchaseBatchId, c.QtyBaseUnits, c.UnitCost)).Single());
+        Assert.Equal((batches[1].Id, 5m, 62m), consumptions.Where(c => c.SalesInvoiceLineId == looseLine.Id).Select(c => (c.PurchaseBatchId, c.QtyBaseUnits, c.UnitCost)).Single());
+        Assert.Equal((580m, 310m), (bagLine.CostOfGoodsSold, looseLine.CostOfGoodsSold));
+        Assert.Equal(new[] { 0m, 15m }, batches.Select(b => b.RemainingBaseQty));
+        Assert.Equal(15m, (await f.Db.StockItems.AsNoTracking().SingleAsync()).QuantityOnHand);
+    }
+
     [Fact]
     public async Task CancelSaleAsync_RestoresBatchesAndStock()
     {

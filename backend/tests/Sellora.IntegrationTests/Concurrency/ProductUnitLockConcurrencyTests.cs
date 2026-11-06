@@ -308,6 +308,137 @@ public class ProductUnitLockConcurrencyTests(PostgresFixture postgres)
         Assert.Equal((12m, 12m), (line.ConversionFactorToBase, line.BaseQty));
     }
 
+    // ------------------------------------------------------------------ stock adjustment vs edit (Phase 3, m6)
+
+    /// <summary>Every adjustment's unit snapshots equal the product unit row it references.</summary>
+    private static async Task AssertAdjustmentSnapshotsMatchRowsAsync(SelloraDbContext db)
+    {
+        var mismatches = await db.StockAdjustments.AsNoTracking()
+            .Where(a => a.UnitId != a.ProductUnit.UnitId || a.ConversionFactorToBase != a.ProductUnit.ConversionFactorToBase || a.UnitCode != a.ProductUnit.Unit.ShortCode)
+            .Select(a => $"{a.AdjustmentNo}: snapshot {a.UnitCode} x{a.ConversionFactorToBase} vs row {a.ProductUnit.Unit.ShortCode} x{a.ProductUnit.ConversionFactorToBase}")
+            .ToListAsync();
+        Assert.True(mismatches.Count == 0, "Adjustment snapshots disagree with their product unit: " + string.Join("; ", mismatches));
+    }
+
+    private static Task OpenBagsAsync(SelloraDbContext db, StockScenario scenario, decimal bags) =>
+        new StockAdjustmentService(db).CreateAdjustmentAsync(new Sellora.Domain.Stock.CreateAdjustmentInput(scenario.ProductId, scenario.BagModeId,
+            AdjustmentType.OpeningStock, AdjustmentDirection.Increase, bags, 600m, "Opening count"), scenario.UserId);
+
+    /// <summary>
+    /// Adjustment first. Rice has no stock history yet (a StockItems row at QOH 0 only), so its base unit may still change.
+    /// The opening-stock adjustment (entered in Bags) takes the product KEY SHARE, reads the Bag factor and waits on the
+    /// gate's StockItems FOR UPDATE. A base-unit change kg → g must wait on the product row (FOR UPDATE vs KEY SHARE); once
+    /// the adjustment commits it sees the history / used unit and is rejected. Without the KEY SHARE the edit commits
+    /// first and the adjustment stores kg-era snapshots against a gram-based product.
+    /// </summary>
+    [Fact]
+    public async Task AdjustmentHoldingProductKeyShare_BaseUnitEdit_WaitsAndIsRejected()
+    {
+        await using var database = await postgres.CreateDatabaseAsync();
+        StockScenario scenario;
+        Guid gramId, kgId, bagUnitId, taxId;
+        await using (var db = database.CreateDbContext())
+        {
+            scenario = await StockScenario.SeedAsync(db);
+            var gram = new Unit { Id = Guid.NewGuid(), Name = "Gram", ShortCode = "g", MeasurementCategory = MeasurementCategory.Weight, DecimalPlaces = 0, StandardFactor = 0.001m };
+            db.Units.Add(gram);
+            db.StockItems.Add(new StockItem { ProductId = scenario.ProductId, QuantityOnHand = 0, AverageCost = 0 });
+            await db.SaveChangesAsync();
+            (gramId, kgId, taxId) = (gram.Id, await db.Products.Where(p => p.Id == scenario.ProductId).Select(p => p.BaseUnitId).SingleAsync(),
+                await db.Products.Where(p => p.Id == scenario.ProductId).Select(p => p.TaxId).SingleAsync());
+            bagUnitId = await db.ProductUnits.Where(u => u.Id == scenario.BagModeId).Select(u => u.UnitId).SingleAsync();
+        }
+        Task ChangeBaseToGram(SelloraDbContext db) => new ProductService(db).UpdateProductAsync(scenario.ProductId, new UpsertProductInput(
+            "RICE-BP10", "Ponni Rice", null, gramId, taxId, 100m,
+            [
+                new ProductUnitInputItem(scenario.LooseKgModeId, gramId, null, 1m, "Loose g", null, true, true, false, false, true),
+                new ProductUnitInputItem(scenario.BagModeId, bagUnitId, gramId, 10_000m, "10 kg bag", null, true, true, false, false, true),
+            ]));
+
+        await using var race = await LockRace.BeginAsync(database, LockRace.LockRow("StockItems", "ProductId", scenario.ProductId));
+        var adjustment = await race.StartAsync("adjustment", db => OpenBagsAsync(db, scenario, 2m));
+        await race.WaitBlockedAsync(adjustment, """%"StockItems"%FOR UPDATE%""");
+        var edit = await race.StartAsync("base-unit edit", ChangeBaseToGram);
+        var editBlocked = await race.WaitBlockedOrFinishedAsync(edit, ProductsForUpdate);
+        var outcomes = await race.ReleaseAsync();
+
+        await using var check = database.CreateDbContext();
+        await AssertAdjustmentSnapshotsMatchRowsAsync(check);
+        await ProductUnitValidation.AssertHoldAsync(check);
+        await StockInvariants.AssertHoldAsync(check);
+        Assert.True(editBlocked, $"The base-unit edit did not wait for the adjustment holding the product's KEY SHARE lock. Edit outcome: {(await edit.Outcome)?.Message ?? "succeeded"}");
+        AssertSucceeded(outcomes[0], "adjustment");
+        AssertRejected(outcomes[1], "BaseUnitId");
+        Assert.Equal(kgId, (await check.Products.AsNoTracking().SingleAsync(p => p.Id == scenario.ProductId)).BaseUnitId);
+        var posted = await check.StockAdjustments.AsNoTracking().SingleAsync();
+        Assert.Equal((kgId, 10m, 20m), (await check.ProductUnits.Where(u => u.Id == scenario.LooseKgModeId).Select(u => u.UnitId).SingleAsync(),
+            posted.ConversionFactorToBase, posted.QuantityBaseUnits));
+    }
+
+    /// <summary>Runs the edit-first race: the gate holds the Bag's Units row FOR UPDATE, so <paramref name="edit"/> waits in
+    /// its Units FOR SHARE while holding Products FOR UPDATE; the 1-Bag opening adjustment must then wait in its KEY SHARE,
+    /// before reading the product or the unit. Returns (edit outcome, adjustment outcome).</summary>
+    private async Task<(StockSeed Seed, TestDatabase Database, Exception? Edit, Exception? Adjustment)> EditThenAdjustAsync(
+        Func<SelloraDbContext, StockSeed, Task> edit)
+    {
+        var database = await postgres.CreateDatabaseAsync();
+        var seed = await SeedRiceWithStockAsync(database);
+        await using var race = await LockRace.BeginAsync(database, LockRace.LockRow("Units", "Id", seed.BagUnitId));
+        var editor = await race.StartAsync("edit", db => edit(db, seed));
+        await race.WaitBlockedAsync(editor, UnitsForShare);
+        var adjustment = await race.StartAsync("adjustment", db => OpenBagsAsync(db, seed.Scenario, 1m));
+        await race.WaitBlockedAsync(adjustment, ProductsKeyShare, "The adjustment did not wait for the product edit before reading the unit:");
+        var outcomes = await race.ReleaseAsync();
+        return (seed, database, outcomes[0], outcomes[1]);
+    }
+
+    /// <summary>
+    /// Edit first, unit stays active: the edit (Bag 10 kg → 12 kg; the Bag is unused) commits, then the adjustment reads
+    /// the committed row and must succeed with snapshots equal to it (factor 12, same UnitId and code). If the adjustment
+    /// read before locking it would snapshot 10 against a 12 kg row.
+    /// </summary>
+    [Fact]
+    public async Task EditBeforeAdjustment_AdjustmentWaitsAndSnapshotsTheCurrentRow()
+    {
+        var (seed, database, editOutcome, adjustmentOutcome) = await EditThenAdjustAsync((db, s) => EditBagQuantityAsync(db, s, 12m));
+        await using var _ = database;
+
+        AssertSucceeded(editOutcome, "edit");
+        AssertSucceeded(adjustmentOutcome, "adjustment");
+        await using var check = database.CreateDbContext();
+        await AssertAdjustmentSnapshotsMatchRowsAsync(check);
+        await ProductUnitValidation.AssertHoldAsync(check);
+        await StockInvariants.AssertHoldAsync(check);
+        var posted = await check.StockAdjustments.AsNoTracking().SingleAsync();
+        var bag = await check.ProductUnits.AsNoTracking().Include(u => u.Unit).SingleAsync(u => u.Id == seed.Scenario.BagModeId);
+        Assert.Equal((bag.Id, bag.UnitId, bag.Unit.ShortCode, 12m), (posted.ProductUnitId, posted.UnitId, posted.UnitCode, bag.ConversionFactorToBase));
+        Assert.Equal((12m, 1m, 12m, (decimal?)600m, (decimal?)50m), (posted.ConversionFactorToBase, posted.EnteredQuantity, posted.QuantityBaseUnits, posted.EnteredUnitCost, posted.UnitCost));
+    }
+
+    /// <summary>Edit first, edit deactivates the Bag: the adjustment reads the committed row after waiting and is refused
+    /// on ProductUnitId; nothing is posted.</summary>
+    [Fact]
+    public async Task EditDeactivatingUnitBeforeAdjustment_AdjustmentWaitsAndIsRejectedOnProductUnitId()
+    {
+        static Task Deactivate(SelloraDbContext db, StockSeed seed) =>
+            new ProductService(db).UpdateProductAsync(seed.Scenario.ProductId, new UpsertProductInput(
+                "RICE-BP10", "Ponni Rice", null, seed.KgUnitId, seed.TaxId, 100m,
+                [
+                    new ProductUnitInputItem(seed.Scenario.LooseKgModeId, seed.KgUnitId, null, 1m, "Loose kg", null, true, true, false, false, true),
+                    new ProductUnitInputItem(seed.Scenario.BagModeId, seed.BagUnitId, seed.KgUnitId, 10m, "10 kg bag", null, true, true, false, false, false),
+                ]));
+
+        var (seed, database, editOutcome, adjustmentOutcome) = await EditThenAdjustAsync(Deactivate);
+        await using var _ = database;
+
+        AssertSucceeded(editOutcome, "edit");
+        AssertRejected(adjustmentOutcome, "ProductUnitId");
+        await using var check = database.CreateDbContext();
+        Assert.False((await check.ProductUnits.AsNoTracking().SingleAsync(u => u.Id == seed.Scenario.BagModeId)).IsActive);
+        Assert.Empty(await check.StockAdjustments.AsNoTracking().ToListAsync());
+        await StockInvariants.AssertHoldAsync(check);
+    }
+
     // ------------------------------------------------------------------ pricing
 
     /// <summary>SetPrice and an edit of the same Box both wait behind a gate on the product row. Price first: the edit

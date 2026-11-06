@@ -1,0 +1,91 @@
+@if (!loading() && adjustment(); as a) {
+  <div class="page-head">
+    <div>
+      <h1>{{ a.adjustmentNo }}</h1>
+      <p>
+        <a class="link" [routerLink]="['/inventory/stock', a.productId]">{{ a.productName }}</a>
+        · {{ a.sku }} · {{ a.createdAt | date: 'd MMM y, HH:mm' }} · by {{ a.userName }}
+      </p>
+    </div>
+    <div class="header-actions">
+      <a routerLink="/inventory/stock-adjustments" class="back-link">Back to adjustments</a>
+    </div>
+  </div>
+
+  <div class="status-row">
+    <ui-badge [text]="a.type" [tone]="a.type === 'OpeningStock' ? 'good' : a.type === 'Correction' ? 'info' : 'warn'" />
+    <ui-badge [text]="a.direction" [tone]="isIncrease() ? 'good' : 'bad'" />
+  </div>
+
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="summary-label">Entered</div>
+      <div class="summary-value" data-testid="entered-qty">
+        {{ isIncrease() ? '+' : '−' }}{{ entered(a.enteredQuantity) }} {{ a.unitCode }}
+      </div>
+      <div class="summary-sub">{{ a.unitDisplayName }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Base quantity</div>
+      <div class="summary-value" data-testid="base-qty">
+        {{ isIncrease() ? '+' : '−' }}{{ base(a.quantityBaseUnits) }} {{ a.baseUnitCode }}
+      </div>
+      <div class="summary-sub">1 {{ a.unitCode }} = {{ factor(a.conversionFactorToBase) }} {{ a.baseUnitCode }} (at posting)</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">Stock</div>
+      <div class="summary-value">{{ base(a.beforeQty) }} → {{ base(a.afterQty) }} {{ a.baseUnitCode }}</div>
+    </div>
+    @if (a.enteredUnitCost !== null || a.unitCost !== null) {
+      <div class="summary-card">
+        <div class="summary-label">Cost</div>
+        <div class="summary-value">
+          @if (a.enteredUnitCost !== null) {
+            {{ money(a.enteredUnitCost) }} / {{ a.unitCode }}
+          } @else {
+            —
+          }
+        </div>
+        @if (a.unitCost !== null) {
+          <div class="summary-sub">= {{ baseCost(a.unitCost) }} / {{ a.baseUnitCode }}</div>
+        }
+      </div>
+    }
+  </div>
+
+  <div class="detail-card">
+    <div class="kv-block">
+      <div class="kv-row"><span>Reason / notes</span><span>{{ a.reason || '—' }}</span></div>
+    </div>
+
+    <h2 class="section-title">Batches</h2>
+    @if (a.batches.length === 0) {
+      <div class="empty-note">No batch movements recorded for this adjustment.</div>
+    } @else {
+      <div class="lines-table-wrap">
+        <table class="lines-table">
+          <thead>
+            <tr>
+              <th>Batch</th>
+              <th class="num">Quantity ({{ a.baseUnitCode }})</th>
+              <th class="num">Unit cost / {{ a.baseUnitCode }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (b of a.batches; track b.purchaseBatchId) {
+              <tr>
+                <td class="strong">{{ b.internalBatchNo }}</td>
+                <td class="num" [class.negative]="b.quantityBaseUnits < 0">
+                  {{ b.quantityBaseUnits > 0 ? '+' : '' }}{{ base(b.quantityBaseUnits) }}
+                </td>
+                <td class="num">{{ baseCost(b.unitCost) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </div>
+} @else if (!loading()) {
+  <div class="not-found">Adjustment not found.</div>
+}

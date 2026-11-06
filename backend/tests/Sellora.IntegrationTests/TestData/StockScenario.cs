@@ -76,9 +76,10 @@ public sealed record StockScenario(Guid UserId, Guid SupplierId, Guid CustomerId
                 [new SaleReturnLineInput(salesInvoiceLineId, qty)]),
             UserId);
 
-    /// <summary>Posts a stock adjustment through <see cref="StockAdjustmentService"/>.</summary>
+    /// <summary>Posts a stock adjustment of <paramref name="baseQty"/> kg, entered in the base row (loose kg, factor 1, so
+    /// <paramref name="unitCost"/> is per kg either way), through <see cref="StockAdjustmentService"/>.</summary>
     public Task<StockAdjustment> AdjustAsync(SelloraDbContext db, AdjustmentType type, AdjustmentDirection direction, decimal baseQty, decimal? unitCost = null) =>
         new StockAdjustmentService(db).CreateAdjustmentAsync(
-            new CreateAdjustmentInput(ProductId, type, direction, baseQty, unitCost, "Integration test"),
+            new CreateAdjustmentInput(ProductId, LooseKgModeId, type, direction, baseQty, unitCost, "Integration test"),
             UserId);
 }

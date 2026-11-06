@@ -2,6 +2,8 @@ import {
   breakdown,
   computeFactors,
   convert,
+  costPerBaseUnit,
+  formatQuantity,
   equivalenceChain,
   hasAtMostDecimals,
   isCategoryAllowed,
@@ -252,5 +254,43 @@ describe('unit-conversion', () => {
         { key: 'g', quantity: 100 },
       ]);
     });
+  });
+});
+
+describe('formatQuantity', () => {
+  it('uses the unit decimal places', () => {
+    expect(formatQuantity(300, 0)).toBe('300');
+    expect(formatQuantity(1.5, 3)).toBe('1.500');
+    expect(formatQuantity(2, 2)).toBe('2.00');
+  });
+
+  it('strips float noise', () => {
+    expect(formatQuantity(0.1 * 3, 3)).toBe('0.300');
+    expect(formatQuantity(0.1 + 0.2, 0)).toBe('0.3');
+  });
+
+  it('clamps decimal places to 0–3', () => {
+    expect(formatQuantity(1.23456, 6)).toBe('1.235');
+    expect(formatQuantity(4, -2)).toBe('4');
+    expect(formatQuantity(4, null)).toBe('4');
+  });
+
+  it('never silently rounds stored precision below 3 dp', () => {
+    expect(formatQuantity(2.5, 0)).toBe('2.5');
+    expect(formatQuantity(1.25, 1)).toBe('1.25');
+  });
+
+  it('handles negatives, zero and non-finite values', () => {
+    expect(formatQuantity(-15, 0)).toBe('-15');
+    expect(formatQuantity(-0, 2)).toBe('0.00');
+    expect(formatQuantity(Number.NaN, 0)).toBe('—');
+  });
+});
+
+describe('costPerBaseUnit', () => {
+  it('divides an entered-unit cost by the factor', () => {
+    expect(costPerBaseUnit(250, 100)).toBe(2.5);
+    expect(costPerBaseUnit(100, 12)).toBeCloseTo(8.333333, 6);
+    expect(costPerBaseUnit(40, 1)).toBe(40);
   });
 });

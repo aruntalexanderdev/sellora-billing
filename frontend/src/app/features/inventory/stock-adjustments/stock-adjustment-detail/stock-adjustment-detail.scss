@@ -1,0 +1,126 @@
+@use '../../../../shared/styles/page-head';
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.back-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.link {
+  font-weight: 600;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.summary-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 14px 16px;
+}
+.summary-label {
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--color-text-fainter);
+  font-weight: 650;
+  margin-bottom: 8px;
+}
+.summary-value {
+  font-size: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.summary-sub {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.detail-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.kv-block {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.kv-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13.5px;
+}
+.kv-row span:first-child {
+  color: var(--color-text-muted);
+}
+.section-title {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 13.5px;
+  font-weight: 650;
+  background: var(--color-surface-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.empty-note {
+  padding: 16px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.lines-table-wrap {
+  overflow-x: auto;
+}
+.lines-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.lines-table th {
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  font-weight: 650;
+  background: var(--color-surface-subtle);
+  border-bottom: 1px solid var(--color-border);
+}
+.lines-table td {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.lines-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.lines-table .strong {
+  font-weight: 600;
+}
+.negative {
+  color: var(--color-danger);
+}
+
+.not-found {
+  padding: 40px;
+  text-align: center;
+  color: var(--color-text-muted);
+}

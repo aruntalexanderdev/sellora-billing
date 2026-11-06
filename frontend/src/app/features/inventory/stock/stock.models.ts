@@ -39,6 +39,8 @@ export interface StockBatch {
   receivedDate: string;
   purchaseOrderId: string | null;
   purchaseOrderLineId: string | null;
+  /** Set when the batch was created by a stock adjustment (optional field added in Phase 3). */
+  stockAdjustmentId?: string | null;
 }
 
 export interface BatchConsumption {

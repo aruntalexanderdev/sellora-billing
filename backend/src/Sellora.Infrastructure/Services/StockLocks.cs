@@ -11,7 +11,7 @@ namespace Sellora.Infrastructure.Services;
 /// multi-product operations cannot deadlock, and they are released when the surrounding transaction ends. The
 /// in-memory test provider has no row locks, hence the relational check.
 /// </summary>
-internal static class StockQuantity
+public static class StockQuantity
 {
     /// <summary>Stock is stored to 3 decimal places (numeric(18,3)). A quantity that needs more would be rounded
     /// on save while the arithmetic that produced it was not, letting batch and stock totals drift apart — so it is
@@ -21,6 +21,24 @@ internal static class StockQuantity
         if (Math.Round(baseQty, 3, MidpointRounding.AwayFromZero) != baseQty)
         {
             throw new Sellora.Domain.Abstractions.DomainValidationException(field, "Quantity has too many decimal places — stock is tracked to 3 decimals in the base unit.");
+        }
+    }
+
+    /// <summary>A quantity for user-facing messages: invariant culture, no trailing zeros. Values read from Postgres
+    /// carry their column scale (5.000, 20.0000000000), which must not leak into messages.</summary>
+    public static string Format(decimal value) =>
+        value.ToString("0.############################", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>An entered quantity may not carry more decimals than its unit allows (Unit.DecimalPlaces, 0–3):
+    /// "1.5 Box" is refused, "1.5 kg" is fine. Unit.DecimalPlaces is frozen once a product unit references the
+    /// unit, so the check needs no lock on Units. Shared by every document that takes entered quantities.</summary>
+    public static void EnsureEnteredDecimals(decimal qty, short decimalPlaces, string unitName, string field)
+    {
+        if (Math.Round(qty, decimalPlaces, MidpointRounding.AwayFromZero) != qty)
+        {
+            throw new Sellora.Domain.Abstractions.DomainValidationException(field, decimalPlaces == 0
+                ? $"{unitName} is counted in whole numbers."
+                : $"{unitName} allows at most {decimalPlaces} decimal place(s).");
         }
     }
 }
@@ -101,6 +119,68 @@ internal static class StockLocks
         await db.Database
             .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Products\" WHERE \"Id\" = {productId} FOR UPDATE")
             .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Ensures a StockItem row (QOH 0, average cost 0) exists for each given product that exists, then FOR UPDATE-locks
+    /// them in product-id order and returns the tracked rows keyed by ProductId. This is the only place StockItem rows
+    /// are created: a plain lock finds nothing to lock for a product's first stock-in, so two concurrent first
+    /// stock-ins would both insert (one failing on the primary key). Inserting in id order with ON CONFLICT DO NOTHING
+    /// makes the second writer wait on the first's uncommitted row instead, then lock it. Unknown product ids are
+    /// skipped (no FK error) and are simply absent from the result; callers validate them. Must be the first load of
+    /// these StockItems in the context so the returned instances are the locked, current values. Callers must be
+    /// inside a transaction (relational) — the in-memory provider just adds untracked-missing rows to the tracker.
+    /// <para>In-memory remark: missing rows are added to the change tracker (state Added) without saving. If the caller
+    /// later throws, they stay Added in that context and would be saved by a later SaveChanges on the same context. This
+    /// only affects tests that reuse a context after a failed call; request-scoped contexts are discarded, and on the
+    /// relational path the insert rolls back with the transaction.</para>
+    /// </summary>
+    public static async Task<IReadOnlyDictionary<Guid, StockItem>> EnsureAndLockStockItemsAsync(
+        SelloraDbContext db, IEnumerable<Guid> productIds, CancellationToken ct)
+    {
+        var ids = productIds.Distinct().Order().ToArray();
+        if (ids.Length == 0) return new Dictionary<Guid, StockItem>();
+
+        if (db.Database.IsRelational())
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO \"StockItems\" (\"ProductId\", \"QuantityOnHand\", \"AverageCost\") SELECT p.\"Id\", 0, 0 FROM \"Products\" p WHERE p.\"Id\" = ANY({ids}) ORDER BY p.\"Id\" ON CONFLICT (\"ProductId\") DO NOTHING",
+                ct);
+
+            var locked = await db.StockItems
+                .FromSqlInterpolated($"SELECT * FROM \"StockItems\" WHERE \"ProductId\" = ANY({ids}) ORDER BY \"ProductId\" FOR UPDATE")
+                .ToListAsync(ct);
+            return locked.ToDictionary(s => s.ProductId);
+        }
+
+        var result = new Dictionary<Guid, StockItem>();
+        foreach (var local in db.StockItems.Local.Where(s => ids.Contains(s.ProductId)))
+        {
+            result[local.ProductId] = local;
+        }
+
+        var toQuery = ids.Where(id => !result.ContainsKey(id)).ToArray();
+        if (toQuery.Length > 0)
+        {
+            foreach (var stored in await db.StockItems.Where(s => toQuery.Contains(s.ProductId)).ToListAsync(ct))
+            {
+                result[stored.ProductId] = stored;
+            }
+        }
+
+        var missing = ids.Where(id => !result.ContainsKey(id)).ToArray();
+        if (missing.Length > 0)
+        {
+            var existingProducts = await db.Products.Where(p => missing.Contains(p.Id)).Select(p => p.Id).ToListAsync(ct);
+            foreach (var productId in existingProducts)
+            {
+                StockItem created = new() { ProductId = productId, QuantityOnHand = 0, AverageCost = 0 };
+                db.StockItems.Add(created);
+                result[productId] = created;
+            }
+        }
+
+        return result;
     }
 
     public static async Task LockStockItemsAsync(SelloraDbContext db, IEnumerable<Guid> productIds, CancellationToken ct)
