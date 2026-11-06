@@ -269,3 +269,34 @@ export function breakdown(baseQty: number, units: readonly BreakdownUnit[]): Bre
   }
   return { parts, remainder: remaining };
 }
+
+// ---------------------------------------------------------------------------
+// Quantity formatting (Phase 3 minimal formatter; Phase 7's QuantityPipe wraps it)
+// ---------------------------------------------------------------------------
+
+/** Max decimals any quantity is stored with (numeric(18,3)). */
+export const QUANTITY_STORAGE_DECIMALS = 3;
+
+/**
+ * Formats a quantity with the unit's `decimalPlaces` (clamped 0–3), without float noise:
+ * `formatQuantity(300, 0)` → "300", `formatQuantity(1.5, 3)` → "1.500".
+ *
+ * Never hides stored precision: a value carrying more decimals than the unit allows (legacy data)
+ * shows up to 3 decimals instead of being silently rounded (`formatQuantity(2.5, 0)` → "2.5").
+ */
+export function formatQuantity(value: number, decimalPlaces: number | null | undefined): string {
+  if (!Number.isFinite(value)) return '—';
+  const raw = Math.trunc(decimalPlaces ?? 0);
+  const dp = Math.min(QUANTITY_STORAGE_DECIMALS, Math.max(0, Number.isFinite(raw) ? raw : 0));
+  const clean = round10(value);
+  let decimals = dp;
+  while (decimals < QUANTITY_STORAGE_DECIMALS && !hasAtMostDecimals(clean, decimals)) decimals++;
+  const text = clean.toFixed(decimals);
+  // Avoid "-0" / "-0.000".
+  return Number(text) === 0 ? (0).toFixed(decimals) : text;
+}
+
+/** Cost per base unit given a cost per entered unit with `factor` base units (money; not rounded here). */
+export function costPerBaseUnit(costPerEnteredUnit: number, factor: number): number {
+  return convert(costPerEnteredUnit, 1, factor);
+}

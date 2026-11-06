@@ -194,7 +194,7 @@ export function rowIndexOfField(field: string): number | null {
 }
 
 const LOCK_REASON_TEXT: Record<ProductUnitLockReason, string> = {
-  Transactions: 'Used in purchases or sales',
+  Transactions: 'Used in purchases, sales or stock adjustments',
   Prices: 'Has selling prices',
   ContainedInLockedUnit: 'Contained in a locked unit',
 };

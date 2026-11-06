@@ -18,7 +18,7 @@ public record StockBatchDto(
     Guid Id, DateTimeOffset CreatedAt, string SourceType, string SourceRefNo,
     decimal PurchasedBaseQty, decimal RemainingBaseQty, decimal UnitCost,
     string InternalBatchNo, string? SupplierBatchNumber, DateOnly ReceivedDate,
-    Guid? PurchaseOrderId, Guid? PurchaseOrderLineId
+    Guid? PurchaseOrderId, Guid? PurchaseOrderLineId, Guid? StockAdjustmentId = null
 );
 
 /// <summary>One sale line's draw on a batch — the batch → sale trail shown from Stock Details.</summary>

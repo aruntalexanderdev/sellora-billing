@@ -78,7 +78,7 @@ public class ProductUnitHierarchyServiceTests
     private static async Task<ProductUnit> UnitRowAsync(Fixture f, Guid productId, Guid unitId) =>
         await f.Db.ProductUnits.AsNoTracking().SingleAsync(u => u.ProductId == productId && u.UnitId == unitId && u.IsActive);
 
-    public enum LockKind { PurchaseLine, SaleLine, Price }
+    public enum LockKind { PurchaseLine, SaleLine, Price, Adjustment }
 
     private static async Task LockAsync(Fixture f, ProductUnit row, LockKind kind)
     {
@@ -111,6 +111,16 @@ public class ProductUnitHierarchyServiceTests
                     TaxId = f.Tax.Id, TaxRatePercent = 12, TaxableValue = 20, TaxAmount = 2.4m, LineTotal = 22.4m,
                 });
                 f.Db.Add(sale);
+                break;
+            case LockKind.Adjustment:
+                // Only the adjustment row (no movement or batch), so the lock comes from ProductUnitUsage alone and not
+                // from stock history.
+                f.Db.StockAdjustments.Add(new StockAdjustment
+                {
+                    Id = Guid.NewGuid(), AdjustmentNo = "ADJ-" + Guid.NewGuid().ToString("N")[..6], ProductId = row.ProductId, Type = AdjustmentType.Damage,
+                    Direction = AdjustmentDirection.Decrease, EnteredQuantity = 1, ProductUnitId = row.Id, UnitId = row.UnitId, UnitCode = "x",
+                    ConversionFactorToBase = row.ConversionFactorToBase, QuantityBaseUnits = row.ConversionFactorToBase, UserId = f.User.Id,
+                });
                 break;
             default:
                 f.Db.SellingPrices.Add(new SellingPrice { Id = Guid.NewGuid(), ProductUnitId = row.Id, Price = 99m, CreatedByUserId = f.User.Id });
@@ -267,6 +277,7 @@ public class ProductUnitHierarchyServiceTests
     [InlineData(LockKind.PurchaseLine, ProductUnitUsage.Transactions)]
     [InlineData(LockKind.SaleLine, ProductUnitUsage.Transactions)]
     [InlineData(LockKind.Price, ProductUnitUsage.Prices)]
+    [InlineData(LockKind.Adjustment, ProductUnitUsage.Transactions)]
     public async Task UpdateProductAsync_LockedBoxQuantityChanged_RejectedAndNothingChanges(LockKind kind, string reason)
     {
         var f = await SeedAsync();
@@ -414,6 +425,84 @@ public class ProductUnitHierarchyServiceTests
 
         await AssertRejectedAsync(() => SaveAsync(f, pen, c[f.Pc.Id], c[f.Box.Id], Row(f.Box.Id, f.Pc.Id, 20m), c[f.HCtn.Id], c[f.FCtn.Id]),
             "Units[2].UnitId", "Box is already used by another active row of this product.");
+    }
+
+    // ------------------------------------------------------------------ stock adjustments lock their unit (Phase 3)
+
+    [Fact]
+    public async Task GetLockReasonsAsync_HalfCartonUsedOnlyByAnAdjustment_TransactionsAndInnerRowsContained()
+    {
+        var f = await SeedAsync();
+        var pen = await CreatePenAsync(f);
+        var hctn = await UnitRowAsync(f, pen.Id, f.HCtn.Id);
+        await LockAsync(f, hctn, LockKind.Adjustment);
+        var c = await CurrentAsync(f, pen.Id);
+
+        var locks = await ProductUnitUsage.GetLockReasonsAsync(f.Db, await StoredAsync(f, pen.Id), default);
+
+        Assert.Equal(ProductUnitUsage.Transactions, locks[hctn.Id]);
+        Assert.Equal(ProductUnitUsage.ContainedInLockedUnit, locks[c[f.Box.Id].Id!.Value]);
+        Assert.Equal(ProductUnitUsage.ContainedInLockedUnit, locks[c[f.Pc.Id].Id!.Value]);
+        Assert.False(locks.ContainsKey(c[f.FCtn.Id].Id!.Value));
+        Assert.True(await ProductUnitUsage.IsBaseUnitLockedAsync(f.Db, pen.Id, locks, default));
+    }
+
+    /// <summary>A real adjustment posted through the service (with its movement and batch) locks the unit it was entered in.</summary>
+    [Fact]
+    public async Task UpdateProductAsync_BoxUsedByPostedOpeningStock_QuantityChangeRejected()
+    {
+        var f = await SeedAsync();
+        var pen = await CreatePenAsync(f);
+        var box = await UnitRowAsync(f, pen.Id, f.Box.Id);
+        await new StockAdjustmentService(f.Db).CreateAdjustmentAsync(new Sellora.Domain.Stock.CreateAdjustmentInput(
+            pen.Id, box.Id, AdjustmentType.OpeningStock, AdjustmentDirection.Increase, 3m, 30m, null), f.User.Id);
+        var c = await CurrentAsync(f, pen.Id);
+
+        await AssertRejectedAsync(() => SaveAsync(f, pen, c[f.Pc.Id], c[f.Box.Id] with { InnerQuantity = 12m }, c[f.HCtn.Id], c[f.FCtn.Id]),
+            "Units[1].InnerQuantity", V.LockedMessage);
+        f.Db.ChangeTracker.Clear();
+        Assert.Equal(10m, (await UnitRowAsync(f, pen.Id, f.Box.Id)).ConversionFactorToBase);
+    }
+
+    [Fact]
+    public async Task UpdateProductAsync_UnitUsedByAdjustmentContainedInnerChanged_RejectedByClosure()
+    {
+        var f = await SeedAsync();
+        var pen = await CreatePenAsync(f);
+        await LockAsync(f, await UnitRowAsync(f, pen.Id, f.FCtn.Id), LockKind.Adjustment);
+        var c = await CurrentAsync(f, pen.Id);
+
+        await AssertRejectedAsync(() => SaveAsync(f, pen, c[f.Pc.Id], c[f.Box.Id] with { InnerQuantity = 12m }, c[f.HCtn.Id], c[f.FCtn.Id]),
+            "Units[1].InnerQuantity", V.LockedMessage);
+    }
+
+    [Fact]
+    public async Task UpdateProductAsync_OmittedRowUsedByAdjustment_KeptInactiveNotDeleted()
+    {
+        var f = await SeedAsync();
+        var pen = await CreatePenAsync(f);
+        var fctn = await UnitRowAsync(f, pen.Id, f.FCtn.Id);
+        await LockAsync(f, fctn, LockKind.Adjustment);
+        var c = await CurrentAsync(f, pen.Id);
+
+        await SaveAsync(f, pen, c[f.Pc.Id], c[f.Box.Id], c[f.HCtn.Id]);
+
+        var stored = await f.Db.ProductUnits.AsNoTracking().SingleAsync(u => u.Id == fctn.Id);
+        Assert.Equal((false, 100m), (stored.IsActive, stored.ConversionFactorToBase));
+        Assert.Single(await f.Db.StockAdjustments.AsNoTracking().Where(a => a.ProductUnitId == fctn.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task UpdateProductAsync_BaseChangeWhenARowIsUsedByAnAdjustment_RejectedOnBaseUnitId()
+    {
+        var f = await SeedAsync();
+        var rice = await CreateRiceAsync(f);
+        await LockAsync(f, await UnitRowAsync(f, rice.Id, f.Bag.Id), LockKind.Adjustment);
+        var c = await CurrentAsync(f, rice.Id);
+
+        await AssertRejectedAsync(() => f.Service.UpdateProductAsync(rice.Id, RiceToGram(f, rice, c)), "BaseUnitId", V.BaseChangeWithLockedUnitsMessage);
+        f.Db.ChangeTracker.Clear();
+        Assert.Equal(f.Kg.Id, (await f.Db.Products.AsNoTracking().SingleAsync(p => p.Id == rice.Id)).BaseUnitId);
     }
 
     // ------------------------------------------------------------------ omitted rows

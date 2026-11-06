@@ -16,9 +16,36 @@ public class StockAdjustment
 
     public AdjustmentType Type { get; set; }
     public AdjustmentDirection Direction { get; set; }
+
+    /// <summary>Quantity as the user entered it, in <see cref="ProductUnit"/> (snapshot; never recomputed).</summary>
+    public decimal EnteredQuantity { get; set; }
+
+    /// <summary>The product unit the quantity was entered in. The FK is (ProductId, ProductUnitId) -> ProductUnits
+    /// (ProductId, Id), so the database guarantees the unit belongs to the same product. A referenced row is
+    /// immutable (deactivate-and-replace).</summary>
+    public Guid ProductUnitId { get; set; }
+    public ProductUnit ProductUnit { get; set; } = null!;
+
+    /// <summary>Snapshot of <see cref="Entities.ProductUnit.UnitId"/> at posting time.</summary>
+    public Guid UnitId { get; set; }
+    public Unit Unit { get; set; } = null!;
+
+    /// <summary>Snapshot of the unit's ShortCode at posting time, for history display.</summary>
+    public required string UnitCode { get; set; }
+
+    /// <summary>Snapshot of <see cref="Entities.ProductUnit.ConversionFactorToBase"/> at posting time.
+    /// <see cref="EnteredQuantity"/> x this factor = <see cref="QuantityBaseUnits"/> exactly (DB CHECK).</summary>
+    public decimal ConversionFactorToBase { get; set; }
+
+    /// <summary>Positive quantity in base units; the sign comes from <see cref="Direction"/>.</summary>
     public decimal QuantityBaseUnits { get; set; }
 
-    /// <summary>Required for Increase adjustments — the cost basis for the batch this creates.</summary>
+    /// <summary>Cost per entered unit as typed (Increase only; null for decreases). Null exactly when
+    /// <see cref="UnitCost"/> is null (DB CHECK).</summary>
+    public decimal? EnteredUnitCost { get; set; }
+
+    /// <summary>Required for Increase adjustments — the cost basis, per BASE unit, for the batch this creates
+    /// (equals the batch UnitCost).</summary>
     public decimal? UnitCost { get; set; }
 
     public string? Reason { get; set; }

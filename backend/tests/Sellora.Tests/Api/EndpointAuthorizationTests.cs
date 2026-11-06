@@ -67,6 +67,8 @@ public class EndpointAuthorizationTests
     [InlineData(typeof(SalesController), "Create", "Sales.Create")]
     [InlineData(typeof(SalesController), "Cancel", "Sales.Cancel")]
     [InlineData(typeof(StockAdjustmentsController), "Create", "Inventory.Adjust")]
+    [InlineData(typeof(StockAdjustmentsController), "List", "Inventory.View")]
+    [InlineData(typeof(StockAdjustmentsController), "Get", "Inventory.View")]
     [InlineData(typeof(StockController), "BatchConsumptions", "Sales.View")]
     [InlineData(typeof(StockController), "Detail", "Inventory.View")]
     public void StockAndBatchEndpoints_RequireTheirSpecificPermission(Type controller, string action, string policy)
@@ -104,6 +106,31 @@ public class EndpointAuthorizationTests
         Assert.Contains(policy, Policies(controller, method));
         Assert.Equal(verb, http.HttpMethods.Single());
         Assert.Equal(template, http.Template);
+    }
+
+    /// <summary>Policies combine with AND: a class-level Inventory.Adjust would silently require it on the read endpoints
+    /// too, so viewers could not open the adjustment list.</summary>
+    [Theory]
+    [InlineData("List", "GET", null)]
+    [InlineData("Get", "GET", "{id:guid}")]
+    public void StockAdjustmentReads_RequireOnlyInventoryView(string action, string verb, string? template)
+    {
+        var controller = typeof(StockAdjustmentsController);
+        var method = controller.GetMethod(action)!;
+        var http = method.GetCustomAttributes<HttpMethodAttribute>().Single();
+
+        Assert.Equal(new[] { "Inventory.View" }, Policies(controller, method));
+        Assert.DoesNotContain("Inventory.Adjust", Policies(controller, method));
+        Assert.Equal((verb, template), (http.HttpMethods.Single(), http.Template));
+        Assert.Equal("api/v1/stock-adjustments", controller.GetCustomAttribute<RouteAttribute>()!.Template);
+    }
+
+    [Fact]
+    public void StockAdjustmentCreate_RequiresOnlyInventoryAdjust()
+    {
+        var controller = typeof(StockAdjustmentsController);
+        Assert.Empty(controller.GetCustomAttributes<AuthorizeAttribute>(true));
+        Assert.Equal(new[] { "Inventory.Adjust" }, Policies(controller, controller.GetMethod("Create")!));
     }
 
     [Fact]

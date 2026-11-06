@@ -466,7 +466,10 @@ public class IntroduceProductUnitsMigrationTests(PostgresFixture postgres)
             await ProductUnitValidation.AssertHoldAsync(db);
             await UnitMasterValidation.AssertHoldAsync(db);
             Assert.Contains(IntroduceProductUnits, await db.Database.GetAppliedMigrationsAsync());
-            Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+            // The script targets IntroduceProductUnits: exactly the migrations after it remain pending (none skipped,
+            // none partially applied), in order.
+            Assert.Equal(db.Database.GetMigrations().Where(m => string.CompareOrdinal(m, IntroduceProductUnits) > 0),
+                await db.Database.GetPendingMigrationsAsync());
             Assert.False(db.Database.HasPendingModelChanges());
             var rows = await db.ProductUnits.AsNoTracking().ToDictionaryAsync(u => u.Id);
             Assert.All(LegacyModes, m => Assert.Equal(m.Factor, rows[m.Id].ConversionFactorToBase));

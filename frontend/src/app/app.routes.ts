@@ -27,7 +27,6 @@ import { PurchaseList } from './features/purchases/purchase-list/purchase-list';
 import { PurchaseForm } from './features/purchases/purchase-form/purchase-form';
 import { StockOverview } from './features/inventory/stock/stock-overview/stock-overview';
 import { StockDetail } from './features/inventory/stock/stock-detail/stock-detail';
-import { StockAdjustmentForm } from './features/inventory/stock-adjustments/stock-adjustment-form/stock-adjustment-form';
 import { PricingPage } from './features/inventory/pricing/pricing-page/pricing-page';
 import { CustomerList } from './features/sales/customers/customer-list/customer-list';
 import { CustomerForm } from './features/sales/customers/customer-form/customer-form';
@@ -246,10 +245,23 @@ export const routes: Routes = [
         data: { group: 'Inventory', page: 'Stock Overview' },
       },
       {
+        path: 'inventory/stock-adjustments',
+        loadComponent: () => import('./features/inventory/stock-adjustments/stock-adjustment-list/stock-adjustment-list').then((m) => m.StockAdjustmentList),
+        canActivate: [permissionGuard('Inventory.View')],
+        data: { group: 'Inventory', page: 'Stock Adjustments' },
+      },
+      // `new` must be declared before `:id`.
+      {
         path: 'inventory/stock-adjustments/new',
-        component: StockAdjustmentForm,
+        loadComponent: () => import('./features/inventory/stock-adjustments/stock-adjustment-form/stock-adjustment-form').then((m) => m.StockAdjustmentForm),
         canActivate: [permissionGuard('Inventory.Adjust')],
         data: { group: 'Inventory', page: 'Adjust Stock' },
+      },
+      {
+        path: 'inventory/stock-adjustments/:id',
+        loadComponent: () => import('./features/inventory/stock-adjustments/stock-adjustment-detail/stock-adjustment-detail').then((m) => m.StockAdjustmentDetail),
+        canActivate: [permissionGuard('Inventory.View')],
+        data: { group: 'Inventory', page: 'Stock Adjustment' },
       },
       {
         path: 'inventory/stock/:id',

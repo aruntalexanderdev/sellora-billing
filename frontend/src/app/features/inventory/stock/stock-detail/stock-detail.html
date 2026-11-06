@@ -69,6 +69,8 @@
                   <td>
                     @if (b.purchaseOrderId && canViewPurchases()) {
                       <a [routerLink]="['/purchases', b.purchaseOrderId]" (click)="$event.stopPropagation()">{{ b.sourceRefNo }}</a>
+                    } @else if (b.stockAdjustmentId) {
+                      <a [routerLink]="['/inventory/stock-adjustments', b.stockAdjustmentId]" (click)="$event.stopPropagation()">{{ b.sourceRefNo }}</a>
                     } @else {
                       {{ b.sourceType }} · {{ b.sourceRefNo }}
                     }
@@ -94,7 +96,12 @@
                           @if (b.sourceType === 'Purchase') {
                             from {{ b.sourceRefNo }}
                           } @else {
-                            from stock adjustment {{ b.sourceRefNo }}
+                            from stock adjustment
+                            @if (b.stockAdjustmentId) {
+                              <a [routerLink]="['/inventory/stock-adjustments', b.stockAdjustmentId]" (click)="$event.stopPropagation()">{{ b.sourceRefNo }}</a>
+                            } @else {
+                              {{ b.sourceRefNo }}
+                            }
                           }
                         </div>
                         @if (!canViewSales()) {

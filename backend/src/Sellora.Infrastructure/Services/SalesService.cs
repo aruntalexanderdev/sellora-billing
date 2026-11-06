@@ -571,37 +571,23 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
     private async Task<decimal> ConsumeBatchesFifoAsync(SalesInvoiceLine line, CancellationToken ct)
     {
-        var remaining = line.BaseQty;
+        // Stock on hand and batch remainders are kept in step, so the shortage error is a safety net: never record a
+        // sale whose cost (and batch trail) covers only part of the quantity.
+        var allocations = await BatchAllocator.ConsumeFifoAsync(db, line.ProductId, line.BaseQty,
+            shortBy => new DomainValidationException("Lines", $"Batch stock is short by {StockQuantity.Format(shortBy)} for this item — cannot complete the sale."), ct);
+
         var costConsumed = 0m;
-
-        var batches = await db.PurchaseBatches
-            .Where(b => b.ProductId == line.ProductId && b.RemainingBaseQty > 0)
-            .OrderBy(b => b.CreatedAt).ThenBy(b => b.BatchSequence)
-            .ToListAsync(ct);
-
-        foreach (var batch in batches)
+        foreach (var allocation in allocations)
         {
-            if (remaining <= 0) break;
-            var take = Math.Min(batch.RemainingBaseQty, remaining);
-            batch.RemainingBaseQty -= take;
-            remaining -= take;
-            costConsumed += take * batch.UnitCost;
-
+            costConsumed += allocation.QtyBaseUnits * allocation.UnitCost;
             line.BatchConsumptions.Add(new SalesInvoiceLineBatchConsumption
             {
                 Id = Guid.NewGuid(),
                 SalesInvoiceLineId = line.Id,
-                PurchaseBatchId = batch.Id,
-                QtyBaseUnits = take,
-                UnitCost = batch.UnitCost,
+                PurchaseBatchId = allocation.Batch.Id,
+                QtyBaseUnits = allocation.QtyBaseUnits,
+                UnitCost = allocation.UnitCost,
             });
-        }
-
-        // Stock on hand and batch remainders are kept in step, so this is a safety net: never record a sale whose
-        // cost (and batch trail) covers only part of the quantity.
-        if (remaining > 0)
-        {
-            throw new DomainValidationException("Lines", $"Batch stock is short by {remaining} for this item — cannot complete the sale.");
         }
 
         return costConsumed;

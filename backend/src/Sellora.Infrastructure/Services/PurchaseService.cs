@@ -39,7 +39,8 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         await StockLocks.LockProductsKeyShareAsync(db, input.Lines.Select(l => l.ProductId), ct);
 
         // Stock on hand and its average cost are read-modify-written below, so hold each product's lock to commit.
-        await StockLocks.LockStockItemsAsync(db, input.Lines.Select(l => l.ProductId), ct);
+        // The rows are created (QOH 0) first if this is a product's first stock-in, so the lock always has a row to hold.
+        var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, input.Lines.Select(l => l.ProductId), ct);
 
         // The supplier's *current* currency becomes this purchase's own snapshot; the rate is resolved for
         // the purchase date and stored on the purchase so later changes to the rate master never touch it.
@@ -80,7 +81,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             discountTotal += line.Discount;
             originalGrandTotal += originalLineTotal;
 
-            await ApplyPurchaseLineToStockAsync(line, purchaseNo, input.PurchaseDate, supplierBatchNumber, createdByUserId, ct);
+            ApplyPurchaseLineToStock(line, stockItems[line.ProductId], purchaseNo, input.PurchaseDate, supplierBatchNumber, createdByUserId);
         }
 
         purchase.Subtotal = subtotal;
@@ -706,7 +707,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         return (line, subtotal, originalLineTotal);
     }
 
-    private async Task ApplyPurchaseLineToStockAsync(PurchaseOrderLine line, string purchaseNo, DateOnly receivedDate, string? supplierBatchNumber, Guid userId, CancellationToken ct)
+    private void ApplyPurchaseLineToStock(PurchaseOrderLine line, StockItem stockItem, string purchaseNo, DateOnly receivedDate, string? supplierBatchNumber, Guid userId)
     {
         var batch = new PurchaseBatch
         {
@@ -733,14 +734,6 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             ReferenceNo = purchaseNo,
             UserId = userId,
         });
-
-        var stockItem = db.StockItems.Local.FirstOrDefault(s => s.ProductId == line.ProductId)
-            ?? await db.StockItems.SingleOrDefaultAsync(s => s.ProductId == line.ProductId, ct);
-        if (stockItem is null)
-        {
-            stockItem = new StockItem { ProductId = line.ProductId, QuantityOnHand = 0, AverageCost = 0 };
-            db.StockItems.Add(stockItem);
-        }
 
         var newQty = stockItem.QuantityOnHand + line.BaseQty;
         stockItem.AverageCost = newQty > 0
