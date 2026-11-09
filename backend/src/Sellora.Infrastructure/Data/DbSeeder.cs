@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Abstractions;
+using Sellora.Domain.Companies;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Inventory;
 using Sellora.Domain.Permissions;
@@ -8,7 +9,9 @@ namespace Sellora.Infrastructure.Data;
 
 /// <summary>
 /// Idempotent dev/seed data: the full permission catalogue, the system Administrator role, and one
-/// Administrator user so there's a way to sign in before any other user exists. Everything else
+/// Administrator user (an Active, company-wide member of the default company) so there's a way to sign in before any
+/// other user exists. Seeding always runs with the company context set to <see cref="DefaultTenant.CompanyId"/>: demo data
+/// never lands in another tenant. Everything else
 /// (additional roles, users, business data) is created live through the app per the docx §13 demo scenario.
 /// </summary>
 public static class DbSeeder
@@ -18,12 +21,24 @@ public static class DbSeeder
 
     public static async Task SeedAsync(SelloraDbContext db, IPasswordHasher passwordHasher, CancellationToken ct = default)
     {
+        if (db.CompanyContext.CompanyId != DefaultTenant.CompanyId)
+        {
+            throw new InvalidOperationException("DbSeeder must run with the company context set to the default company.");
+        }
+
+        var company = await SeedDefaultCompanyAsync(db, ct);
         await SeedPermissionsAsync(db, ct);
         var adminRole = await SeedAdministratorRoleAsync(db, ct);
         await SeedAdminUserAsync(db, adminRole, passwordHasher, ct);
 
         var currencies = await SeedCurrenciesAsync(db, ct);
-        await SeedBusinessSettingsAsync(db, currencies["INR"], ct);
+        var settings = await SeedBusinessSettingsAsync(db, currencies["INR"], ct);
+        if (company.Name != settings.BusinessName)
+        {
+            // BusinessSettings is the company's profile (ADR-07); the company name follows it.
+            company.Name = settings.BusinessName;
+            await db.SaveChangesAsync(ct);
+        }
         var units = await SeedUnitsAsync(db, ct);
         var taxes = await SeedTaxesAsync(db, ct);
         await SeedSuppliersAsync(db, currencies, ct);
@@ -31,6 +46,18 @@ public static class DbSeeder
         await SeedCustomersAsync(db, ct);
         await SeedExpenseCategoriesAsync(db, ct);
         await SeedMainCashAccountAsync(db, ct);
+    }
+
+    // The M1 migration inserts the default company; this covers databases created without migrations (tests, InMemory).
+    private static async Task<Company> SeedDefaultCompanyAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        var company = await db.Companies.SingleOrDefaultAsync(c => c.Id == DefaultTenant.CompanyId, ct);
+        if (company is not null) return company;
+
+        company = new Company { Id = DefaultTenant.CompanyId, Code = DefaultTenant.Code, Name = "Default Company" };
+        db.Companies.Add(company);
+        await db.SaveChangesAsync(ct);
+        return company;
     }
 
     private static async Task SeedPermissionsAsync(SelloraDbContext db, CancellationToken ct)
@@ -120,20 +147,33 @@ public static class DbSeeder
 
     private static async Task SeedAdminUserAsync(SelloraDbContext db, Role adminRole, IPasswordHasher passwordHasher, CancellationToken ct)
     {
-        var exists = await db.Users.AnyAsync(u => u.Email == SeedAdminEmail, ct);
-        if (exists) return;
-
-        db.Users.Add(new User
+        var admin = await db.Users.SingleOrDefaultAsync(u => u.Email == SeedAdminEmail, ct);
+        if (admin is null)
         {
-            Id = Guid.NewGuid(),
-            FirstName = "Ravi",
-            LastName = "Krishnan",
-            Username = "admin",
-            Email = SeedAdminEmail,
-            PasswordHash = passwordHasher.Hash(SeedAdminPassword),
-            RoleId = adminRole.Id,
-            Status = UserStatus.Active,
-        });
+            admin = new User
+            {
+                Id = Guid.NewGuid(),
+                FirstName = "Ravi",
+                LastName = "Krishnan",
+                Username = "admin",
+                Email = SeedAdminEmail,
+                PasswordHash = passwordHasher.Hash(SeedAdminPassword),
+                RoleId = adminRole.Id,
+                Status = UserStatus.Active,
+            };
+            db.Users.Add(admin);
+        }
+
+        // Explicit membership, never inferred (arch 6.1): the seeded administrator can sign in to the default company.
+        var hasMembership = await db.UserCompanyMemberships.AnyAsync(m => m.UserId == admin.Id && m.CompanyId == DefaultTenant.CompanyId, ct);
+        if (!hasMembership)
+        {
+            db.UserCompanyMemberships.Add(new UserCompanyMembership
+            {
+                Id = Guid.NewGuid(), UserId = admin.Id, CompanyId = DefaultTenant.CompanyId,
+                Status = MembershipStatus.Active, AccessScope = CompanyAccessScope.CompanyWide,
+            });
+        }
 
         await db.SaveChangesAsync(ct);
     }
@@ -166,11 +206,12 @@ public static class DbSeeder
         return existing.ToDictionary(c => c.Code);
     }
 
-    private static async Task SeedBusinessSettingsAsync(SelloraDbContext db, Currency baseCurrency, CancellationToken ct)
+    private static async Task<BusinessSettings> SeedBusinessSettingsAsync(SelloraDbContext db, Currency baseCurrency, CancellationToken ct)
     {
-        if (await db.BusinessSettings.AnyAsync(ct)) return;
+        var existing = await db.BusinessSettings.SingleOrDefaultAsync(ct);
+        if (existing is not null) return existing;
 
-        db.BusinessSettings.Add(new BusinessSettings
+        var settings = new BusinessSettings
         {
             Id = Guid.NewGuid(),
             BusinessName = "Sellora Mart",
@@ -182,8 +223,10 @@ public static class DbSeeder
             Email = "contact@selloramart.in",
             InvoicePrefix = "INV",
             BaseCurrencyId = baseCurrency.Id,
-        });
+        };
+        db.BusinessSettings.Add(settings);
         await db.SaveChangesAsync(ct);
+        return settings;
     }
 
     private static readonly (string Name, string ShortCode, MeasurementCategory Category, short DecimalPlaces, decimal? StandardFactor)[] UnitSeed =

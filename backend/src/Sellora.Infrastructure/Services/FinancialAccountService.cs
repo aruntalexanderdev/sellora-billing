@@ -153,8 +153,8 @@ public class FinancialAccountService(SelloraDbContext db) : IFinancialAccountSer
 
     private async Task<(Guid Id, int Precision)> BaseCurrencyAsync(CancellationToken ct)
     {
-        var settings = await db.BusinessSettings.Select(s => new { s.BaseCurrencyId, s.BaseCurrency.DecimalPrecision }).SingleAsync(ct);
-        return (settings.BaseCurrencyId, settings.DecimalPrecision);
+        var settings = await db.GetCurrentCompanySettingsAsync(ct);
+        return (settings.BaseCurrencyId, settings.BaseCurrencyDecimalPrecision);
     }
 
     private static void EnsureNotFuture(DateOnly date, string field)

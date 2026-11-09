@@ -50,7 +50,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             throw new DomainValidationException("SupplierId", $"This supplier's currency ({transactionCurrency.Code}) is inactive. Update the supplier's currency before purchasing from them.");
         }
         var rateToBase = await exchangeRateService.ResolveRateToBaseAsync(supplier.CurrencyId, input.PurchaseDate, ct);
-        var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+        var basePrecision = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyDecimalPrecision;
 
         var purchase = new PurchaseOrder
         {
@@ -159,7 +159,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             throw new DomainValidationException("Amount", $"Payment cannot exceed the outstanding due of {due.ToString($"F{precision}")} {currency.Code}.");
         }
 
-        var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+        var basePrecision = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyDecimalPrecision;
 
         RecordPayment(purchase, amount, input.PaymentMethod, DateOnly.FromDateTime(DateTime.UtcNow), paidByUserId, input.AccountId, precision, basePrecision);
 
@@ -179,7 +179,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
     private async Task<PurchaseOrder?> LockPurchaseAsync(Guid purchaseOrderId, CancellationToken ct) =>
         db.Database.IsRelational()
             ? await db.PurchaseOrders
-                .FromSqlInterpolated($"SELECT * FROM \"PurchaseOrders\" WHERE \"Id\" = {purchaseOrderId} FOR UPDATE")
+                .FromSqlInterpolated($"SELECT * FROM \"PurchaseOrders\" WHERE \"CompanyId\" = {db.CompanyContext.RequireCompanyId()} AND \"Id\" = {purchaseOrderId} FOR UPDATE")
                 .SingleOrDefaultAsync(ct)
             : await db.PurchaseOrders.SingleOrDefaultAsync(p => p.Id == purchaseOrderId, ct);
 
@@ -274,7 +274,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         if (purchase is null) return null;
 
         var currency = await db.Currencies.SingleAsync(c => c.Id == purchase.CurrencyId, ct);
-        var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+        var basePrecision = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyDecimalPrecision;
 
         await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, ct);
         if (input.PurchaseReturnId is { } returnId
@@ -339,7 +339,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         }
 
         var currency = await db.Currencies.SingleAsync(c => c.Id == purchase.CurrencyId, ct);
-        var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+        var basePrecision = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyDecimalPrecision;
 
         // The reversal goes back through the same account the payment came out of.
         var accountId = await db.FinancialTransactions.Where(t => t.PurchasePaymentId == payment.Id).Select(t => t.AccountId).SingleOrDefaultAsync(ct);
@@ -381,7 +381,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         }
 
         var currency = await db.Currencies.SingleAsync(c => c.Id == purchase.CurrencyId, ct);
-        var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+        var basePrecision = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyDecimalPrecision;
         var purchaseLineProductIds = await db.PurchaseOrderLines.Where(l => l.PurchaseOrderId == purchase.Id).Select(l => l.ProductId).ToListAsync(ct);
         // Lock order: PurchaseOrders (above) -> Products KEY SHARE -> StockItems. The return reads the factor of a unit
         // that history may not yet reference, so a concurrent product-unit edit must wait until this commits.
@@ -635,15 +635,12 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
     private async Task<string> NextReturnNoAsync(CancellationToken ct)
     {
-        await StockLocks.LockDocumentNumberAsync(db, "PRT", ct);
-        return $"PRT-{await db.PurchaseReturns.CountAsync(ct) + 1:D4}";
+        return $"PRT-{await DocumentNumbers.NextAsync(db, DocumentSeries.PurchaseReturn, ct):D4}";
     }
 
     private async Task<string> NextPurchaseNoAsync(CancellationToken ct)
     {
-        await StockLocks.LockDocumentNumberAsync(db, "PUR", ct);
-        var count = await db.PurchaseOrders.CountAsync(ct);
-        return $"PUR-{count + 1:D4}";
+        return $"PUR-{await DocumentNumbers.NextAsync(db, DocumentSeries.Purchase, ct):D4}";
     }
 
     // Returns the line with every monetary field in the business base currency, plus the line's pre-tax

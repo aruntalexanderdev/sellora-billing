@@ -14,7 +14,8 @@ public class SettingsController(SelloraDbContext db) : ControllerBase
     [HttpGet]
     public async Task<ActionResult<BusinessSettingsDto>> Get(CancellationToken ct)
     {
-        var settings = await db.BusinessSettings.Include(s => s.BaseCurrency).SingleAsync(ct);
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var settings = await db.BusinessSettings.Include(s => s.BaseCurrency).SingleAsync(s => s.CompanyId == companyId, ct);
         return Ok(ToDto(settings));
     }
 
@@ -24,7 +25,8 @@ public class SettingsController(SelloraDbContext db) : ControllerBase
     {
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
-        var settings = await db.BusinessSettings.Include(s => s.BaseCurrency).SingleAsync(ct);
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var settings = await db.BusinessSettings.Include(s => s.BaseCurrency).SingleAsync(s => s.CompanyId == companyId, ct);
 
         var baseCurrency = await db.Currencies.SingleOrDefaultAsync(c => c.Id == request.BaseCurrencyId, ct);
         if (baseCurrency is null)
@@ -49,10 +51,14 @@ public class SettingsController(SelloraDbContext db) : ControllerBase
         settings.BaseCurrencyId = baseCurrency.Id;
         settings.BaseCurrency = baseCurrency;
 
+        // The settings row is the company's profile (ADR-07); the company name follows it. This is the single edit point.
+        var company = await db.Companies.SingleAsync(c => c.Id == companyId, ct);
+        company.Name = settings.BusinessName;
+
         await db.SaveChangesAsync(ct);
         return Ok(ToDto(settings));
     }
 
     private static BusinessSettingsDto ToDto(Domain.Entities.BusinessSettings s) =>
-        new(s.Id, s.BusinessName, s.AddressLine, s.City, s.State, s.Gstin, s.Phone, s.Email, s.InvoicePrefix, s.BaseCurrencyId, s.BaseCurrency.Code, s.BaseCurrency.Symbol);
+        new(s.Id, s.BusinessName, s.AddressLine, s.City, s.State, s.Gstin, s.Phone, s.Email, s.InvoicePrefix, s.BaseCurrencyId, s.BaseCurrency.Code, s.BaseCurrency.Symbol, s.CompanyId);
 }

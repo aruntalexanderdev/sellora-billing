@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>
@@ -8,8 +10,10 @@ namespace Sellora.Domain.Entities;
 /// <see cref="InnerProductUnitId"/>, <see cref="InnerQuantity"/> and <see cref="ConversionFactorToBase"/>:
 /// deactivate it and add a new row instead.</para>
 /// </summary>
-public class ProductUnit
+public class ProductUnit : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
 
     public Guid ProductId { get; set; }

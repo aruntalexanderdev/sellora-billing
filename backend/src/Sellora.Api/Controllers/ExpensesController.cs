@@ -7,6 +7,7 @@ using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Expenses;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
@@ -58,7 +59,7 @@ public class ExpensesController(SelloraDbContext db, IExpenseService expenseServ
             .SingleOrDefaultAsync(e => e.Id == id, ct);
         if (expense is null) return NotFound();
 
-        var baseCurrency = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);
+        var baseCurrency = await db.GetBaseCurrencyAsync(ct);
         return Ok(ToDetail(expense, baseCurrency));
     }
 

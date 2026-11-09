@@ -51,6 +51,7 @@ public class AccessManagementRulesTests
         var managerUser = UserIn(manager, "manager");
         var cashierUser = UserIn(cashier, "cashier");
         db.AddRange(admin, manager, cashier, adminUser, managerUser, cashierUser);
+        db.UserCompanyMemberships.AddRange(new[] { adminUser, managerUser, cashierUser }.Select(u => TestCompany.MembershipFor(u)));
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
         return new Fixture(db, admin, manager, cashier, adminUser, managerUser, cashierUser);
@@ -176,6 +177,7 @@ public class AccessManagementRulesTests
         var f = await SeedAsync();
         var second = UserIn(f.Admin, "admin2");
         f.Db.Users.Add(second);
+        f.Db.UserCompanyMemberships.Add(TestCompany.MembershipFor(second));
         await f.Db.SaveChangesAsync();
 
         var disable = await Users(f, f.AdminUser).SetStatus(second.Id, new SetUserStatusRequest(UserStatus.Disabled), default);
@@ -205,6 +207,7 @@ public class AccessManagementRulesTests
         var create = await Users(f, f.ManagerUser).Create(NewUser(f.Cashier.Id), default);
         var target = UserIn(f.Manager, "colleague");
         f.Db.Users.Add(target);
+        f.Db.UserCompanyMemberships.Add(TestCompany.MembershipFor(target));
         await f.Db.SaveChangesAsync();
         var update = await Users(f, f.ManagerUser).Update(target.Id, Edit(target, f.Cashier.Id), default);
 
@@ -235,6 +238,7 @@ public class AccessManagementRulesTests
         var second = UserIn(f.Admin, "admin2");
         second.Status = UserStatus.Disabled;
         f.Db.Users.Add(second);
+        f.Db.UserCompanyMemberships.Add(TestCompany.MembershipFor(second));
         await f.Db.SaveChangesAsync();
 
         var demote = await Users(f, second).Update(f.AdminUser.Id, Edit(f.AdminUser, f.Cashier.Id), default);
@@ -242,6 +246,25 @@ public class AccessManagementRulesTests
 
         Assert.Equal("Only Administrators can change Administrator accounts.", Title(demote.Result, 403));
         Assert.Equal("You can only grant permissions you hold yourself. Not held: Sales.View.", FieldError(role.Result, "PermissionCodes"));
+    }
+
+    [Fact]
+    public async Task UserWhoAlsoBelongsToAnotherCompany_CannotBeEditedDisabledOrReset_FromThisCompany()
+    {
+        var f = await SeedAsync();
+        f.Db.UserCompanyMemberships.Add(TestCompany.MembershipFor(f.CashierUser, TestCompany.OtherId));
+        await f.Db.SaveChangesAsync();
+        const string shared = "This user also belongs to another company and cannot be changed from here.";
+
+        var edit = await Users(f, f.AdminUser).Update(f.CashierUser.Id, Edit(f.CashierUser, f.Cashier.Id) with { Email = "x@evil.test" }, default);
+        var disable = await Users(f, f.AdminUser).SetStatus(f.CashierUser.Id, new SetUserStatusRequest(UserStatus.Disabled), default);
+        var reset = await Users(f, f.AdminUser).ResetPassword(f.CashierUser.Id, default);
+
+        Assert.Equal(shared, Title(edit.Result, 403));
+        Assert.Equal(shared, Title(disable, 403));
+        Assert.Equal(shared, Title(reset.Result, 403));
+        var cashier = await f.Db.Users.AsNoTracking().SingleAsync(u => u.Id == f.CashierUser.Id);
+        Assert.Equal((UserStatus.Active, "cashier@selloramart.in", "x"), (cashier.Status, cashier.Email, cashier.PasswordHash));
     }
 
     // ---- H2: own role / last Administrator ----
@@ -289,6 +312,7 @@ public class AccessManagementRulesTests
         var legacy = new Role { Id = Guid.NewGuid(), Name = "Legacy", IsActive = false };
         var legacyUser = UserIn(legacy, "legacy");
         f.Db.AddRange(legacy, legacyUser);
+        f.Db.UserCompanyMemberships.Add(TestCompany.MembershipFor(legacyUser));
         await f.Db.SaveChangesAsync();
 
         var assign = await Users(f, f.AdminUser).Update(f.CashierUser.Id, Edit(f.CashierUser, legacy.Id), default);

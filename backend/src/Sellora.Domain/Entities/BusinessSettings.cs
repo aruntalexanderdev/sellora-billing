@@ -1,8 +1,12 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>Singleton row — one business identity per deployment, required for invoices (docx §8.5).</summary>
-public class BusinessSettings
+public class BusinessSettings : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
     public required string BusinessName { get; set; }
     public string? AddressLine { get; set; }

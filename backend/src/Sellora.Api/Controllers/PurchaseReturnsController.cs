@@ -8,6 +8,7 @@ using Sellora.Domain.Entities;
 using Sellora.Domain.Payments;
 using Sellora.Domain.Purchasing;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
@@ -64,7 +65,7 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
 
         var refunds = await db.PurchasePayments.Include(p => p.CreatedByUser).Include(p => p.PurchaseReturn)
             .Where(p => p.PurchaseReturnId == id && p.Kind == PaymentEntryKind.Refund).OrderBy(p => p.CreatedAt).ToListAsync(ct);
-        var baseCurrency = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);
+        var baseCurrency = await db.GetBaseCurrencyAsync(ct);
         var currency = r.PurchaseOrder.Currency;
 
         return Ok(new PurchaseReturnDetailDto(

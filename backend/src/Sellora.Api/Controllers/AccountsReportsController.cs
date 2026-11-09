@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
@@ -383,7 +384,7 @@ public class AccountsReportsController(SelloraDbContext db) : ControllerBase
 
     private async Task<BaseCurrencyDto> BaseCurrencyAsync(CancellationToken ct)
     {
-        var c = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);
+        var c = await db.GetBaseCurrencyAsync(ct);
         return new BaseCurrencyDto(c.Code, c.Symbol, c.DecimalPrecision);
     }
 }

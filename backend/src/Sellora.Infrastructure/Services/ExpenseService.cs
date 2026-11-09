@@ -37,17 +37,17 @@ public class ExpenseService(SelloraDbContext db, IExchangeRateService exchangeRa
         await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, ct);
 
         var rate = await exchangeRateService.ResolveRateToBaseAsync(currency.Id, input.ExpenseDate, ct);
-        var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+        var basePrecision = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyDecimalPrecision;
         var baseAmount = rate == 1m ? amount : Math.Round(amount * rate, basePrecision, MidpointRounding.AwayFromZero);
 
-        // The number is a row count, so concurrent creates must be serialised like every other document series.
+        // The counter row lock (DocumentNumbers) serialises concurrent creates like every other document series.
         await using var transaction = await StockLocks.BeginAsync(db, ct);
-        await StockLocks.LockDocumentNumberAsync(db, "EXP", ct);
+        var expenseNo = $"EXP-{await DocumentNumbers.NextAsync(db, DocumentSeries.Expense, ct):D4}";
 
         var expense = new Expense
         {
             Id = Guid.NewGuid(),
-            ExpenseNo = $"EXP-{await db.Expenses.CountAsync(ct) + 1:D4}",
+            ExpenseNo = expenseNo,
             CategoryId = category.Id,
             ExpenseDate = input.ExpenseDate,
             CurrencyId = currency.Id,

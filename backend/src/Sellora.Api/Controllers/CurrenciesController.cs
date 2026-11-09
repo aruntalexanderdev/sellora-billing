@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
@@ -80,7 +81,9 @@ public class CurrenciesController(SelloraDbContext db) : ControllerBase
         var currency = await db.Currencies.SingleOrDefaultAsync(c => c.Id == id, ct);
         if (currency is null) return NotFound();
 
-        if (!request.IsActive && await db.BusinessSettings.AnyAsync(s => s.BaseCurrencyId == id, ct))
+        // Platform check, documented IgnoreQueryFilters bypass: a currency that is ANY company's base currency cannot be
+        // deactivated, so this must see every company's settings, not just the current one.
+        if (!request.IsActive && await db.BusinessSettings.IgnoreQueryFilters([CompanyQueryFilter.Name]).AnyAsync(s => s.BaseCurrencyId == id, ct))
         {
             return Problem(statusCode: 400, title: "The business base currency cannot be deactivated. Choose a different base currency in Business Settings first.");
         }
@@ -90,7 +93,7 @@ public class CurrenciesController(SelloraDbContext db) : ControllerBase
         return NoContent();
     }
 
-    private Task<Guid> BaseCurrencyIdAsync(CancellationToken ct) => db.BusinessSettings.Select(s => s.BaseCurrencyId).SingleAsync(ct);
+    private async Task<Guid> BaseCurrencyIdAsync(CancellationToken ct) => (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyId;
 
     private static CurrencyDto ToDto(Currency c, bool isBase) => new(c.Id, c.Code, c.Name, c.Symbol, c.DecimalPrecision, c.IsActive, isBase);
 }

@@ -26,7 +26,7 @@ public record UpsertTaxRequest(
 public record BusinessSettingsDto(
     Guid Id, string BusinessName, string? AddressLine, string? City, string? State,
     string? Gstin, string? Phone, string? Email, string InvoicePrefix,
-    Guid BaseCurrencyId, string BaseCurrencyCode, string BaseCurrencySymbol
+    Guid BaseCurrencyId, string BaseCurrencyCode, string BaseCurrencySymbol, Guid CompanyId
 );
 
 public record UpdateBusinessSettingsRequest(

@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>
@@ -7,8 +9,10 @@ namespace Sellora.Domain.Entities;
 /// Values are in the business base currency; <see cref="OriginalTotal"/> is the same credit in the purchase's
 /// own currency.
 /// </summary>
-public class PurchaseReturn
+public class PurchaseReturn : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
     public required string ReturnNo { get; set; }
 

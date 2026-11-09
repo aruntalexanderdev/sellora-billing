@@ -45,6 +45,7 @@ public class AccessManagementConcurrencyTests(PostgresFixture postgres)
         var a = Admin(admin, "race-a");
         var b = Admin(admin, "race-b");
         db.AddRange(other, a, b);
+        db.UserCompanyMemberships.AddRange(Sellora.IntegrationTests.TestData.TestCompany.MembershipFor(a), Sellora.IntegrationTests.TestData.TestCompany.MembershipFor(b));
         await db.SaveChangesAsync();
         return new Seed(admin.Id, other.Id, a, b);
     }

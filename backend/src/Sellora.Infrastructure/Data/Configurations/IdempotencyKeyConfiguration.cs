@@ -11,6 +11,6 @@ public class IdempotencyKeyConfiguration : IEntityTypeConfiguration<IdempotencyK
         builder.HasKey(k => k.Id);
         builder.Property(k => k.Scope).HasMaxLength(30).IsRequired();
         builder.Property(k => k.Key).HasMaxLength(100).IsRequired();
-        builder.HasIndex(k => new { k.UserId, k.Scope, k.Key }).IsUnique();
+        builder.HasIndex(k => new { k.CompanyId, k.UserId, k.Scope, k.Key }, "IX_IdempotencyKeys_CompanyId_UserId_Scope_Key").IsUnique();
     }
 }

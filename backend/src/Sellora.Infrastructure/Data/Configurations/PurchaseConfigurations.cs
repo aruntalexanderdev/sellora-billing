@@ -32,9 +32,13 @@ public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder
         builder.Ignore(p => p.DueAmount);
         builder.Ignore(p => p.PaymentStatus);
 
-        builder.HasIndex(p => p.PurchaseNo).IsUnique();
+        builder.HasAlternateKey(p => new { p.CompanyId, p.Id });
+        builder.HasIndex(p => new { p.CompanyId, p.PurchaseNo }, "IX_PurchaseOrders_CompanyId_PurchaseNo").IsUnique();
 
         builder.HasOne(p => p.Supplier).WithMany().HasForeignKey(p => p.SupplierId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantee: the supplier belongs to the purchase's company.
+        builder.HasOne<Supplier>().WithMany().HasForeignKey(p => new { p.CompanyId, p.SupplierId })
+            .HasPrincipalKey(s => new { s.CompanyId, s.Id }).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(p => p.Currency).WithMany().HasForeignKey(p => p.CurrencyId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(p => p.CreatedByUser).WithMany().HasForeignKey(p => p.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<User>().WithMany().HasForeignKey(p => p.CancelledByUserId).OnDelete(DeleteBehavior.Restrict);
@@ -86,10 +90,13 @@ public class PurchaseReturnConfiguration : IEntityTypeConfiguration<PurchaseRetu
         builder.Property(r => r.OriginalTotal).HasColumnType("numeric(18,4)");
 
         builder.ToTable(t => t.HasCheckConstraint("CK_PurchaseReturns_Total_Positive", "\"Total\" >= 0"));
-        builder.HasIndex(r => r.ReturnNo).IsUnique();
+        builder.HasIndex(r => new { r.CompanyId, r.ReturnNo }, "IX_PurchaseReturns_CompanyId_ReturnNo").IsUnique();
         builder.HasIndex(r => new { r.PurchaseOrderId, r.CreatedAt });
 
         builder.HasOne(r => r.PurchaseOrder).WithMany(o => o.Returns).HasForeignKey(r => r.PurchaseOrderId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantee: a return and its purchase share the company.
+        builder.HasOne<PurchaseOrder>().WithMany().HasForeignKey(r => new { r.CompanyId, r.PurchaseOrderId })
+            .HasPrincipalKey(o => new { o.CompanyId, o.Id }).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(r => r.CreatedByUser).WithMany().HasForeignKey(r => r.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
     }
 }
@@ -176,6 +183,7 @@ public class PurchaseBatchConfiguration : IEntityTypeConfiguration<PurchaseBatch
     public void Configure(EntityTypeBuilder<PurchaseBatch> builder)
     {
         builder.HasKey(b => b.Id);
+        builder.HasAlternateKey(b => new { b.CompanyId, b.Id });
         builder.Property(b => b.PurchasedBaseQty).HasColumnType("numeric(18,3)");
         builder.Property(b => b.RemainingBaseQty).HasColumnType("numeric(18,3)");
         builder.Property(b => b.UnitCost).HasColumnType("numeric(18,6)");
@@ -188,6 +196,9 @@ public class PurchaseBatchConfiguration : IEntityTypeConfiguration<PurchaseBatch
         builder.HasOne(b => b.PurchaseOrderLine).WithOne(l => l.Batch).HasForeignKey<PurchaseBatch>(b => b.PurchaseOrderLineId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(b => b.StockAdjustment).WithOne(a => a.Batch).HasForeignKey<PurchaseBatch>(b => b.StockAdjustmentId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(b => b.Product).WithMany().HasForeignKey(b => b.ProductId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantee: a batch and its product share the company.
+        builder.HasOne<Product>().WithMany().HasForeignKey(b => new { b.CompanyId, b.ProductId })
+            .HasPrincipalKey(p => new { p.CompanyId, p.Id }).OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(b => new { b.ProductId, b.CreatedAt });
         builder.HasIndex(b => b.BatchSequence).IsUnique();

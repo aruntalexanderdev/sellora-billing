@@ -18,6 +18,9 @@ public class BusinessSettingsConfiguration : IEntityTypeConfiguration<BusinessSe
         builder.Property(s => s.Phone).HasMaxLength(30);
         builder.Property(s => s.Email).HasMaxLength(200);
 
+        // One profile per company (1:1 with Companies, ADR-07).
+        builder.HasIndex(s => s.CompanyId, "IX_BusinessSettings_CompanyId").IsUnique();
+
         builder.HasOne(s => s.BaseCurrency).WithMany().HasForeignKey(s => s.BaseCurrencyId).OnDelete(DeleteBehavior.Restrict);
     }
 }

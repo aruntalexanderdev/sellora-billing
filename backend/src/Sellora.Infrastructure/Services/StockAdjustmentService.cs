@@ -201,8 +201,6 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
 
     private async Task<string> NextAdjustmentNoAsync(CancellationToken ct)
     {
-        await StockLocks.LockDocumentNumberAsync(db, "ADJ", ct);
-        var count = await db.StockAdjustments.CountAsync(ct);
-        return $"ADJ-{count + 1:D4}";
+        return $"ADJ-{await DocumentNumbers.NextAsync(db, DocumentSeries.StockAdjustment, ct):D4}";
     }
 }

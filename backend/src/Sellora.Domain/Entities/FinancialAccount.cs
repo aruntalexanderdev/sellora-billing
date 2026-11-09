@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 public enum FinancialAccountKind
@@ -12,8 +14,10 @@ public enum FinancialAccountKind
 /// no stored balance: it is the sum of its active financial transactions (an opening balance is just the
 /// first one), so it can never drift from the ledger. Accounts are deactivated, never deleted.
 /// </summary>
-public class FinancialAccount
+public class FinancialAccount : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
     public required string Name { get; set; }
     public FinancialAccountKind Kind { get; set; }

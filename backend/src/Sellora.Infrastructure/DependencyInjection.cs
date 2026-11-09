@@ -15,6 +15,9 @@ public static class DependencyInjection
         var connectionString = configuration.GetConnectionString("SelloraDb")
             ?? throw new InvalidOperationException("Connection string 'SelloraDb' is not configured.");
 
+        // One company context per scope (request / seeder scope); SelloraDbContext resolves it as ICompanyContext.
+        services.AddScoped<CompanyContext>();
+        services.AddScoped<ICompanyContext>(sp => sp.GetRequiredService<CompanyContext>());
         services.AddDbContext<SelloraDbContext>(options => options.UseNpgsql(connectionString));
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));

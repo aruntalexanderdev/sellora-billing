@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>
@@ -8,8 +10,10 @@ namespace Sellora.Domain.Entities;
 /// the exchange rate is resolved for the expense date and snapshotted, so the base-currency amount never
 /// changes when rates are later edited.
 /// </summary>
-public class Expense
+public class Expense : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
     public required string ExpenseNo { get; set; }
 

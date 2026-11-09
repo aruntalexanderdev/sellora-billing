@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>
@@ -6,8 +8,10 @@ namespace Sellora.Domain.Entities;
 /// themselves (PurchaseOrder.ExchangeRateToBase) at save time, so editing or adding rows here never
 /// changes an already-saved transaction.
 /// </summary>
-public class ExchangeRate
+public class ExchangeRate : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
 
     public Guid CurrencyId { get; set; }

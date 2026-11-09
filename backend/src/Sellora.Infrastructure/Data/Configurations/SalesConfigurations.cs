@@ -23,9 +23,13 @@ public class SalesInvoiceConfiguration : IEntityTypeConfiguration<SalesInvoice>
         builder.Ignore(i => i.RefundableAmount);
         builder.Ignore(i => i.PaymentStatus);
 
-        builder.HasIndex(i => i.InvoiceNo).IsUnique();
+        builder.HasAlternateKey(i => new { i.CompanyId, i.Id });
+        builder.HasIndex(i => new { i.CompanyId, i.InvoiceNo }, "IX_SalesInvoices_CompanyId_InvoiceNo").IsUnique();
 
         builder.HasOne(i => i.Customer).WithMany().HasForeignKey(i => i.CustomerId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantee: the customer belongs to the invoice's company.
+        builder.HasOne<Customer>().WithMany().HasForeignKey(i => new { i.CompanyId, i.CustomerId })
+            .HasPrincipalKey(c => new { c.CompanyId, c.Id }).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(i => i.CreatedByUser).WithMany().HasForeignKey(i => i.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<User>().WithMany().HasForeignKey(i => i.CancelledByUserId).OnDelete(DeleteBehavior.Restrict);
     }
@@ -75,10 +79,13 @@ public class SalesReturnConfiguration : IEntityTypeConfiguration<SalesReturn>
         }
 
         builder.ToTable(t => t.HasCheckConstraint("CK_SalesReturns_Total_Positive", "\"Total\" >= 0"));
-        builder.HasIndex(r => r.ReturnNo).IsUnique();
+        builder.HasIndex(r => new { r.CompanyId, r.ReturnNo }, "IX_SalesReturns_CompanyId_ReturnNo").IsUnique();
         builder.HasIndex(r => new { r.SalesInvoiceId, r.CreatedAt });
 
         builder.HasOne(r => r.SalesInvoice).WithMany(i => i.Returns).HasForeignKey(r => r.SalesInvoiceId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantee: a return and its invoice share the company.
+        builder.HasOne<SalesInvoice>().WithMany().HasForeignKey(r => new { r.CompanyId, r.SalesInvoiceId })
+            .HasPrincipalKey(i => new { i.CompanyId, i.Id }).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(r => r.CreatedByUser).WithMany().HasForeignKey(r => r.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
     }
 }

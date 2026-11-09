@@ -7,6 +7,7 @@ using Microsoft.OpenApi;
 using Sellora.Api.Authorization;
 using Sellora.Api.ErrorHandling;
 using Sellora.Domain.Abstractions;
+using Sellora.Domain.Companies;
 using Sellora.Infrastructure;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Security;
@@ -99,6 +100,8 @@ if (applyMigrationsOnStartup)
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<SelloraDbContext>();
     var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+    // Seed data always belongs to the default company (ADR-11).
+    scope.ServiceProvider.GetRequiredService<CompanyContext>().Set(DefaultTenant.CompanyId);
     await db.Database.MigrateAsync();
     await DbSeeder.SeedAsync(db, hasher);
 }
@@ -132,6 +135,7 @@ app.UseCors(AngularDevCorsPolicy);
 app.UseHttpsRedirection();
 
 app.UseAuthentication();
+app.UseMiddleware<CompanyContextMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
@@ -143,3 +147,6 @@ app.MapGet("/health", async (SelloraDbContext db) =>
 });
 
 app.Run();
+
+/// <summary>Exposes the entry point to WebApplicationFactory in integration tests.</summary>
+public partial class Program;

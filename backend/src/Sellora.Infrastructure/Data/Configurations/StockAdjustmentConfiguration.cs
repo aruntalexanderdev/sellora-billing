@@ -22,10 +22,13 @@ public class StockAdjustmentConfiguration : IEntityTypeConfiguration<StockAdjust
         builder.Property(a => a.AfterQty).HasColumnType("numeric(18,3)");
         builder.Property(a => a.Reason).HasMaxLength(300);
 
-        builder.HasIndex(a => a.AdjustmentNo).IsUnique();
+        builder.HasIndex(a => new { a.CompanyId, a.AdjustmentNo }, "IX_StockAdjustments_CompanyId_AdjustmentNo").IsUnique();
         builder.HasIndex(a => a.CreatedAt);
 
         builder.HasOne(a => a.Product).WithMany().HasForeignKey(a => a.ProductId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantee: the adjusted product belongs to the adjustment's company.
+        builder.HasOne<Product>().WithMany().HasForeignKey(a => new { a.CompanyId, a.ProductId })
+            .HasPrincipalKey(p => new { p.CompanyId, p.Id }).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(a => a.User).WithMany().HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.Restrict);
         // (ProductId, ProductUnitId) -> ProductUnits (ProductId, Id) via AK_ProductUnits_ProductId_Id: the entered unit
         // must belong to the adjusted product. Required, so the overlapping-FK null hazard does not apply.

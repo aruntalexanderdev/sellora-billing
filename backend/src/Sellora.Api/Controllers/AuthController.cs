@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Auth;
+using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
 
 namespace Sellora.Api.Controllers;
@@ -24,6 +25,7 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
             var (status, code, message) = result.FailureReason switch
             {
                 LoginFailureReason.AccountDisabled => (403, "account_disabled", "Your account has been disabled. Contact an administrator."),
+                LoginFailureReason.NoCompanyAccess => (403, "no_company_access", "Your account is not a member of any active company. Contact an administrator."),
                 _ => (401, "invalid_credentials", "Invalid username/email or password."),
             };
             return Problem(statusCode: status, title: message, extensions: new Dictionary<string, object?> { ["code"] = code });
@@ -41,6 +43,28 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
         {
             return Problem(statusCode: 401, title: "The session has expired. Please sign in again.",
                 extensions: new Dictionary<string, object?> { ["code"] = "invalid_refresh_token" });
+        }
+
+        return Ok(AuthResponse.From(result.Auth!));
+    }
+
+    /// <summary>Re-issues the session for another company the caller is an active member of. A company that does not exist
+    /// and one the caller is not a member of yield the same 403 (no existence leak).</summary>
+    [HttpPost("switch-company")]
+    [Authorize]
+    public async Task<IActionResult> SwitchCompany(SwitchCompanyRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
+        var result = await authService.SwitchCompanyAsync(userId, request.CompanyId, request.RefreshToken, ct);
+        if (!result.Succeeded)
+        {
+            return result.FailureReason == SwitchCompanyFailureReason.CompanyAccessDenied
+                ? Problem(statusCode: 403, title: "You do not have access to this company.",
+                    extensions: new Dictionary<string, object?> { ["code"] = "company_access_denied" })
+                : Problem(statusCode: 401, title: "The session has expired. Please sign in again.",
+                    extensions: new Dictionary<string, object?> { ["code"] = "invalid_refresh_token" });
         }
 
         return Ok(AuthResponse.From(result.Auth!));
@@ -66,7 +90,19 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
         if (user is null) return NotFound();
 
         var permissions = PermissionResolver.Resolve(user.Role);
-        var summary = new AuthenticatedUserSummary(user.Id, user.FirstName, user.LastName, user.Username, user.Email, user.Role.Name, permissions);
-        return Ok(UserSummaryDto.From(summary));
+        // The middleware validated the claim and set the context; the current company is whatever the token is bound to.
+        var currentCompanyId = db.CompanyContext.RequireCompanyId();
+        var companies = await db.UserCompanyMemberships
+            .Where(m => m.UserId == userId && m.Status == MembershipStatus.Active && m.Company.IsActive)
+            .OrderBy(m => m.Company.Name).ThenBy(m => m.CompanyId)
+            .Select(m => new CompanyOptionDto(m.CompanyId, m.Company.Name))
+            .ToArrayAsync(ct);
+        var current = companies.SingleOrDefault(c => c.Id == currentCompanyId);
+        if (current is null) return NotFound();
+
+        var summary = UserSummaryDto.From(new AuthenticatedUserSummary(
+            user.Id, user.FirstName, user.LastName, user.Username, user.Email, user.Role.Name, permissions, current.Id, current.Name));
+        return Ok(new MeResponse(summary.Id, summary.FirstName, summary.LastName, summary.Username, summary.Email,
+            summary.RoleName, summary.Permissions, summary.CompanyId, summary.CompanyName, companies));
     }
 }

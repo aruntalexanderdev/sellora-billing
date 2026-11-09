@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 public enum FinancialTransactionType
@@ -39,8 +41,10 @@ public enum FinancialTransactionStatus
 /// sales payments and expenses keep their own source-specific rows, and this points back to exactly one of
 /// them. Amounts are always positive; <see cref="Direction"/> says whether money came in or went out.
 /// </summary>
-public class FinancialTransaction
+public class FinancialTransaction : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
 
     public FinancialTransactionType Type { get; set; }

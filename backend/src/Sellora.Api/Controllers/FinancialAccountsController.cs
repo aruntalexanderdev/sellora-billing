@@ -7,6 +7,7 @@ using Sellora.Domain.Abstractions;
 using Sellora.Domain.Accounts;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
@@ -30,7 +31,7 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
         var balances = await BalancesAsync(null, ct);
 
         var items = accounts.Select(a => ToDto(a, balances.GetValueOrDefault(a.Id))).ToList();
-        var baseCurrency = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);
+        var baseCurrency = await db.GetBaseCurrencyAsync(ct);
         return Ok(new FinancialAccountListDto(
             items,
             items.Where(a => a.Kind == FinancialAccountKind.Cash).Sum(a => a.Balance),

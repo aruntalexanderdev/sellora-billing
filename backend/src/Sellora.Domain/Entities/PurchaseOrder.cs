@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>
@@ -5,8 +7,10 @@ namespace Sellora.Domain.Entities;
 /// atomically writes its lines, a batch per line, a stock movement per line, and updates the
 /// product's StockItem — all in one DB transaction.
 /// </summary>
-public class PurchaseOrder
+public class PurchaseOrder : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
     public required string PurchaseNo { get; set; }
 

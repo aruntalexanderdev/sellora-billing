@@ -346,6 +346,9 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
             Assert.Equal(db.Database.GetMigrations().Where(m => string.CompareOrdinal(m, AddStockAdjustmentUnitSnapshots) > 0),
                 await db.Database.GetPendingMigrationsAsync());
             Assert.False(db.Database.HasPendingModelChanges());
+            // Multi-company: the head model's CompanyId filters read columns added by later migrations, so bring the schema to head
+            // before the EF-model assertions below (the data assertions themselves are unchanged).
+            await db.Database.MigrateAsync();
         }
         await AssertBackfilledAsync(database);
         await AssertVBlockEmptyAsync(database, v1);

@@ -155,7 +155,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
     private async Task<SalesInvoice?> LockInvoiceAsync(Guid salesInvoiceId, CancellationToken ct) =>
         db.Database.IsRelational()
             ? await db.SalesInvoices
-                .FromSqlInterpolated($"SELECT * FROM \"SalesInvoices\" WHERE \"Id\" = {salesInvoiceId} FOR UPDATE")
+                .FromSqlInterpolated($"SELECT * FROM \"SalesInvoices\" WHERE \"CompanyId\" = {db.CompanyContext.RequireCompanyId()} AND \"Id\" = {salesInvoiceId} FOR UPDATE")
                 .SingleOrDefaultAsync(ct)
             : await db.SalesInvoices.SingleOrDefaultAsync(i => i.Id == salesInvoiceId, ct);
 
@@ -188,7 +188,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         db.SalesPayments.Add(payment);
 
         // Sales are billed in the base currency, so the money moved is in the base currency too.
-        var baseCurrencyId = await db.BusinessSettings.Select(s => s.BaseCurrencyId).SingleAsync(ct);
+        var baseCurrencyId = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyId;
         db.FinancialTransactions.Add(FinancialTransaction.ForSalesPayment(payment, baseCurrencyId, accountId));
         return payment;
     }
@@ -311,7 +311,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
             .Where(r => r.SalesInvoiceLine.SalesInvoiceId == invoice.Id).ToListAsync(ct);
         var productUnits = await db.ProductUnits.Include(u => u.Unit)
             .Where(u => lineProductIds.Contains(u.ProductId)).ToListAsync(ct);
-        var precision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+        var precision = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyDecimalPrecision;
 
         var salesReturn = new SalesReturn
         {
@@ -504,17 +504,13 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
     private async Task<string> NextReturnNoAsync(CancellationToken ct)
     {
-        await StockLocks.LockDocumentNumberAsync(db, "SRT", ct);
-        return $"SRT-{await db.SalesReturns.CountAsync(ct) + 1:D4}";
+        return $"SRT-{await DocumentNumbers.NextAsync(db, DocumentSeries.SalesReturn, ct):D4}";
     }
 
     private async Task<string> NextInvoiceNoAsync(CancellationToken ct)
     {
-        await StockLocks.LockDocumentNumberAsync(db, "INV", ct);
-        var settings = await db.BusinessSettings.FirstOrDefaultAsync(ct);
-        var prefix = settings?.InvoicePrefix ?? "INV";
-        var count = await db.SalesInvoices.CountAsync(ct);
-        return $"{prefix}-{count + 1:D4}";
+        var prefix = (await db.GetCurrentCompanySettingsAsync(ct)).InvoicePrefix;
+        return $"{prefix}-{await DocumentNumbers.NextAsync(db, DocumentSeries.Invoice, ct):D4}";
     }
 
     private async Task<SalesInvoiceLine> BuildLineAsync(SalesInvoice invoice, SaleLineInput input, bool canOverridePrice, CancellationToken ct)

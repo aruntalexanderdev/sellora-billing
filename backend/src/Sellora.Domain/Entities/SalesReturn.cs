@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>
@@ -6,8 +8,10 @@ namespace Sellora.Domain.Entities;
 /// returned goods (tax included), so any amount already paid above that becomes refundable.
 /// A return is permanent — mistakes are corrected with a new document, never by editing history.
 /// </summary>
-public class SalesReturn
+public class SalesReturn : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
     public required string ReturnNo { get; set; }
 

@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>
@@ -5,8 +7,10 @@ namespace Sellora.Domain.Entities;
 /// atomically writes its lines, consumes purchase batches FIFO for real COGS, writes a stock
 /// movement per line, and decrements each product's StockItem — all in one DB transaction.
 /// </summary>
-public class SalesInvoice
+public class SalesInvoice : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
     public required string InvoiceNo { get; set; }
 

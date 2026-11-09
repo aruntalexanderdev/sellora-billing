@@ -93,7 +93,7 @@ public class FirstStockConcurrencyTests(PostgresFixture postgres)
         var (a, b) = Pair(pair);
 
         await using var race = await LockRace.BeginAsync(database, gate => gate.Database.ExecuteSqlInterpolatedAsync(
-            $"""INSERT INTO "StockItems" ("ProductId", "QuantityOnHand", "AverageCost") VALUES ({seed.PenId}, 0, 0)"""));
+            $"""INSERT INTO "StockItems" ("CompanyId", "ProductId", "QuantityOnHand", "AverageCost") VALUES ({Sellora.Domain.Companies.DefaultTenant.CompanyId}, {seed.PenId}, 0, 0)"""));
         var writerA = await race.StartAsync(a.Name, db => a.Run(db, seed));
         await race.WaitBlockedAsync(writerA, StockItemsInsert, "Writer A did not wait on the gate's uncommitted StockItems row:");
         var writerB = await race.StartAsync(b.Name, db => b.Run(db, seed));

@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>
@@ -6,8 +8,10 @@ namespace Sellora.Domain.Entities;
 /// recomputed from scratch on read. AverageCost is a moving average for display only; actual COGS on
 /// sale uses FIFO batch consumption (Phase 6), which is a separate, more precise figure.
 /// </summary>
-public class StockItem
+public class StockItem : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = null!;
 

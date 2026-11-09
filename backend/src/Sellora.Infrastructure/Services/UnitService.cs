@@ -95,15 +95,18 @@ public class UnitService(SelloraDbContext db) : IUnitService
         return unit;
     }
 
+    // Units are a platform table shared by every company, so "in use" must look at ALL companies' products and product
+    // units: this is one of the three documented IgnoreQueryFilters bypasses (with UnitsController.Project and
+    // CurrenciesController.SetActive). Only existence flags leave this method, never another company's data.
     /// <inheritdoc />
     public async Task<bool> IsInUseAsync(Guid id, CancellationToken ct = default) =>
-        await db.Products.AnyAsync(p => p.BaseUnitId == id, ct)
-        || await db.ProductUnits.AnyAsync(u => u.UnitId == id, ct);
+        await db.Products.IgnoreQueryFilters([CompanyQueryFilter.Name]).AnyAsync(p => p.BaseUnitId == id, ct)
+        || await db.ProductUnits.IgnoreQueryFilters([CompanyQueryFilter.Name]).AnyAsync(u => u.UnitId == id, ct);
 
     /// <inheritdoc />
     public async Task<bool> IsUsedByActiveProductAsync(Guid id, CancellationToken ct = default) =>
-        await db.Products.AnyAsync(p => p.BaseUnitId == id, ct)
-        || await db.ProductUnits.AnyAsync(u => u.UnitId == id && u.IsActive, ct);
+        await db.Products.IgnoreQueryFilters([CompanyQueryFilter.Name]).AnyAsync(p => p.BaseUnitId == id, ct)
+        || await db.ProductUnits.IgnoreQueryFilters([CompanyQueryFilter.Name]).AnyAsync(u => u.UnitId == id && u.IsActive, ct);
 
     private static void ValidateShape(UpsertUnitInput input)
     {

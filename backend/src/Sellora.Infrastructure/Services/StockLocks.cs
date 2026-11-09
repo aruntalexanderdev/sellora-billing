@@ -103,7 +103,9 @@ internal static class Idempotency
 
         if (db.Database.IsRelational())
         {
-            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtext({$"sellora:idem:{userId}:{scope}:{key}"}))", ct);
+            // Company-scoped key: the same user/scope/key in two companies must not serialise (or collide).
+            var companyId = db.CompanyContext.RequireCompanyId();
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtext({$"sellora:idem:{companyId}:{userId}:{scope}:{key}"}))", ct);
         }
 
         return await db.IdempotencyKeys
@@ -125,17 +127,6 @@ internal static class StockLocks
         db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
 
     /// <summary>
-    /// Serialises generation of one kind of document number (PUR, INV, ADJ…) until the surrounding transaction
-    /// ends. Numbers are derived from a row count, so two concurrent creations would otherwise pick the same
-    /// number and one would fail on the unique index. Callers must be inside a transaction.
-    /// </summary>
-    public static async Task LockDocumentNumberAsync(SelloraDbContext db, string series, CancellationToken ct)
-    {
-        if (!db.Database.IsRelational()) return;
-        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtext({"sellora:docno:" + series}))", ct);
-    }
-
-    /// <summary>
     /// Takes FOR KEY SHARE locks on the given products (distinct, product-id order). Document creates hold this
     /// before the StockItems lock so a concurrent product-unit edit (which takes FOR UPDATE on the product) cannot
     /// change or deactivate the units a line is being built from. KEY SHARE does not conflict with other creates.
@@ -146,9 +137,10 @@ internal static class StockLocks
 
         var ids = productIds.Distinct().Order().ToArray();
         if (ids.Length == 0) return;
+        var companyId = db.CompanyContext.RequireCompanyId();
 
         await db.Database
-            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Products\" WHERE \"Id\" = ANY({ids}) ORDER BY \"Id\" FOR KEY SHARE")
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Products\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = ANY({ids}) ORDER BY \"Id\" FOR KEY SHARE")
             .ToListAsync(ct);
     }
 
@@ -160,8 +152,10 @@ internal static class StockLocks
     {
         if (!db.Database.IsRelational()) return;
 
+        var companyId = db.CompanyContext.RequireCompanyId();
+
         await db.Database
-            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Products\" WHERE \"Id\" = {productId} FOR UPDATE")
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Products\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = {productId} FOR UPDATE")
             .ToListAsync(ct);
     }
 
@@ -187,12 +181,14 @@ internal static class StockLocks
 
         if (db.Database.IsRelational())
         {
+            // Only products of the current company are inserted (another company's id is "unknown" and skipped).
+            var companyId = db.CompanyContext.RequireCompanyId();
             await db.Database.ExecuteSqlInterpolatedAsync(
-                $"INSERT INTO \"StockItems\" (\"ProductId\", \"QuantityOnHand\", \"AverageCost\") SELECT p.\"Id\", 0, 0 FROM \"Products\" p WHERE p.\"Id\" = ANY({ids}) ORDER BY p.\"Id\" ON CONFLICT (\"ProductId\") DO NOTHING",
+                $"INSERT INTO \"StockItems\" (\"ProductId\", \"CompanyId\", \"QuantityOnHand\", \"AverageCost\") SELECT p.\"Id\", p.\"CompanyId\", 0, 0 FROM \"Products\" p WHERE p.\"CompanyId\" = {companyId} AND p.\"Id\" = ANY({ids}) ORDER BY p.\"Id\" ON CONFLICT (\"ProductId\") DO NOTHING",
                 ct);
 
             var locked = await db.StockItems
-                .FromSqlInterpolated($"SELECT * FROM \"StockItems\" WHERE \"ProductId\" = ANY({ids}) ORDER BY \"ProductId\" FOR UPDATE")
+                .FromSqlInterpolated($"SELECT * FROM \"StockItems\" WHERE \"CompanyId\" = {companyId} AND \"ProductId\" = ANY({ids}) ORDER BY \"ProductId\" FOR UPDATE")
                 .ToListAsync(ct);
             return locked.ToDictionary(s => s.ProductId);
         }
@@ -233,9 +229,10 @@ internal static class StockLocks
 
         var ids = productIds.Distinct().Order().ToArray();
         if (ids.Length == 0) return;
+        var companyId = db.CompanyContext.RequireCompanyId();
 
         await db.StockItems
-            .FromSqlInterpolated($"SELECT * FROM \"StockItems\" WHERE \"ProductId\" = ANY({ids}) ORDER BY \"ProductId\" FOR UPDATE")
+            .FromSqlInterpolated($"SELECT * FROM \"StockItems\" WHERE \"CompanyId\" = {companyId} AND \"ProductId\" = ANY({ids}) ORDER BY \"ProductId\" FOR UPDATE")
             .ToListAsync(ct);
     }
 }

@@ -44,6 +44,9 @@ public class FinancialTransactionConfiguration : IEntityTypeConfiguration<Financ
         builder.HasOne(t => t.SalesPayment).WithMany().HasForeignKey(t => t.SalesPaymentId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(t => t.Expense).WithMany().HasForeignKey(t => t.ExpenseId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(t => t.Account).WithMany().HasForeignKey(t => t.AccountId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantee. Optional: MATCH SIMPLE skips the check while AccountId is NULL. Services set the scalar only.
+        builder.HasOne<FinancialAccount>().WithMany().HasForeignKey(t => new { t.CompanyId, t.AccountId })
+            .HasPrincipalKey(a => new { a.CompanyId, a.Id }).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(t => t.ReconciledByUser).WithMany().HasForeignKey(t => t.ReconciledByUserId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(t => t.CreatedByUser).WithMany().HasForeignKey(t => t.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
     }

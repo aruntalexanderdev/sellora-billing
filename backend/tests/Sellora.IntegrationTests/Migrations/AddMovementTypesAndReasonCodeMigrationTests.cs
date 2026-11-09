@@ -366,7 +366,8 @@ UPDATE "StockItems" SET "QuantityOnHand" = 6 WHERE "ProductId" = pg_temp.g(20);
         await using (var db = database.CreateDbContext())
         {
             Assert.Contains(M8, await db.Database.GetAppliedMigrationsAsync());
-            Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+            // The script targets this migration: exactly the migrations after it (the multi-company ones) remain pending.
+            Assert.Equal(db.Database.GetMigrations().Where(m => string.CompareOrdinal(m, M8) > 0), await db.Database.GetPendingMigrationsAsync());
         }
         await AssertBackfilledAsync(database);
         await AssertVBlockEmptyAsync(database, rowsBefore);

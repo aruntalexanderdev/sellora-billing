@@ -13,7 +13,7 @@ public class JwtTokenService(IOptions<JwtOptions> options) : ITokenService
 {
     private readonly JwtOptions _options = options.Value;
 
-    public (string AccessToken, DateTimeOffset ExpiresAt) CreateAccessToken(User user, IReadOnlyCollection<string> permissionCodes)
+    public (string AccessToken, DateTimeOffset ExpiresAt) CreateAccessToken(User user, Guid companyId, IReadOnlyCollection<string> permissionCodes)
     {
         var expiresAt = DateTimeOffset.UtcNow.AddMinutes(_options.AccessTokenMinutes);
 
@@ -23,6 +23,7 @@ public class JwtTokenService(IOptions<JwtOptions> options) : ITokenService
             new(ClaimTypes.Email, user.Email),
             new(ClaimTypes.Name, $"{user.FirstName} {user.LastName}"),
             new(AuthClaimTypes.RoleName, user.Role.Name),
+            new(AuthClaimTypes.CompanyId, companyId.ToString()),
         };
         claims.AddRange(permissionCodes.Select(code => new Claim(AuthClaimTypes.Permission, code)));
 

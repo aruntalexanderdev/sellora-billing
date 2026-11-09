@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>
@@ -8,8 +10,10 @@ namespace Sellora.Domain.Entities;
 /// oldest-first (FIFO) so COGS reflects actual landed cost rather than the latest purchase price
 /// (docx §12.5, §17).
 /// </summary>
-public class PurchaseBatch
+public class PurchaseBatch : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
 
     public Guid? PurchaseOrderLineId { get; set; }

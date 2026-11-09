@@ -20,6 +20,12 @@ public class StockMovementConfiguration : IEntityTypeConfiguration<StockMovement
         builder.Property(m => m.ConversionFactorSnapshot).HasColumnType("numeric(28,10)");
 
         builder.HasOne(m => m.Product).WithMany().HasForeignKey(m => m.ProductId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantees (ledger row, its product and its batch share the company).
+        builder.HasOne<Product>().WithMany().HasForeignKey(m => new { m.CompanyId, m.ProductId })
+            .HasPrincipalKey(p => new { p.CompanyId, p.Id }).OnDelete(DeleteBehavior.Restrict);
+        // Optional: MATCH SIMPLE skips the check while PurchaseBatchId is NULL. Services set the scalar only.
+        builder.HasOne<PurchaseBatch>().WithMany().HasForeignKey(m => new { m.CompanyId, m.PurchaseBatchId })
+            .HasPrincipalKey(b => new { b.CompanyId, b.Id }).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(m => m.User).WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(m => m.PurchaseBatch).WithMany().HasForeignKey(m => m.PurchaseBatchId).OnDelete(DeleteBehavior.Restrict);
@@ -60,5 +66,8 @@ public class StockItemConfiguration : IEntityTypeConfiguration<StockItem>
         builder.Property(s => s.AverageCost).HasColumnType("numeric(18,6)");
 
         builder.HasOne(s => s.Product).WithOne().HasForeignKey<StockItem>(s => s.ProductId).OnDelete(DeleteBehavior.Cascade);
+        // Same-company guarantee: the stock row and its product share the company.
+        builder.HasOne<Product>().WithMany().HasForeignKey(s => new { s.CompanyId, s.ProductId })
+            .HasPrincipalKey(p => new { p.CompanyId, p.Id }).OnDelete(DeleteBehavior.Cascade);
     }
 }

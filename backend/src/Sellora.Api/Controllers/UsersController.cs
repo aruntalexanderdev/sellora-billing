@@ -26,7 +26,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var query = db.Users.Include(u => u.Role).AsQueryable();
+        var query = CompanyUsers().Include(u => u.Role).AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -109,7 +109,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     [Authorize(Policy = "Users.View")]
     public async Task<ActionResult<UserDetailDto>> Get(Guid id, CancellationToken ct)
     {
-        var user = await db.Users.Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await CompanyUsers().Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
         return Ok(ToDetail(user));
     }
@@ -155,6 +155,16 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         };
 
         db.Users.Add(user);
+        // A user without a membership could not sign in (and would be invisible to this company): create it in the same save.
+        db.UserCompanyMemberships.Add(new UserCompanyMembership
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            CompanyId = db.CompanyContext.RequireCompanyId(),
+            Status = MembershipStatus.Active,
+            AccessScope = CompanyAccessScope.CompanyWide,
+            CreatedByUserId = Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub"), out var creatorId) ? creatorId : null,
+        });
         await db.SaveChangesAsync(ct);
         await access.CommitAsync(ct);
 
@@ -169,11 +179,12 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
-        var user = await db.Users.Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await CompanyUsers().Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         var actor = access.Actor;
         if (user.Role.IsSystem && !actor.IsAdministrator) return AdministratorAccountForbidden();
+        if (await BelongsToAnotherCompanyAsync(user.Id, ct)) return SharedAccountForbidden();
 
         if (await db.Users.AnyAsync(u => u.Id != id && u.Username.ToLower() == request.Username.Trim().ToLower(), ct))
         {
@@ -214,7 +225,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     public async Task<IActionResult> SetStatus(Guid id, SetUserStatusRequest request, CancellationToken ct)
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
-        var user = await db.Users.Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await CompanyUsers().Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         var actor = access.Actor;
@@ -223,6 +234,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
             return Problem(statusCode: 400, title: "You cannot disable your own account.");
         }
         if (user.Role.IsSystem && !actor.IsAdministrator) return AdministratorAccountForbidden();
+        if (await BelongsToAnotherCompanyAsync(user.Id, ct)) return SharedAccountForbidden();
 
         user.Status = request.Status;
         await db.SaveChangesAsync(ct);
@@ -235,11 +247,12 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     public async Task<ActionResult<ResetPasswordResponse>> ResetPassword(Guid id, CancellationToken ct)
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
-        var user = await db.Users.Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await CompanyUsers().Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         var actor = access.Actor;
         if (user.Role.IsSystem && !actor.IsAdministrator) return AdministratorAccountForbidden();
+        if (await BelongsToAnotherCompanyAsync(user.Id, ct)) return SharedAccountForbidden();
 
         var temporaryPassword = GenerateTemporaryPassword();
         user.PasswordHash = passwordHasher.Hash(temporaryPassword);
@@ -247,6 +260,14 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         await access.CommitAsync(ct);
 
         return Ok(new ResetPasswordResponse(temporaryPassword));
+    }
+
+    /// <summary>Users that have a membership (any status) in the current company. Users is a platform table, so every
+    /// action that reads or changes ANOTHER user goes through this scope (L1): other tenants' users are 404.</summary>
+    private IQueryable<User> CompanyUsers()
+    {
+        var companyId = db.CompanyContext.RequireCompanyId();
+        return db.Users.Where(u => db.UserCompanyMemberships.Any(m => m.UserId == u.Id && m.CompanyId == companyId));
     }
 
     /// <summary>
@@ -281,6 +302,20 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
             ModelState.AddModelError(field, $"You can only assign a role whose permissions you hold yourself. Not held: {string.Join(", ", notHeld)}.");
         }
     }
+
+    /// <summary>
+    /// Users is a platform table: status, role, e-mail and password are shared by every company the user belongs to.
+    /// A company may therefore only change users whose memberships are all in that company; otherwise one company
+    /// could lock out or take over the user's access to another company.
+    /// </summary>
+    private Task<bool> BelongsToAnotherCompanyAsync(Guid userId, CancellationToken ct)
+    {
+        var companyId = db.CompanyContext.RequireCompanyId();
+        return db.UserCompanyMemberships.AnyAsync(m => m.UserId == userId && m.CompanyId != companyId, ct);
+    }
+
+    private ObjectResult SharedAccountForbidden() =>
+        Problem(statusCode: 403, title: "This user also belongs to another company and cannot be changed from here.");
 
     private ObjectResult AdministratorAccountForbidden() =>
         Problem(statusCode: 403, title: "Only Administrators can change Administrator accounts.");

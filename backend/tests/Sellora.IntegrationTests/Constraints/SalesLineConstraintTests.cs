@@ -24,6 +24,7 @@ public class SalesLineConstraintTests(PostgresFixture postgres)
     private async Task<TestDatabase> SeedAsync()
     {
         var database = await postgres.CreateDatabaseAsync();
+        await Sellora.IntegrationTests.TestData.CompanyMigrations.DefaultRawInsertsToDefaultCompanyAsync(database); // raw fixture rows below name no company
         await ExecuteAsync(database, $"""
             INSERT INTO "Units" ("Id", "Name", "ShortCode", "MeasurementCategory", "DecimalPlaces", "StandardFactor", "IsActive") VALUES
               ('{UPc}', 'Piece', 'pc-t', 'Count', 0, NULL, true), ('{UBox}', 'Box', 'box-t', 'Packaging', 0, NULL, true), ('{ULitre}', 'Litre', 'l-t', 'Volume', 3, 1, true);

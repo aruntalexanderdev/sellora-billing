@@ -20,7 +20,7 @@ public class FinancialAccountServiceTests
     private static async Task<Fixture> SeedAsync()
     {
         var db = new SelloraDbContext(new DbContextOptionsBuilder<SelloraDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options, Sellora.Tests.TestData.TestCompany.Context);
 
         var role = new Role { Id = Guid.NewGuid(), Name = "Administrator", IsSystem = true };
         var user = new User

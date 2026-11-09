@@ -15,7 +15,7 @@ public class AuthServiceTests
         var options = new DbContextOptionsBuilder<SelloraDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
-        return new SelloraDbContext(options);
+        return new SelloraDbContext(options, Sellora.Tests.TestData.TestCompany.Context);
     }
 
     private static JwtTokenService NewTokenService() => new(Options.Create(new JwtOptions
@@ -46,6 +46,8 @@ public class AuthServiceTests
         };
         db.Roles.Add(role);
         db.Users.Add(user);
+        db.Companies.Add(new Company { Id = Sellora.Tests.TestData.TestCompany.DefaultId, Code = "DEFAULT", Name = "Default Company" });
+        db.UserCompanyMemberships.Add(Sellora.Tests.TestData.TestCompany.MembershipFor(user));
         await db.SaveChangesAsync();
 
         var service = new AuthService(db, hasher, NewTokenService());

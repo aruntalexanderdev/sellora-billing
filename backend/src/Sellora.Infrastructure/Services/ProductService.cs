@@ -24,7 +24,7 @@ namespace Sellora.Infrastructure.Services;
 /// </remarks>
 public class ProductService(SelloraDbContext db) : IProductService
 {
-    private const string BarcodeIndex = "IX_ProductUnits_Barcode";
+    private const string BarcodeIndex = "IX_ProductUnits_CompanyId_Barcode";
     private static readonly IReadOnlyDictionary<Guid, string> NoLocks = new Dictionary<Guid, string>();
 
     public async Task<Product> CreateProductAsync(UpsertProductInput input, CancellationToken ct = default)

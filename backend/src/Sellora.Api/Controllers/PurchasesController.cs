@@ -73,7 +73,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
 
         if (purchase is null) return NotFound();
 
-        var baseCurrency = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);
+        var baseCurrency = await db.GetBaseCurrencyAsync(ct);
         return Ok(ToDetail(purchase, baseCurrency));
     }
 

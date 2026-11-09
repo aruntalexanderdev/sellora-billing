@@ -133,8 +133,22 @@ public class StockAdjustmentConstraintTests(PostgresFixture postgres)
         var seed = await SeedAsync();
         await using var _ = seed.Database;
 
-        await AssertViolatesAsync(seed.Database, $"""DELETE FROM "ProductUnits" WHERE "Id" = '{seed.Rice.BagModeId}'""",
-            PostgresErrorCodes.ForeignKeyViolation, "FK_StockAdjustments_ProductUnits_ProductId_ProductUnitId");
+        // The bag unit is referenced by the adjustment AND by the ledger movement the adjustment wrote (EnteredProductUnitId), both
+        // ON DELETE RESTRICT. PostgreSQL reports whichever referencing FK it checks first (order is not specified and varied between
+        // runs), so either legitimate FK proves the delete is refused; anything else (e.g. a cascade or a different table) still fails.
+        string[] referencingForeignKeys =
+        [
+            "FK_StockAdjustments_ProductUnits_ProductId_ProductUnitId",
+            "FK_StockMovements_ProductUnits_ProductId_EnteredProductUnitId",
+        ];
+        await using (var connection = new NpgsqlConnection(seed.Database.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand($"""DELETE FROM "ProductUnits" WHERE "Id" = '{seed.Rice.BagModeId}'""", connection);
+            var violation = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync());
+            Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, violation.SqlState);
+            Assert.Contains(violation.ConstraintName, referencingForeignKeys);
+        }
 
         await using var check = seed.Database.CreateDbContext();
         Assert.True(await check.ProductUnits.AnyAsync(u => u.Id == seed.Rice.BagModeId));

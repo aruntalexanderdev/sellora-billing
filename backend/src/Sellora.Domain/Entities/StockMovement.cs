@@ -1,8 +1,12 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>The unified ledger — every increase and decrease to a product's stock, with its source document.</summary>
-public class StockMovement
+public class StockMovement : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
 
     public Guid ProductId { get; set; }
