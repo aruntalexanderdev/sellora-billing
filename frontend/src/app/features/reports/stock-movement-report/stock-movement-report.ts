@@ -3,6 +3,8 @@ import { UiDataTable } from '../../../shared/ui/data-table/data-table';
 import type { DataTableColumn, DataTableFilter, DataTableRow, DataTableState } from '../../../shared/ui/data-table/data-table.types';
 import { ReportsService } from '../reports.service';
 import type { StockMovementReportRow, StockMovementType } from '../reports.models';
+import { STOCK_MOVEMENT_TYPES, enteredLabel, movementTone, movementTypeLabel } from '../../../shared/units/stock-movement';
+import { formatQuantity } from '../../../shared/units/unit-conversion';
 
 const COLS: DataTableColumn[] = [
   { label: 'Date', align: 'left' },
@@ -40,7 +42,7 @@ export class StockMovementReport implements OnInit {
   readonly hasMore = computed(() => this.page() * PAGE_SIZE < this.total());
 
   readonly filters = computed<DataTableFilter[]>(() => [
-    { value: this.type(), options: [ALL, 'Purchase', 'Sale', 'Adjustment', 'SaleReturn', 'PurchaseReturn', 'SaleCancellation'], onChange: (v) => this.onTypeChange(v as 'All' | StockMovementType) },
+    { value: this.type(), options: [ALL, ...STOCK_MOVEMENT_TYPES], onChange: (v) => this.onTypeChange(v as 'All' | StockMovementType) },
   ]);
 
   readonly rows = computed<DataTableRow[]>(() =>
@@ -50,12 +52,13 @@ export class StockMovementReport implements OnInit {
         { kind: 'text', text: m.productName, sub: m.sku, weight: '600' },
         {
           kind: 'badge',
-          text: m.type,
-          tone: m.type === 'Purchase' || m.type === 'SaleReturn' || m.type === 'SaleCancellation' ? 'good' : m.type === 'Sale' || m.type === 'PurchaseReturn' ? 'info' : 'warn',
+          text: movementTypeLabel(m.type, m.reasonCode),
+          tone: movementTone(m.type),
         },
         {
           kind: 'text',
-          text: (m.quantityBaseUnits > 0 ? '+' : '') + m.quantityBaseUnits.toFixed(2) + ' ' + m.baseUnitLabel,
+          text: (m.quantityBaseUnits > 0 ? '+' : '') + formatQuantity(m.quantityBaseUnits, m.baseDecimalPlaces) + ' ' + m.baseUnitLabel,
+          sub: enteredLabel(m) ?? undefined,
           align: 'right',
           weight: '650',
           color: m.quantityBaseUnits >= 0 ? 'var(--tone-good-fg)' : 'var(--color-danger)',

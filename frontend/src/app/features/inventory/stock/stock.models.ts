@@ -1,5 +1,7 @@
 export type StockStatus = 'Normal' | 'Low' | 'OutOfStock';
-export type StockMovementType = 'Purchase' | 'Sale' | 'Adjustment' | 'SaleReturn' | 'PurchaseReturn' | 'SaleCancellation';
+import type { StockMovementType, StockReasonCode } from '../../../shared/units/stock-movement';
+
+export type { StockMovementType, StockReasonCode };
 
 export interface StockOverviewItem {
   productId: string;
@@ -24,6 +26,14 @@ export interface StockMovement {
   notes: string | null;
   purchaseBatchId: string | null;
   internalBatchNo: string | null;
+  reasonCode: StockReasonCode | null;
+  enteredQuantity: number | null;
+  enteredProductUnitId: string | null;
+  enteredUnitCode: string | null;
+  conversionFactorSnapshot: number | null;
+  enteredDecimalPlaces: number | null;
+  /** Base unit decimal places; optional until the backend sends it on stock detail. */
+  baseDecimalPlaces?: number;
 }
 
 export interface StockBatch {

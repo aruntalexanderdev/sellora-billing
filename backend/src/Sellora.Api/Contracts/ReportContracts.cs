@@ -11,7 +11,9 @@ public record CurrentStockReportRowDto(
 
 public record StockMovementReportRowDto(
     Guid Id, DateTimeOffset OccurredAt, string ProductName, string Sku, string BaseUnitLabel,
-    StockMovementType Type, decimal QuantityBaseUnits, string ReferenceType, string ReferenceNo, string UserName
+    StockMovementType Type, decimal QuantityBaseUnits, string ReferenceType, string ReferenceNo, string UserName,
+    AdjustmentType? ReasonCode, decimal? EnteredQuantity, Guid? EnteredProductUnitId, string? EnteredUnitCode,
+    decimal? ConversionFactorSnapshot, int? EnteredDecimalPlaces, int BaseDecimalPlaces
 );
 
 public record PurchaseReportRowDto(

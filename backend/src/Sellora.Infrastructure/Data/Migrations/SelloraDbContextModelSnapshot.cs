@@ -1675,6 +1675,19 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<decimal?>("ConversionFactorSnapshot")
+                        .HasColumnType("numeric(28,10)");
+
+                    b.Property<Guid?>("EnteredProductUnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("EnteredQuantity")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<string>("EnteredUnitCode")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
@@ -1690,6 +1703,10 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.Property<decimal>("QuantityBaseUnits")
                         .HasColumnType("numeric(18,3)");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<Guid>("ReferenceId")
                         .HasColumnType("uuid");
@@ -1718,9 +1735,30 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex("ProductId", "EnteredProductUnitId");
+
                     b.HasIndex("ProductId", "OccurredAt");
 
-                    b.ToTable("StockMovements");
+                    b.HasIndex("ReferenceType", "ReferenceId");
+
+                    b.ToTable("StockMovements", t =>
+                        {
+                            t.HasCheckConstraint("CK_StockMovements_EnteredQuantity_Positive", "\"EnteredQuantity\" IS NULL OR \"EnteredQuantity\" > 0");
+
+                            t.HasCheckConstraint("CK_StockMovements_EnteredQuantity_RequiresUnit", "\"EnteredQuantity\" IS NULL OR \"EnteredProductUnitId\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_StockMovements_EnteredUnit_AllOrNone", "(\"EnteredProductUnitId\" IS NULL) = (\"EnteredUnitCode\" IS NULL) AND (\"EnteredProductUnitId\" IS NULL) = (\"ConversionFactorSnapshot\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_StockMovements_Entered_Arithmetic", "\"EnteredQuantity\" IS NULL OR \"EnteredQuantity\" * \"ConversionFactorSnapshot\" = abs(\"QuantityBaseUnits\")");
+
+                            t.HasCheckConstraint("CK_StockMovements_Factor_Positive", "\"ConversionFactorSnapshot\" IS NULL OR \"ConversionFactorSnapshot\" > 0");
+
+                            t.HasCheckConstraint("CK_StockMovements_ReasonCode", "(\"Type\" NOT IN ('Adjustment', 'OpeningStock') OR \"ReasonCode\" IS NOT NULL) AND (\"Type\" <> 'OpeningStock' OR \"ReasonCode\" = 'OpeningStock') AND (\"Type\" <> 'Adjustment' OR \"ReasonCode\" <> 'OpeningStock')");
+
+                            t.HasCheckConstraint("CK_StockMovements_Type_Sign", "(\"Type\" NOT IN ('Purchase', 'SaleReturn', 'SaleCancellation', 'OpeningStock') OR \"QuantityBaseUnits\" > 0) AND (\"Type\" NOT IN ('Sale', 'PurchaseReturn', 'PurchaseCancellation') OR \"QuantityBaseUnits\" < 0)");
+
+                            t.HasCheckConstraint("CK_StockMovements_UnitCode_NotEmpty", "\"EnteredUnitCode\" IS NULL OR char_length(\"EnteredUnitCode\") > 0");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Supplier", b =>
@@ -2566,6 +2604,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.ProductUnit", "EnteredProductUnit")
+                        .WithMany()
+                        .HasForeignKey("ProductId", "EnteredProductUnitId")
+                        .HasPrincipalKey("ProductId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("EnteredProductUnit");
 
                     b.Navigation("Product");
 

@@ -11,7 +11,9 @@ public record StockOverviewItemDto(
 public record StockMovementDto(
     Guid Id, DateTimeOffset OccurredAt, StockMovementType Type, decimal QuantityBaseUnits,
     string ReferenceType, string ReferenceNo, string UserName, string? Notes,
-    Guid? PurchaseBatchId, string? InternalBatchNo
+    Guid? PurchaseBatchId, string? InternalBatchNo,
+    AdjustmentType? ReasonCode, decimal? EnteredQuantity, Guid? EnteredProductUnitId, string? EnteredUnitCode,
+    decimal? ConversionFactorSnapshot, int? EnteredDecimalPlaces, int BaseDecimalPlaces
 );
 
 public record StockBatchDto(

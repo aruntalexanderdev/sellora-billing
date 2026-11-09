@@ -245,7 +245,8 @@ public class StockAdjustmentServiceTests
         Assert.Equal(2, movements.Count);
         Assert.Equal(100m, movements[0].QuantityBaseUnits);
         Assert.Equal(-10m, movements[1].QuantityBaseUnits);
-        Assert.All(movements, m => Assert.Equal(StockMovementType.Adjustment, m.Type));
+        Assert.Equal(StockMovementType.OpeningStock, movements[0].Type);
+        Assert.Equal(StockMovementType.Adjustment, movements[1].Type);
     }
 
     // ------------------------------------------------------------------ Phase 3: adjustments entered in product units
@@ -341,7 +342,7 @@ public class StockAdjustmentServiceTests
         Assert.Equal((f.Pen.Id, 300m, 2.5m), (stock.ProductId, stock.QuantityOnHand, stock.AverageCost));
 
         var movement = await f.Db.StockMovements.AsNoTracking().SingleAsync();
-        Assert.Equal((300m, (Guid?)batch.Id, StockMovementType.Adjustment, adjustment.Id, "StockAdjustment"),
+        Assert.Equal((300m, (Guid?)batch.Id, StockMovementType.OpeningStock, adjustment.Id, "StockAdjustment"),
             (movement.QuantityBaseUnits, movement.PurchaseBatchId, movement.Type, movement.ReferenceId, movement.ReferenceType));
     }
 

@@ -494,7 +494,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
                 stockItem.AverageCost = 0;
             }
 
-            db.StockMovements.Add(new StockMovement
+            db.StockMovements.Add(MovementSnapshot.Apply(new StockMovement
             {
                 Id = Guid.NewGuid(),
                 ProductId = line.ProductId,
@@ -506,7 +506,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
                 ReferenceNo = purchaseReturn.ReturnNo,
                 UserId = userId,
                 Notes = $"Returned to supplier from {purchase.PurchaseNo}",
-            });
+            }, returnLine.ProductUnitId, returnLine.UnitCode, returnLine.ConversionFactorToBase, returnLine.Qty));
         }
 
         purchaseReturn.Total = purchaseReturn.TaxableTotal + purchaseReturn.TaxTotal;
@@ -572,6 +572,10 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             {
                 throw new DomainValidationException("Status", "Cannot cancel — stock from this purchase has already been sold.");
             }
+            if (batch.PurchasedBaseQty != line.BaseQty)
+            {
+                throw new DomainValidationException("Lines", $"Cannot cancel — the stock batch of a line on {purchase.PurchaseNo} does not match the line quantity.");
+            }
         }
 
         foreach (var line in purchase.Lines)
@@ -595,19 +599,19 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
             batch.RemainingBaseQty = 0;
 
-            db.StockMovements.Add(new StockMovement
+            db.StockMovements.Add(MovementSnapshot.Apply(new StockMovement
             {
                 Id = Guid.NewGuid(),
                 ProductId = line.ProductId,
-                Type = StockMovementType.Purchase,
+                Type = StockMovementType.PurchaseCancellation,
                 PurchaseBatchId = batch.Id,
-                QuantityBaseUnits = -batch.PurchasedBaseQty,
+                QuantityBaseUnits = -line.BaseQty,
                 ReferenceType = "PurchaseOrder",
                 ReferenceId = purchase.Id,
                 ReferenceNo = purchase.PurchaseNo,
                 UserId = cancelledByUserId,
                 Notes = "Purchase cancelled",
-            });
+            }, line.ProductUnitId, line.UnitCode, line.ConversionFactorToBase, line.Qty));
         }
 
         purchase.Status = PurchaseStatus.Cancelled;
@@ -754,7 +758,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         };
         db.PurchaseBatches.Add(batch);
 
-        db.StockMovements.Add(new StockMovement
+        db.StockMovements.Add(MovementSnapshot.Apply(new StockMovement
         {
             Id = Guid.NewGuid(),
             ProductId = line.ProductId,
@@ -765,7 +769,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             ReferenceId = line.PurchaseOrderId,
             ReferenceNo = purchaseNo,
             UserId = userId,
-        });
+        }, line.ProductUnitId, line.UnitCode, line.ConversionFactorToBase, line.Qty));
 
         var newQty = stockItem.QuantityOnHand + line.BaseQty;
         stockItem.AverageCost = newQty > 0

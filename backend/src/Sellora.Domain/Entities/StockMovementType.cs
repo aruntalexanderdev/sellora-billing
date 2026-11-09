@@ -8,4 +8,6 @@ public enum StockMovementType
     SaleReturn,
     PurchaseReturn,
     SaleCancellation,
+    PurchaseCancellation,
+    OpeningStock,
 }

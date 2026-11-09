@@ -138,7 +138,10 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
         var items = await query.OrderByDescending(m => m.OccurredAt).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(m => new StockMovementReportRowDto(
                 m.Id, m.OccurredAt, m.Product.Name, m.Product.Sku, m.Product.BaseUnit.ShortCode,
-                m.Type, m.QuantityBaseUnits, m.ReferenceType, m.ReferenceNo, $"{m.User.FirstName} {m.User.LastName}"))
+                m.Type, m.QuantityBaseUnits, m.ReferenceType, m.ReferenceNo, $"{m.User.FirstName} {m.User.LastName}",
+                m.ReasonCode, m.EnteredQuantity, m.EnteredProductUnitId, m.EnteredUnitCode, m.ConversionFactorSnapshot,
+                m.EnteredProductUnit != null ? m.EnteredProductUnit.Unit.DecimalPlaces : (int?)null,
+                m.Product.BaseUnit.DecimalPlaces))
             .ToListAsync(ct);
 
         return Ok(new PagedResult<StockMovementReportRowDto>(items, total, page, pageSize));

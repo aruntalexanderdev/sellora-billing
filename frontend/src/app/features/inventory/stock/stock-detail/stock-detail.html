@@ -175,10 +175,11 @@
               <tr>
                 <td class="muted">{{ m.occurredAt | date: 'd MMM, HH:mm' }}</td>
                 <td>
-                  <ui-badge [text]="m.type" [tone]="m.type === 'Purchase' ? 'info' : m.type === 'Sale' ? 'good' : 'warn'" />
+                  <ui-badge [text]="movementTypeLabel(m.type, m.reasonCode)" [tone]="movementTone(m.type)" />
                 </td>
                 <td class="num" [class.positive]="m.quantityBaseUnits > 0" [class.negative]="m.quantityBaseUnits < 0">
-                  {{ m.quantityBaseUnits > 0 ? '+' : '' }}{{ m.quantityBaseUnits }}
+                  {{ m.quantityBaseUnits > 0 ? '+' : '' }}{{ m.baseDecimalPlaces == null ? m.quantityBaseUnits : formatQuantity(m.quantityBaseUnits, m.baseDecimalPlaces) }} {{ d.baseUnitLabel }}
+                  @if (enteredLabel(m); as e) { <div class="entered">{{ e }}</div> }
                 </td>
                 <td class="muted">{{ m.referenceNo }}@if (m.internalBatchNo) { <span class="batch-chip">{{ m.internalBatchNo }}</span> }</td>
                 <td class="muted">{{ m.userName }}</td>

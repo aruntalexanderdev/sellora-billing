@@ -97,11 +97,14 @@ public class StockController(SelloraDbContext db) : ControllerBase
                 m.Id, m.OccurredAt, m.Type, m.QuantityBaseUnits, m.ReferenceType, m.ReferenceNo,
                 UserName = m.User.FirstName + " " + m.User.LastName, m.Notes,
                 m.PurchaseBatchId, BatchSequence = m.PurchaseBatch != null ? m.PurchaseBatch.BatchSequence : (long?)null,
+                m.ReasonCode, m.EnteredQuantity, m.EnteredProductUnitId, m.EnteredUnitCode, m.ConversionFactorSnapshot,
+                EnteredDecimalPlaces = m.EnteredProductUnit != null ? m.EnteredProductUnit.Unit.DecimalPlaces : (int?)null,
             })
             .ToListAsync(ct);
         var movements = movementRows.Select(m => new StockMovementDto(
             m.Id, m.OccurredAt, m.Type, m.QuantityBaseUnits, m.ReferenceType, m.ReferenceNo, m.UserName, m.Notes,
-            m.PurchaseBatchId, m.BatchSequence is { } seq ? PurchaseBatch.FormatInternalBatchNo(seq) : null)).ToList();
+            m.PurchaseBatchId, m.BatchSequence is { } seq ? PurchaseBatch.FormatInternalBatchNo(seq) : null,
+            m.ReasonCode, m.EnteredQuantity, m.EnteredProductUnitId, m.EnteredUnitCode, m.ConversionFactorSnapshot, m.EnteredDecimalPlaces, product.BaseUnit.DecimalPlaces)).ToList();
 
         var batchRows = await db.PurchaseBatches
             .Where(b => b.ProductId == productId)

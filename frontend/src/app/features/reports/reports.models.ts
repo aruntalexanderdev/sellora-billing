@@ -1,5 +1,7 @@
 export type StockStatus = 'Normal' | 'Low' | 'OutOfStock';
-export type StockMovementType = 'Purchase' | 'Sale' | 'Adjustment' | 'SaleReturn' | 'PurchaseReturn' | 'SaleCancellation';
+import type { StockMovementType, StockReasonCode } from '../../shared/units/stock-movement';
+
+export type { StockMovementType, StockReasonCode };
 export type PurchaseStatus = 'Completed' | 'Cancelled';
 export type SalesStatus = 'Completed' | 'Cancelled';
 export type PaymentMethod = 'Cash' | 'Upi' | 'Card' | 'Credit' | 'BankTransfer';
@@ -29,6 +31,13 @@ export interface StockMovementReportRow {
   referenceType: string;
   referenceNo: string;
   userName: string;
+  reasonCode: StockReasonCode | null;
+  enteredQuantity: number | null;
+  enteredProductUnitId: string | null;
+  enteredUnitCode: string | null;
+  conversionFactorSnapshot: number | null;
+  enteredDecimalPlaces: number | null;
+  baseDecimalPlaces: number;
 }
 
 export interface PurchaseReportRow {

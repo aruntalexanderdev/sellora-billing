@@ -163,23 +163,25 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         adjustment.AfterQty = stockItem.QuantityOnHand;
         db.StockAdjustments.Add(adjustment);
 
-        StockMovement Movement(decimal signedQty, Guid? forBatchId) => new()
+        // Unit context on every row; the entered quantity only when one row carries the whole adjustment (Phase 6a-D2).
+        StockMovement Movement(decimal signedQty, Guid? forBatchId, decimal? enteredQty) => MovementSnapshot.Apply(new StockMovement
         {
             Id = Guid.NewGuid(),
             ProductId = product.Id,
             PurchaseBatchId = forBatchId,
-            Type = StockMovementType.Adjustment,
+            Type = input.Type == AdjustmentType.OpeningStock ? StockMovementType.OpeningStock : StockMovementType.Adjustment,
             QuantityBaseUnits = signedQty,
             ReferenceType = "StockAdjustment",
             ReferenceId = adjustment.Id,
             ReferenceNo = adjustmentNo,
             UserId = userId,
             Notes = input.Type.ToString(),
-        };
+            ReasonCode = input.Type,
+        }, adjustment.ProductUnitId, adjustment.UnitCode, adjustment.ConversionFactorToBase, enteredQty);
 
         if (isIncrease)
         {
-            db.StockMovements.Add(Movement(baseQty, batchId));
+            db.StockMovements.Add(Movement(baseQty, batchId, adjustment.EnteredQuantity));
         }
         else
         {
@@ -187,7 +189,7 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
             // adjustment took out of it; together they sum to the adjusted quantity.
             foreach (var allocation in consumed)
             {
-                db.StockMovements.Add(Movement(-allocation.QtyBaseUnits, allocation.Batch.Id));
+                db.StockMovements.Add(Movement(-allocation.QtyBaseUnits, allocation.Batch.Id, consumed.Count == 1 ? adjustment.EnteredQuantity : null));
             }
         }
 

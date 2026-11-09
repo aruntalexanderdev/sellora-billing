@@ -413,7 +413,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
             var stockItem = await db.StockItems.SingleAsync(s => s.ProductId == line.ProductId, ct);
             stockItem.QuantityOnHand += baseQty;
-            db.StockMovements.Add(new StockMovement
+            db.StockMovements.Add(MovementSnapshot.Apply(new StockMovement
             {
                 Id = Guid.NewGuid(),
                 ProductId = line.ProductId,
@@ -424,7 +424,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
                 ReferenceNo = salesReturn.ReturnNo,
                 UserId = userId,
                 Notes = $"Returned from {invoice.InvoiceNo}",
-            });
+            }, returnLine.ProductUnitId, returnLine.UnitCode, returnLine.ConversionFactorToBase, returnLine.Qty));
         }
 
         salesReturn.Total = salesReturn.TaxableTotal + salesReturn.TaxTotal;
@@ -472,25 +472,26 @@ public class SalesService(SelloraDbContext db) : ISalesService
                 consumption.PurchaseBatch.RemainingBaseQty += consumption.QtyBaseUnits;
             }
             baseQtyByProduct[line.ProductId] = baseQtyByProduct.GetValueOrDefault(line.ProductId) + line.BaseQty;
+
+            // One ledger row per sales line (mixed units on one invoice need each line's own unit snapshot).
+            db.StockMovements.Add(MovementSnapshot.Apply(new StockMovement
+            {
+                Id = Guid.NewGuid(),
+                ProductId = line.ProductId,
+                Type = StockMovementType.SaleCancellation,
+                QuantityBaseUnits = line.BaseQty,
+                ReferenceType = "SalesInvoice",
+                ReferenceId = invoice.Id,
+                ReferenceNo = invoice.InvoiceNo,
+                UserId = cancelledByUserId,
+                Notes = "Sale cancelled",
+            }, line.ProductUnitId, line.UnitCode, line.ConversionFactorToBase, line.Qty));
         }
 
         foreach (var (productId, baseQty) in baseQtyByProduct)
         {
             var stockItem = await db.StockItems.SingleAsync(s => s.ProductId == productId, ct);
             stockItem.QuantityOnHand += baseQty;
-
-            db.StockMovements.Add(new StockMovement
-            {
-                Id = Guid.NewGuid(),
-                ProductId = productId,
-                Type = StockMovementType.SaleCancellation,
-                QuantityBaseUnits = baseQty,
-                ReferenceType = "SalesInvoice",
-                ReferenceId = invoice.Id,
-                ReferenceNo = invoice.InvoiceNo,
-                UserId = cancelledByUserId,
-                Notes = "Sale cancelled",
-            });
         }
 
         invoice.Status = SalesStatus.Cancelled;
@@ -634,7 +635,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         var costConsumed = await ConsumeBatchesFifoAsync(line, ct);
         line.CostOfGoodsSold = StockCost.Money(costConsumed);
 
-        db.StockMovements.Add(new StockMovement
+        db.StockMovements.Add(MovementSnapshot.Apply(new StockMovement
         {
             Id = Guid.NewGuid(),
             ProductId = line.ProductId,
@@ -644,7 +645,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
             ReferenceId = line.SalesInvoiceId,
             ReferenceNo = invoiceNo,
             UserId = userId,
-        });
+        }, line.ProductUnitId, line.UnitCode, line.ConversionFactorToBase, line.Qty));
 
         var stockItem = await db.StockItems.SingleAsync(s => s.ProductId == line.ProductId, ct);
         stockItem.QuantityOnHand -= line.BaseQty;

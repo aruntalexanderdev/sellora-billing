@@ -7,6 +7,9 @@ import { AuthService } from '../../../../core/auth/auth.service';
 import { StockService } from '../stock.service';
 import type { BatchConsumption, BatchStatus, StockBatch, StockDetail as StockDetailModel } from '../stock.models';
 
+import { formatQuantity } from '../../../../shared/units/unit-conversion';
+import { enteredLabel, movementTone, movementTypeLabel } from '../../../../shared/units/stock-movement';
+
 const INR = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 @Component({
@@ -23,6 +26,10 @@ export class StockDetail implements OnInit {
   private readonly auth = inject(AuthService);
 
   readonly INR = INR;
+  readonly movementTone = movementTone;
+  readonly movementTypeLabel = movementTypeLabel;
+  readonly enteredLabel = enteredLabel;
+  readonly formatQuantity = formatQuantity;
   readonly detail = signal<StockDetailModel | null>(null);
   readonly loading = signal(true);
 

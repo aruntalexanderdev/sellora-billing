@@ -14,14 +14,40 @@ public class StockMovementConfiguration : IEntityTypeConfiguration<StockMovement
         builder.Property(m => m.ReferenceType).HasMaxLength(40).IsRequired();
         builder.Property(m => m.ReferenceNo).HasMaxLength(30).IsRequired();
         builder.Property(m => m.Notes).HasMaxLength(300);
+        builder.Property(m => m.ReasonCode).HasConversion<string>().HasMaxLength(20);
+        builder.Property(m => m.EnteredQuantity).HasColumnType("numeric(18,3)");
+        builder.Property(m => m.EnteredUnitCode).HasMaxLength(10);
+        builder.Property(m => m.ConversionFactorSnapshot).HasColumnType("numeric(28,10)");
 
         builder.HasOne(m => m.Product).WithMany().HasForeignKey(m => m.ProductId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(m => m.User).WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(m => m.PurchaseBatch).WithMany().HasForeignKey(m => m.PurchaseBatchId).OnDelete(DeleteBehavior.Restrict);
 
+        // Same-product composite FK (alternate key on ProductUnits (ProductId, Id)), as StockAdjustmentConfiguration.
+        builder.HasOne(m => m.EnteredProductUnit).WithMany()
+            .HasForeignKey(m => new { m.ProductId, m.EnteredProductUnitId })
+            .HasPrincipalKey(u => new { u.ProductId, u.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(m => new { m.ProductId, m.OccurredAt });
         builder.HasIndex(m => m.PurchaseBatchId);
+        builder.HasIndex(m => new { m.ReferenceType, m.ReferenceId });
+
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_StockMovements_EnteredUnit_AllOrNone",
+                "(\"EnteredProductUnitId\" IS NULL) = (\"EnteredUnitCode\" IS NULL) AND (\"EnteredProductUnitId\" IS NULL) = (\"ConversionFactorSnapshot\" IS NULL)");
+            t.HasCheckConstraint("CK_StockMovements_EnteredQuantity_RequiresUnit", "\"EnteredQuantity\" IS NULL OR \"EnteredProductUnitId\" IS NOT NULL");
+            t.HasCheckConstraint("CK_StockMovements_EnteredQuantity_Positive", "\"EnteredQuantity\" IS NULL OR \"EnteredQuantity\" > 0");
+            t.HasCheckConstraint("CK_StockMovements_Factor_Positive", "\"ConversionFactorSnapshot\" IS NULL OR \"ConversionFactorSnapshot\" > 0");
+            t.HasCheckConstraint("CK_StockMovements_UnitCode_NotEmpty", "\"EnteredUnitCode\" IS NULL OR char_length(\"EnteredUnitCode\") > 0");
+            t.HasCheckConstraint("CK_StockMovements_Entered_Arithmetic", "\"EnteredQuantity\" IS NULL OR \"EnteredQuantity\" * \"ConversionFactorSnapshot\" = abs(\"QuantityBaseUnits\")");
+            t.HasCheckConstraint("CK_StockMovements_ReasonCode",
+                "(\"Type\" NOT IN ('Adjustment', 'OpeningStock') OR \"ReasonCode\" IS NOT NULL) AND (\"Type\" <> 'OpeningStock' OR \"ReasonCode\" = 'OpeningStock') AND (\"Type\" <> 'Adjustment' OR \"ReasonCode\" <> 'OpeningStock')");
+            t.HasCheckConstraint("CK_StockMovements_Type_Sign",
+                "(\"Type\" NOT IN ('Purchase', 'SaleReturn', 'SaleCancellation', 'OpeningStock') OR \"QuantityBaseUnits\" > 0) AND (\"Type\" NOT IN ('Sale', 'PurchaseReturn', 'PurchaseCancellation') OR \"QuantityBaseUnits\" < 0)");
+        });
     }
 }
 
