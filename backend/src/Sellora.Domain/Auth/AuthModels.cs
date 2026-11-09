@@ -49,6 +49,13 @@ public static class PermissionResolver
 {
     public static IReadOnlyCollection<string> Resolve(Role role)
     {
+        // A deactivated role grants nothing; deactivation is refused while active users hold the role,
+        // so this is a safety net for roles deactivated before that rule existed.
+        if (!role.IsActive)
+        {
+            return [];
+        }
+
         if (role.IsSystem)
         {
             return Permissions.PermissionCatalog.All.Select(p => p.Code).ToArray();

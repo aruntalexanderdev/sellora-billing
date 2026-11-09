@@ -5,7 +5,7 @@
 | Spec | `docs/architecture/Sellora-Multi-Company-Branch-Architecture-Claude.md` ("arch") |
 | Related | `docs/analysis/unit-conversion-restructuring-analysis.md` ("analysis") §13.4–13.6, §25 Phase B / 6b, §27 D5 |
 | Baseline | branch `analyse`, commit `a7c1c4e` (unit restructuring Phases 0–6a complete) |
-| Status | **Phase 0 complete — awaiting review and approval.** No code, schema or configuration changed. |
+| Status | **Phase 0 approved (2026-11-09).** ADR-01…13 accepted; answers in §10. Phase H delivered; next: Phase 1 (on approval). |
 | Appendix A | `phase-0-appendix-a-backend-database-audit.md` — backend/DB current state, entity map, auth, inventory, workflow impact, migration risk, tests, conflicts C1–C14 (file:line evidence) |
 | Appendix B | `phase-0-appendix-b-frontend-ci-audit.md` — Angular current state, screen impact map, frontend tests, CI/CD and deployment |
 
@@ -143,4 +143,43 @@ Analysis Phase 7 (reports: breakdown, entered-unit columns, location filter) fol
 | Current behaviour understood | Done — §1, Appendices A/B with file:line evidence |
 | Existing data model documented | Done — §2, Appendix A §2 |
 | Risks and assumptions listed | Done — §4, §8, Appendix A §6, Appendix B §6 |
-| Implementation plan reviewed and approved | **Pending owner review** |
+| Implementation plan reviewed and approved | Approved by the owner, 2026-11-09 |
+
+## 10. Owner decisions (2026-11-09)
+
+All ADR-01…13 approved. Answers to §8:
+
+| # | Answer | Consequence for the plan |
+|---|---|---|
+| Q1 | Units are **platform** reference data. | Units get no CompanyId (ADR-06 confirmed). |
+| Q2 | Number series **per company + branch**; financial-year reset optional. | `DocumentSequences(CompanyId, BranchId, Series, FinancialYear?)` (ADR-08), introduced in Phase 1, branch key populated from Phase 2. |
+| Q3 | GSTIN / invoice prefix **per branch** where the branch has its own GST registration, else company. | Branch gets optional GSTIN + invoice prefix overriding the company's (Phase 2). |
+| Q4 | Sales returns **restock to the invoice's location**. | No cross-branch restock in the first release. |
+| Q5 | Only **branch-store and vehicle** locations sell. | Warehouses are receive/transfer-only; enforced from Phase 8/10. |
+| Q6 | Expenses and cash/bank accounts get an **optional BranchId** (cash drawers per branch). | Phase 2. |
+| Q7 | Confirmed, plus **user-branch mapping drives the working branch at login**. | See login rules below. Existing users → mapped to the default "Main" branch as primary; Administrator stays company-wide. |
+| Q8 | Use the recommendation. | No nullable unique key needed (ADR-01); confirm prod PG version before Phase 8 as a deployment check. |
+| Q9 | **Option B — direct API calls with CORS.** | Phase 2: CORS origins from configuration (`Cors:AllowedOrigins`), `X-Branch-Id` allowed header, production `apiBaseUrl` = absolute App Service URL. Note: today's code uses a relative `/api/v1` and allows only `localhost:4200`, so the SWA and App Service URLs per environment are needed by Phase 2. |
+| R1 | **Leave dev auto-migrate as is** (risk accepted for dev). | Base `appsettings.json` unchanged. Must be switched off for any production environment before its first deployment (D10). |
+| R4 | `dev` and `claude_dev` APIs use **separate databases**. | No cross-branch migration collision; closed. |
+
+**Login / working-branch rules (Q7):**
+
+| User | Behaviour |
+|---|---|
+| Mapped to one branch | Works only in that branch; selected automatically; no selector. |
+| Mapped to several branches | Starts in the primary branch; can switch among mapped branches from the header. |
+| No branch mapping (company-wide: owner, admin, accountant) | May choose any branch; reports may show "All branches". |
+
+### Phase H — delivered rules
+
+| # | Rule | Where |
+|---|---|---|
+| H1 | Only Administrators assign the Administrator role and edit, disable or reset the password of Administrator accounts (403 otherwise). | `UsersController`, `Authorization/AccessManagementActor.cs` |
+| H2 | Nobody changes their own role or disables themselves; with H1 this guarantees at least one active Administrator remains. | `UsersController` |
+| H3 | Nobody grants a permission they do not hold — role create, edit (added codes only), duplicate (incl. duplicating Administrator) **and assigning a role to a user** (its permissions must all be held). Caller permissions are read from the database, not the token; a disabled caller holds nothing. | `RolesController`, `UsersController` |
+| H3b | All user/role management writes run in one transaction under a single advisory lock, with the caller re-loaded after the lock — two Administrators disabling/demoting each other concurrently cannot both succeed; deactivation cannot race an assignment. | `Authorization/AccessManagementActor.cs` (`AccessManagementScope`) |
+| H4 | A role with active users cannot be deactivated; an inactive role grants no permissions; inactive roles cannot be newly assigned. | `RolesController`, `PermissionResolver`, `UsersController` |
+| H5 | Already implemented: dashboard sections are gated by `Sales.View` / `Purchase.View` / `Inventory.View` (the audit's defect 5 was a false positive). | `DashboardController` (no change) |
+| H6 | `EXP-` numbering takes the per-series advisory lock inside a transaction. | `ExpenseService` |
+| H7 | Already implemented: `MigrationTests` asserts no pending model changes and runs in CI. | (no change) |

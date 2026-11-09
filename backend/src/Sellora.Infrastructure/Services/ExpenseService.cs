@@ -40,6 +40,10 @@ public class ExpenseService(SelloraDbContext db, IExchangeRateService exchangeRa
         var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
         var baseAmount = rate == 1m ? amount : Math.Round(amount * rate, basePrecision, MidpointRounding.AwayFromZero);
 
+        // The number is a row count, so concurrent creates must be serialised like every other document series.
+        await using var transaction = await StockLocks.BeginAsync(db, ct);
+        await StockLocks.LockDocumentNumberAsync(db, "EXP", ct);
+
         var expense = new Expense
         {
             Id = Guid.NewGuid(),
@@ -59,6 +63,7 @@ public class ExpenseService(SelloraDbContext db, IExchangeRateService exchangeRa
         db.Expenses.Add(expense);
         db.FinancialTransactions.Add(FinancialTransaction.ForExpense(expense, input.AccountId));
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return expense;
     }
 

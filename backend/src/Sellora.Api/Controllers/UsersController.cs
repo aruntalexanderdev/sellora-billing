@@ -3,9 +3,11 @@ using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Api.Validation;
 using Sellora.Domain.Abstractions;
+using Sellora.Domain.Auth;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
 
@@ -116,6 +118,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     [Authorize(Policy = "Users.Create")]
     public async Task<ActionResult<UserDetailDto>> Create(CreateUserRequest request, CancellationToken ct)
     {
+        await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
         if (request.Password != request.ConfirmPassword)
@@ -134,10 +137,8 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         {
             ModelState.AddModelError(nameof(request.Email), "This email is already registered.");
         }
-        if (request.RoleId is null || !await db.Roles.AnyAsync(r => r.Id == request.RoleId, ct))
-        {
-            ModelState.AddModelError(nameof(request.RoleId), "Select a valid role.");
-        }
+        var actor = access.Actor;
+        await ValidateRoleAssignmentAsync(request.RoleId, currentRoleId: null, actor, ct);
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
         var user = new User
@@ -155,6 +156,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
 
         db.Users.Add(user);
         await db.SaveChangesAsync(ct);
+        await access.CommitAsync(ct);
 
         await db.Entry(user).Reference(u => u.Role).LoadAsync(ct);
         return CreatedAtAction(nameof(Get), new { id = user.Id }, ToDetail(user));
@@ -164,10 +166,14 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     [Authorize(Policy = "Users.Edit")]
     public async Task<ActionResult<UserDetailDto>> Update(Guid id, UpdateUserRequest request, CancellationToken ct)
     {
+        await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
         var user = await db.Users.Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
+
+        var actor = access.Actor;
+        if (user.Role.IsSystem && !actor.IsAdministrator) return AdministratorAccountForbidden();
 
         if (await db.Users.AnyAsync(u => u.Id != id && u.Username.ToLower() == request.Username.Trim().ToLower(), ct))
         {
@@ -177,9 +183,16 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         {
             ModelState.AddModelError(nameof(request.Email), "This email is already registered.");
         }
-        if (request.RoleId is null || !await db.Roles.AnyAsync(r => r.Id == request.RoleId, ct))
+        // Nobody changes their own role. Together with "only Administrators change Administrator accounts",
+        // "nobody disables themselves" and the access-management lock (which re-loads the caller, so two
+        // Administrators cannot remove each other concurrently), at least one active Administrator always remains.
+        if (request.RoleId is not null && request.RoleId != user.RoleId && user.Id == actor.UserId)
         {
-            ModelState.AddModelError(nameof(request.RoleId), "Select a valid role.");
+            ModelState.AddModelError(nameof(request.RoleId), "You cannot change your own role.");
+        }
+        else
+        {
+            await ValidateRoleAssignmentAsync(request.RoleId, user.RoleId, actor, ct);
         }
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
@@ -191,6 +204,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         user.RoleId = request.RoleId!.Value;
 
         await db.SaveChangesAsync(ct);
+        await access.CommitAsync(ct);
         await db.Entry(user).Reference(u => u.Role).LoadAsync(ct);
         return Ok(ToDetail(user));
     }
@@ -199,17 +213,20 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     [Authorize(Policy = "Users.Disable")]
     public async Task<IActionResult> SetStatus(Guid id, SetUserStatusRequest request, CancellationToken ct)
     {
-        var user = await db.Users.SingleOrDefaultAsync(u => u.Id == id, ct);
+        await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
+        var user = await db.Users.Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
-        var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
-        if (user.Id == currentUserId && request.Status == UserStatus.Disabled)
+        var actor = access.Actor;
+        if (user.Id == actor.UserId && request.Status == UserStatus.Disabled)
         {
             return Problem(statusCode: 400, title: "You cannot disable your own account.");
         }
+        if (user.Role.IsSystem && !actor.IsAdministrator) return AdministratorAccountForbidden();
 
         user.Status = request.Status;
         await db.SaveChangesAsync(ct);
+        await access.CommitAsync(ct);
         return NoContent();
     }
 
@@ -217,15 +234,56 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     [Authorize(Policy = "Users.ResetPassword")]
     public async Task<ActionResult<ResetPasswordResponse>> ResetPassword(Guid id, CancellationToken ct)
     {
-        var user = await db.Users.SingleOrDefaultAsync(u => u.Id == id, ct);
+        await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
+        var user = await db.Users.Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
+
+        var actor = access.Actor;
+        if (user.Role.IsSystem && !actor.IsAdministrator) return AdministratorAccountForbidden();
 
         var temporaryPassword = GenerateTemporaryPassword();
         user.PasswordHash = passwordHasher.Hash(temporaryPassword);
         await db.SaveChangesAsync(ct);
+        await access.CommitAsync(ct);
 
         return Ok(new ResetPasswordResponse(temporaryPassword));
     }
+
+    /// <summary>
+    /// Role assignment rules: the role must exist and be active (an unchanged role is left alone), only
+    /// Administrators may hand out the Administrator role, and others only roles whose permissions they hold. Errors are added to <see cref="ControllerBase.ModelState"/>.
+    /// </summary>
+    private async Task ValidateRoleAssignmentAsync(Guid? roleId, Guid? currentRoleId, AccessManagementActor actor, CancellationToken ct)
+    {
+        const string field = "RoleId";
+        var role = roleId is null
+            ? null
+            : await db.Roles.Include(r => r.RolePermissions).ThenInclude(rp => rp.Permission).SingleOrDefaultAsync(r => r.Id == roleId, ct);
+        if (role is null)
+        {
+            ModelState.AddModelError(field, "Select a valid role.");
+            return;
+        }
+        if (role.Id == currentRoleId) return;
+
+        if (!role.IsActive)
+        {
+            ModelState.AddModelError(field, "This role is inactive. Activate it or choose another role.");
+        }
+        else if (role.IsSystem && !actor.IsAdministrator)
+        {
+            ModelState.AddModelError(field, "Only Administrators can assign the Administrator role.");
+        }
+        else if (!actor.IsAdministrator
+            && PermissionResolver.Resolve(role).Where(c => !actor.Permissions.Contains(c)).OrderBy(c => c).ToList() is { Count: > 0 } notHeld)
+        {
+            // Assigning a role grants its permissions to that user (possibly an account the caller controls).
+            ModelState.AddModelError(field, $"You can only assign a role whose permissions you hold yourself. Not held: {string.Join(", ", notHeld)}.");
+        }
+    }
+
+    private ObjectResult AdministratorAccountForbidden() =>
+        Problem(statusCode: 403, title: "Only Administrators can change Administrator accounts.");
 
     private static string GenerateTemporaryPassword()
     {
