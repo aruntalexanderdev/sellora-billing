@@ -6,10 +6,13 @@ using Sellora.Domain.Entities;
 
 namespace Sellora.Infrastructure.Data;
 
-public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompanyContext companyContext) : DbContext(options)
+public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompanyContext companyContext, IBranchContext branchContext) : DbContext(options)
 {
     /// <summary>The company this context instance operates in. Query filters and SaveChanges stamping read it.</summary>
     public ICompanyContext CompanyContext { get; } = companyContext;
+
+    /// <summary>The branch scope of this context instance (Phase 2). Services resolve the working branch from it; no query filter yet (Phase 5).</summary>
+    public IBranchContext BranchContext { get; } = branchContext;
 
     // Referenced by the query filters as an instance member: EF parameterises it per context instance. No company uses
     // Guid.Empty (CK_Companies_Id_NotEmpty), so with no company context every filtered query returns no rows.
@@ -17,6 +20,7 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
 
     public DbSet<Company> Companies => Set<Company>();
     public DbSet<UserCompanyMembership> UserCompanyMemberships => Set<UserCompanyMembership>();
+    public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<DocumentSequence> DocumentSequences => Set<DocumentSequence>();
 
     public DbSet<User> Users => Set<User>();

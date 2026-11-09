@@ -27,7 +27,7 @@ public class CompanyQueryFilterTests
     ];
 
     private static SelloraDbContext NewDb(ICompanyContext context, string? name = null) =>
-        new(new DbContextOptionsBuilder<SelloraDbContext>().UseInMemoryDatabase(name ?? Guid.NewGuid().ToString()).Options, context);
+        new(new DbContextOptionsBuilder<SelloraDbContext>().UseInMemoryDatabase(name ?? Guid.NewGuid().ToString()).Options, context, TestCompany.Branch);
 
     private static bool HasCompanyFilter(Microsoft.EntityFrameworkCore.Metadata.IEntityType type) =>
         type.GetDeclaredQueryFilters().Any(f => f.Key == CompanyQueryFilter.Name);
@@ -63,17 +63,41 @@ public class CompanyQueryFilterTests
     }
 
     [Fact]
-    public void Model_CompanyOwnedTypes_AreTheTwentyOneDesignedTypes()
+    public void Model_CompanyOwnedTypes_AreTheTwentyTwoDesignedTypes()
     {
         using var db = NewDb(TestCompany.Context);
         var owned = ModelTypes(db).Select(t => t.ClrType).Where(t => typeof(ICompanyOwned).IsAssignableFrom(t)).Select(t => t.Name).Order().ToArray();
         string[] expected =
         [
-            "BusinessSettings", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
+            "Branch", "BusinessSettings", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
             "FinancialTransaction", "IdempotencyKey", "Product", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
             "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockMovement", "Supplier", "Tax",
         ];
         Assert.Equal(expected, owned);
+    }
+
+    [Fact]
+    public void Model_BranchScoping_FiveHeadersRequireABranchTwoMastersAllowNoneAndNothingElseHasOne()
+    {
+        // Phase 2 T1: BranchScoped(required | optional | none). Branch itself is CompanyOwned (asserted by the classification tests above).
+        using var db = NewDb(TestCompany.Context);
+        string[] required = ["PurchaseOrder", "PurchaseReturn", "SalesInvoice", "SalesReturn", "StockAdjustment"];
+        string[] optional = ["Expense", "FinancialAccount"];
+        // DocumentSequence.BranchId is nullable too: NULL = company-level series (EXP); it is a counter scope, not a document tag.
+        string[] counterScope = ["DocumentSequence"];
+
+        var required_ = new List<string>();
+        var optional_ = new List<string>();
+        foreach (var type in ModelTypes(db))
+        {
+            var property = type.FindProperty("BranchId");
+            if (property is null) continue;
+            (property.IsNullable ? optional_ : required_).Add(type.ClrType.Name);
+            Assert.True(typeof(ICompanyOwned).IsAssignableFrom(type.ClrType), $"{type.ClrType.Name} carries a BranchId so it must be company-owned.");
+        }
+        Assert.Equal(required.Order(), required_.Order());
+        Assert.Equal(optional.Concat(counterScope).Order(), optional_.Order());
+        Assert.Null(db.Model.FindEntityType(typeof(Branch))!.FindProperty("BranchId"));
     }
 
     [Fact]

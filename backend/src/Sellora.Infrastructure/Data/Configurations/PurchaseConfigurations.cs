@@ -34,6 +34,11 @@ public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder
 
         builder.HasAlternateKey(p => new { p.CompanyId, p.Id });
         builder.HasIndex(p => new { p.CompanyId, p.PurchaseNo }, "IX_PurchaseOrders_CompanyId_PurchaseNo").IsUnique();
+        builder.HasIndex(p => new { p.CompanyId, p.BranchId, p.PurchaseDate }, "IX_PurchaseOrders_CompanyId_BranchId_PurchaseDate");
+        // Same-company branch: (CompanyId, BranchId) -> Branches (CompanyId, Id). Navigation-less (no filtered required navigation, Phase 1 section 8).
+        builder.HasOne<Branch>().WithMany().HasForeignKey(p => new { p.CompanyId, p.BranchId })
+            .HasPrincipalKey(b => new { b.CompanyId, b.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_PurchaseOrders_Branches_CompanyId_BranchId");
 
         builder.HasOne(p => p.Supplier).WithMany().HasForeignKey(p => p.SupplierId).OnDelete(DeleteBehavior.Restrict);
         // Same-company guarantee: the supplier belongs to the purchase's company.
@@ -91,6 +96,11 @@ public class PurchaseReturnConfiguration : IEntityTypeConfiguration<PurchaseRetu
 
         builder.ToTable(t => t.HasCheckConstraint("CK_PurchaseReturns_Total_Positive", "\"Total\" >= 0"));
         builder.HasIndex(r => new { r.CompanyId, r.ReturnNo }, "IX_PurchaseReturns_CompanyId_ReturnNo").IsUnique();
+        builder.HasIndex(r => new { r.CompanyId, r.BranchId, r.ReturnDate }, "IX_PurchaseReturns_CompanyId_BranchId_ReturnDate");
+        // Same-company branch: (CompanyId, BranchId) -> Branches (CompanyId, Id). Navigation-less (no filtered required navigation, Phase 1 section 8).
+        builder.HasOne<Branch>().WithMany().HasForeignKey(r => new { r.CompanyId, r.BranchId })
+            .HasPrincipalKey(b => new { b.CompanyId, b.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_PurchaseReturns_Branches_CompanyId_BranchId");
         builder.HasIndex(r => new { r.PurchaseOrderId, r.CreatedAt });
 
         builder.HasOne(r => r.PurchaseOrder).WithMany(o => o.Returns).HasForeignKey(r => r.PurchaseOrderId).OnDelete(DeleteBehavior.Restrict);

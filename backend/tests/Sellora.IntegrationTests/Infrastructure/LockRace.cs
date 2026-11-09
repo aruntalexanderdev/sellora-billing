@@ -65,9 +65,10 @@ public sealed class LockRace : IAsyncDisposable
     private static readonly HashSet<string> LockClauses = ["FOR UPDATE", "FOR NO KEY UPDATE", "FOR SHARE", "FOR KEY SHARE"];
 
     /// <summary>Starts <paramref name="work"/> on a fresh context whose connection is already open (so its pid is known).</summary>
-    public async Task<Writer> StartAsync(string name, Func<SelloraDbContext, Task> work, Guid? companyId = null)
+    public async Task<Writer> StartAsync(string name, Func<SelloraDbContext, Task> work, Guid? companyId = null, Guid? branchId = null)
     {
-        var db = _database.CreateDbContext(companyId);
+        // branchId = the X-Branch-Id the request would carry (null: the company's default branch).
+        var db = _database.CreateDbContext(companyId, branchId is null ? null : Sellora.Infrastructure.Data.BranchContext.Unrestricted(branchId));
         await db.Database.OpenConnectionAsync();
         var pid = await db.Database.SqlQueryRaw<int>("SELECT pg_backend_pid() AS \"Value\"").SingleAsync();
         var outcome = Task.Run(async () =>

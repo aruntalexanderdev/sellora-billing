@@ -30,14 +30,16 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("CustomerId", "This customer is inactive.");
         }
 
-        await FinancialAccountRules.EnsureUsableAsync(db, input.PaidAmount > 0 ? input.AccountId : null, ct);
+        var branch = await BranchRules.ResolveWorkingBranchAsync(db, ct);
+        await FinancialAccountRules.EnsureUsableAsync(db, input.PaidAmount > 0 ? input.AccountId : null, branch.Id, ct);
 
-        var invoiceNo = await NextInvoiceNoAsync(ct);
+        var invoiceNo = await DocumentNumbers.NextNumberAsync(db, DocumentSeries.Invoice, branch, ct);
 
         var invoice = new SalesInvoice
         {
             Id = Guid.NewGuid(),
             InvoiceNo = invoiceNo,
+            BranchId = branch.Id,
             CustomerId = customer.Id,
             InvoiceDate = input.InvoiceDate,
             PaymentMethod = input.PaymentMethod,
@@ -119,7 +121,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("Status", "This sale is cancelled and cannot receive payments.");
         }
 
-        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, ct);
+        BranchRules.EnsureCanAccessDocument(db, invoice.BranchId);
+        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, invoice.BranchId, ct);
 
         var due = invoice.DueAmount;
         if (due <= 0)
@@ -202,7 +205,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
         var invoice = await LockInvoiceAsync(salesInvoiceId, ct);
         if (invoice is null) return null;
 
-        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, ct);
+        BranchRules.EnsureCanAccessDocument(db, invoice.BranchId);
+        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, invoice.BranchId, ct);
         if (input.SalesReturnId is { } returnId
             && !await db.SalesReturns.AnyAsync(r => r.Id == returnId && r.SalesInvoiceId == invoice.Id, ct))
         {
@@ -244,6 +248,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         await using var transaction = await BeginAsync(ct);
         var invoice = await LockInvoiceAsync(salesInvoiceId, ct);
         if (invoice is null) return null;
+        BranchRules.EnsureCanAccessDocument(db, invoice.BranchId);
 
         var payment = await db.SalesPayments.SingleOrDefaultAsync(p => p.Id == paymentId && p.SalesInvoiceId == invoice.Id, ct)
             ?? throw new DomainValidationException("PaymentId", "Payment not found on this invoice.");
@@ -297,6 +302,9 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("ReturnDate", "Return date cannot be before the sale date.");
         }
 
+        // The return belongs to the branch of the sale (goods go back where they were sold).
+        var returnBranch = await BranchRules.ResolveReturnBranchAsync(db, invoice.BranchId, ct);
+
         // Lock the stock rows before reading the batches the goods go back into.
         var lineProductIds = await db.SalesInvoiceLines.Where(l => l.SalesInvoiceId == invoice.Id).Select(l => l.ProductId).ToListAsync(ct);
         // Lock order: SalesInvoices (above) -> Products KEY SHARE -> StockItems. The return reads the factor of a unit
@@ -316,7 +324,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
         var salesReturn = new SalesReturn
         {
             Id = Guid.NewGuid(),
-            ReturnNo = await NextReturnNoAsync(ct),
+            ReturnNo = await DocumentNumbers.NextNumberAsync(db, DocumentSeries.SalesReturn, returnBranch, ct),
+            BranchId = returnBranch.Id,
             SalesInvoiceId = invoice.Id,
             ReturnDate = input.ReturnDate,
             Reason = string.IsNullOrWhiteSpace(input.Reason) ? null : input.Reason.Trim(),
@@ -433,7 +442,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         if (input.Refund is { } refund)
         {
-            await FinancialAccountRules.EnsureUsableAsync(db, refund.AccountId, ct);
+            await FinancialAccountRules.EnsureUsableAsync(db, refund.AccountId, invoice.BranchId, ct);
             ValidateRefund(invoice, refund.Amount, null);
             await RecordEntryAsync(invoice, PaymentEntryKind.Refund, refund.Amount, refund.PaymentMethod, input.ReturnDate,
                 userId, refund.AccountId, refund.Reason, null, salesReturn.Id, ct);
@@ -447,7 +456,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
     public async Task CancelSaleAsync(Guid salesInvoiceId, Guid cancelledByUserId, CancellationToken ct = default)
     {
         await using var transaction = await BeginAsync(ct);
-        _ = await LockInvoiceAsync(salesInvoiceId, ct) ?? throw new DomainValidationException("Id", "Sale not found.");
+        var locked = await LockInvoiceAsync(salesInvoiceId, ct) ?? throw new DomainValidationException("Id", "Sale not found.");
+        BranchRules.EnsureCanAccessDocument(db, locked.BranchId);
         await StockLocks.LockStockItemsAsync(db, await db.SalesInvoiceLines.Where(l => l.SalesInvoiceId == salesInvoiceId).Select(l => l.ProductId).ToListAsync(ct), ct);
 
         var invoice = await db.SalesInvoices
@@ -500,17 +510,6 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
-    }
-
-    private async Task<string> NextReturnNoAsync(CancellationToken ct)
-    {
-        return $"SRT-{await DocumentNumbers.NextAsync(db, DocumentSeries.SalesReturn, ct):D4}";
-    }
-
-    private async Task<string> NextInvoiceNoAsync(CancellationToken ct)
-    {
-        var prefix = (await db.GetCurrentCompanySettingsAsync(ct)).InvoicePrefix;
-        return $"{prefix}-{await DocumentNumbers.NextAsync(db, DocumentSeries.Invoice, ct):D4}";
     }
 
     private async Task<SalesInvoiceLine> BuildLineAsync(SalesInvoice invoice, SaleLineInput input, bool canOverridePrice, CancellationToken ct)

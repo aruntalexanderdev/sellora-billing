@@ -21,12 +21,15 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
     [Authorize(Policy = "Purchase.View")]
     public async Task<ActionResult<PagedResult<PurchaseReturnListItemDto>>> List(
         [FromQuery] string? search, [FromQuery] Guid? purchaseOrderId, [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
+
         var query = db.PurchaseReturns.AsQueryable();
+        if (branchId is not null) query = query.Where(r => r.BranchId == branchId);
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim().ToLower();
@@ -43,8 +46,12 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
             .Select(r => new PurchaseReturnListItemDto(
                 r.Id, r.ReturnNo, r.ReturnDate, r.PurchaseOrderId, r.PurchaseOrder.PurchaseNo, r.PurchaseOrder.Supplier.Name,
                 r.Total, r.OriginalTotal, r.PurchaseOrder.Currency.Code,
-                db.PurchasePayments.Where(p => p.PurchaseReturnId == r.Id && p.Kind == PaymentEntryKind.Refund).Sum(p => (decimal?)p.Amount) ?? 0m))
+                db.PurchasePayments.Where(p => p.PurchaseReturnId == r.Id && p.Kind == PaymentEntryKind.Refund).Sum(p => (decimal?)p.Amount) ?? 0m,
+                r.BranchId, null, null))
             .ToListAsync(ct);
+
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
 
         return Ok(new PagedResult<PurchaseReturnListItemDto>(items, total, page, pageSize));
     }
@@ -67,6 +74,7 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
             .Where(p => p.PurchaseReturnId == id && p.Kind == PaymentEntryKind.Refund).OrderBy(p => p.CreatedAt).ToListAsync(ct);
         var baseCurrency = await db.GetBaseCurrencyAsync(ct);
         var currency = r.PurchaseOrder.Currency;
+        var labels = await BranchLabels.LoadAsync(db, ct);
 
         return Ok(new PurchaseReturnDetailDto(
             r.Id, r.ReturnNo, r.ReturnDate, r.PurchaseOrderId, r.PurchaseOrder.PurchaseNo, r.PurchaseOrder.Supplier.Name,
@@ -78,7 +86,8 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
                 l.Id, l.Product.Name, l.ProductUnitId, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name, l.UnitCode, l.ConversionFactorToBase,
                 l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Product.BaseUnit.DecimalPlaces,
                 l.TaxableValue, l.TaxAmount, l.LineTotal)).ToList(),
-            refunds.Select(p => PurchasesController.ToPaymentDto(p, new HashSet<Guid>())).ToList()));
+            refunds.Select(p => PurchasesController.ToPaymentDto(p, new HashSet<Guid>())).ToList(),
+            r.BranchId, labels.Code(r.BranchId), labels.Name(r.BranchId)));
     }
 
     [HttpPost]

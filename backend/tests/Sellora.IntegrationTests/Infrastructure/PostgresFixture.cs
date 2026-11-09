@@ -51,13 +51,14 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     /// <summary>Builds a context the same way <c>Sellora.Infrastructure.DependencyInjection.AddInfrastructure</c>
     /// does (<c>UseNpgsql(connectionString)</c> with no further options).</summary>
-    public static SelloraDbContext CreateDbContext(string connectionString, Guid? companyId = null)
+    public static SelloraDbContext CreateDbContext(string connectionString, Guid? companyId = null, Sellora.Domain.Abstractions.IBranchContext? branch = null)
     {
         var options = new DbContextOptionsBuilder<SelloraDbContext>()
             .UseNpgsql(connectionString)
             .Options;
         // Default company unless a test asks for another one; a context's company is fixed once set.
-        return new SelloraDbContext(options, Sellora.IntegrationTests.TestData.TestCompany.For(companyId ?? Sellora.Domain.Companies.DefaultTenant.CompanyId));
+        return new SelloraDbContext(options, Sellora.IntegrationTests.TestData.TestCompany.For(companyId ?? Sellora.Domain.Companies.DefaultTenant.CompanyId),
+            branch ?? Sellora.IntegrationTests.TestData.TestCompany.Branch);
     }
 
     /// <summary>Context on the container's default database (not migrated; prefer <see cref="CreateDatabaseAsync"/>).</summary>
@@ -95,7 +96,7 @@ public sealed class TestDatabase(string name, string connectionString, string ad
     public string ConnectionString { get; } = connectionString;
 
     /// <summary>A new, independent context (own connection) on this database.</summary>
-    public SelloraDbContext CreateDbContext(Guid? companyId = null) => PostgresFixture.CreateDbContext(ConnectionString, companyId);
+    public SelloraDbContext CreateDbContext(Guid? companyId = null, Sellora.Domain.Abstractions.IBranchContext? branch = null) => PostgresFixture.CreateDbContext(ConnectionString, companyId, branch);
 
     /// <summary>Releases pooled connections to this database and drops it (forcing off any remaining sessions).</summary>
     public async ValueTask DisposeAsync()

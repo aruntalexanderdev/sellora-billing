@@ -84,7 +84,7 @@ public class SalesReturnLockConcurrencyTests(PostgresFixture postgres)
         {
             gate.SalesReturns.Add(new SalesReturn
             {
-                Id = Guid.NewGuid(), ReturnNo = "SRT-0001", SalesInvoiceId = otherSaleId,
+                Id = Guid.NewGuid(), BranchId = Sellora.Domain.Companies.DefaultTenant.BranchId, ReturnNo = "SRT-0001", SalesInvoiceId = otherSaleId,
                 ReturnDate = new DateOnly(2026, 9, 3), CreatedByUserId = s.Pen.UserId,
             });
             await gate.SaveChangesAsync();

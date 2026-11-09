@@ -18,6 +18,9 @@ public class FinancialAccount : ICompanyOwned
 {
     public Guid CompanyId { get; set; }
 
+    /// <summary>Optional branch tag; null = company-level (Phase 2).</summary>
+    public Guid? BranchId { get; set; }
+
     public Guid Id { get; set; }
     public required string Name { get; set; }
     public FinancialAccountKind Kind { get; set; }

@@ -18,6 +18,8 @@ public static class DependencyInjection
         // One company context per scope (request / seeder scope); SelloraDbContext resolves it as ICompanyContext.
         services.AddScoped<CompanyContext>();
         services.AddScoped<ICompanyContext>(sp => sp.GetRequiredService<CompanyContext>());
+        services.AddScoped<BranchContext>();
+        services.AddScoped<IBranchContext>(sp => sp.GetRequiredService<BranchContext>());
         services.AddDbContext<SelloraDbContext>(options => options.UseNpgsql(connectionString));
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));

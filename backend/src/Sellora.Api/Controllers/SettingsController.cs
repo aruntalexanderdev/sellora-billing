@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
+using Sellora.Domain.Abstractions;
 using Sellora.Infrastructure.Data;
 
 namespace Sellora.Api.Controllers;
@@ -9,7 +10,7 @@ namespace Sellora.Api.Controllers;
 [ApiController]
 [Route("api/v1/settings")]
 [Authorize(Policy = "Masters.View")]
-public class SettingsController(SelloraDbContext db) : ControllerBase
+public class SettingsController(SelloraDbContext db, IBranchService branchService) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<BusinessSettingsDto>> Get(CancellationToken ct)
@@ -40,6 +41,23 @@ public class SettingsController(SelloraDbContext db) : ControllerBase
             return ValidationProblem(ModelState);
         }
 
+        // The company prefix is a numbering segment shared with the branches: the check and the save run under the same
+        // company row lock the branch service uses, so a concurrent branch edit cannot slip a colliding prefix in.
+        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
+        var invoicePrefix = request.InvoicePrefix.Trim().ToUpperInvariant();
+        if (!string.Equals(invoicePrefix, settings.InvoicePrefix, StringComparison.Ordinal))
+        {
+            try
+            {
+                await branchService.EnsureCompanyInvoicePrefixAllowedAsync(invoicePrefix, ct);
+            }
+            catch (DomainValidationException ex)
+            {
+                ModelState.AddModelError(ex.Field, ex.Message);
+                return ValidationProblem(ModelState);
+            }
+        }
+
         settings.BusinessName = request.BusinessName.Trim();
         settings.AddressLine = request.AddressLine;
         settings.City = request.City;
@@ -47,7 +65,7 @@ public class SettingsController(SelloraDbContext db) : ControllerBase
         settings.Gstin = request.Gstin;
         settings.Phone = request.Phone;
         settings.Email = request.Email;
-        settings.InvoicePrefix = request.InvoicePrefix.Trim().ToUpperInvariant();
+        settings.InvoicePrefix = invoicePrefix;
         settings.BaseCurrencyId = baseCurrency.Id;
         settings.BaseCurrency = baseCurrency;
 
@@ -56,6 +74,7 @@ public class SettingsController(SelloraDbContext db) : ControllerBase
         company.Name = settings.BusinessName;
 
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return Ok(ToDto(settings));
     }
 

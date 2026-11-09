@@ -13,6 +13,9 @@ public class PurchaseReturn : ICompanyOwned
 {
     public Guid CompanyId { get; set; }
 
+    /// <summary>The branch that owns this document (Phase 2, same-company composite FK). Never taken from a client body.</summary>
+    public Guid BranchId { get; set; }
+
     public Guid Id { get; set; }
     public required string ReturnNo { get; set; }
 

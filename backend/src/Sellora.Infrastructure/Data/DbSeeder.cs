@@ -27,6 +27,7 @@ public static class DbSeeder
         }
 
         var company = await SeedDefaultCompanyAsync(db, ct);
+        await SeedDefaultBranchAsync(db, ct);
         await SeedPermissionsAsync(db, ct);
         var adminRole = await SeedAdministratorRoleAsync(db, ct);
         await SeedAdminUserAsync(db, adminRole, passwordHasher, ct);
@@ -58,6 +59,15 @@ public static class DbSeeder
         db.Companies.Add(company);
         await db.SaveChangesAsync(ct);
         return company;
+    }
+
+    // Migration B1 inserts Main per company; this covers databases created without migrations (tests, InMemory).
+    private static async Task SeedDefaultBranchAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        if (await db.Branches.AnyAsync(b => b.IsDefault, ct)) return;
+
+        db.Branches.Add(new Branch { Id = DefaultTenant.BranchId, Code = DefaultTenant.BranchCode, Name = "Main", IsDefault = true, IsActive = true });
+        await db.SaveChangesAsync(ct);
     }
 
     private static async Task SeedPermissionsAsync(SelloraDbContext db, CancellationToken ct)

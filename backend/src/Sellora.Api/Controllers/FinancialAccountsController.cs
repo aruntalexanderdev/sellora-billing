@@ -21,16 +21,22 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
     [Authorize]
     public async Task<ActionResult<IReadOnlyList<AccountOptionDto>>> Options(CancellationToken ct) =>
         Ok(await db.FinancialAccounts.Where(a => a.IsActive).OrderBy(a => a.Kind).ThenBy(a => a.Name)
-            .Select(a => new AccountOptionDto(a.Id, a.Name, a.Kind)).ToListAsync(ct));
+            .Select(a => new AccountOptionDto(a.Id, a.Name, a.Kind, a.BranchId)).ToListAsync(ct));
 
     [HttpGet]
     [Authorize(Policy = "CashBank.View")]
-    public async Task<ActionResult<FinancialAccountListDto>> List(CancellationToken ct)
+    public async Task<ActionResult<FinancialAccountListDto>> List([FromQuery] Guid? branchId, CancellationToken ct)
     {
-        var accounts = await db.FinancialAccounts.OrderBy(a => a.Kind).ThenBy(a => a.Name).ToListAsync(ct);
-        var balances = await BalancesAsync(null, ct);
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
 
-        var items = accounts.Select(a => ToDto(a, balances.GetValueOrDefault(a.Id))).ToList();
+        // branchId = only accounts tagged to that branch; absent = every account (company-level ones included).
+        var accountQuery = db.FinancialAccounts.AsQueryable();
+        if (branchId is not null) accountQuery = accountQuery.Where(a => a.BranchId == branchId);
+        var accounts = await accountQuery.OrderBy(a => a.Kind).ThenBy(a => a.Name).ToListAsync(ct);
+        var balances = await BalancesAsync(null, ct);
+        var labels = await BranchLabels.LoadAsync(db, ct);
+
+        var items = accounts.Select(a => ToDto(a, balances.GetValueOrDefault(a.Id), labels)).ToList();
         var baseCurrency = await db.GetBaseCurrencyAsync(ct);
         return Ok(new FinancialAccountListDto(
             items,
@@ -47,7 +53,7 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
         if (account is null) return NotFound();
 
         var balances = await BalancesAsync(id, ct);
-        return Ok(ToDto(account, balances.GetValueOrDefault(id)));
+        return Ok(ToDto(account, balances.GetValueOrDefault(id), await BranchLabels.LoadAsync(db, ct)));
     }
 
     [HttpPost]
@@ -60,7 +66,7 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
         {
             var account = await accountService.CreateAsync(
                 new CreateAccountInput(request.Name, request.Kind, request.Reference, request.OpeningBalance,
-                    request.OpeningDate ?? DateOnly.FromDateTime(DateTime.UtcNow)),
+                    request.OpeningDate ?? DateOnly.FromDateTime(DateTime.UtcNow)) { BranchId = request.BranchId },
                 CurrentUserId(), ct);
             return await Get(account.Id, ct);
         }
@@ -79,7 +85,7 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
 
         try
         {
-            var account = await accountService.UpdateAsync(id, new UpdateAccountInput(request.Name, request.Reference), ct);
+            var account = await accountService.UpdateAsync(id, new UpdateAccountInput(request.Name, request.Reference) { BranchId = request.BranchId }, ct);
             if (account is null) return NotFound();
             return await Get(id, ct);
         }
@@ -173,6 +179,7 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
         return rows.ToDictionary(r => r.Id, r => new Balance(r.Book, r.Reconciled, r.Unreconciled));
     }
 
-    private static FinancialAccountDto ToDto(FinancialAccount a, Balance? b) => new(
-        a.Id, a.Name, a.Kind, a.Reference, a.IsActive, b?.Book ?? 0m, b?.Reconciled ?? 0m, b?.Unreconciled ?? 0);
+    private static FinancialAccountDto ToDto(FinancialAccount a, Balance? b, BranchLabels labels) => new(
+        a.Id, a.Name, a.Kind, a.Reference, a.IsActive, b?.Book ?? 0m, b?.Reconciled ?? 0m, b?.Unreconciled ?? 0,
+        a.BranchId, labels.Code(a.BranchId), labels.Name(a.BranchId));
 }

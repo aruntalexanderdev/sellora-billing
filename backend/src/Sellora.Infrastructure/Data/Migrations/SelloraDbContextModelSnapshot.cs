@@ -22,6 +22,95 @@ namespace Sellora.Infrastructure.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Sellora.Domain.Entities.Branch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AddressLine")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("City")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(6)
+                        .HasColumnType("character varying(6)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Gstin")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("InvoicePrefix")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("State")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex(new[] { "CompanyId", "Code" }, "IX_Branches_CompanyId_Code")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "CompanyId" }, "IX_Branches_CompanyId_IsDefault")
+                        .IsUnique()
+                        .HasFilter("\"IsDefault\"");
+
+                    b.HasIndex(new[] { "CompanyId", "Name" }, "IX_Branches_CompanyId_Name")
+                        .IsUnique();
+
+                    b.ToTable("Branches", t =>
+                        {
+                            t.HasCheckConstraint("CK_Branches_Default_Active", "\"IsActive\" OR NOT \"IsDefault\"");
+
+                            t.HasCheckConstraint("CK_Branches_Id_NotEmpty", "\"Id\" <> '00000000-0000-0000-0000-000000000000'");
+                        });
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.BusinessSettings", b =>
                 {
                     b.Property<Guid>("Id")
@@ -270,6 +359,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("BaseAmount")
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("CancellationReason")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -341,6 +433,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("CompanyId", "CategoryId");
 
+                    b.HasIndex(new[] { "CompanyId", "BranchId" }, "IX_Expenses_CompanyId_BranchId");
+
                     b.HasIndex(new[] { "CompanyId", "ExpenseNo" }, "IX_Expenses_CompanyId_ExpenseNo")
                         .IsUnique();
 
@@ -381,6 +475,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -410,6 +507,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex(new[] { "CompanyId", "BranchId" }, "IX_FinancialAccounts_CompanyId_BranchId");
 
                     b.HasIndex(new[] { "CompanyId", "Name" }, "IX_FinancialAccounts_CompanyId_Name")
                         .IsUnique();
@@ -819,6 +918,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset?>("CancelledAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -910,6 +1012,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("SupplierId");
 
                     b.HasIndex("CompanyId", "SupplierId");
+
+                    b.HasIndex(new[] { "CompanyId", "BranchId", "PurchaseDate" }, "IX_PurchaseOrders_CompanyId_BranchId_PurchaseDate");
 
                     b.HasIndex(new[] { "CompanyId", "PurchaseNo" }, "IX_PurchaseOrders_CompanyId_PurchaseNo")
                         .IsUnique();
@@ -1072,6 +1176,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -1115,6 +1222,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("CompanyId", "PurchaseOrderId");
 
                     b.HasIndex("PurchaseOrderId", "CreatedAt");
+
+                    b.HasIndex(new[] { "CompanyId", "BranchId", "ReturnDate" }, "IX_PurchaseReturns_CompanyId_BranchId_ReturnDate");
 
                     b.HasIndex(new[] { "CompanyId", "ReturnNo" }, "IX_PurchaseReturns_CompanyId_ReturnNo")
                         .IsUnique();
@@ -1288,6 +1397,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset?>("CancelledAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1351,6 +1463,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("CompanyId", "CustomerId");
+
+                    b.HasIndex(new[] { "CompanyId", "BranchId", "InvoiceDate" }, "IX_SalesInvoices_CompanyId_BranchId_InvoiceDate");
 
                     b.HasIndex(new[] { "CompanyId", "InvoiceNo" }, "IX_SalesInvoices_CompanyId_InvoiceNo")
                         .IsUnique();
@@ -1557,6 +1671,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -1597,6 +1714,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("CompanyId", "SalesInvoiceId");
 
                     b.HasIndex("SalesInvoiceId", "CreatedAt");
+
+                    b.HasIndex(new[] { "CompanyId", "BranchId", "ReturnDate" }, "IX_SalesReturns_CompanyId_BranchId_ReturnDate");
 
                     b.HasIndex(new[] { "CompanyId", "ReturnNo" }, "IX_SalesReturns_CompanyId_ReturnNo")
                         .IsUnique();
@@ -1726,6 +1845,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("BeforeQty")
                         .HasColumnType("numeric(18,3)");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -1792,6 +1914,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex(new[] { "CompanyId", "AdjustmentNo" }, "IX_StockAdjustments_CompanyId_AdjustmentNo")
                         .IsUnique();
+
+                    b.HasIndex(new[] { "CompanyId", "BranchId", "CreatedAt" }, "IX_StockAdjustments_CompanyId_BranchId_CreatedAt");
 
                     b.ToTable("StockAdjustments", t =>
                         {
@@ -2160,6 +2284,25 @@ namespace Sellora.Infrastructure.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.Branch", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.BusinessSettings", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.Currency", "BaseCurrency")
@@ -2193,6 +2336,13 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("CompanyId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_DocumentSequences_Branches_CompanyId_BranchId");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.ExchangeRate", b =>
@@ -2251,6 +2401,13 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Expenses_Branches_CompanyId_BranchId");
+
                     b.HasOne("Sellora.Domain.Entities.ExpenseCategory", null)
                         .WithMany()
                         .HasForeignKey("CompanyId", "CategoryId")
@@ -2289,6 +2446,13 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("CreatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_FinancialAccounts_Branches_CompanyId_BranchId");
 
                     b.Navigation("CreatedByUser");
                 });
@@ -2509,6 +2673,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_PurchaseOrders_Branches_CompanyId_BranchId");
+
                     b.HasOne("Sellora.Domain.Entities.Supplier", null)
                         .WithMany()
                         .HasForeignKey("CompanyId", "SupplierId")
@@ -2619,6 +2791,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("PurchaseOrderId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_PurchaseReturns_Branches_CompanyId_BranchId");
 
                     b.HasOne("Sellora.Domain.Entities.PurchaseOrder", null)
                         .WithMany()
@@ -2735,6 +2915,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("CustomerId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_SalesInvoices_Branches_CompanyId_BranchId");
 
                     b.HasOne("Sellora.Domain.Entities.Customer", null)
                         .WithMany()
@@ -2864,6 +3052,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_SalesReturns_Branches_CompanyId_BranchId");
+
                     b.HasOne("Sellora.Domain.Entities.SalesInvoice", null)
                         .WithMany()
                         .HasForeignKey("CompanyId", "SalesInvoiceId")
@@ -2964,6 +3160,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockAdjustments_Branches_CompanyId_BranchId");
 
                     b.HasOne("Sellora.Domain.Entities.Product", null)
                         .WithMany()

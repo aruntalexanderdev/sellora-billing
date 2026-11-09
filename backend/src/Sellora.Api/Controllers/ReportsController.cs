@@ -152,12 +152,15 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
     public async Task<ActionResult<PagedResult<PurchaseReportRowDto>>> Purchases(
         [FromQuery] string? search, [FromQuery] Guid? supplierId,
         [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
+
         var query = db.PurchaseOrders.Include(p => p.Supplier).AsQueryable();
+        if (branchId is not null) query = query.Where(p => p.BranchId == branchId);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -175,8 +178,11 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
             .Select(p => new PurchaseReportRowDto(
                 p.Id, p.PurchaseNo, p.PurchaseDate, p.Supplier.Name,
                 p.Subtotal, p.TaxTotal, p.OtherChargesTotal, p.GrandTotal, p.PaidAmount, p.DueAmount, p.Status,
-                p.Currency.Code, p.OriginalGrandTotal))
+                p.Currency.Code, p.OriginalGrandTotal, p.BranchId, null, null))
             .ToListAsync(ct);
+
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
 
         return Ok(new PagedResult<PurchaseReportRowDto>(items, total, page, pageSize));
     }
@@ -186,12 +192,15 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
     public async Task<ActionResult<PagedResult<SalesReportRowDto>>> Sales(
         [FromQuery] string? search, [FromQuery] PaymentMethod? paymentMethod,
         [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
+
         var query = db.SalesInvoices.Include(i => i.Customer).AsQueryable();
+        if (branchId is not null) query = query.Where(i => i.BranchId == branchId);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -208,8 +217,11 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(i => new SalesReportRowDto(
                 i.Id, i.InvoiceNo, i.InvoiceDate, i.Customer.Name,
-                i.Subtotal, i.TaxTotal, i.DiscountTotal, i.GrandTotal, i.PaidAmount, i.DueAmount, i.Status))
+                i.Subtotal, i.TaxTotal, i.DiscountTotal, i.GrandTotal, i.PaidAmount, i.DueAmount, i.Status, i.BranchId, null, null))
             .ToListAsync(ct);
+
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
 
         return Ok(new PagedResult<SalesReportRowDto>(items, total, page, pageSize));
     }
@@ -217,9 +229,12 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
     [HttpGet("profit-summary")]
     [Authorize(Policy = "Reports.Profit")]
     public async Task<ActionResult<ProfitSummaryDto>> ProfitSummary(
-        [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo, CancellationToken ct)
+        [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo, [FromQuery] Guid? branchId, CancellationToken ct)
     {
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
+
         var query = db.SalesInvoices.Where(i => i.Status == SalesStatus.Completed).AsQueryable();
+        if (branchId is not null) query = query.Where(i => i.BranchId == branchId);
         if (dateFrom is not null) query = query.Where(i => i.InvoiceDate >= dateFrom);
         if (dateTo is not null) query = query.Where(i => i.InvoiceDate <= dateTo);
 
@@ -237,6 +252,6 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
         var grossProfit = salesRevenue - cogs;
         var grossMarginPercent = salesRevenue > 0 ? Math.Round(grossProfit / salesRevenue * 100, 2) : (decimal?)null;
 
-        return Ok(new ProfitSummaryDto(dateFrom, dateTo, invoiceCount, salesRevenue, cogs, grossProfit, grossMarginPercent));
+        return Ok(new ProfitSummaryDto(dateFrom, dateTo, invoiceCount, salesRevenue, cogs, grossProfit, grossMarginPercent, branchId));
     }
 }

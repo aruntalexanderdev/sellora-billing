@@ -31,7 +31,7 @@ public class EndpointAuthorizationTests
     // a named permission. Adding to this list should be a deliberate decision.
     private static readonly HashSet<string> SignedInOnly =
     [
-        "CurrenciesController.List", "DashboardController.Get", "ExchangeRatesController.Resolve",
+        "BranchesController.Accessible", "CurrenciesController.List", "DashboardController.Get", "ExchangeRatesController.Resolve",
         "FinancialAccountsController.Options", "UsersController.UpdateOwnUsername", "UsersController.ChangeOwnPassword",
     ];
 
@@ -59,6 +59,32 @@ public class EndpointAuthorizationTests
             .ToList();
 
         Assert.True(unlisted.Count == 0, "Signed-in-only endpoints not on the allowlist: " + string.Join(", ", unlisted));
+    }
+
+    [Theory]
+    [InlineData(typeof(BranchesController), "List", "Company.Branches.View")]
+    [InlineData(typeof(BranchesController), "Get", "Company.Branches.View")]
+    [InlineData(typeof(BranchesController), "Create", "Company.Branches.Create")]
+    [InlineData(typeof(BranchesController), "Update", "Company.Branches.Edit")]
+    [InlineData(typeof(BranchesController), "SetStatus", "Company.Branches.Disable")]
+    public void BranchEndpoints_RequireTheirBranchPermission(Type controller, string action, string policy)
+    {
+        Assert.Contains(policy, Policies(controller, controller.GetMethod(action)!));
+    }
+
+    [Fact]
+    public void BranchesAccessible_IsAuthenticatedOnlyBecauseABranchIsADataScopeNotAnAction()
+    {
+        var method = typeof(BranchesController).GetMethod("Accessible")!;
+        Assert.All(Policies(typeof(BranchesController), method).Where(p => p.Length > 0), p => Assert.Fail($"Accessible must not need a named permission, found {p}"));
+        Assert.Contains(method.GetCustomAttributes<AuthorizeAttribute>(), _ => true);
+    }
+
+    [Fact]
+    public void BranchPermissionCodes_AreInTheCatalogue()
+    {
+        var codes = Sellora.Domain.Permissions.PermissionCatalog.All.Select(p => p.Code).ToHashSet();
+        Assert.Superset(new HashSet<string> { "Company.Branches.View", "Company.Branches.Create", "Company.Branches.Edit", "Company.Branches.Disable" }, codes);
     }
 
     [Theory]

@@ -170,6 +170,49 @@ public class CompanyIsolationApiTests(PostgresFixture postgres)
         Assert.Equal((w.B.Company, beforeB), (bSettings.CompanyId, bSettings.BusinessName));
     }
 
+    [Fact]
+    public async Task Branches_SameCodeInBothCompanies_Succeeds_AndAnotherCompanysBranchIsDeniedAsHeaderAndFilter()
+    {
+        var w = await WorldAsync();
+        using var a = w.Host.NewClient(Own(w.A));
+        using var b = w.Host.NewClient(Own(w.B));
+        var request = new CreateBranchRequest("ISO", "Isolation branch", null, null, null, null, null, null, null);
+
+        var createA = await a.PostAsJsonAsync("/api/v1/branches", request, ApiHost.Json);
+        var createB = await b.PostAsJsonAsync("/api/v1/branches", request, ApiHost.Json);
+
+        Assert.True(createA.IsSuccessStatusCode, await createA.Content.ReadAsStringAsync());
+        Assert.True(createB.IsSuccessStatusCode, await createB.Content.ReadAsStringAsync());
+        var aBranches = await a.GetFromJsonAsync<List<BranchDto>>("/api/v1/branches?includeInactive=true", ApiHost.Json);
+        var bBranches = await b.GetFromJsonAsync<List<BranchDto>>("/api/v1/branches?includeInactive=true", ApiHost.Json);
+        Assert.Empty(aBranches!.Select(x => x.Id).Intersect(bBranches!.Select(x => x.Id)));
+        Assert.Equal(["ISO", "MAIN"], aBranches!.Select(x => x.Code).Order().ToArray());
+
+        // B naming A's branch (header or list filter) is refused exactly like an unknown id (no existence leak).
+        var foreign = w.A.BranchId;
+        var unknown = Guid.NewGuid();
+        var (fh, fhBody) = await GetWithHeaderAsync(b, "/api/v1/sales", foreign);
+        var (uh, uhBody) = await GetWithHeaderAsync(b, "/api/v1/sales", unknown);
+        Assert.Equal((HttpStatusCode.Forbidden, HttpStatusCode.Forbidden), (fh, uh));
+        string Normalise(string body, Guid id) => System.Text.RegularExpressions.Regex.Replace(body.Replace(id.ToString(), "X"), "\"traceId\":\"[^\"]*\"", "\"traceId\":\"T\"");
+        Assert.Equal(Normalise(uhBody, unknown), Normalise(fhBody, foreign)); // identical apart from the per-request trace id
+        var filtered = await b.GetAsync($"/api/v1/sales?branchId={foreign}");
+        Assert.Equal(HttpStatusCode.Forbidden, filtered.StatusCode);
+        Assert.Equal("branch_access_denied", await filtered.ProblemCodeAsync());
+        // The company-A-only branch id cannot be used to create documents as B either.
+        using var create = new HttpRequestMessage(HttpMethod.Post, "/api/v1/sales") { Content = JsonContent.Create(new CreateSaleRequest(w.B.CustomerId, DateOnly.FromDateTime(DateTime.UtcNow), Sellora.Domain.Entities.PaymentMethod.Cash, 0m, []), options: ApiHost.Json) };
+        create.Headers.Add("X-Branch-Id", foreign.ToString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await b.SendAsync(create)).StatusCode);
+    }
+
+    private static async Task<(HttpStatusCode, string)> GetWithHeaderAsync(HttpClient client, string route, Guid branch)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, route);
+        request.Headers.Add("X-Branch-Id", branch.ToString());
+        var response = await client.SendAsync(request);
+        return (response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
     // ---- classification of every controller action -----------------------------------------------------------------------
 
     private static IEnumerable<string> AllActionKeys() =>

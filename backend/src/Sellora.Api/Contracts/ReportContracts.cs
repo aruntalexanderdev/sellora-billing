@@ -20,13 +20,15 @@ public record PurchaseReportRowDto(
     Guid Id, string PurchaseNo, DateOnly PurchaseDate, string SupplierName,
     decimal Subtotal, decimal TaxTotal, decimal OtherChargesTotal, decimal GrandTotal,
     decimal PaidAmount, decimal DueAmount, PurchaseStatus Status,
-    string CurrencyCode, decimal OriginalGrandTotal
+    string CurrencyCode, decimal OriginalGrandTotal,
+    Guid BranchId, string? BranchCode, string? BranchName
 );
 
 public record SalesReportRowDto(
     Guid Id, string InvoiceNo, DateOnly InvoiceDate, string CustomerName,
     decimal Subtotal, decimal TaxTotal, decimal DiscountTotal, decimal GrandTotal,
-    decimal PaidAmount, decimal DueAmount, SalesStatus Status
+    decimal PaidAmount, decimal DueAmount, SalesStatus Status,
+    Guid BranchId, string? BranchCode, string? BranchName
 );
 
 /// <summary>
@@ -37,5 +39,6 @@ public record SalesReportRowDto(
 /// </summary>
 public record ProfitSummaryDto(
     DateOnly? DateFrom, DateOnly? DateTo, int InvoiceCount,
-    decimal SalesRevenue, decimal CostOfGoodsSold, decimal GrossProfit, decimal? GrossMarginPercent
+    decimal SalesRevenue, decimal CostOfGoodsSold, decimal GrossProfit, decimal? GrossMarginPercent,
+    Guid? BranchId = null
 );

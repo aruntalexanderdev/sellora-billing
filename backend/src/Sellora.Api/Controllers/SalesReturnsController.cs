@@ -20,12 +20,15 @@ public class SalesReturnsController(SelloraDbContext db, ISalesService salesServ
     [Authorize(Policy = "Sales.View")]
     public async Task<ActionResult<PagedResult<SalesReturnListItemDto>>> List(
         [FromQuery] string? search, [FromQuery] Guid? salesInvoiceId, [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
+
         var query = db.SalesReturns.AsQueryable();
+        if (branchId is not null) query = query.Where(r => r.BranchId == branchId);
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim().ToLower();
@@ -41,8 +44,12 @@ public class SalesReturnsController(SelloraDbContext db, ISalesService salesServ
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(r => new SalesReturnListItemDto(
                 r.Id, r.ReturnNo, r.ReturnDate, r.SalesInvoiceId, r.SalesInvoice.InvoiceNo, r.SalesInvoice.Customer.Name, r.Total,
-                db.SalesPayments.Where(p => p.SalesReturnId == r.Id && p.Kind == PaymentEntryKind.Refund).Sum(p => (decimal?)p.Amount) ?? 0m))
+                db.SalesPayments.Where(p => p.SalesReturnId == r.Id && p.Kind == PaymentEntryKind.Refund).Sum(p => (decimal?)p.Amount) ?? 0m,
+                r.BranchId, null, null))
             .ToListAsync(ct);
+
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
 
         return Ok(new PagedResult<SalesReturnListItemDto>(items, total, page, pageSize));
     }
@@ -63,6 +70,7 @@ public class SalesReturnsController(SelloraDbContext db, ISalesService salesServ
         var refunds = await db.SalesPayments.Include(p => p.CreatedByUser).Include(p => p.SalesReturn)
             .Where(p => p.SalesReturnId == id && p.Kind == PaymentEntryKind.Refund).OrderBy(p => p.CreatedAt).ToListAsync(ct);
         var noReversed = new HashSet<Guid>();
+        var labels = await BranchLabels.LoadAsync(db, ct);
 
         return Ok(new SalesReturnDetailDto(
             r.Id, r.ReturnNo, r.ReturnDate, r.SalesInvoiceId, r.SalesInvoice.InvoiceNo, r.SalesInvoice.Customer.Name,
@@ -71,7 +79,8 @@ public class SalesReturnsController(SelloraDbContext db, ISalesService salesServ
             r.Lines.Select(l => new SalesReturnLineDto(
                 l.Id, l.Product.Name, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name, l.UnitCode, l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Product.BaseUnit.DecimalPlaces,
                 l.TaxableValue, l.TaxAmount, l.LineTotal)).ToList(),
-            refunds.Select(p => SalesController.ToPaymentDto(p, noReversed)).ToList()));
+            refunds.Select(p => SalesController.ToPaymentDto(p, noReversed)).ToList(),
+            r.BranchId, labels.Code(r.BranchId), labels.Name(r.BranchId)));
     }
 
     [HttpPost]

@@ -14,7 +14,7 @@ public class PricingServiceTests
         var options = new DbContextOptionsBuilder<SelloraDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
-        return new SelloraDbContext(options, Sellora.Tests.TestData.TestCompany.Context);
+        return Sellora.Tests.TestData.TestCompany.NewDb(options);
     }
 
     private sealed record Fixture(SelloraDbContext Db, PricingService Service, ProductUnit Bag, Guid UserId);

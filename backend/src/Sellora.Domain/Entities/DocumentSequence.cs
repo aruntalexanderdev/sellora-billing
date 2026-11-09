@@ -7,7 +7,7 @@ public class DocumentSequence : ICompanyOwned
 {
     public Guid Id { get; set; }
     public Guid CompanyId { get; set; }
-    /// <summary>Null = company-level series. FK to Branches is added in Phase 2.</summary>
+    /// <summary>Null = company-level series (EXP stays company-level). Composite FK (CompanyId, BranchId) -> Branches.</summary>
     public Guid? BranchId { get; set; }
     public required string Series { get; set; }
     /// <summary>The next number to hand out (the numeric suffix of the next document).</summary>

@@ -50,12 +50,16 @@ public class DocumentSequenceConfiguration : IEntityTypeConfiguration<DocumentSe
         builder.HasKey(s => s.Id);
         builder.Property(s => s.Series).HasMaxLength(10).IsRequired();
 
-        // Two partial uniques instead of one over nullable BranchId (a NULL would never collide). The FK from BranchId to
-        // Branches is added by Phase 2.
+        // Two partial uniques instead of one over nullable BranchId (a NULL would never collide).
         builder.HasIndex(s => new { s.CompanyId, s.Series }, "IX_DocumentSequences_CompanyId_Series")
             .IsUnique().HasFilter("\"BranchId\" IS NULL");
         builder.HasIndex(s => new { s.CompanyId, s.BranchId, s.Series }, "IX_DocumentSequences_CompanyId_BranchId_Series")
             .IsUnique().HasFilter("\"BranchId\" IS NOT NULL");
+
+        // Nullable composite FK (MATCH SIMPLE: a NULL BranchId = company-level series is not checked). The unique above serves it.
+        builder.HasOne<Branch>().WithMany().HasForeignKey(s => new { s.CompanyId, s.BranchId })
+            .HasPrincipalKey(b => new { b.CompanyId, b.Id }).IsRequired(false).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_DocumentSequences_Branches_CompanyId_BranchId");
 
         builder.ToTable(t =>
         {

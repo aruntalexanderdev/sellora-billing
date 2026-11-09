@@ -25,12 +25,16 @@ public class FinancialAccountService(SelloraDbContext db) : IFinancialAccountSer
         }
         EnsureNotFuture(input.OpeningDate, "OpeningDate");
 
+        var branch = input.BranchId is { } branchId
+            ? await BranchRules.EnsureCanUseAsync(db, branchId, requireActive: true, "BranchId", ct)
+            : null;
+
         var (baseCurrencyId, basePrecision) = await BaseCurrencyAsync(ct);
         var opening = Math.Round(input.OpeningBalance, basePrecision, MidpointRounding.AwayFromZero);
 
         var account = new FinancialAccount
         {
-            Id = Guid.NewGuid(), Name = name, Kind = input.Kind, Reference = Clean(input.Reference), CreatedByUserId = userId,
+            Id = Guid.NewGuid(), Name = name, Kind = input.Kind, Reference = Clean(input.Reference), BranchId = branch?.Id, CreatedByUserId = userId,
         };
         db.FinancialAccounts.Add(account);
 
@@ -56,6 +60,15 @@ public class FinancialAccountService(SelloraDbContext db) : IFinancialAccountSer
         if (await db.FinancialAccounts.AnyAsync(a => a.Id != accountId && a.Name.ToLower() == name.ToLower(), ct))
         {
             throw new DomainValidationException("Name", "An account with this name already exists.");
+        }
+
+        if (input.BranchId != account.BranchId)
+        {
+            if (input.BranchId is { } newBranchId)
+            {
+                await BranchRules.EnsureCanUseAsync(db, newBranchId, requireActive: true, "BranchId", ct);
+            }
+            account.BranchId = input.BranchId;
         }
 
         account.Name = name;

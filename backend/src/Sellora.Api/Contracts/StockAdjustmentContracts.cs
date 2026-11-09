@@ -21,7 +21,8 @@ public record StockAdjustmentListItemDto(
     Guid Id, string AdjustmentNo, DateTimeOffset CreatedAt, Guid ProductId, string ProductName, string Sku,
     AdjustmentType Type, AdjustmentDirection Direction, decimal EnteredQuantity, string UnitCode, short EnteredDecimalPlaces,
     decimal QuantityBaseUnits, string BaseUnitCode, short BaseDecimalPlaces, decimal? EnteredUnitCost, decimal? UnitCost,
-    decimal BeforeQty, decimal AfterQty, string UserName
+    decimal BeforeQty, decimal AfterQty, string UserName,
+    Guid BranchId, string? BranchCode, string? BranchName
 );
 
 /// <summary>A batch the adjustment created (+) or drew from (−), from its stock movements.</summary>
@@ -33,5 +34,6 @@ public record StockAdjustmentDto(
     AdjustmentType Type, AdjustmentDirection Direction, decimal EnteredQuantity, Guid ProductUnitId, string UnitCode, string UnitDisplayName,
     decimal ConversionFactorToBase, short EnteredDecimalPlaces, decimal QuantityBaseUnits, string BaseUnitCode, short BaseDecimalPlaces,
     decimal? EnteredUnitCost, decimal? UnitCost, string? Reason, decimal BeforeQty, decimal AfterQty, string UserName,
-    IReadOnlyList<StockAdjustmentBatchDto> Batches
+    IReadOnlyList<StockAdjustmentBatchDto> Batches,
+    Guid BranchId, string? BranchCode, string? BranchName
 );

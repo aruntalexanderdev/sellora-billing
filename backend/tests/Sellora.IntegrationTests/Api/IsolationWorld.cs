@@ -15,7 +15,7 @@ namespace Sellora.IntegrationTests.Api;
 public sealed record Ids(
     Guid Company, string Token, Guid UserId, Guid ProductId, Guid ProductUnitId, Guid BaseUnitId, Guid SupplierId, Guid CustomerId,
     Guid TaxId, Guid CategoryId, Guid AccountId, Guid PurchaseId, Guid PurchaseLineId, Guid PurchaseReturnId, Guid SaleId,
-    Guid SaleLineId, Guid SalesReturnId, Guid AdjustmentId, Guid ExpenseId, Guid ExchangeRateId, Guid BatchId, Guid CurrencyId);
+    Guid SaleLineId, Guid SalesReturnId, Guid AdjustmentId, Guid ExpenseId, Guid ExchangeRateId, Guid BatchId, Guid CurrencyId, Guid BranchId);
 
 public static class IdsExtensions
 {
@@ -55,6 +55,13 @@ public sealed class IsolationWorld
             db.Users.Add(bowner);
             db.UserCompanyMemberships.Add(new UserCompanyMembership { Id = Guid.NewGuid(), UserId = bowner.Id, CompanyId = company });
             await db.SaveChangesAsync();
+        }
+
+        await using (var dbB = host.Database.CreateDbContext(company))
+        {
+            // Every company owns a default branch (B1 gives migrated companies theirs); added under B's own context.
+            dbB.Branches.Add(Sellora.IntegrationTests.TestData.BranchBuilder.Main(company));
+            await dbB.SaveChangesAsync();
         }
 
         await CloneMastersAsync(host, company, adminId);
@@ -133,13 +140,14 @@ public sealed class IsolationWorld
         var rate = await db.ExchangeRates.OrderBy(r => r.EffectiveDate).FirstAsync();
         var batch = await db.PurchaseBatches.FirstAsync();
         return new Ids(company, token, userId, product.Id, baseUnit.Id, baseUnit.UnitId, supplier.Id, customer.Id, product.TaxId, category.Id, account.Id,
-            purchase.Id, purchase.Lines.Single().Id, purchaseReturn.Id, sale.Id, sale.Lines.Single().Id, salesReturn.Id, adjustment.Id, expense.Id, rate.Id, batch.Id, currencyId);
+            purchase.Id, purchase.Lines.Single().Id, purchaseReturn.Id, sale.Id, sale.Lines.Single().Id, salesReturn.Id, adjustment.Id, expense.Id, rate.Id, batch.Id, currencyId,
+            await db.Branches.Where(b => b.IsDefault).Select(b => b.Id).SingleAsync());
     }
 
     /// <summary>Every row id (as lower-case text) owned by a company: company tables plus the child tables owned through their parent.</summary>
     private static async Task<HashSet<string>> RowIdsAsync(ApiHost host, Guid company)
     {
-        var tables = CompanyTables.Where(t => t != "StockItems");
+        var tables = CompanyTables.Where(t => t != "StockItems").Append("Branches");
         var parts = tables.Select(t => $"""SELECT "Id"::text FROM "{t}" WHERE "CompanyId" = '{company}'""").Concat(
         [
             $"""SELECT l."Id"::text FROM "PurchaseOrderLines" l JOIN "PurchaseOrders" p ON p."Id" = l."PurchaseOrderId" WHERE p."CompanyId" = '{company}'""",

@@ -17,6 +17,24 @@ public static class TestCompany
     /// <summary>A fresh context set to the default company. One per DbContext: a context's company is fixed once set.</summary>
     public static ICompanyContext Context => CompanyContext.For(DefaultTenant.CompanyId);
 
+    /// <summary>Branch scope of every test DbContext unless a test restricts it: access to every branch of the company, no requested branch (Phase 2).</summary>
+    public static IBranchContext Branch => BranchContext.Unrestricted();
+
+    /// <summary>The default company's Main branch (<see cref="DefaultTenant.BranchId"/>).</summary>
+    public static Guid MainBranchId => DefaultTenant.BranchId;
+
+    /// <summary>
+    /// InMemory context of the default company with an Unrestricted branch scope and the default company's Main branch seeded
+    /// (what DbSeeder does in production): documents need a default branch to resolve, so shared fixtures start here.
+    /// </summary>
+    public static SelloraDbContext NewDb(Microsoft.EntityFrameworkCore.DbContextOptions<SelloraDbContext> options)
+    {
+        var db = new SelloraDbContext(options, Context, Branch);
+        db.Branches.Add(BranchBuilder.Main());
+        db.SaveChanges();
+        return db;
+    }
+
     /// <summary>A fresh context set to <paramref name="companyId"/>.</summary>
     public static ICompanyContext For(Guid companyId) => CompanyContext.For(companyId);
 

@@ -11,10 +11,11 @@ using Sellora.Domain.Companies;
 using Sellora.Infrastructure;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Security;
+using Sellora.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-const string AngularDevCorsPolicy = "AngularDev";
+const string FrontendCorsPolicy = "Frontend";
 
 // Add services to the container.
 builder.Services.AddControllers()
@@ -66,16 +67,37 @@ builder.Services.AddAuthorization();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
+// CORS (Phase 2 D10): origins come from configuration (Cors:AllowedOrigins; environments override with
+// Cors__AllowedOrigins__0..n). Fail closed: an empty list allows no cross-origin access. Bearer tokens travel in headers
+// and the refresh token in the body, so credentials (cookies) are not allowed. Custom headers (Idempotency-Key,
+// X-Branch-Id) trigger a preflight, which is cached for 10 minutes.
+var corsOrigins = (builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [])
+    .Select(o => o.Trim().TrimEnd('/'))
+    .Where(o => o.Length > 0)
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy(AngularDevCorsPolicy, policy =>
-        policy.WithOrigins("http://localhost:4200")
-              .AllowAnyHeader()
+    options.AddPolicy(FrontendCorsPolicy, policy =>
+    {
+        if (corsOrigins.Length == 0) return;
+
+        policy.WithOrigins(corsOrigins)
+              .WithHeaders("Authorization", "Content-Type", "Idempotency-Key", "X-Branch-Id")
               .AllowAnyMethod()
-              .AllowCredentials());
+              .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
+    });
 });
 
+builder.Services.AddScoped<IBranchService, BranchService>();
+
 var app = builder.Build();
+
+if (corsOrigins.Length == 0)
+{
+    app.Logger.LogWarning("Cors:AllowedOrigins is empty; cross-origin browser requests are blocked.");
+}
 
 // Configure the HTTP request pipeline.
 app.UseExceptionHandler();
@@ -130,7 +152,7 @@ if (app.Environment.IsDevelopment() || enableSwagger)
     });
 }
 
-app.UseCors(AngularDevCorsPolicy);
+app.UseCors(FrontendCorsPolicy);
 
 app.UseHttpsRedirection();
 

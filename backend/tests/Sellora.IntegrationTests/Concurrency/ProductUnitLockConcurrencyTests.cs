@@ -272,7 +272,7 @@ public class ProductUnitLockConcurrencyTests(PostgresFixture postgres)
             var supplier = await gate.Suppliers.AsNoTracking().SingleAsync(x => x.Id == seed.Scenario.SupplierId);
             gate.PurchaseOrders.Add(new PurchaseOrder
             {
-                Id = Guid.NewGuid(), PurchaseNo = nextNo, SupplierId = supplier.Id, CurrencyId = supplier.CurrencyId,
+                Id = Guid.NewGuid(), BranchId = Sellora.Domain.Companies.DefaultTenant.BranchId, PurchaseNo = nextNo, SupplierId = supplier.Id, CurrencyId = supplier.CurrencyId,
                 PurchaseDate = StockScenario.PurchaseDate, PaymentMethod = PaymentMethod.Cash, CreatedByUserId = seed.Scenario.UserId,
             });
             await gate.SaveChangesAsync();

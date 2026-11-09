@@ -14,6 +14,9 @@ public class Expense : ICompanyOwned
 {
     public Guid CompanyId { get; set; }
 
+    /// <summary>Optional branch tag; null = company-level (Phase 2).</summary>
+    public Guid? BranchId { get; set; }
+
     public Guid Id { get; set; }
     public required string ExpenseNo { get; set; }
 

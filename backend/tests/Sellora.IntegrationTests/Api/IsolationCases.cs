@@ -23,6 +23,9 @@ public static class IsolationCases
 
     public static readonly ReadCase[] Reads =
     [
+        new("BranchesController.List", _ => "/api/v1/branches?includeInactive=true"),
+        new("BranchesController.Get", i => $"/api/v1/branches/{i.BranchId}", Detail: true),
+        new("BranchesController.Accessible", _ => "/api/v1/branches/accessible"),
         new("ProductsController.List", _ => "/api/v1/products"),
         new("ProductsController.Get", i => $"/api/v1/products/{i.ProductId}", Detail: true),
         new("SuppliersController.List", _ => "/api/v1/suppliers"),
@@ -89,6 +92,10 @@ public static class IsolationCases
 
     public static readonly WriteCase[] Writes =
     [
+        new("BranchesController.Update", "other company's branch", Put, (own, other) =>
+            ($"/api/v1/branches/{other.BranchId}", new UpdateBranchRequest("Hijacked", null, null, null, null, null, null, null))),
+        new("BranchesController.SetStatus", "other company's branch", Post, (own, other) =>
+            ($"/api/v1/branches/{other.BranchId}/status", new SetActiveRequest(false))),
         new("ProductsController.Create", "other company's tax", Post, (own, other) =>
             ("/api/v1/products", new UpsertProductRequest("ISO-1", "Isolation", null, own.BaseUnitId, other.TaxId, 0m, [EachUnit(own)]))),
         new("ProductsController.Update", "other company's product", Put, (own, other) =>
@@ -191,7 +198,7 @@ public static class IsolationCases
     public static readonly HashSet<string> CoveredElsewhere =
     [
         "UsersController.List", "UsersController.Get", "UsersController.Create", "UsersController.Update", "UsersController.SetStatus", "UsersController.ResetPassword",
-        "SettingsController.Update", "SuppliersController.Create", "CustomersController.Create", "TaxesController.Create",
+        "SettingsController.Update", "BranchesController.Create", "SuppliersController.Create", "CustomersController.Create", "TaxesController.Create",
         "ExpenseCategoriesController.Create", "FinancialAccountsController.Create", "ExchangeRatesController.Create",
     ];
 }

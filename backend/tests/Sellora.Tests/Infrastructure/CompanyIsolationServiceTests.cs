@@ -30,7 +30,7 @@ public class CompanyIsolationServiceTests
     private sealed record World(string Name, Guid UserId, Guid InrId, Guid EurId, Guid KgId, Guid BagUnitId, Tenant TenantA, Tenant TenantB)
     {
         public SelloraDbContext Db(Guid company) =>
-            new(new DbContextOptionsBuilder<SelloraDbContext>().UseInMemoryDatabase(Name).Options, TestCompany.For(company));
+            new(new DbContextOptionsBuilder<SelloraDbContext>().UseInMemoryDatabase(Name).Options, TestCompany.For(company), TestCompany.Branch);
     }
 
     /// <summary>Platform rows (currencies, units, a user) once; then each company gets the same master data under the same names.</summary>
@@ -64,6 +64,8 @@ public class CompanyIsolationServiceTests
     private static async Task<Tenant> SeedTenantAsync(World w, Guid company)
     {
         await using var db = w.Db(company);
+        // Each company owns a default branch (documents resolve to it): A's is the reserved Main, B's a derived id.
+        db.Branches.Add(BranchBuilder.Main(company == A ? null : company, company == A ? null : Guid.NewGuid()));
         var tax = new Tax { Id = Guid.NewGuid(), Name = "GST 5%", RatePercent = 5m };
         var supplier = new Supplier { Id = Guid.NewGuid(), Name = "Annapoorna Traders", CurrencyId = w.InrId };
         var customer = new Customer { Id = Guid.NewGuid(), Name = "Walk-in Customer", IsWalkIn = true };

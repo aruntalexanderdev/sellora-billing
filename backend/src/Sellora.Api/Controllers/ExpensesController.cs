@@ -20,12 +20,15 @@ public class ExpensesController(SelloraDbContext db, IExpenseService expenseServ
     public async Task<ActionResult<PagedResult<ExpenseListItemDto>>> List(
         [FromQuery] string? search, [FromQuery] Guid? categoryId, [FromQuery] ExpenseStatus? status,
         [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
+
         var query = db.Expenses.AsQueryable();
+        if (branchId is not null) query = query.Where(e => e.BranchId == branchId);
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim().ToLower();
@@ -43,8 +46,11 @@ public class ExpensesController(SelloraDbContext db, IExpenseService expenseServ
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(e => new ExpenseListItemDto(
                 e.Id, e.ExpenseNo, e.ExpenseDate, e.Category.Name, e.Reference,
-                e.PaymentMethod, e.Amount, e.Currency.Code, e.BaseAmount, e.Status))
+                e.PaymentMethod, e.Amount, e.Currency.Code, e.BaseAmount, e.Status, e.BranchId, null, null))
             .ToListAsync(ct);
+
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
 
         return Ok(new PagedResult<ExpenseListItemDto>(items, total, page, pageSize));
     }
@@ -60,7 +66,8 @@ public class ExpensesController(SelloraDbContext db, IExpenseService expenseServ
         if (expense is null) return NotFound();
 
         var baseCurrency = await db.GetBaseCurrencyAsync(ct);
-        return Ok(ToDetail(expense, baseCurrency));
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        return Ok(ToDetail(expense, baseCurrency) with { BranchCode = labels.Code(expense.BranchId), BranchName = labels.Name(expense.BranchId) });
     }
 
     [HttpPost]
@@ -73,7 +80,8 @@ public class ExpensesController(SelloraDbContext db, IExpenseService expenseServ
         {
             var expense = await expenseService.CreateAsync(
                 new CreateExpenseInput(request.CategoryId!.Value, request.ExpenseDate, request.CurrencyId!.Value,
-                    request.Amount, request.PaymentMethod, request.Reference, request.Notes, request.AccountId),
+                    request.Amount, request.PaymentMethod, request.Reference, request.Notes, request.AccountId)
+                { BranchId = request.BranchId },
                 CurrentUserId(), ct);
             return await Get(expense.Id, ct);
         }
@@ -92,7 +100,7 @@ public class ExpensesController(SelloraDbContext db, IExpenseService expenseServ
 
         try
         {
-            var expense = await expenseService.UpdateAsync(id, new UpdateExpenseInput(request.CategoryId!.Value, request.Reference, request.Notes), ct);
+            var expense = await expenseService.UpdateAsync(id, new UpdateExpenseInput(request.CategoryId!.Value, request.Reference, request.Notes) { BranchId = request.BranchId }, ct);
             if (expense is null) return NotFound();
             return await Get(id, ct);
         }
@@ -134,5 +142,6 @@ public class ExpensesController(SelloraDbContext db, IExpenseService expenseServ
         baseCurrency.Code, baseCurrency.Symbol, baseCurrency.DecimalPrecision,
         e.PaymentMethod, e.Reference, e.Notes, e.Status,
         $"{e.CreatedByUser.FirstName} {e.CreatedByUser.LastName}", e.CreatedAt, e.UpdatedAt,
-        e.CancelledAt, e.CancelledByUser is null ? null : $"{e.CancelledByUser.FirstName} {e.CancelledByUser.LastName}", e.CancellationReason);
+        e.CancelledAt, e.CancelledByUser is null ? null : $"{e.CancelledByUser.FirstName} {e.CancelledByUser.LastName}", e.CancellationReason,
+        e.BranchId, null, null);
 }

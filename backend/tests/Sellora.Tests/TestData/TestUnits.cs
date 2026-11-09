@@ -13,7 +13,7 @@ public static class TestDb
         var options = new DbContextOptionsBuilder<SelloraDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
-        return new SelloraDbContext(options, Sellora.Tests.TestData.TestCompany.Context);
+        return Sellora.Tests.TestData.TestCompany.NewDb(options);
     }
 }
 

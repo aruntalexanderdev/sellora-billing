@@ -22,6 +22,13 @@ public static class CompanySettings
             .SingleAsync(ct);
     }
 
+    /// <summary>The company-level GSTIN from the business settings (null when not set).</summary>
+    public static async Task<string?> GetCompanyGstinAsync(this SelloraDbContext db, CancellationToken ct)
+    {
+        var companyId = db.CompanyContext.RequireCompanyId();
+        return await db.BusinessSettings.Where(s => s.CompanyId == companyId).Select(s => s.Gstin).SingleAsync(ct);
+    }
+
     /// <summary>The current company's base currency (tracked entity, like the previous <c>Select(s =&gt; s.BaseCurrency)</c>).</summary>
     public static async Task<Currency> GetBaseCurrencyAsync(this SelloraDbContext db, CancellationToken ct)
     {

@@ -6,7 +6,8 @@ namespace Sellora.Api.Contracts;
 public record PurchaseListItemDto(
     Guid Id, string PurchaseNo, string SupplierName, DateOnly PurchaseDate,
     decimal GrandTotal, PaymentStatus PaymentStatus, PurchaseStatus Status,
-    string CurrencyCode, decimal OriginalGrandTotal
+    string CurrencyCode, decimal OriginalGrandTotal,
+    Guid BranchId, string? BranchCode, string? BranchName
 );
 
 public record PurchaseLineDto(
@@ -45,7 +46,8 @@ public record PurchaseDetailDto(
     IReadOnlyList<PurchaseLineDto> Lines,
     IReadOnlyList<PurchasePaymentDto> Payments,
     decimal ReturnedAmount, decimal OriginalReturnedAmount, decimal NetTotal, decimal OriginalNetTotal,
-    decimal OriginalRefundableAmount, IReadOnlyList<PurchaseReturnSummaryDto> Returns
+    decimal OriginalRefundableAmount, IReadOnlyList<PurchaseReturnSummaryDto> Returns,
+    Guid BranchId, string? BranchCode, string? BranchName
 );
 
 public record CreatePurchaseLineRequest(
@@ -110,7 +112,8 @@ public record AddPurchaseRefundRequest(
 
 public record PurchaseReturnListItemDto(
     Guid Id, string ReturnNo, DateOnly ReturnDate, Guid PurchaseOrderId, string PurchaseNo, string SupplierName,
-    decimal Total, decimal OriginalTotal, string CurrencyCode, decimal RefundedAmount
+    decimal Total, decimal OriginalTotal, string CurrencyCode, decimal RefundedAmount,
+    Guid BranchId, string? BranchCode, string? BranchName
 );
 
 public record PurchaseReturnLineDto(
@@ -125,5 +128,6 @@ public record PurchaseReturnDetailDto(
     string CurrencyCode, string CurrencySymbol, int CurrencyDecimalPrecision,
     string BaseCurrencyCode, string BaseCurrencySymbol, int BaseCurrencyDecimalPrecision,
     string CreatedByName, DateTimeOffset CreatedAt,
-    IReadOnlyList<PurchaseReturnLineDto> Lines, IReadOnlyList<PurchasePaymentDto> Refunds
+    IReadOnlyList<PurchaseReturnLineDto> Lines, IReadOnlyList<PurchasePaymentDto> Refunds,
+    Guid BranchId, string? BranchCode, string? BranchName
 );

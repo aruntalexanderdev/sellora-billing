@@ -12,7 +12,7 @@ public class SelloraDbContextTests
             .UseInMemoryDatabase(databaseName: nameof(CanBeConstructed_WithInMemoryProvider))
             .Options;
 
-        using var db = new SelloraDbContext(options, Sellora.Tests.TestData.TestCompany.Context);
+        using var db = new SelloraDbContext(options, Sellora.Tests.TestData.TestCompany.Context, Sellora.Tests.TestData.TestCompany.Branch);
 
         Assert.NotNull(db);
     }

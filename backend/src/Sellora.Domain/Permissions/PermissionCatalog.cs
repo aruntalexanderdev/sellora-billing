@@ -28,6 +28,12 @@ public static class PermissionCatalog
         // Administration — Permissions catalogue (read-only)
         new("Permissions.View", "Administration", "View", "View the read-only system permission catalogue."),
 
+        // Administration — Branches (Phase 2; Administrator only, granted via PermissionResolver)
+        new("Company.Branches.View", "Administration", "View", "View the company's branches."),
+        new("Company.Branches.Create", "Administration", "Create", "Add new branches."),
+        new("Company.Branches.Edit", "Administration", "Edit", "Edit branch details, GSTIN and invoice prefix."),
+        new("Company.Branches.Disable", "Administration", "Disable", "Activate or deactivate a branch."),
+
         // Administration — Basic Masters / Settings
         new("Masters.View", "Administration", "View", "View units, taxes, currencies, exchange rates and business settings."),
         new("Masters.Edit", "Administration", "Edit", "Edit units, taxes, currencies, exchange rates and business settings."),

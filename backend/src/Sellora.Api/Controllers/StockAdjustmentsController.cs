@@ -22,12 +22,15 @@ public class StockAdjustmentsController(IStockAdjustmentService adjustmentServic
         [FromQuery] string? search, [FromQuery] Guid? productId,
         [FromQuery] AdjustmentType? type, [FromQuery] AdjustmentDirection? direction,
         [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
+
         var query = db.StockAdjustments.AsNoTracking().AsQueryable();
+        if (branchId is not null) query = query.Where(a => a.BranchId == branchId);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -56,8 +59,12 @@ public class StockAdjustmentsController(IStockAdjustmentService adjustmentServic
                 a.Id, a.AdjustmentNo, a.CreatedAt, a.ProductId, a.Product.Name, a.Product.Sku,
                 a.Type, a.Direction, a.EnteredQuantity, a.UnitCode, a.Unit.DecimalPlaces,
                 a.QuantityBaseUnits, a.Product.BaseUnit.ShortCode, a.Product.BaseUnit.DecimalPlaces, a.EnteredUnitCost, a.UnitCost,
-                a.BeforeQty, a.AfterQty, a.User.FirstName + " " + a.User.LastName))
+                a.BeforeQty, a.AfterQty, a.User.FirstName + " " + a.User.LastName,
+                a.BranchId, null, null))
             .ToListAsync(ct);
+
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
 
         return Ok(new PagedResult<StockAdjustmentListItemDto>(items, total, page, pageSize));
     }
@@ -111,9 +118,11 @@ public class StockAdjustmentsController(IStockAdjustmentService adjustmentServic
                 BaseUnitCode = x.Product.BaseUnit.ShortCode, BaseDecimalPlaces = x.Product.BaseUnit.DecimalPlaces,
                 x.EnteredUnitCost, x.UnitCost, x.Reason, x.BeforeQty, x.AfterQty,
                 UserName = x.User.FirstName + " " + x.User.LastName,
+                x.BranchId,
             })
             .SingleOrDefaultAsync(ct);
         if (a is null) return null;
+        var labels = await BranchLabels.LoadAsync(db, ct);
 
         var batchRows = await db.StockMovements.AsNoTracking()
             .Where(m => m.ReferenceType == "StockAdjustment" && m.ReferenceId == id && m.PurchaseBatchId != null)
@@ -128,6 +137,7 @@ public class StockAdjustmentsController(IStockAdjustmentService adjustmentServic
             a.Id, a.AdjustmentNo, a.CreatedAt, a.ProductId, a.ProductName, a.Sku,
             a.Type, a.Direction, a.EnteredQuantity, a.ProductUnitId, a.UnitCode, a.UnitDisplayName,
             a.ConversionFactorToBase, a.EnteredDecimalPlaces, a.QuantityBaseUnits, a.BaseUnitCode, a.BaseDecimalPlaces,
-            a.EnteredUnitCost, a.UnitCost, a.Reason, a.BeforeQty, a.AfterQty, a.UserName, batches);
+            a.EnteredUnitCost, a.UnitCost, a.Reason, a.BeforeQty, a.AfterQty, a.UserName, batches,
+            a.BranchId, labels.Code(a.BranchId), labels.Name(a.BranchId));
     }
 }

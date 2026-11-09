@@ -17,7 +17,8 @@ public record SaleCatalogProductDto(
 
 public record SalesInvoiceListItemDto(
     Guid Id, string InvoiceNo, string CustomerName, DateOnly InvoiceDate,
-    decimal GrandTotal, decimal PaidAmount, decimal DueAmount, PaymentStatus PaymentStatus, SalesStatus Status
+    decimal GrandTotal, decimal PaidAmount, decimal DueAmount, PaymentStatus PaymentStatus, SalesStatus Status,
+    Guid BranchId, string? BranchCode, string? BranchName
 );
 
 /// <summary>How much of one purchase batch a sale line drew, at the batch's cost — the sale → batch → purchase trail.</summary>
@@ -57,7 +58,9 @@ public record SalesInvoiceDetailDto(
     IReadOnlyList<SalesInvoiceLineDto> Lines,
     IReadOnlyList<SalesPaymentDto> Payments,
     decimal ReturnedAmount, decimal NetTotal, decimal RefundableAmount,
-    IReadOnlyList<SalesReturnSummaryDto> Returns
+    IReadOnlyList<SalesReturnSummaryDto> Returns,
+    Guid BranchId, string? BranchCode, string? BranchName,
+    string? SellerGstin
 );
 
 public record CreateSaleLineRequest(
@@ -115,7 +118,8 @@ public record ReversePaymentRequest([MaxLength(200)] string? Reason = null);
 
 public record SalesReturnListItemDto(
     Guid Id, string ReturnNo, DateOnly ReturnDate, Guid SalesInvoiceId, string InvoiceNo, string CustomerName,
-    decimal Total, decimal RefundedAmount
+    decimal Total, decimal RefundedAmount,
+    Guid BranchId, string? BranchCode, string? BranchName
 );
 
 public record SalesReturnLineDto(
@@ -127,5 +131,6 @@ public record SalesReturnDetailDto(
     Guid Id, string ReturnNo, DateOnly ReturnDate, Guid SalesInvoiceId, string InvoiceNo, string CustomerName,
     string? Reason, decimal TaxableTotal, decimal TaxTotal, decimal Total, decimal RefundedAmount,
     string CreatedByName, DateTimeOffset CreatedAt,
-    IReadOnlyList<SalesReturnLineDto> Lines, IReadOnlyList<SalesPaymentDto> Refunds
+    IReadOnlyList<SalesReturnLineDto> Lines, IReadOnlyList<SalesPaymentDto> Refunds,
+    Guid BranchId, string? BranchCode, string? BranchName
 );

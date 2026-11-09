@@ -20,6 +20,12 @@ public static class CompanyMigrations
     public const string M2 = "20261109085651_AddCompanyIdToCompanyTables";
     public const string M3 = "20261109085822_ScopeUniquesAndCompositeKeysToCompany";
     public const string M4 = "20261109085910_AddDocumentSequences";
+    // Phase 2 (branches)
+    public const string B1 = "20261109105800_AddBranches";
+    public const string B2 = "20261109105814_AddBranchIdToDocuments";
+    public const string B3 = "20261109105822_ScopeDocumentSequencesToBranches";
+    public const string DefaultBranch = "0c0a1f00-0000-4000-8000-000000000002";
+    public const string OtherMainSql = $"md5('branch:' || '{OtherCompany}')::uuid";
     public const string DefaultCompany = "0c0a1f00-0000-4000-8000-000000000001";
     public const string OtherCompany = "0c0a1f00-0000-4000-8000-0000000000b2";
 
@@ -142,6 +148,41 @@ INSERT INTO "SalesInvoices" ("Id", "InvoiceNo", "CustomerId", "InvoiceDate", "Pa
   (pg_temp.g(407), 'INV-0010', pg_temp.g(13), DATE '2026-09-13', 'Cash', 0, 0, 0, 0, 0, 'Cancelled', pg_temp.g(12), now());
 """;
 
+    /// <summary>
+    /// A second company with a supplier, a purchase, an expense category, an expense, an account and its own counters, written at the
+    /// Phase 1 head (M4) so the Phase 2 migrations must give it its own Main branch and keep its numbers apart from the default company's.
+    /// </summary>
+    public const string SecondCompanyAtM4Sql = $"""
+        INSERT INTO "Companies" ("Id", "Code", "Name", "IsActive", "CreatedAt") VALUES ('{OtherCompany}', 'B', 'Company B', true, now());
+        INSERT INTO "Suppliers" ("Id", "Name", "IsActive", "CompanyId") VALUES ('00000000-0000-0000-0000-0000000b0014', 'Sup B', true, '{OtherCompany}');
+        INSERT INTO "PurchaseOrders" ("Id", "CreatedAt", "CreatedByUserId", "DiscountTotal", "GrandTotal", "OtherChargesTotal", "PaidAmount", "PaymentMethod", "PurchaseDate", "PurchaseNo", "Status", "Subtotal", "SupplierId", "TaxTotal", "CompanyId")
+        VALUES ('00000000-0000-0000-0000-0000000b0040', now(), '00000000-0000-0000-0000-00000000000c', 0, 0, 0, 0, 'Cash', DATE '2026-10-01', 'PUR-0042', 'Cancelled', 0, '00000000-0000-0000-0000-0000000b0014', 0, '{OtherCompany}');
+        INSERT INTO "ExpenseCategories" ("Id", "Name", "IsActive", "CompanyId") VALUES ('00000000-0000-0000-0000-0000000b0401', 'Rent B', true, '{OtherCompany}');
+        INSERT INTO "Expenses" ("Id", "ExpenseNo", "CategoryId", "ExpenseDate", "CurrencyId", "Amount", "ExchangeRateToBase", "BaseAmount", "PaymentMethod", "Status", "CreatedByUserId", "CreatedAt", "CompanyId")
+        VALUES ('00000000-0000-0000-0000-0000000b0403', 'EXP-0002', '00000000-0000-0000-0000-0000000b0401', DATE '2026-10-02', '7c1a5b9e-3d24-4f8a-9e61-2b0f4a8d5c01', 10, 1, 10, 'Cash', 'Active', '00000000-0000-0000-0000-00000000000c', now(), '{OtherCompany}');
+        INSERT INTO "FinancialAccounts" ("Id", "Name", "Kind", "Reference", "IsActive", "CreatedByUserId", "CreatedAt", "CompanyId")
+        VALUES ('00000000-0000-0000-0000-0000000b0402', 'Till B', 'Cash', NULL, true, '00000000-0000-0000-0000-00000000000c', now(), '{OtherCompany}');
+        INSERT INTO "DocumentSequences" ("Id", "CompanyId", "BranchId", "Series", "NextValue", "UpdatedAt") VALUES
+          (gen_random_uuid(), '{OtherCompany}', NULL, 'PUR', 43, now()), (gen_random_uuid(), '{OtherCompany}', NULL, 'INV', 7, now()),
+          (gen_random_uuid(), '{OtherCompany}', NULL, 'PRT', 1, now()), (gen_random_uuid(), '{OtherCompany}', NULL, 'SRT', 1, now()),
+          (gen_random_uuid(), '{OtherCompany}', NULL, 'ADJ', 1, now()), (gen_random_uuid(), '{OtherCompany}', NULL, 'EXP', 3, now());
+        """;
+
+    /// <summary>Legacy data plus <see cref="SecondCompanyAtM4Sql"/> (written at M4), then carried forward to <paramref name="previous"/> by the real migrations.</summary>
+    public static async Task<TestDatabase> CreateWithSecondCompanyAtAsync(PostgresFixture postgres, string previous)
+    {
+        var database = await CreateAtAsync(postgres, M4);
+        await ExecuteAsync(database, SecondCompanyAtM4Sql);
+        if (previous != M4) await MigrateToAsync(database, previous);
+        return database;
+    }
+
+    /// <summary>Headers that must carry a BranchId after B2.</summary>
+    public static readonly string[] BranchHeaders = ["PurchaseOrders", "PurchaseReturns", "SalesInvoices", "SalesReturns", "StockAdjustments"];
+
+    /// <summary>Optional-branch tables (NULL = company level).</summary>
+    public static readonly string[] OptionalBranchTables = ["Expenses", "FinancialAccounts"];
+
     /// <summary>A database migrated to <paramref name="previous"/> (default: the pre-multi-company schema) holding <see cref="FixtureSql"/>
     /// (written at the legacy schema, then carried forward by the real migrations up to <paramref name="previous"/>).</summary>
     public static async Task<TestDatabase> CreateAtAsync(PostgresFixture postgres, string? previous = null, string? extraLegacySql = null)
@@ -168,7 +209,9 @@ INSERT INTO "SalesInvoices" ("Id", "InvoiceNo", "CustomerId", "InvoiceDate", "Pa
     /// </summary>
     public static async Task DefaultRawInsertsToDefaultCompanyAsync(TestDatabase database)
     {
-        var sql = string.Concat(CompanyTables.Select(t => $"ALTER TABLE \"{t}\" ALTER COLUMN \"CompanyId\" SET DEFAULT '{DefaultCompany}';\n"));
+        var sql = string.Concat(CompanyTables.Select(t => $"ALTER TABLE \"{t}\" ALTER COLUMN \"CompanyId\" SET DEFAULT '{DefaultCompany}';\n"))
+                  // Phase 2: raw header INSERTs written before branches land on the default company's Main.
+                  + string.Concat(BranchHeaders.Select(t => $"ALTER TABLE \"{t}\" ALTER COLUMN \"BranchId\" SET DEFAULT '{DefaultBranch}';\n"));
         await ExecuteAsync(database, sql);
     }
 

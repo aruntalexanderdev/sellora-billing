@@ -91,12 +91,15 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
     public async Task<ActionResult<PagedResult<SalesInvoiceListItemDto>>> List(
         [FromQuery] string? search, [FromQuery] Guid? customerId, [FromQuery] PaymentStatus? paymentStatus, [FromQuery] SalesStatus? status,
         [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
+
         var query = db.SalesInvoices.Include(i => i.Customer).AsQueryable();
+        if (branchId is not null) query = query.Where(i => i.BranchId == branchId);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -126,8 +129,11 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
                 i.Status == SalesStatus.Cancelled || i.GrandTotal - i.ReturnedAmount - i.PaidAmount < 0 ? 0 : i.GrandTotal - i.ReturnedAmount - i.PaidAmount,
                 i.GrandTotal - i.ReturnedAmount <= 0 || i.PaidAmount >= i.GrandTotal - i.ReturnedAmount ? PaymentStatus.Paid
                     : i.PaidAmount <= 0 ? PaymentStatus.Due : PaymentStatus.PartiallyPaid,
-                i.Status))
+                i.Status, i.BranchId, null, null))
             .ToListAsync(ct);
+
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
 
         return Ok(new PagedResult<SalesInvoiceListItemDto>(items, total, page, pageSize));
     }
@@ -150,7 +156,14 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             .AsSplitQuery()
             .SingleOrDefaultAsync(i => i.Id == id, ct);
 
-        return invoice is null ? NotFound() : Ok(ToDetail(invoice));
+        if (invoice is null) return NotFound();
+
+        // Seller GSTIN = the branch's own GSTIN, else the company's (current value; a snapshot on the invoice is Phase 10).
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        var branchGstin = await db.Branches.AsNoTracking()
+            .Where(b => b.CompanyId == invoice.CompanyId && b.Id == invoice.BranchId).Select(b => b.Gstin).SingleOrDefaultAsync(ct);
+        var sellerGstin = branchGstin ?? await db.GetCompanyGstinAsync(ct);
+        return Ok(ToDetail(invoice) with { BranchCode = labels.Code(invoice.BranchId), BranchName = labels.Name(invoice.BranchId), SellerGstin = sellerGstin });
     }
 
     [HttpPost]
@@ -294,7 +307,8 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
         i.Returns.OrderBy(r => r.CreatedAt).Select(r => new SalesReturnSummaryDto(
             r.Id, r.ReturnNo, r.ReturnDate, r.Total,
             i.Payments.Where(p => p.SalesReturnId == r.Id && p.Kind == PaymentEntryKind.Refund).Sum(p => p.Amount)
-        )).ToList());
+        )).ToList(),
+        i.BranchId, null, null, null);
 
     private static decimal ReturnableBase(SalesInvoice i, SalesInvoiceLine l, Dictionary<Guid, decimal> returnedByLine) =>
         i.Status == SalesStatus.Cancelled ? 0 : Math.Max(0, l.BaseQty - returnedByLine.GetValueOrDefault(l.Id));

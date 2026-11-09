@@ -22,12 +22,14 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
     public async Task<ActionResult<PagedResult<PurchaseListItemDto>>> List(
         [FromQuery] string? search, [FromQuery] Guid? supplierId, [FromQuery] PurchaseStatus? status,
         [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
 
         var query = db.PurchaseOrders.Include(p => p.Supplier).AsQueryable();
+        if (branchId is not null) query = query.Where(p => p.BranchId == branchId);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -47,8 +49,11 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
                 p.Id, p.PurchaseNo, p.Supplier.Name, p.PurchaseDate, p.GrandTotal,
                 p.OriginalGrandTotal - p.OriginalReturnedAmount <= 0 || p.OriginalPaidAmount >= p.OriginalGrandTotal - p.OriginalReturnedAmount ? PaymentStatus.Paid
                     : p.OriginalPaidAmount <= 0 ? PaymentStatus.Due : PaymentStatus.PartiallyPaid,
-                p.Status, p.Currency.Code, p.OriginalGrandTotal))
+                p.Status, p.Currency.Code, p.OriginalGrandTotal, p.BranchId, null, null))
             .ToListAsync(ct);
+
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
 
         return Ok(new PagedResult<PurchaseListItemDto>(items, total, page, pageSize));
     }
@@ -74,7 +79,8 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         if (purchase is null) return NotFound();
 
         var baseCurrency = await db.GetBaseCurrencyAsync(ct);
-        return Ok(ToDetail(purchase, baseCurrency));
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        return Ok(ToDetail(purchase, baseCurrency) with { BranchCode = labels.Code(purchase.BranchId), BranchName = labels.Name(purchase.BranchId) });
     }
 
     [HttpPost]
@@ -262,7 +268,8 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         p.Returns.OrderBy(r => r.CreatedAt).Select(r => new PurchaseReturnSummaryDto(
             r.Id, r.ReturnNo, r.ReturnDate, r.Total, r.OriginalTotal,
             p.Payments.Where(x => x.PurchaseReturnId == r.Id && x.Kind == PaymentEntryKind.Refund).Sum(x => x.Amount)
-        )).ToList());
+        )).ToList(),
+        p.BranchId, null, null);
 
     internal static PurchasePaymentDto ToPaymentDto(PurchasePayment pay, HashSet<Guid> reversed) => new(
         pay.Id, pay.Kind, pay.PaymentDate, pay.Amount, pay.ExchangeRateToBase, pay.BaseAmount, pay.PaymentMethod,

@@ -23,6 +23,11 @@ public class StockAdjustmentConfiguration : IEntityTypeConfiguration<StockAdjust
         builder.Property(a => a.Reason).HasMaxLength(300);
 
         builder.HasIndex(a => new { a.CompanyId, a.AdjustmentNo }, "IX_StockAdjustments_CompanyId_AdjustmentNo").IsUnique();
+        builder.HasIndex(a => new { a.CompanyId, a.BranchId, a.CreatedAt }, "IX_StockAdjustments_CompanyId_BranchId_CreatedAt");
+        // Same-company branch: (CompanyId, BranchId) -> Branches (CompanyId, Id). Navigation-less (no filtered required navigation, Phase 1 section 8).
+        builder.HasOne<Branch>().WithMany().HasForeignKey(a => new { a.CompanyId, a.BranchId })
+            .HasPrincipalKey(b => new { b.CompanyId, b.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_StockAdjustments_Branches_CompanyId_BranchId");
         builder.HasIndex(a => a.CreatedAt);
 
         builder.HasOne(a => a.Product).WithMany().HasForeignKey(a => a.ProductId).OnDelete(DeleteBehavior.Restrict);

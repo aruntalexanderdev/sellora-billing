@@ -15,6 +15,6 @@ public sealed class SelloraDbContextFactory : IDesignTimeDbContextFactory<Sellor
         var connection = Environment.GetEnvironmentVariable("SELLORA_DESIGN_CONNECTION")
             ?? "Host=localhost;Database=sellora_design;Username=postgres;Password=postgres";
         var options = new DbContextOptionsBuilder<SelloraDbContext>().UseNpgsql(connection).Options;
-        return new SelloraDbContext(options, CompanyContext.None);
+        return new SelloraDbContext(options, CompanyContext.None, BranchContext.None);
     }
 }

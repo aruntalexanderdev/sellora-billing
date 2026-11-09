@@ -15,8 +15,8 @@ public class ExpenseServiceTests
 
     private static async Task<Fixture> SeedAsync()
     {
-        var db = new SelloraDbContext(new DbContextOptionsBuilder<SelloraDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options, Sellora.Tests.TestData.TestCompany.Context);
+        var db = Sellora.Tests.TestData.TestCompany.NewDb(new DbContextOptionsBuilder<SelloraDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 
         var role = new Role { Id = Guid.NewGuid(), Name = "Administrator", IsSystem = true };
         var user = new User

@@ -91,14 +91,16 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         var user = await db.Users.SingleAsync(u => u.Id == userId, ct);
         var beforeQty = stockItem.QuantityOnHand;
 
-        // 8. Document number (ADJ advisory lock).
-        var adjustmentNo = await NextAdjustmentNoAsync(ct);
+        // 8. Working branch (header branch or default) and the branch's ADJ document number.
+        var branch = await BranchRules.ResolveWorkingBranchAsync(db, ct);
+        var adjustmentNo = await DocumentNumbers.NextNumberAsync(db, DocumentSeries.StockAdjustment, branch, ct);
 
         // 9. The adjustment with its unit snapshots.
         var adjustment = new StockAdjustment
         {
             Id = Guid.NewGuid(),
             AdjustmentNo = adjustmentNo,
+            BranchId = branch.Id,
             ProductId = product.Id,
             Product = product,
             Type = input.Type,
@@ -197,10 +199,5 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
         return adjustment;
-    }
-
-    private async Task<string> NextAdjustmentNoAsync(CancellationToken ct)
-    {
-        return $"ADJ-{await DocumentNumbers.NextAsync(db, DocumentSeries.StockAdjustment, ct):D4}";
     }
 }

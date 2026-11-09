@@ -32,10 +32,15 @@ public class DocumentNumberConcurrencyTests(PostgresFixture postgres)
         new(categoryId, new DateOnly(2026, 11, 1), currencyId, 100m, PaymentMethod.Cash, null, null);
 
     private static async Task<Guid> SequenceIdAsync(TestDatabase database, Guid company, string series) =>
-        await CompanyMigrations.ScalarAsync<Guid>(database, $"""SELECT "Id" FROM "DocumentSequences" WHERE "CompanyId" = '{company}' AND "BranchId" IS NULL AND "Series" = '{series}'""");
+        await CompanyMigrations.ScalarAsync<Guid>(database, $"""SELECT "Id" FROM "DocumentSequences" WHERE "CompanyId" = '{company}' AND "Series" = '{series}' AND {BranchScope(company, series)}""");
 
     private static Task<long> NextValueAsync(TestDatabase database, Guid company, string series) =>
-        CompanyMigrations.ScalarAsync<long>(database, $"""SELECT "NextValue" FROM "DocumentSequences" WHERE "CompanyId" = '{company}' AND "BranchId" IS NULL AND "Series" = '{series}'""");
+        CompanyMigrations.ScalarAsync<long>(database, $"""SELECT "NextValue" FROM "DocumentSequences" WHERE "CompanyId" = '{company}' AND "Series" = '{series}' AND {BranchScope(company, series)}""");
+
+    /// <summary>Phase 2 (B3): EXP is company-level (BranchId NULL); the other series count per branch - these tests use the company's default branch.</summary>
+    private static string BranchScope(Guid company, string series) => series == "EXP"
+        ? "\"BranchId\" IS NULL"
+        : $"\"BranchId\" = (SELECT \"Id\" FROM \"Branches\" WHERE \"CompanyId\" = '{company}' AND \"IsDefault\")";
 
     /// <summary>Default company: settings, a user, a category; plus currency. Returns the ids needed to create expenses.</summary>
     private static async Task<(Guid CategoryId, Guid CurrencyId, Guid UserId)> SeedDefaultAsync(TestDatabase database)
