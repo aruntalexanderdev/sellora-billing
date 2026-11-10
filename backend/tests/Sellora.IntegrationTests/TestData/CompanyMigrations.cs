@@ -24,6 +24,11 @@ public static class CompanyMigrations
     public const string B1 = "20261109105800_AddBranches";
     public const string B2 = "20261109105814_AddBranchIdToDocuments";
     public const string B3 = "20261109105822_ScopeDocumentSequencesToBranches";
+    // Phase 3 (stock locations)
+    public const string B4 = "20261110015257_AddStockLocations";
+    public const string DefaultStore = "0c0a1f00-0000-4000-8000-000000000003";
+    public const string DefaultTransit = "0c0a1f00-0000-4000-8000-000000000004";
+    public const string OtherTransitSql = $"md5('location:transit:' || '{OtherCompany}')::uuid";
     public const string DefaultBranch = "0c0a1f00-0000-4000-8000-000000000002";
     public const string OtherMainSql = $"md5('branch:' || '{OtherCompany}')::uuid";
     public const string DefaultCompany = "0c0a1f00-0000-4000-8000-000000000001";

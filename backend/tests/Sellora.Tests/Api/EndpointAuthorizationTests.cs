@@ -72,6 +72,29 @@ public class EndpointAuthorizationTests
         Assert.Contains(policy, Policies(controller, controller.GetMethod(action)!));
     }
 
+    [Theory]
+    [InlineData(typeof(StockLocationsController), "List", "StockLocations.View")]
+    [InlineData(typeof(StockLocationsController), "Get", "StockLocations.View")]
+    public void StockLocationEndpoints_RequireStockLocationsView(Type controller, string action, string policy)
+    {
+        Assert.Contains(policy, Policies(controller, controller.GetMethod(action)!));
+    }
+
+    [Fact]
+    public void StockLocationsController_IsReadOnly_NoWriteActions()
+    {
+        var verbs = typeof(StockLocationsController).GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly)
+            .SelectMany(m => m.GetCustomAttributes<Microsoft.AspNetCore.Mvc.Routing.HttpMethodAttribute>().SelectMany(a => a.HttpMethods)).ToList();
+        Assert.NotEmpty(verbs);
+        Assert.All(verbs, v => Assert.Equal("GET", v));
+    }
+
+    [Fact]
+    public void StockLocationsView_IsInTheCatalogue()
+    {
+        Assert.Contains("StockLocations.View", Sellora.Domain.Permissions.PermissionCatalog.All.Select(p => p.Code));
+    }
+
     [Fact]
     public void BranchesAccessible_IsAuthenticatedOnlyBecauseABranchIsADataScopeNotAnAction()
     {

@@ -63,7 +63,7 @@ public class CompanyQueryFilterTests
     }
 
     [Fact]
-    public void Model_CompanyOwnedTypes_AreTheTwentyTwoDesignedTypes()
+    public void Model_CompanyOwnedTypes_AreTheTwentyThreeDesignedTypes()
     {
         using var db = NewDb(TestCompany.Context);
         var owned = ModelTypes(db).Select(t => t.ClrType).Where(t => typeof(ICompanyOwned).IsAssignableFrom(t)).Select(t => t.Name).Order().ToArray();
@@ -71,13 +71,13 @@ public class CompanyQueryFilterTests
         [
             "Branch", "BusinessSettings", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
             "FinancialTransaction", "IdempotencyKey", "Product", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
-            "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockMovement", "Supplier", "Tax",
+            "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "Supplier", "Tax",
         ];
         Assert.Equal(expected, owned);
     }
 
     [Fact]
-    public void Model_BranchScoping_FiveHeadersRequireABranchTwoMastersAllowNoneAndNothingElseHasOne()
+    public void Model_BranchScoping_FiveHeadersRequireABranchTwoMastersAndLocationsAllowNoneAndNothingElseHasOne()
     {
         // Phase 2 T1: BranchScoped(required | optional | none). Branch itself is CompanyOwned (asserted by the classification tests above).
         using var db = NewDb(TestCompany.Context);
@@ -85,6 +85,8 @@ public class CompanyQueryFilterTests
         string[] optional = ["Expense", "FinancialAccount"];
         // DocumentSequence.BranchId is nullable too: NULL = company-level series (EXP); it is a counter scope, not a document tag.
         string[] counterScope = ["DocumentSequence"];
+        // Phase 3: StockLocation.BranchId is optional (store/warehouse require it by CHECK; Transit/Vehicle/CompanyWarehouse are company-level).
+        string[] locations = ["StockLocation"];
 
         var required_ = new List<string>();
         var optional_ = new List<string>();
@@ -96,7 +98,7 @@ public class CompanyQueryFilterTests
             Assert.True(typeof(ICompanyOwned).IsAssignableFrom(type.ClrType), $"{type.ClrType.Name} carries a BranchId so it must be company-owned.");
         }
         Assert.Equal(required.Order(), required_.Order());
-        Assert.Equal(optional.Concat(counterScope).Order(), optional_.Order());
+        Assert.Equal(optional.Concat(counterScope).Concat(locations).Order(), optional_.Order());
         Assert.Null(db.Model.FindEntityType(typeof(Branch))!.FindProperty("BranchId"));
     }
 

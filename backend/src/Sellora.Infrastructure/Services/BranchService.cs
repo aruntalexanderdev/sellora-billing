@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Companies;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Inventory;
 using Sellora.Infrastructure.Data;
 
 namespace Sellora.Infrastructure.Services;
@@ -66,7 +67,25 @@ public sealed partial class BranchService(SelloraDbContext db) : IBranchService
             CreatedAt = DateTimeOffset.UtcNow,
             CreatedByUserId = userId,
         };
+        // Codes are unique per company across all stock locations (Transit's "TRANSIT" is 7 chars and cannot collide).
+        if (await db.StockLocations.AnyAsync(l => l.CompanyId == companyId && l.Code == code, ct))
+        {
+            throw new DomainValidationException("Code", "This code is already used by a stock location.");
+        }
+
         db.Branches.Add(branch);
+        db.StockLocations.Add(new StockLocation
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyId,
+            BranchId = branch.Id,
+            LocationType = StockLocationType.BranchStore,
+            Code = branch.Code,
+            Name = branch.Name,
+            IsActive = true,
+            CreatedAt = branch.CreatedAt,
+            CreatedByUserId = userId,
+        });
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
         return branch;
@@ -112,6 +131,14 @@ public sealed partial class BranchService(SelloraDbContext db) : IBranchService
         branch.UpdatedAt = DateTimeOffset.UtcNow;
         branch.UpdatedByUserId = userId;
 
+        var store = await RequireStoreAsync(companyId, branch.Id, ct);
+        if (store.Name != name)
+        {
+            store.Name = name;
+            store.UpdatedAt = branch.UpdatedAt;
+            store.UpdatedByUserId = userId;
+        }
+
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
         return branch;
@@ -133,10 +160,30 @@ public sealed partial class BranchService(SelloraDbContext db) : IBranchService
             branch.IsActive = isActive;
             branch.UpdatedAt = DateTimeOffset.UtcNow;
             branch.UpdatedByUserId = userId;
+
+            var store = await RequireStoreAsync(companyId, branch.Id, ct);
+            if (store.IsActive != isActive)
+            {
+                store.IsActive = isActive;
+                store.UpdatedAt = branch.UpdatedAt;
+                store.UpdatedByUserId = userId;
+            }
             await db.SaveChangesAsync(ct);
         }
         return branch;
     }
+
+    private Task<StockLocation?> FindStoreAsync(Guid companyId, Guid branchId, CancellationToken ct) =>
+        db.StockLocations.SingleOrDefaultAsync(
+            l => l.CompanyId == companyId && l.BranchId == branchId && l.LocationType == StockLocationType.BranchStore, ct);
+
+    /// <summary>
+    /// The branch's store location. The AddStockLocations migration and the seeder guarantee one per branch, so a missing
+    /// store is corrupt data: fail loudly instead of letting the branch and its store drift apart.
+    /// </summary>
+    private async Task<StockLocation> RequireStoreAsync(Guid companyId, Guid branchId, CancellationToken ct) =>
+        await FindStoreAsync(companyId, branchId, ct)
+        ?? throw new InvalidOperationException($"Branch {branchId} has no store location.");
 
     public async Task EnsureCompanyInvoicePrefixAllowedAsync(string companyInvoicePrefix, CancellationToken ct = default)
     {

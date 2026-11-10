@@ -28,6 +28,7 @@ public static class DbSeeder
 
         var company = await SeedDefaultCompanyAsync(db, ct);
         await SeedDefaultBranchAsync(db, ct);
+        await SeedDefaultLocationsAsync(db, ct);
         await SeedPermissionsAsync(db, ct);
         var adminRole = await SeedAdministratorRoleAsync(db, ct);
         await SeedAdminUserAsync(db, adminRole, passwordHasher, ct);
@@ -67,6 +68,29 @@ public static class DbSeeder
         if (await db.Branches.AnyAsync(b => b.IsDefault, ct)) return;
 
         db.Branches.Add(new Branch { Id = DefaultTenant.BranchId, Code = DefaultTenant.BranchCode, Name = "Main", IsDefault = true, IsActive = true });
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Phase 3 migration inserts the store per branch and Transit per company; this covers databases created without migrations.
+    private static async Task SeedDefaultLocationsAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        var branch = await db.Branches.SingleAsync(b => b.Id == DefaultTenant.BranchId, ct);
+        if (!await db.StockLocations.AnyAsync(l => l.Id == DefaultTenant.MainStoreLocationId, ct))
+        {
+            db.StockLocations.Add(new StockLocation
+            {
+                Id = DefaultTenant.MainStoreLocationId, BranchId = branch.Id, LocationType = StockLocationType.BranchStore,
+                Code = branch.Code, Name = branch.Name, IsActive = branch.IsActive
+            });
+        }
+        if (!await db.StockLocations.AnyAsync(l => l.Id == DefaultTenant.TransitLocationId, ct))
+        {
+            db.StockLocations.Add(new StockLocation
+            {
+                Id = DefaultTenant.TransitLocationId, LocationType = StockLocationType.Transit,
+                Code = DefaultTenant.TransitCode, Name = "In transit", IsActive = true
+            });
+        }
         await db.SaveChangesAsync(ct);
     }
 

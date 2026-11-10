@@ -236,6 +236,6 @@ public class BranchesApiTests(PostgresFixture postgres)
         var codes = me.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()).ToHashSet();
 
         Assert.Superset(new HashSet<string?> { "Company.Branches.View", "Company.Branches.Create", "Company.Branches.Edit", "Company.Branches.Disable" }, codes);
-        Assert.False(Sellora.Domain.Auth.PermissionResolver.Resolve(new Sellora.Domain.Entities.Role { Id = Guid.NewGuid(), Name = "Clerk", IsSystem = false, RolePermissions = [] }).Any(c => c.StartsWith("Company.Branches")));
+        Assert.DoesNotContain(Sellora.Domain.Auth.PermissionResolver.Resolve(new Sellora.Domain.Entities.Role { Id = Guid.NewGuid(), Name = "Clerk", IsSystem = false, RolePermissions = [] }), c => c.StartsWith("Company.Branches"));
     }
 }

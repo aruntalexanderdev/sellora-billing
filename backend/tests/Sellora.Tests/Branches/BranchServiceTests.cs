@@ -215,7 +215,7 @@ public class BranchServiceTests
     [Fact]
     public void EffectiveInvoicePrefix_DefaultUsesCompanyPrefix_OthersOwnPrefixElseCompanyPlusCode()
     {
-        var main = BranchBuilder.Main();
+        var main = BranchBuilder.MainBranch();
         var own = BranchBuilder.Extra("KAR");
         own.InvoicePrefix = "KRR";
         var derived = BranchBuilder.Extra("HYD");

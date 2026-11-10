@@ -1950,6 +1950,81 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("StockItems");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.StockLocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LocationType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("CompanyId", "BranchId");
+
+                    b.HasIndex(new[] { "BranchId" }, "IX_StockLocations_BranchId_BranchStore")
+                        .IsUnique()
+                        .HasFilter("\"LocationType\" = 'BranchStore'");
+
+                    b.HasIndex(new[] { "CompanyId", "Code" }, "IX_StockLocations_CompanyId_Code")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "CompanyId" }, "IX_StockLocations_CompanyId_Transit")
+                        .IsUnique()
+                        .HasFilter("\"LocationType\" = 'Transit'");
+
+                    b.ToTable("StockLocations", t =>
+                        {
+                            t.HasCheckConstraint("CK_StockLocations_Id_NotEmpty", "\"Id\" <> '00000000-0000-0000-0000-000000000000'");
+
+                            t.HasCheckConstraint("CK_StockLocations_LocationType", "\"LocationType\" IN ('BranchStore','BranchWarehouse','CompanyWarehouse','Vehicle','Transit')");
+
+                            t.HasCheckConstraint("CK_StockLocations_Transit_Active", "\"LocationType\" <> 'Transit' OR \"IsActive\"");
+
+                            t.HasCheckConstraint("CK_StockLocations_Type_Branch", "(\"LocationType\" IN ('BranchStore','BranchWarehouse')) = (\"BranchId\" IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.StockMovement", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3214,6 +3289,32 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockLocation", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockLocations_Branches_CompanyId_BranchId");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.StockMovement", b =>

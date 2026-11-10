@@ -30,7 +30,9 @@ public static class TestCompany
     public static SelloraDbContext NewDb(Microsoft.EntityFrameworkCore.DbContextOptions<SelloraDbContext> options)
     {
         var db = new SelloraDbContext(options, Context, Branch);
-        db.Branches.Add(BranchBuilder.Main());
+        var main = BranchBuilder.MainBranch();
+        db.Branches.Add(main);
+        db.StockLocations.Add(BranchBuilder.Store(main)); // production invariant: every branch owns a store
         db.SaveChanges();
         return db;
     }

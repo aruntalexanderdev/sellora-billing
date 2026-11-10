@@ -58,6 +58,7 @@ public sealed class BranchWorld
         var category = new ExpenseCategory { Id = Guid.NewGuid(), Name = "Rent" };
         var product = new Product { Id = Guid.NewGuid(), Sku = "RICE", Name = "Rice", BaseUnitId = kg.Id, BaseUnit = kg, TaxId = tax.Id, Tax = tax };
         var unit = TestProductUnits.Base(product, "Loose kg");
+        db.StockLocations.Add(BranchBuilder.Store(blr)); // every branch owns its store (production invariant)
         db.AddRange(blr, role, user, kg, tax, inr, supplier, customer, settings, category, product);
         await db.SaveChangesAsync();
 

@@ -65,7 +65,9 @@ public class CompanyIsolationServiceTests
     {
         await using var db = w.Db(company);
         // Each company owns a default branch (documents resolve to it): A's is the reserved Main, B's a derived id.
-        db.Branches.Add(BranchBuilder.Main(company == A ? null : company, company == A ? null : Guid.NewGuid()));
+        var mainBranch = BranchBuilder.MainBranch(company == A ? null : company, company == A ? null : Guid.NewGuid());
+        db.Branches.Add(mainBranch);
+        db.StockLocations.Add(BranchBuilder.Store(mainBranch));
         var tax = new Tax { Id = Guid.NewGuid(), Name = "GST 5%", RatePercent = 5m };
         var supplier = new Supplier { Id = Guid.NewGuid(), Name = "Annapoorna Traders", CurrencyId = w.InrId };
         var customer = new Customer { Id = Guid.NewGuid(), Name = "Walk-in Customer", IsWalkIn = true };

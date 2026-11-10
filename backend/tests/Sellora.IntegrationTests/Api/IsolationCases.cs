@@ -26,6 +26,8 @@ public static class IsolationCases
         new("BranchesController.List", _ => "/api/v1/branches?includeInactive=true"),
         new("BranchesController.Get", i => $"/api/v1/branches/{i.BranchId}", Detail: true),
         new("BranchesController.Accessible", _ => "/api/v1/branches/accessible"),
+        new("StockLocationsController.List", _ => "/api/v1/stock-locations?includeInactive=true"),
+        new("StockLocationsController.Get", i => $"/api/v1/stock-locations/{i.LocationId}", Detail: true),
         new("ProductsController.List", _ => "/api/v1/products"),
         new("ProductsController.Get", i => $"/api/v1/products/{i.ProductId}", Detail: true),
         new("SuppliersController.List", _ => "/api/v1/suppliers"),
