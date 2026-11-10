@@ -107,6 +107,12 @@ public class UserAccessController(SelloraDbContext db, IUserAccessService access
             {
                 return NotFound();
             }
+            catch (GovernanceRuleException ex)
+            {
+                var problem = new ProblemDetails { Status = StatusCodes.Status400BadRequest, Title = ex.Message };
+                problem.Extensions["code"] = ex.Code;
+                return new ObjectResult(problem) { StatusCode = StatusCodes.Status400BadRequest };
+            }
         }
 
         var view = await BuildViewAsync(id, ct);

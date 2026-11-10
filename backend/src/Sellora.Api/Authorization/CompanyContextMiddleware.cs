@@ -42,6 +42,23 @@ public sealed class CompanyContextMiddleware(RequestDelegate next)
             return;
         }
 
+        // Platform endpoints (Phase 6 D3): no company or branch resolution - the company context stays unset so company-owned
+        // queries fail closed. Only a platform session token may reach them; the Platform.Admin policy re-checks the database.
+        if (context.GetEndpoint()?.Metadata.GetMetadata<PlatformEndpointAttribute>() is not null)
+        {
+            if (context.User.FindFirstValue(AuthClaimTypes.SessionKind) != AuthClaimTypes.PlatformSession)
+            {
+                await Results.Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "A platform session is required.",
+                    extensions: new Dictionary<string, object?> { ["code"] = PlatformPolicies.SessionRequiredCode })
+                    .ExecuteAsync(context);
+                return;
+            }
+            await next(context);
+            return;
+        }
+
         var userIdValue = context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.User.FindFirstValue("sub");
         var companyIdValue = context.User.FindFirstValue(AuthClaimTypes.CompanyId);
 

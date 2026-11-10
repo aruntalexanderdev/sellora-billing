@@ -16,7 +16,7 @@ namespace Sellora.IntegrationTests.Api;
 public sealed record Ids(
     Guid Company, string Token, Guid UserId, Guid ProductId, Guid ProductUnitId, Guid BaseUnitId, Guid SupplierId, Guid CustomerId,
     Guid TaxId, Guid CategoryId, Guid AccountId, Guid PurchaseId, Guid PurchaseLineId, Guid PurchaseReturnId, Guid SaleId,
-    Guid SaleLineId, Guid SalesReturnId, Guid AdjustmentId, Guid ExpenseId, Guid ExchangeRateId, Guid BatchId, Guid CurrencyId, Guid BranchId, Guid LocationId, Guid WarehouseId, Guid VehicleId);
+    Guid SaleLineId, Guid SalesReturnId, Guid AdjustmentId, Guid ExpenseId, Guid ExchangeRateId, Guid BatchId, Guid CurrencyId, Guid BranchId, Guid LocationId, Guid WarehouseId, Guid VehicleId, Guid GovernanceMemberId);
 
 public static class IdsExtensions
 {
@@ -66,6 +66,20 @@ public sealed class IsolationWorld
             // Phase 3: B's Main store and Transit (the production migration / company creation add them; A's come from the seeder).
             dbB.StockLocations.Add(Sellora.IntegrationTests.TestData.BranchBuilder.Store(mainB));
             dbB.StockLocations.Add(Sellora.IntegrationTests.TestData.BranchBuilder.Transit(company));
+            await dbB.SaveChangesAsync();
+
+            // Phase 6: B's owner is an Owner governance member holding all five codes (A's comes from the seeder), so governance reads/writes are exercised in both companies.
+            var membershipB = await dbB.UserCompanyMemberships.SingleAsync(m => m.CompanyId == company && m.User.Email == BOwnerEmail);
+            var memberB = Sellora.Domain.Permissions.GovernancePermissionCatalog.MemberIdFor(membershipB.Id);
+            dbB.CompanyGovernanceMembers.Add(new CompanyGovernanceMember { Id = memberB, CompanyId = company, UserCompanyMembershipId = membershipB.Id, Title = GovernanceTitle.Owner });
+            foreach (var def in Sellora.Domain.Permissions.GovernancePermissionCatalog.All)
+            {
+                dbB.GovernanceMemberPermissions.Add(new GovernanceMemberPermission
+                {
+                    Id = Sellora.Domain.Permissions.GovernancePermissionCatalog.GrantIdFor(memberB, def.Code), CompanyId = company, GovernanceMemberId = memberB,
+                    GovernancePermissionId = Sellora.Domain.Permissions.GovernancePermissionCatalog.IdFor(def.Code),
+                });
+            }
             await dbB.SaveChangesAsync();
         }
 
@@ -152,13 +166,14 @@ public sealed class IsolationWorld
             purchase.Id, purchase.Lines.Single().Id, purchaseReturn.Id, sale.Id, sale.Lines.Single().Id, salesReturn.Id, adjustment.Id, expense.Id, rate.Id, batch.Id, currencyId,
             await db.Branches.Where(b => b.IsDefault).Select(b => b.Id).SingleAsync(),
             await db.StockLocations.Where(l => l.LocationType == Sellora.Domain.Inventory.StockLocationType.BranchStore).Select(l => l.Id).SingleAsync(),
-            warehouse.Id, vehicle.Id);
+            warehouse.Id, vehicle.Id, await db.CompanyGovernanceMembers.Select(m => m.Id).SingleAsync());
     }
 
     /// <summary>Every row id (as lower-case text) owned by a company: company tables plus the child tables owned through their parent.</summary>
     private static async Task<HashSet<string>> RowIdsAsync(ApiHost host, Guid company)
     {
-        var tables = CompanyTables.Where(t => t != "StockItems").Append("Branches").Append("StockLocations").Append("Warehouses").Append("Vehicles");
+        var tables = CompanyTables.Where(t => t != "StockItems").Append("Branches").Append("StockLocations").Append("Warehouses").Append("Vehicles")
+            .Append("CompanyGovernanceMembers").Append("GovernanceMemberPermissions");
         var parts = tables.Select(t => $"""SELECT "Id"::text FROM "{t}" WHERE "CompanyId" = '{company}'""").Concat(
         [
             $"""SELECT l."Id"::text FROM "PurchaseOrderLines" l JOIN "PurchaseOrders" p ON p."Id" = l."PurchaseOrderId" WHERE p."CompanyId" = '{company}'""",

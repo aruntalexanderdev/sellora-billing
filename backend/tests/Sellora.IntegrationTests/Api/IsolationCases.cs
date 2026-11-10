@@ -81,6 +81,8 @@ public static class IsolationCases
         new("AccountsReportsController.CashFlow", _ => "/api/v1/reports/accounts/cash-flow", ShowsRowIds: false),
         new("AccountsReportsController.CashBank", _ => "/api/v1/reports/accounts/cash-bank"),
         new("AccountsReportsController.PaymentMethods", _ => "/api/v1/reports/accounts/payment-methods", ShowsRowIds: false),
+        new("GovernanceController.Members", _ => "/api/v1/governance/members?includeEnded=true"),
+        new("GovernanceController.Events", _ => "/api/v1/governance/events?pageSize=100", ShowsRowIds: false),
         new("ExchangeRatesController.Resolve", i => $"/api/v1/exchange-rates/resolve?currencyId={i.CurrencyId}&date={Today:yyyy-MM-dd}", ShowsRowIds: false),
     ];
 
@@ -198,6 +200,19 @@ public static class IsolationCases
             ("/api/v1/stock-adjustments", new CreateStockAdjustmentRequest(other.ProductId, other.ProductUnitId, AdjustmentType.Correction, AdjustmentDirection.Increase, 1m, 5m, "x"))),
         new("PricingController.SetPrice", "other company's product unit", Put, (own, other) =>
             ($"/api/v1/pricing/{other.ProductUnitId}", new SetPriceRequest(99m))),
+        // Phase 6: governance writes naming the other company's member / user answer 404 (a foreign id is indistinguishable from an unknown one).
+        new("GovernanceController.AddMember", "other company's user", Post, (own, other) =>
+            ("/api/v1/governance/members", new AddGovernanceMemberRequest(other.UserId, GovernanceTitle.Director, null, "x"))),
+        new("GovernanceController.ChangeTitle", "other company's member", Post, (own, other) =>
+            ($"/api/v1/governance/members/{other.GovernanceMemberId}/title", new ChangeGovernanceTitleRequest(GovernanceTitle.Director, "x"))),
+        new("GovernanceController.SetPermissions", "other company's member", Put, (own, other) =>
+            ($"/api/v1/governance/members/{other.GovernanceMemberId}/permissions", new SetGovernancePermissionsRequest([], "x"))),
+        new("GovernanceController.End", "other company's member", Post, (own, other) =>
+            ($"/api/v1/governance/members/{other.GovernanceMemberId}/end", new EndGovernanceMemberRequest("x"))),
+        new("GovernanceController.GrantAdministrator", "other company's user", Post, (own, other) =>
+            ("/api/v1/governance/administrators", new GrantAdministratorRequest(other.UserId, "x"))),
+        new("GovernanceController.RemoveAdministrator", "other company's user", Post, (own, other) =>
+            ($"/api/v1/governance/administrators/{other.UserId}/remove", new RemoveAdministratorRequest(Guid.NewGuid(), "x"))),
         new("ExchangeRatesController.Update", "other company's rate", Put, (own, other) =>
             ($"/api/v1/exchange-rates/{other.ExchangeRateId}", new UpsertExchangeRateRequest(own.CurrencyId, 5m, Today))),
     ];
@@ -210,6 +225,9 @@ public static class IsolationCases
         "PermissionsController.List",
         "RolesController.List", "RolesController.Get", "RolesController.Create", "RolesController.Update", "RolesController.Duplicate", "RolesController.SetActive",
         "UsersController.UpdateOwnUsername", "UsersController.ChangeOwnPassword",
+        // Phase 6: the platform surface never reads company data (no company context: company-owned queries fail closed); the governance catalogue is global.
+        "PlatformAuthController.Login", "PlatformCompaniesController.List", "PlatformCompaniesController.Currencies", "PlatformCompaniesController.Create",
+        "PlatformCompaniesController.SetStatus", "GovernanceController.Permissions",
         "AuthController.Login", "AuthController.Refresh", "AuthController.SwitchCompany", "AuthController.Logout", "AuthController.Me",
     ];
 

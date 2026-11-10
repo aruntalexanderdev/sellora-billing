@@ -32,6 +32,8 @@ public static class DbSeeder
         await SeedPermissionsAsync(db, ct);
         var adminRole = await SeedAdministratorRoleAsync(db, ct);
         await SeedAdminUserAsync(db, adminRole, passwordHasher, ct);
+        await SeedGovernanceCatalogueAsync(db, ct);
+        await SeedDefaultOwnerAsync(db, ct);
 
         var currencies = await SeedCurrenciesAsync(db, ct);
         var settings = await SeedBusinessSettingsAsync(db, currencies["INR"], ct);
@@ -210,6 +212,44 @@ public static class DbSeeder
             });
         }
 
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Phase 6 D8: the governance catalogue lives in its own table (never in Permissions). Ids are deterministic (md5, as the migration);
+    // existing rows are left untouched.
+    private static async Task SeedGovernanceCatalogueAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        var existingCodes = await db.GovernancePermissions.Select(p => p.Code).ToListAsync(ct);
+        foreach (var def in GovernancePermissionCatalog.All.Where(d => !existingCodes.Contains(d.Code)))
+        {
+            db.GovernancePermissions.Add(new GovernancePermission { Id = GovernancePermissionCatalog.IdFor(def.Code), Code = def.Code, Description = def.Description });
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Covers databases created without migrations (tests, InMemory): the migration maps the earliest Administrator to Owner (owner decision O2).
+    // Only while the company has no governance member at all, so an owner who later changes governance is not overridden. Platform
+    // administrators are never seeded (O3: granted only by scripts/sql/grant-platform-admin.sql).
+    private static async Task SeedDefaultOwnerAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        if (await db.CompanyGovernanceMembers.AnyAsync(ct)) return;
+
+        var membershipId = await db.UserCompanyMemberships
+            .Where(m => m.CompanyId == DefaultTenant.CompanyId && m.Status == MembershipStatus.Active && m.User.Email == SeedAdminEmail)
+            .Select(m => (Guid?)m.Id).SingleOrDefaultAsync(ct);
+        if (membershipId is null) return;
+
+        var memberId = GovernancePermissionCatalog.MemberIdFor(membershipId.Value);
+        var member = new CompanyGovernanceMember { Id = memberId, CompanyId = DefaultTenant.CompanyId, UserCompanyMembershipId = membershipId.Value, Title = GovernanceTitle.Owner };
+        db.CompanyGovernanceMembers.Add(member);
+        foreach (var def in GovernancePermissionCatalog.All)
+        {
+            db.GovernanceMemberPermissions.Add(new GovernanceMemberPermission
+            {
+                Id = GovernancePermissionCatalog.GrantIdFor(memberId, def.Code), CompanyId = DefaultTenant.CompanyId, GovernanceMemberId = memberId,
+                GovernancePermissionId = GovernancePermissionCatalog.IdFor(def.Code),
+            });
+        }
         await db.SaveChangesAsync(ct);
     }
 

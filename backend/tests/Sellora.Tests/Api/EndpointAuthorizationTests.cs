@@ -322,4 +322,103 @@ public class EndpointAuthorizationTests
 
         Assert.Equal(["AuthController.Me", "AuthController.SwitchCompany", "UsersController.ChangeOwnPassword", "UsersController.UpdateOwnUsername"], marked);
     }
+
+    // ---- Phase 6: platform separation and governance (T10) ----
+
+    private const string PlatformAdminPolicy = "Platform.Admin";
+
+    private static bool IsPlatformEndpoint(Type controller, MethodInfo action) =>
+        controller.GetCustomAttributes<Sellora.Api.Authorization.PlatformEndpointAttribute>(true).Any()
+        || action.GetCustomAttributes<Sellora.Api.Authorization.PlatformEndpointAttribute>(true).Any();
+
+    [Fact]
+    public void PlatformEndpoints_AreExactlyTheFourPlatformRoutes_EachRequiringOnlyPlatformAdmin()
+    {
+        var platform = Actions().Where(x => IsPlatformEndpoint(x.Controller, x.Action)).ToList();
+
+        Assert.Equal(
+            ["GET PlatformCompaniesController.Currencies", "GET PlatformCompaniesController.List", "POST PlatformCompaniesController.Create", "POST PlatformCompaniesController.SetStatus"],
+            platform.Select(x => $"{x.Verb} {x.Controller.Name}.{x.Action.Name}").Order().ToArray());
+        foreach (var (controller, action, _) in platform)
+            Assert.Equal([PlatformAdminPolicy], Policies(controller, action).Where(p => p.Length > 0).ToArray());
+    }
+
+    [Fact]
+    public void PlatformPolicy_IsNeverMixedWithCompanyPermissions_AndCompanyEndpointsAreNeverPlatformEndpoints()
+    {
+        foreach (var (controller, action, verb) in Actions())
+        {
+            var policies = Policies(controller, action).Where(p => p.Length > 0).ToArray();
+            var isPlatform = IsPlatformEndpoint(controller, action);
+            Assert.True(isPlatform == policies.Contains(PlatformAdminPolicy), $"{verb} {controller.Name}.{action.Name}: Platform.Admin and [PlatformEndpoint] must go together.");
+            if (isPlatform) Assert.Single(policies);
+        }
+    }
+
+    [Fact]
+    public void PlatformRoutes_LiveOnlyOnPlatformControllers()
+    {
+        foreach (var controller in typeof(PurchasesController).Assembly.GetTypes().Where(t => typeof(ControllerBase).IsAssignableFrom(t) && !t.IsAbstract))
+        {
+            var routes = controller.GetCustomAttributes<Microsoft.AspNetCore.Mvc.RouteAttribute>().Select(r => r.Template).ToList();
+            if (routes.Any(r => r.StartsWith("api/v1/platform", StringComparison.Ordinal)))
+                Assert.True(controller.GetCustomAttributes<Sellora.Api.Authorization.PlatformEndpointAttribute>(true).Any(), $"{controller.Name} serves api/v1/platform but is not a [PlatformEndpoint].");
+        }
+    }
+
+    [Fact]
+    public void PlatformLogin_IsTheOnlyAnonymousEndpointBesidesAuthController()
+    {
+        var anonymous = Actions().Where(x => x.Action.GetCustomAttributes<AllowAnonymousAttribute>().Any() && x.Controller != typeof(AuthController))
+            .Select(x => $"{x.Verb} {x.Controller.Name}.{x.Action.Name}").ToList();
+
+        Assert.Equal(["POST PlatformAuthController.Login"], anonymous);
+    }
+
+    [Theory]
+    [InlineData("GET", "Permissions", "Company.Governance.View")]
+    [InlineData("GET", "Members", "Company.Governance.View")]
+    [InlineData("GET", "Events", "Company.Governance.View")]
+    [InlineData("PUT", "SetPermissions", "Company.Governance.AssignPermissions")]
+    [InlineData("POST", "GrantAdministrator", "Company.Governance.ManageAdministrators")]
+    [InlineData("POST", "RemoveAdministrator", "Company.Governance.ManageAdministrators")]
+    public void GovernanceEndpoints_RequireTheirGovernancePolicy_NotACompanyPermission(string verb, string action, string code)
+    {
+        var method = GovernanceActions().Single(x => x.Verb == verb && x.Action.Name.Contains(action, StringComparison.OrdinalIgnoreCase)).Action;
+
+        Assert.Equal(["Governance:" + code], Policies(typeof(GovernanceController), method).Where(p => p.Length > 0).ToArray());
+        Assert.DoesNotContain(code, Sellora.Domain.Permissions.PermissionCatalog.All.Select(p => p.Code));
+    }
+
+    private static IEnumerable<(string Verb, MethodInfo Action)> GovernanceActions() =>
+        Actions().Where(x => x.Controller == typeof(GovernanceController)).Select(x => (x.Verb, x.Action));
+
+    [Fact]
+    public void GovernanceController_HasNineRoutedActions_AllGovernancePolicies_AndNoPlatformMarker()
+    {
+        var routes = typeof(GovernanceController).GetCustomAttributes<Microsoft.AspNetCore.Mvc.RouteAttribute>().Select(r => r.Template).ToList();
+        var actions = GovernanceActions().ToList();
+
+        Assert.Equal(["api/v1/governance"], routes);
+        Assert.Equal(9, actions.Count);
+        foreach (var (_, action) in actions)
+        {
+            var policies = Policies(typeof(GovernanceController), action).Where(p => p.Length > 0).ToArray();
+            Assert.Single(policies);
+            Assert.StartsWith("Governance:Company.Governance.", policies[0]);
+            Assert.False(IsPlatformEndpoint(typeof(GovernanceController), action));
+        }
+    }
+
+    [Fact]
+    public void GovernanceCodes_AreNeverInThePermissionCatalogue_AndTheSystemAdministratorResolvesNone()
+    {
+        var governance = Sellora.Domain.Permissions.GovernancePermissionCatalog.All.Select(d => d.Code).ToHashSet();
+        var admin = Sellora.Domain.Auth.PermissionResolver.Resolve(new Sellora.Domain.Entities.Role { Id = Guid.NewGuid(), Name = "Administrator", IsSystem = true, RolePermissions = [] });
+
+        Assert.Equal(5, governance.Count);
+        Assert.Empty(governance.Intersect(Sellora.Domain.Permissions.PermissionCatalog.All.Select(p => p.Code)));
+        Assert.Empty(governance.Intersect(admin));
+    }
 }
+

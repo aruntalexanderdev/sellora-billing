@@ -26,6 +26,13 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
 
     public DbSet<UserBranchAssignment> UserBranchAssignments => Set<UserBranchAssignment>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+
+    // Phase 6: governance tables are company-owned (filtered); platform tables are not (no company context in a platform session).
+    public DbSet<CompanyGovernanceMember> CompanyGovernanceMembers => Set<CompanyGovernanceMember>();
+    public DbSet<GovernancePermission> GovernancePermissions => Set<GovernancePermission>();
+    public DbSet<GovernanceMemberPermission> GovernanceMemberPermissions => Set<GovernanceMemberPermission>();
+    public DbSet<PlatformAdministrator> PlatformAdministrators => Set<PlatformAdministrator>();
+    public DbSet<PlatformAuditEvent> PlatformAuditEvents => Set<PlatformAuditEvent>();
     public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<StockLocation> StockLocations => Set<StockLocation>();
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
@@ -144,14 +151,15 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
-    // AuditEvents are append-only (D11): any tracked update or delete is a programming error (500). There is no update/delete API.
+    // AuditEvents and PlatformAuditEvents are append-only (D11, Phase 6 D12): any tracked update or delete is a programming error (500).
+    // There is no update/delete API; database triggers enforce the same rule below the application.
     private void EnforceAuditAppendOnly()
     {
-        foreach (var entry in ChangeTracker.Entries<AuditEvent>())
+        foreach (var entry in ChangeTracker.Entries().Where(e => e.Entity is AuditEvent or PlatformAuditEvent))
         {
             if (entry.State is EntityState.Modified or EntityState.Deleted)
             {
-                throw new InvalidOperationException("AuditEvents are append-only; they cannot be modified or deleted.");
+                throw new InvalidOperationException($"{entry.Metadata.ClrType.Name}s are append-only; they cannot be modified or deleted.");
             }
         }
     }

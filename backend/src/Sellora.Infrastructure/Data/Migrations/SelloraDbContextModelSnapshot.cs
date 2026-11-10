@@ -261,6 +261,79 @@ namespace Sellora.Infrastructure.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.CompanyGovernanceMember", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("EndAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EndReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("EndedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("StartAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserCompanyMembershipId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("EndedByUserId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex(new[] { "CompanyId", "UserCompanyMembershipId" }, "IX_GovMembers_Company_Membership");
+
+                    b.HasIndex(new[] { "UserCompanyMembershipId" }, "IX_GovMembers_Membership_Active")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'Active'");
+
+                    b.ToTable("CompanyGovernanceMembers", t =>
+                        {
+                            t.HasCheckConstraint("CK_CompanyGovernanceMembers_Active_EndAt", "(\"Status\" = 'Active') = (\"EndAt\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_CompanyGovernanceMembers_Id_NotEmpty", "\"Id\" <> '00000000-0000-0000-0000-000000000000'");
+
+                            t.HasCheckConstraint("CK_CompanyGovernanceMembers_Status", "\"Status\" IN ('Active', 'Ended')");
+
+                            t.HasCheckConstraint("CK_CompanyGovernanceMembers_Title", "\"Title\" IN ('Owner', 'BoardMember', 'Director', 'DelegatedAdministrator')");
+                        });
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.Currency", b =>
                 {
                     b.Property<Guid>("Id")
@@ -687,6 +760,68 @@ namespace Sellora.Infrastructure.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.GovernanceMemberPermission", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("GovernanceMemberId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("GovernancePermissionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("GrantedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("GrantedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GrantedByUserId");
+
+                    b.HasIndex(new[] { "CompanyId", "GovernanceMemberId" }, "IX_GovMemberPerms_Company_Member");
+
+                    b.HasIndex(new[] { "GovernanceMemberId", "GovernancePermissionId" }, "IX_GovMemberPerms_Member_Permission")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "GovernancePermissionId" }, "IX_GovMemberPerms_Permission");
+
+                    b.ToTable("GovernanceMemberPermissions", t =>
+                        {
+                            t.HasCheckConstraint("CK_GovernanceMemberPermissions_Id_NotEmpty", "\"Id\" <> '00000000-0000-0000-0000-000000000000'");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.GovernancePermission", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "Code" }, "IX_GovernancePermissions_Code")
+                        .IsUnique();
+
+                    b.ToTable("GovernancePermissions");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.IdempotencyKey", b =>
                 {
                     b.Property<Guid>("Id")
@@ -754,7 +889,106 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Permissions");
+                    b.ToTable("Permissions", t =>
+                        {
+                            t.HasCheckConstraint("CK_Permissions_NotGovernance", "\"Code\" NOT LIKE 'Company.Governance.%'");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PlatformAdministrator", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("GrantedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("GrantedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RevokedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("UserId");
+
+                    b.HasIndex("GrantedByUserId");
+
+                    b.HasIndex("RevokedByUserId");
+
+                    b.ToTable("PlatformAdministrators", t =>
+                        {
+                            t.HasCheckConstraint("CK_PlatformAdministrators_Active_RevokedAt", "(\"Status\" = 'Active') = (\"RevokedAt\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_PlatformAdministrators_Status", "\"Status\" IN ('Active', 'Revoked')");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PlatformAuditEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid?>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("After")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Before")
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid?>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("TargetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex(new[] { "CompanyId", "OccurredAt" }, "IX_PlatformAuditEvents_Company");
+
+                    b.HasIndex(new[] { "OccurredAt" }, "IX_PlatformAuditEvents_OccurredAt");
+
+                    b.ToTable("PlatformAuditEvents", t =>
+                        {
+                            t.HasCheckConstraint("CK_PlatformAuditEvents_Id_NotEmpty", "\"Id\" <> '00000000-0000-0000-0000-000000000000'");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Product", b =>
@@ -2675,6 +2909,40 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("BaseCurrency");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.CompanyGovernanceMember", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("EndedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.UserCompanyMembership", "Membership")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "UserCompanyMembershipId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_CompanyGovernanceMembers_Memberships_Company");
+
+                    b.Navigation("Membership");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.Customer", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.Company", null)
@@ -2878,6 +3146,39 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("SalesPayment");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.GovernanceMemberPermission", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.GovernancePermission", "GovernancePermission")
+                        .WithMany()
+                        .HasForeignKey("GovernancePermissionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_GovMemberPerms_GovPermissions_Permission");
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("GrantedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.CompanyGovernanceMember", "Member")
+                        .WithMany("Permissions")
+                        .HasForeignKey("CompanyId", "GovernanceMemberId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_GovMemberPerms_Members_Company");
+
+                    b.Navigation("GovernancePermission");
+
+                    b.Navigation("Member");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.IdempotencyKey", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.Company", null)
@@ -2885,6 +3186,40 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("CompanyId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PlatformAdministrator", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("GrantedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("RevokedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.User", "User")
+                        .WithOne()
+                        .HasForeignKey("Sellora.Domain.Entities.PlatformAdministrator", "UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PlatformAuditEvent", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Product", b =>
@@ -3812,6 +4147,11 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_Warehouses_StockLocations_Typed");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.CompanyGovernanceMember", b =>
+                {
+                    b.Navigation("Permissions");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Permission", b =>

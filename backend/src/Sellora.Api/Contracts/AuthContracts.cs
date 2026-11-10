@@ -52,7 +52,8 @@ public record MeResponse(
     CompanyAccessScope AccessScope,
     Guid? PrimaryBranchId,
     AllowedBranchDto[] AllowedBranches,
-    CompanyOptionDto[] Companies
+    CompanyOptionDto[] Companies,
+    GovernanceHintDto? Governance
 ) : UserSummaryDto(Id, FirstName, LastName, Username, Email, RoleName, Permissions, CompanyId, CompanyName, AccessScope, PrimaryBranchId, AllowedBranches);
 
 public record SwitchCompanyRequest(
@@ -71,3 +72,7 @@ public record AuthResponse(
     public static AuthResponse From(AuthResult r) =>
         new(r.AccessToken, r.AccessTokenExpiresAt, r.RefreshToken, r.RefreshTokenExpiresAt, UserSummaryDto.From(r.User));
 }
+
+/// <summary>The caller's governance membership in the current company (a UI hint only — every governance endpoint re-checks
+/// the database). Null when the caller is not an active governance member.</summary>
+public record GovernanceHintDto(Guid MemberId, string Title, string[] Permissions);

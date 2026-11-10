@@ -66,6 +66,12 @@ builder.Services
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
+// Platform.Admin re-reads the database per request, so its handler is scoped (the permission handler above is singleton).
+builder.Services.AddScoped<IAuthorizationHandler, PlatformAdminHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, GovernanceAuthorizationHandler>();
+builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, PlatformAuthorizationResultHandler>();
+builder.Services.Configure<PlatformOptions>(builder.Configuration.GetSection(PlatformOptions.SectionName));
+builder.Services.AddScoped<IPlatformService, PlatformService>();
 
 // CORS (Phase 2 D10): origins come from configuration (Cors:AllowedOrigins; environments override with
 // Cors__AllowedOrigins__0..n). Fail closed: an empty list allows no cross-origin access. Bearer tokens travel in headers

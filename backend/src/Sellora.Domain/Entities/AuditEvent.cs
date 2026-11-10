@@ -42,6 +42,15 @@ public static class AuditActions
     public const string BranchAssignmentEnded = "branch_assignment.ended";
     public const string BranchAssignmentPrimaryChanged = "branch_assignment.primary_changed";
     public const string AccessReassigned = "access.reassigned";
+
+    // Phase 6 governance
+    public const string GovernanceMemberAdded = "governance.member_added";
+    public const string GovernanceMemberEnded = "governance.member_ended";
+    public const string GovernanceMemberTitleChanged = "governance.member_title_changed";
+    public const string GovernanceMemberPermissionsChanged = "governance.member_permissions_changed";
+    public const string GovernanceOwnerMapped = "governance.owner_mapped";
+    public const string GovernanceAdministratorGranted = "governance.administrator_granted";
+    public const string GovernanceAdministratorRemoved = "governance.administrator_removed";
 }
 
 /// <summary>Values of <see cref="AuditEvent.TargetType"/>.</summary>
@@ -49,4 +58,5 @@ public static class AuditTargets
 {
     public const string Membership = "UserCompanyMembership";
     public const string BranchAssignment = "UserBranchAssignment";
+    public const string GovernanceMember = "CompanyGovernanceMember";
 }

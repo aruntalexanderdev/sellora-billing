@@ -18,7 +18,7 @@ namespace Sellora.IntegrationTests.Api;
 /// The real API (<c>WebApplicationFactory&lt;Program&gt;</c>) on a Testcontainers PostgreSQL database: startup runs the migrations
 /// and the seeder (default company, admin membership) exactly as in dev. JWT settings are fixed test values.
 /// </summary>
-public sealed class SelloraApiFactory(string connectionString) : WebApplicationFactory<Program>
+public sealed class SelloraApiFactory(string connectionString, IReadOnlyDictionary<string, string>? settings = null) : WebApplicationFactory<Program>
 {
     public const string Issuer = "sellora-test";
     public const string Audience = "sellora-test";
@@ -34,6 +34,7 @@ public sealed class SelloraApiFactory(string connectionString) : WebApplicationF
         builder.UseSetting("Jwt:AccessTokenMinutes", "15");
         builder.UseSetting("Jwt:RefreshTokenDays", "14");
         builder.UseSetting("Database:ApplyMigrationsOnStartup", "true");
+        foreach (var (key, value) in settings ?? new Dictionary<string, string>()) builder.UseSetting(key, value);
     }
 }
 
@@ -54,10 +55,10 @@ public sealed class ApiHost : IAsyncDisposable
         Factory = factory;
     }
 
-    public static async Task<ApiHost> StartAsync(PostgresFixture postgres)
+    public static async Task<ApiHost> StartAsync(PostgresFixture postgres, IReadOnlyDictionary<string, string>? settings = null)
     {
         var database = await postgres.CreateDatabaseAsync(migrate: false);
-        var factory = new SelloraApiFactory(database.ConnectionString);
+        var factory = new SelloraApiFactory(database.ConnectionString, settings);
         using var warmup = factory.CreateClient(); // builds the host: migrations + seed
         return new ApiHost(database, factory);
     }

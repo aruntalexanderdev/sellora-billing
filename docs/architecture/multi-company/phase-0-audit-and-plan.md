@@ -5,7 +5,7 @@
 | Spec | `docs/architecture/Sellora-Multi-Company-Branch-Architecture-Claude.md` ("arch") |
 | Related | `docs/analysis/unit-conversion-restructuring-analysis.md` ("analysis") §13.4–13.6, §25 Phase B / 6b, §27 D5 |
 | Baseline | branch `analyse`, commit `a7c1c4e` (unit restructuring Phases 0–6a complete) |
-| Status | **Phase 0 approved (2026-11-09).** ADR-01…13 accepted; answers in §10. Phase H and 1–5 delivered (see the phase-1…5 design delivery records); next: Phase 6 (on approval). |
+| Status | **Phase 0 approved (2026-11-09).** ADR-01…13 accepted; answers in §10. Phase H and 1–6 delivered (see the phase-1…6 design delivery records); next: Phase 7 (on approval). |
 | Appendix A | `phase-0-appendix-a-backend-database-audit.md` — backend/DB current state, entity map, auth, inventory, workflow impact, migration risk, tests, conflicts C1–C14 (file:line evidence) |
 | Appendix B | `phase-0-appendix-b-frontend-ci-audit.md` — Angular current state, screen impact map, frontend tests, CI/CD and deployment |
 

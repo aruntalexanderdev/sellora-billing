@@ -81,3 +81,17 @@ FROM (VALUES
   ('Reports.Profit', 'Reports', 'View', 'View the profit/margin summary report.')
 ) AS v("Code", "Module", "Action", "Description")
 ON CONFLICT ("Code") DO NOTHING;
+
+-- Phase 6: governance catalogue (separate table, never part of "Permissions"; the CK_Permissions_NotGovernance CHECK forbids these codes there).
+-- Mirrors GovernancePermissionCatalog.All. Ids are deterministic (md5, identical to the migration and the application seeder); rows already
+-- present are left untouched. Insert-only: no row is ever updated or removed by this script.
+INSERT INTO "GovernancePermissions" ("Id", "Code", "Description")
+SELECT md5('govperm:' || v."Code")::uuid, v."Code", v."Description"
+FROM (VALUES
+  ('Company.Governance.View', 'View governance members, their titles and grants, and the governance audit trail.'),
+  ('Company.Governance.ManageMembers', 'Add, retitle and end governance members other than owners.'),
+  ('Company.Governance.ManageOwners', 'Add, retitle, end or change the grants of Owner-title governance members.'),
+  ('Company.Governance.AssignPermissions', 'Grant and revoke governance permissions (only codes the actor holds).'),
+  ('Company.Governance.ManageAdministrators', 'Grant and remove the Administrator role (delegated company administration).')
+) AS v("Code", "Description")
+ON CONFLICT ("Code") DO NOTHING;

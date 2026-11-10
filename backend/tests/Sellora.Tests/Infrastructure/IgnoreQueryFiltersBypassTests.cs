@@ -17,6 +17,9 @@ public class IgnoreQueryFiltersBypassTests
     // Phase 5: auth/middleware read assignments/branches before a company context exists; they bypass "Company" with explicit CompanyId predicates.
     private static readonly string[] CompanyBypassWithPredicate = ["AuthService.cs", "CompanyContextMiddleware.cs"];
 
+    // Phase 6: platform sessions carry no company context; PlatformService reads company-owned rows with explicit CompanyId grouping/predicates.
+    private static readonly string[] PlatformBypass = ["PlatformService.cs"];
+
     private static string SrcRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
@@ -34,7 +37,7 @@ public class IgnoreQueryFiltersBypassTests
                      && !f.Contains($"{Path.DirectorySeparatorChar}Migrations{Path.DirectorySeparatorChar}"))
             .Where(f => File.ReadAllLines(f).Any(l => l.Contains("IgnoreQueryFilters") && !l.TrimStart().StartsWith("//") && !l.TrimStart().StartsWith("///")))
             .Select(Path.GetFileName)
-            .Where(n => !Approved.Contains(n) && !BranchBypass.Contains(n) && !CompanyBypassWithPredicate.Contains(n))
+            .Where(n => !Approved.Contains(n) && !BranchBypass.Contains(n) && !CompanyBypassWithPredicate.Contains(n) && !PlatformBypass.Contains(n))
             .ToList();
 
         Assert.True(offenders.Count == 0, "IgnoreQueryFilters is a tenant bypass; unapproved use in: " + string.Join(", ", offenders));

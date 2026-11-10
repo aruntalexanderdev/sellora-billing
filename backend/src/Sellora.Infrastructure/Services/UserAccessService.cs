@@ -168,7 +168,34 @@ public sealed class UserAccessService(SelloraDbContext db) : IUserAccessService
         var created = await ApplyAsync(m, current, desired, note, note, actor, ct);
         Bump(m, actor);
         AuditLog.Append(db, actor, AuditActions.MembershipStatusChanged, AuditTargets.Membership, m.Id, m.UserId, note, before, State(m, Remaining(current, created)));
+
+        // Phase 6 D10: revoking a membership ends its governance member (grants removed, audited, same transaction);
+        // suspending or revoking an Owner must leave a root owner (R4).
+        var govMember = m.Status == MembershipStatus.Active
+            ? null
+            : await db.CompanyGovernanceMembers.SingleOrDefaultAsync(
+                g => g.CompanyId == m.CompanyId && g.UserCompanyMembershipId == m.Id && g.Status == GovernanceMemberStatus.Active, ct);
+        if (govMember is not null && m.Status == MembershipStatus.Revoked)
+        {
+            var grants = await db.GovernanceMemberPermissions
+                .Where(p => p.CompanyId == m.CompanyId && p.GovernanceMemberId == govMember.Id)
+                .Include(p => p.GovernancePermission).ToListAsync(ct);
+            var codes = grants.Select(g => g.GovernancePermission.Code).OrderBy(c => c, StringComparer.Ordinal).ToList();
+            var ended = DateTimeOffset.UtcNow;
+            db.GovernanceMemberPermissions.RemoveRange(grants);
+            govMember.Status = GovernanceMemberStatus.Ended;
+            govMember.EndAt = ended < govMember.StartAt ? govMember.StartAt : ended;
+            govMember.EndReason = note;
+            govMember.EndedByUserId = actor.UserId;
+            AuditLog.Append(db, actor, AuditActions.GovernanceMemberEnded, AuditTargets.GovernanceMember, govMember.Id, m.UserId, note,
+                new { title = govMember.Title.ToString(), status = "Active", permissions = codes },
+                new { title = govMember.Title.ToString(), status = "Ended", permissions = Array.Empty<string>() });
+        }
         await db.SaveChangesAsync(ct);
+        if (govMember is { Title: GovernanceTitle.Owner })
+        {
+            await GovernanceRules.EnsureRootOwnerRemainsAsync(db, ct);
+        }
     }
 
     public async Task ReassignAsync(AccessActor actor, Guid userId, ReassignInput input, CancellationToken ct = default)
@@ -315,6 +342,8 @@ public sealed class UserAccessService(SelloraDbContext db) : IUserAccessService
         {
             throw new AccessManagementForbiddenException(AccessErrorCodes.AccessManagementForbidden, "Only Administrators can change Administrator accounts.");
         }
+        // Phase 6 R5: platform administrators and governance members are protected from ordinary user administration.
+        await GovernanceRules.EnsureOperationalTargetAllowedAsync(db, actor.UserId, userId, ct);
         return m;
     }
 

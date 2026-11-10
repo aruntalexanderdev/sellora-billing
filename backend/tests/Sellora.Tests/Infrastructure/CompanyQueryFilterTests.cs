@@ -17,6 +17,8 @@ public class CompanyQueryFilterTests
     [
         typeof(User), typeof(Role), typeof(RolePermission), typeof(Permission), typeof(RefreshToken),
         typeof(Unit), typeof(Currency), typeof(Company), typeof(UserCompanyMembership),
+        // Phase 6: the governance catalogue, platform administrators and the platform audit trail belong to no company.
+        typeof(GovernancePermission), typeof(PlatformAdministrator), typeof(PlatformAuditEvent),
     ];
 
     // Children without their own CompanyId: filtered through their parent navigation.
@@ -63,14 +65,14 @@ public class CompanyQueryFilterTests
     }
 
     [Fact]
-    public void Model_CompanyOwnedTypes_AreTheTwentySevenDesignedTypes()
+    public void Model_CompanyOwnedTypes_AreTheTwentyNineDesignedTypes()
     {
         using var db = NewDb(TestCompany.Context);
         var owned = ModelTypes(db).Select(t => t.ClrType).Where(t => typeof(ICompanyOwned).IsAssignableFrom(t)).Select(t => t.Name).Order().ToArray();
         string[] expected =
         [
-            "AuditEvent", "Branch", "BusinessSettings", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
-            "FinancialTransaction", "IdempotencyKey", "Product", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
+            "AuditEvent", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
+            "FinancialTransaction", "GovernanceMemberPermission", "IdempotencyKey", "Product", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
             "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "Supplier", "Tax", "UserBranchAssignment", "Vehicle", "Warehouse",
         ];
         Assert.Equal(expected, owned);

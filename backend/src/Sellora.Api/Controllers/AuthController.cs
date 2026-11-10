@@ -129,8 +129,23 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
 
         var summary = UserSummaryDto.From(new AuthenticatedUserSummary(
             user.Id, user.FirstName, user.LastName, user.Username, user.Email, user.Role.Name, permissions, current.Id, current.Name));
+        var member = await db.CompanyGovernanceMembers.AsNoTracking()
+            .Where(g => g.CompanyId == currentCompanyId && g.Status == GovernanceMemberStatus.Active && g.Membership.UserId == userId)
+            .Select(g => new { g.Id, g.Title })
+            .SingleOrDefaultAsync(ct);
+        GovernanceHintDto? governance = null;
+        if (member is not null)
+        {
+            var codes = await db.GovernanceMemberPermissions.AsNoTracking()
+                .Where(p => p.GovernanceMemberId == member.Id)
+                .Select(p => p.GovernancePermission.Code)
+                .OrderBy(c => c)
+                .ToArrayAsync(ct);
+            governance = new GovernanceHintDto(member.Id, member.Title.ToString(), codes);
+        }
+
         return Ok(new MeResponse(summary.Id, summary.FirstName, summary.LastName, summary.Username, summary.Email,
             summary.RoleName, summary.Permissions, summary.CompanyId, summary.CompanyName,
-            scope, primaryId, allowedBranches, companies));
+            scope, primaryId, allowedBranches, companies, governance));
     }
 }

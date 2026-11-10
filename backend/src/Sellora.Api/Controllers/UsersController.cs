@@ -10,6 +10,7 @@ using Sellora.Domain.Abstractions;
 using Sellora.Domain.Auth;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
@@ -199,6 +200,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         var actor = access.Actor;
         if (user.Role.IsSystem && !actor.IsAdministrator) return AdministratorAccountForbidden();
         if (await BelongsToAnotherCompanyAsync(user.Id, ct)) return SharedAccountForbidden();
+        if (await ProtectedTargetAsync(user.Id, actor, ct) is { } protectedResult) return protectedResult;
 
         if (await db.Users.AnyAsync(u => u.Id != id && u.Username.ToLower() == request.Username.Trim().ToLower(), ct))
         {
@@ -254,8 +256,16 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         if (user.Role.IsSystem && !actor.IsAdministrator) return AdministratorAccountForbidden();
         if (await BelongsToAnotherCompanyAsync(user.Id, ct)) return SharedAccountForbidden();
 
+        if (await ProtectedTargetAsync(user.Id, actor, ct) is { } protectedResult) return protectedResult;
+
         user.Status = request.Status;
         await db.SaveChangesAsync(ct);
+        // R4: disabling a user must leave the company a root owner (checked on the saved state; the scope rolls back on failure).
+        if (request.Status == UserStatus.Disabled && await GovernanceRules.IsActiveOwnerAsync(db, user.Id, ct))
+        {
+            try { await GovernanceRules.EnsureRootOwnerRemainsAsync(db, ct); }
+            catch (GovernanceRuleException ex) { return GovernanceRule(ex); }
+        }
         await access.CommitAsync(ct);
         return NoContent();
     }
@@ -271,6 +281,8 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         var actor = access.Actor;
         if (user.Role.IsSystem && !actor.IsAdministrator) return AdministratorAccountForbidden();
         if (await BelongsToAnotherCompanyAsync(user.Id, ct)) return SharedAccountForbidden();
+
+        if (await ProtectedTargetAsync(user.Id, actor, ct) is { } protectedResult) return protectedResult;
 
         var temporaryPassword = GenerateTemporaryPassword();
         user.PasswordHash = passwordHasher.Hash(temporaryPassword);
@@ -340,6 +352,27 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         var problem = new ProblemDetails { Status = StatusCodes.Status403Forbidden, Title = ex.Message };
         problem.Extensions["code"] = ex.Code;
         return new ObjectResult(problem) { StatusCode = StatusCodes.Status403Forbidden };
+    }
+
+    /// <summary>Phase 6 R5: platform administrators and governance members are refused (403 with a code) for edit, status and reset-password.</summary>
+    private async Task<ObjectResult?> ProtectedTargetAsync(Guid targetUserId, AccessManagementActor actor, CancellationToken ct)
+    {
+        try
+        {
+            await GovernanceRules.EnsureOperationalTargetAllowedAsync(db, actor.UserId, targetUserId, ct);
+            return null;
+        }
+        catch (AccessManagementForbiddenException ex)
+        {
+            return AccessForbidden(ex);
+        }
+    }
+
+    private ObjectResult GovernanceRule(GovernanceRuleException ex)
+    {
+        var problem = new ProblemDetails { Status = StatusCodes.Status400BadRequest, Title = ex.Message };
+        problem.Extensions["code"] = ex.Code;
+        return new ObjectResult(problem) { StatusCode = StatusCodes.Status400BadRequest };
     }
 
     private ObjectResult SharedAccountForbidden() =>

@@ -41,6 +41,26 @@ public class JwtTokenService(IOptions<JwtOptions> options) : ITokenService
         return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
     }
 
+    public (string AccessToken, DateTimeOffset ExpiresAt) CreatePlatformAccessToken(User user, TimeSpan lifetime)
+    {
+        var expiresAt = DateTimeOffset.UtcNow.Add(lifetime);
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(ClaimTypes.Email, user.Email),
+            new(ClaimTypes.Name, $"{user.FirstName} {user.LastName}"),
+            new(AuthClaimTypes.SessionKind, AuthClaimTypes.PlatformSession),
+        };
+        var signingKey = new SymmetricSecurityKey(Convert.FromBase64String(_options.SigningKey));
+        var token = new JwtSecurityToken(
+            issuer: _options.Issuer,
+            audience: _options.Audience,
+            claims: claims,
+            expires: expiresAt.UtcDateTime,
+            signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256));
+        return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+    }
+
     public (string RawToken, string TokenHash, DateTimeOffset ExpiresAt) CreateRefreshToken()
     {
         var rawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
