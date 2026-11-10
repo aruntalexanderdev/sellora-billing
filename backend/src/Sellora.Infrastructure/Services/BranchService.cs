@@ -146,7 +146,9 @@ public sealed partial class BranchService(SelloraDbContext db) : IBranchService
 
     public async Task<Branch?> SetStatusAsync(Guid branchId, bool isActive, Guid userId, CancellationToken ct = default)
     {
-        var companyId = db.CompanyContext.RequireCompanyId();
+        // Company lock: serialises this check with warehouse/vehicle creation and assignment (Phase 4 D5/D10).
+        await using var transaction = await StockLocks.BeginAsync(db, ct);
+        var companyId = await LockCompanyAsync(ct);
         var branch = await db.Branches.SingleOrDefaultAsync(b => b.CompanyId == companyId && b.Id == branchId, ct);
         if (branch is null) return null;
 
@@ -157,6 +159,19 @@ public sealed partial class BranchService(SelloraDbContext db) : IBranchService
 
         if (branch.IsActive != isActive)
         {
+            if (!isActive)
+            {
+                var hasWarehouses = await db.StockLocations.AnyAsync(
+                    l => l.CompanyId == companyId && l.BranchId == branchId && l.LocationType == StockLocationType.BranchWarehouse && l.IsActive, ct);
+                var hasVehicles = await db.Vehicles.AnyAsync(
+                    v => v.CompanyId == companyId && v.AssignedBranchId == branchId && v.IsActive, ct);
+                if (hasWarehouses || hasVehicles)
+                {
+                    throw new DomainValidationException("IsActive",
+                        "This branch still has active warehouses or active assigned vehicles. Deactivate or reassign them first.");
+                }
+            }
+
             branch.IsActive = isActive;
             branch.UpdatedAt = DateTimeOffset.UtcNow;
             branch.UpdatedByUserId = userId;
@@ -170,6 +185,7 @@ public sealed partial class BranchService(SelloraDbContext db) : IBranchService
             }
             await db.SaveChangesAsync(ct);
         }
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return branch;
     }
 
@@ -283,18 +299,7 @@ public sealed partial class BranchService(SelloraDbContext db) : IBranchService
         return prefix;
     }
 
-    // FOR UPDATE on the company row (serialises branch edits and the settings PUT); no-op on the in-memory provider.
-    private async Task<Guid> LockCompanyAsync(CancellationToken ct)
-    {
-        var companyId = db.CompanyContext.RequireCompanyId();
-        if (db.Database.IsRelational())
-        {
-            await db.Database
-                .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Companies\" WHERE \"Id\" = {companyId} FOR UPDATE")
-                .ToListAsync(ct);
-        }
-        return companyId;
-    }
+    private Task<Guid> LockCompanyAsync(CancellationToken ct) => CompanyLocks.LockCurrentCompanyAsync(db, ct);
 
     private static string RequireName(string? value)
     {

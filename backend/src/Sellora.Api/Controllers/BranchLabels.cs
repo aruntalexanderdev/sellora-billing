@@ -51,4 +51,16 @@ internal static class BranchFilter
             title: "You do not have access to this branch.",
             extensions: new Dictionary<string, object?> { ["code"] = CompanyContextMiddleware.BranchAccessDeniedCode });
     }
+
+    /// <summary>403 <c>branch_access_denied</c> when the caller may not work in <paramref name="branchId"/> (null passes). Unknown
+    /// branches are left to the service, which answers 400 for administrators.</summary>
+    public static ObjectResult? DenyIfInaccessible(this ControllerBase controller, SelloraDbContext db, Guid? branchId)
+    {
+        if (branchId is not { } id || db.BranchContext.CanAccess(id)) return null;
+
+        return controller.Problem(
+            statusCode: StatusCodes.Status403Forbidden,
+            title: "You do not have access to this branch.",
+            extensions: new Dictionary<string, object?> { ["code"] = CompanyContextMiddleware.BranchAccessDeniedCode });
+    }
 }

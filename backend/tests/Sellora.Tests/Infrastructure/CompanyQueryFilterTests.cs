@@ -63,7 +63,7 @@ public class CompanyQueryFilterTests
     }
 
     [Fact]
-    public void Model_CompanyOwnedTypes_AreTheTwentyThreeDesignedTypes()
+    public void Model_CompanyOwnedTypes_AreTheTwentyFiveDesignedTypes()
     {
         using var db = NewDb(TestCompany.Context);
         var owned = ModelTypes(db).Select(t => t.ClrType).Where(t => typeof(ICompanyOwned).IsAssignableFrom(t)).Select(t => t.Name).Order().ToArray();
@@ -71,7 +71,7 @@ public class CompanyQueryFilterTests
         [
             "Branch", "BusinessSettings", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
             "FinancialTransaction", "IdempotencyKey", "Product", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
-            "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "Supplier", "Tax",
+            "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "Supplier", "Tax", "Vehicle", "Warehouse",
         ];
         Assert.Equal(expected, owned);
     }
@@ -100,6 +100,23 @@ public class CompanyQueryFilterTests
         Assert.Equal(required.Order(), required_.Order());
         Assert.Equal(optional.Concat(counterScope).Concat(locations).Order(), optional_.Order());
         Assert.Null(db.Model.FindEntityType(typeof(Branch))!.FindProperty("BranchId"));
+    }
+
+    [Fact]
+    public void Model_WarehouseAndVehicle_AreCompanyOwned_VehicleCarriesAssignedBranchIdNotBranchId()
+    {
+        // Phase 4 T1: a vehicle is company-level (its location has no BranchId); the assignment is a separate, optional, composite-FK column.
+        using var db = NewDb(TestCompany.Context);
+        var vehicle = db.Model.FindEntityType(typeof(Vehicle))!;
+        var warehouse = db.Model.FindEntityType(typeof(Warehouse))!;
+
+        Assert.Null(vehicle.FindProperty("BranchId"));
+        Assert.Null(warehouse.FindProperty("BranchId"));
+        Assert.True(vehicle.FindProperty("AssignedBranchId")!.IsNullable);
+        Assert.True(typeof(ICompanyOwned).IsAssignableFrom(typeof(Vehicle)));
+        Assert.True(typeof(ICompanyOwned).IsAssignableFrom(typeof(Warehouse)));
+        Assert.True(HasCompanyFilter(vehicle));
+        Assert.True(HasCompanyFilter(warehouse));
     }
 
     [Fact]

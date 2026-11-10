@@ -34,6 +34,16 @@ public static class PermissionCatalog
         new("Company.Branches.Edit", "Administration", "Edit", "Edit branch details, GSTIN and invoice prefix."),
         new("Company.Branches.Disable", "Administration", "Disable", "Activate or deactivate a branch."),
 
+        // Administration — Warehouses and vehicles (Phase 4; Administrator only, granted via PermissionResolver)
+        new("Company.Warehouses.View", "Administration", "View", "View the company's warehouses."),
+        new("Company.Warehouses.Create", "Administration", "Create", "Add company or branch warehouses."),
+        new("Company.Warehouses.Edit", "Administration", "Edit", "Rename warehouses."),
+        new("Company.Warehouses.Disable", "Administration", "Disable", "Activate or deactivate a warehouse."),
+        new("Company.Vehicles.View", "Administration", "View", "View the company's vehicles."),
+        new("Company.Vehicles.Create", "Administration", "Create", "Add vehicles."),
+        new("Company.Vehicles.Edit", "Administration", "Edit", "Edit vehicle details and branch assignment."),
+        new("Company.Vehicles.Disable", "Administration", "Disable", "Activate or deactivate a vehicle."),
+
         // Administration — Basic Masters / Settings
         new("Masters.View", "Administration", "View", "View units, taxes, currencies, exchange rates and business settings."),
         new("Masters.Edit", "Administration", "Edit", "Edit units, taxes, currencies, exchange rates and business settings."),
@@ -44,7 +54,7 @@ public static class PermissionCatalog
         new("Inventory.Edit", "Inventory", "Edit", "Edit existing products."),
         new("Inventory.Adjust", "Inventory", "Adjust", "Post stock adjustments (damage, loss, correction, etc.)."),
         new("Inventory.Price", "Inventory", "Price", "Configure product units and prices."),
-        new("StockLocations.View", "Inventory", "View locations", "View stock locations (branch stores, in-transit)."),
+        new("StockLocations.View", "Inventory", "View locations", "View stock locations (branch stores, warehouses, vehicles, in-transit)."),
 
         // Purchase — Suppliers
         new("Suppliers.View", "Purchase", "View", "View the supplier list."),

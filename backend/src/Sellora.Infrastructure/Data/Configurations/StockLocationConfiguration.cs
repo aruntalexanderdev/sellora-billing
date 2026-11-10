@@ -11,6 +11,8 @@ public class StockLocationConfiguration : IEntityTypeConfiguration<StockLocation
         builder.HasKey(l => l.Id);
         // Target of the Phase 8 composite same-company FKs from stock tables and documents.
         builder.HasAlternateKey(l => new { l.CompanyId, l.Id });
+        // Phase 4: target of the Warehouses/Vehicles subtype FKs (same company + matching type; the type is immutable while referenced).
+        builder.HasAlternateKey(l => new { l.CompanyId, l.Id, l.LocationType });
 
         builder.Property(l => l.LocationType).HasConversion<string>().HasMaxLength(20).IsRequired();
         builder.Property(l => l.Code).HasMaxLength(20).IsRequired();

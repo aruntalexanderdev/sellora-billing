@@ -4,7 +4,8 @@ using Sellora.Domain.Inventory;
 namespace Sellora.Domain.Entities;
 
 /// <summary>
-/// A place where stock can be held. Phase 3 creates only the BranchStore (one per branch) and Transit (one per company).
+/// A place where stock can be held. Phase 3 creates BranchStore (one per branch) and Transit (one per company); Phase 4 adds
+/// CompanyWarehouse/BranchWarehouse (subtype <see cref="Warehouse"/>) and Vehicle (subtype <see cref="Vehicle"/>), each 1:1 with its location.
 /// Vehicle locations never carry a BranchId (assignment lives on the vehicle). No balances live here.
 /// </summary>
 public class StockLocation : ICompanyOwned

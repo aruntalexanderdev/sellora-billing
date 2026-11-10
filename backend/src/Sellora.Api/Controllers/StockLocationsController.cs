@@ -8,7 +8,7 @@ using Sellora.Infrastructure.Data;
 
 namespace Sellora.Api.Controllers;
 
-/// <summary>Stock locations (Phase 3), read-only: every existing type is system-managed (written only by BranchService).</summary>
+/// <summary>Stock locations (Phase 3), read-only for all types: BranchStore/Transit are written by BranchService/the seeder, warehouses and vehicles by their own services (Phase 4).</summary>
 [ApiController]
 [Route("api/v1/stock-locations")]
 [Authorize(Policy = "StockLocations.View")]

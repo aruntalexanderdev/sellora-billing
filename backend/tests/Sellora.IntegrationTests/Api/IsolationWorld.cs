@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Expenses;
+using Sellora.Domain.Inventory;
 using Sellora.Domain.Purchasing;
 using Sellora.Domain.Sales;
 using Sellora.Domain.Stock;
@@ -15,7 +16,7 @@ namespace Sellora.IntegrationTests.Api;
 public sealed record Ids(
     Guid Company, string Token, Guid UserId, Guid ProductId, Guid ProductUnitId, Guid BaseUnitId, Guid SupplierId, Guid CustomerId,
     Guid TaxId, Guid CategoryId, Guid AccountId, Guid PurchaseId, Guid PurchaseLineId, Guid PurchaseReturnId, Guid SaleId,
-    Guid SaleLineId, Guid SalesReturnId, Guid AdjustmentId, Guid ExpenseId, Guid ExchangeRateId, Guid BatchId, Guid CurrencyId, Guid BranchId, Guid LocationId);
+    Guid SaleLineId, Guid SalesReturnId, Guid AdjustmentId, Guid ExpenseId, Guid ExchangeRateId, Guid BatchId, Guid CurrencyId, Guid BranchId, Guid LocationId, Guid WarehouseId, Guid VehicleId);
 
 public static class IdsExtensions
 {
@@ -143,16 +144,21 @@ public sealed class IsolationWorld
         var expense = await new ExpenseService(db, new ExchangeRateService(db)).CreateAsync(new CreateExpenseInput(category.Id, today, currencyId, 100m, PaymentMethod.Cash, null, null), userId);
         var rate = await db.ExchangeRates.OrderBy(r => r.EffectiveDate).FirstAsync();
         var batch = await db.PurchaseBatches.FirstAsync();
+        // Phase 4: one company warehouse and one vehicle per company, with the SAME code / number / name in both (scoped uniques).
+        var usage = new StockLocationUsageService();
+        var warehouse = await new WarehouseService(db, usage).CreateAsync(new CreateWarehouseInput("ISO-WH", "Isolation warehouse", null), userId);
+        var vehicle = await new VehicleService(db, usage).CreateAsync(new CreateVehicleInput("ISO-1", "Isolation van", VehicleType.Van, null), userId);
         return new Ids(company, token, userId, product.Id, baseUnit.Id, baseUnit.UnitId, supplier.Id, customer.Id, product.TaxId, category.Id, account.Id,
             purchase.Id, purchase.Lines.Single().Id, purchaseReturn.Id, sale.Id, sale.Lines.Single().Id, salesReturn.Id, adjustment.Id, expense.Id, rate.Id, batch.Id, currencyId,
             await db.Branches.Where(b => b.IsDefault).Select(b => b.Id).SingleAsync(),
-            await db.StockLocations.Where(l => l.LocationType == Sellora.Domain.Inventory.StockLocationType.BranchStore).Select(l => l.Id).SingleAsync());
+            await db.StockLocations.Where(l => l.LocationType == Sellora.Domain.Inventory.StockLocationType.BranchStore).Select(l => l.Id).SingleAsync(),
+            warehouse.Id, vehicle.Id);
     }
 
     /// <summary>Every row id (as lower-case text) owned by a company: company tables plus the child tables owned through their parent.</summary>
     private static async Task<HashSet<string>> RowIdsAsync(ApiHost host, Guid company)
     {
-        var tables = CompanyTables.Where(t => t != "StockItems").Append("Branches").Append("StockLocations");
+        var tables = CompanyTables.Where(t => t != "StockItems").Append("Branches").Append("StockLocations").Append("Warehouses").Append("Vehicles");
         var parts = tables.Select(t => $"""SELECT "Id"::text FROM "{t}" WHERE "CompanyId" = '{company}'""").Concat(
         [
             $"""SELECT l."Id"::text FROM "PurchaseOrderLines" l JOIN "PurchaseOrders" p ON p."Id" = l."PurchaseOrderId" WHERE p."CompanyId" = '{company}'""",

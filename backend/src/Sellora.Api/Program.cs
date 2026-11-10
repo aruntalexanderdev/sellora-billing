@@ -91,6 +91,9 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddScoped<IBranchService, BranchService>();
+builder.Services.AddScoped<IStockLocationUsage, StockLocationUsageService>();
+builder.Services.AddScoped<IWarehouseService, WarehouseService>();
+builder.Services.AddScoped<IVehicleService, VehicleService>();
 
 var app = builder.Build();
 

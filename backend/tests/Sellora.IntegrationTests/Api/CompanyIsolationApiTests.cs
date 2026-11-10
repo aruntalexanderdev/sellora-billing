@@ -153,6 +153,30 @@ public class CompanyIsolationApiTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task WarehousesAndVehicles_SameCodeAndNumberInBothCompanies_SucceedsButDuplicateWithinACompanyIsRefused()
+    {
+        var w = await WorldAsync();
+        using var a = w.Host.NewClient(Own(w.A));
+        using var b = w.Host.NewClient(Own(w.B));
+        var code = "SC" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+
+        var whA = await a.PostAsJsonAsync("/api/v1/warehouses", new CreateWarehouseRequest(code, "Scoped " + code, null), ApiHost.Json);
+        var whB = await b.PostAsJsonAsync("/api/v1/warehouses", new CreateWarehouseRequest(code, "Scoped " + code, null), ApiHost.Json);
+        var whDup = await a.PostAsJsonAsync("/api/v1/warehouses", new CreateWarehouseRequest(code.ToLowerInvariant(), "Other name " + code, null), ApiHost.Json);
+        var vA = await a.PostAsJsonAsync("/api/v1/vehicles", new CreateVehicleRequest("V-" + code, "Van", "Van", null), ApiHost.Json);
+        var vB = await b.PostAsJsonAsync("/api/v1/vehicles", new CreateVehicleRequest("V-" + code, "Van", "Van", null), ApiHost.Json);
+        var vDup = await a.PostAsJsonAsync("/api/v1/vehicles", new CreateVehicleRequest("v " + code, "Van 2", "Van", null), ApiHost.Json);
+
+        Assert.True(whA.IsSuccessStatusCode && whB.IsSuccessStatusCode && vA.IsSuccessStatusCode && vB.IsSuccessStatusCode,
+            string.Join(" | ", new[] { whA, whB, vA, vB }.Select(r => (int)r.StatusCode)));
+        Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.BadRequest), (whDup.StatusCode, vDup.StatusCode));
+        Assert.Equal(1L, await ScalarAsync<long>(w.Host.Database, $"""SELECT COUNT(*) FROM "Warehouses" x JOIN "StockLocations" l ON l."Id" = x."StockLocationId" WHERE l."Code" = '{code}' AND x."CompanyId" = '{w.A.Company}' AND l."CompanyId" = '{w.A.Company}'"""));
+        Assert.Equal(1L, await ScalarAsync<long>(w.Host.Database, $"""SELECT COUNT(*) FROM "Vehicles" WHERE "VehicleNumber" = 'V-{code}' AND "CompanyId" = '{w.B.Company}'"""));
+        // Within company B the warehouse code is taken for a branch too (one code space per company: the live Phase 3 branch rule).
+        Assert.Equal(HttpStatusCode.BadRequest, (await b.PostAsJsonAsync("/api/v1/branches", new CreateBranchRequest(code, "Branch " + code, null, null, null, null, null, null, null), ApiHost.Json)).StatusCode);
+    }
+
+    [Fact]
     public async Task Settings_UpdateUnderA_LeavesBsProfileUntouched_AndEachCompanyReadsItsOwn()
     {
         var w = await WorldAsync();
@@ -243,7 +267,7 @@ public class CompanyIsolationApiTests(PostgresFixture postgres)
     private static async Task<string> SnapshotAsync(IsolationWorld w, Guid company)
     {
         var parts = new List<string>();
-        foreach (var table in CompanyTables)
+        foreach (var table in CompanyTables.Concat(["StockLocations", "Warehouses", "Vehicles"]))
         {
             parts.Add(await ScalarAsync<string>(w.Host.Database,
                 $"""SELECT '{table}=' || COALESCE(md5(string_agg(t::text, '|' ORDER BY t::text)), '-') FROM "{table}" t WHERE t."CompanyId" = '{company}'"""));

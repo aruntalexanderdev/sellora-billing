@@ -22,6 +22,8 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
     public DbSet<UserCompanyMembership> UserCompanyMemberships => Set<UserCompanyMembership>();
     public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<StockLocation> StockLocations => Set<StockLocation>();
+    public DbSet<Warehouse> Warehouses => Set<Warehouse>();
+    public DbSet<Vehicle> Vehicles => Set<Vehicle>();
     public DbSet<DocumentSequence> DocumentSequences => Set<DocumentSequence>();
 
     public DbSet<User> Users => Set<User>();

@@ -73,6 +73,63 @@ public class EndpointAuthorizationTests
     }
 
     [Theory]
+    [InlineData(typeof(WarehousesController), "List", "Company.Warehouses.View")]
+    [InlineData(typeof(WarehousesController), "Get", "Company.Warehouses.View")]
+    [InlineData(typeof(WarehousesController), "Create", "Company.Warehouses.Create")]
+    [InlineData(typeof(WarehousesController), "Update", "Company.Warehouses.Edit")]
+    [InlineData(typeof(WarehousesController), "SetStatus", "Company.Warehouses.Disable")]
+    [InlineData(typeof(VehiclesController), "List", "Company.Vehicles.View")]
+    [InlineData(typeof(VehiclesController), "Get", "Company.Vehicles.View")]
+    [InlineData(typeof(VehiclesController), "Create", "Company.Vehicles.Create")]
+    [InlineData(typeof(VehiclesController), "Update", "Company.Vehicles.Edit")]
+    [InlineData(typeof(VehiclesController), "SetStatus", "Company.Vehicles.Disable")]
+    public void WarehouseAndVehicleEndpoints_RequireExactlyTheirOwnPermission(Type controller, string action, string policy)
+    {
+        var policies = Policies(controller, controller.GetMethod(action)!).Where(p => p.Length > 0).ToList();
+
+        Assert.Equal([policy], policies);
+    }
+
+    [Theory]
+    [InlineData(typeof(WarehousesController), "api/v1/warehouses", 5)]
+    [InlineData(typeof(VehiclesController), "api/v1/vehicles", 5)]
+    public void WarehouseAndVehicleControllers_AreRoutedAndHaveExactlyFiveActions(Type controller, string route, int actions)
+    {
+        var routes = controller.GetCustomAttributes<Microsoft.AspNetCore.Mvc.RouteAttribute>().Select(r => r.Template).ToList();
+        var methods = controller.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly)
+            .Where(m => m.GetCustomAttributes<Microsoft.AspNetCore.Mvc.Routing.HttpMethodAttribute>().Any()).ToList();
+
+        Assert.Equal([route], routes);
+        Assert.Equal(actions, methods.Count);
+    }
+
+    [Fact]
+    public void WarehouseAndVehiclePermissionCodes_AreInTheCatalogue_AndAdministratorResolvesAllEight()
+    {
+        string[] codes =
+        [
+            "Company.Warehouses.View", "Company.Warehouses.Create", "Company.Warehouses.Edit", "Company.Warehouses.Disable",
+            "Company.Vehicles.View", "Company.Vehicles.Create", "Company.Vehicles.Edit", "Company.Vehicles.Disable",
+        ];
+        var catalogue = Sellora.Domain.Permissions.PermissionCatalog.All.Select(p => p.Code).ToHashSet();
+        var admin = Sellora.Domain.Auth.PermissionResolver.Resolve(new Sellora.Domain.Entities.Role { Id = Guid.NewGuid(), Name = "Administrator", IsSystem = true, RolePermissions = [] });
+        var clerk = Sellora.Domain.Auth.PermissionResolver.Resolve(new Sellora.Domain.Entities.Role { Id = Guid.NewGuid(), Name = "Clerk", IsSystem = false, RolePermissions = [] });
+
+        Assert.Superset(codes.ToHashSet(), catalogue);
+        Assert.Superset(codes.ToHashSet(), admin.ToHashSet());
+        Assert.DoesNotContain(clerk, c => c.StartsWith("Company.Warehouses.") || c.StartsWith("Company.Vehicles."));
+    }
+
+    [Fact]
+    public void StockLocationsView_DescriptionMentionsWarehousesAndVehicles()
+    {
+        var description = Sellora.Domain.Permissions.PermissionCatalog.All.Single(p => p.Code == "StockLocations.View").Description;
+
+        Assert.Contains("warehouse", description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("vehicle", description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
     [InlineData(typeof(StockLocationsController), "List", "StockLocations.View")]
     [InlineData(typeof(StockLocationsController), "Get", "StockLocations.View")]
     public void StockLocationEndpoints_RequireStockLocationsView(Type controller, string action, string policy)

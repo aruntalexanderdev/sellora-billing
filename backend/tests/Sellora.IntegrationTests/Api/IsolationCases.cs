@@ -28,6 +28,10 @@ public static class IsolationCases
         new("BranchesController.Accessible", _ => "/api/v1/branches/accessible"),
         new("StockLocationsController.List", _ => "/api/v1/stock-locations?includeInactive=true"),
         new("StockLocationsController.Get", i => $"/api/v1/stock-locations/{i.LocationId}", Detail: true),
+        new("WarehousesController.List", _ => "/api/v1/warehouses?includeInactive=true"),
+        new("WarehousesController.Get", i => $"/api/v1/warehouses/{i.WarehouseId}", Detail: true),
+        new("VehiclesController.List", _ => "/api/v1/vehicles?includeInactive=true"),
+        new("VehiclesController.Get", i => $"/api/v1/vehicles/{i.VehicleId}", Detail: true),
         new("ProductsController.List", _ => "/api/v1/products"),
         new("ProductsController.Get", i => $"/api/v1/products/{i.ProductId}", Detail: true),
         new("SuppliersController.List", _ => "/api/v1/suppliers"),
@@ -98,6 +102,20 @@ public static class IsolationCases
             ($"/api/v1/branches/{other.BranchId}", new UpdateBranchRequest("Hijacked", null, null, null, null, null, null, null))),
         new("BranchesController.SetStatus", "other company's branch", Post, (own, other) =>
             ($"/api/v1/branches/{other.BranchId}/status", new SetActiveRequest(false))),
+        new("WarehousesController.Update", "other company's warehouse", Put, (own, other) =>
+            ($"/api/v1/warehouses/{other.WarehouseId}", new UpdateWarehouseRequest("Hijacked"))),
+        new("WarehousesController.SetStatus", "other company's warehouse", Post, (own, other) =>
+            ($"/api/v1/warehouses/{other.WarehouseId}/status", new SetActiveRequest(false))),
+        new("WarehousesController.Create", "other company's branch", Post, (own, other) =>
+            ("/api/v1/warehouses", new CreateWarehouseRequest("ISO-X", "Cross branch", other.BranchId))),
+        new("VehiclesController.Update", "other company's vehicle", Put, (own, other) =>
+            ($"/api/v1/vehicles/{other.VehicleId}", new UpdateVehicleRequest("Hijacked", "Van", null))),
+        new("VehiclesController.Update", "own vehicle assigned to other company's branch", Put, (own, other) =>
+            ($"/api/v1/vehicles/{own.VehicleId}", new UpdateVehicleRequest("Isolation van", "Van", other.BranchId))),
+        new("VehiclesController.SetStatus", "other company's vehicle", Post, (own, other) =>
+            ($"/api/v1/vehicles/{other.VehicleId}/status", new SetActiveRequest(false))),
+        new("VehiclesController.Create", "other company's branch", Post, (own, other) =>
+            ("/api/v1/vehicles", new CreateVehicleRequest("ISO-X", "Cross branch", "Van", other.BranchId))),
         new("ProductsController.Create", "other company's tax", Post, (own, other) =>
             ("/api/v1/products", new UpsertProductRequest("ISO-1", "Isolation", null, own.BaseUnitId, other.TaxId, 0m, [EachUnit(own)]))),
         new("ProductsController.Update", "other company's product", Put, (own, other) =>
