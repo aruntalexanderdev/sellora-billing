@@ -15,7 +15,7 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/users")]
-public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher) : ControllerBase
+public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher, IUserAccessService userAccess) : ControllerBase
 {
     [HttpGet]
     [Authorize(Policy = "Users.View")]
@@ -52,6 +52,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     /// <summary>Self-service username change — any authenticated user may rename their own account.
     /// Distinct from the admin-only Users.Edit flow, which edits other users.</summary>
     [HttpPut("me/username")]
+    [AllowWithoutBranch]
     [Authorize]
     public async Task<ActionResult<UserDetailDto>> UpdateOwnUsername(UpdateOwnUsernameRequest request, CancellationToken ct)
     {
@@ -75,6 +76,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     /// <summary>Self-service password change — requires the caller's current password. Distinct from the
     /// admin-only Users.ResetPassword flow, which resets another user's password to a temporary one.</summary>
     [HttpPost("me/change-password")]
+    [AllowWithoutBranch]
     [Authorize]
     public async Task<IActionResult> ChangeOwnPassword(ChangeOwnPasswordRequest request, CancellationToken ct)
     {
@@ -156,15 +158,27 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
 
         db.Users.Add(user);
         // A user without a membership could not sign in (and would be invisible to this company): create it in the same save.
-        db.UserCompanyMemberships.Add(new UserCompanyMembership
+        var membership = new UserCompanyMembership
         {
             Id = Guid.NewGuid(),
             UserId = user.Id,
             CompanyId = db.CompanyContext.RequireCompanyId(),
             Status = MembershipStatus.Active,
-            AccessScope = CompanyAccessScope.CompanyWide,
             CreatedByUserId = Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub"), out var creatorId) ? creatorId : null,
-        });
+        };
+        db.UserCompanyMemberships.Add(membership);
+
+        // Initial access (Phase 5, D12/O1): scope + allocations (audited) are staged in the same save as the user and membership.
+        var isAdministratorRole = await db.Roles.AnyAsync(r => r.Id == request.RoleId && r.IsSystem, ct);
+        try
+        {
+            await userAccess.InitializeNewMembershipAsync(ToAccessActor(actor), membership, isAdministratorRole,
+                new AccessSelection(request.AccessScope, request.BranchIds, request.PrimaryBranchId), ct);
+        }
+        catch (AccessManagementForbiddenException ex)
+        {
+            return AccessForbidden(ex);
+        }
         await db.SaveChangesAsync(ct);
         await access.CommitAsync(ct);
 
@@ -212,9 +226,13 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         user.Username = request.Username.Trim();
         user.Email = request.Email.Trim();
         user.PhoneNumber = request.PhoneNumber;
+        var promoted = user.RoleId != request.RoleId!.Value && !user.Role.IsSystem
+            && await db.Roles.AnyAsync(r => r.Id == request.RoleId && r.IsSystem, ct);
         user.RoleId = request.RoleId!.Value;
 
         await db.SaveChangesAsync(ct);
+        // Administrators are always company-wide (D2): promotion forces it in the same transaction; demotion keeps the scope.
+        if (promoted) await userAccess.EnsureCompanyWideForAdministratorAsync(ToAccessActor(actor), user.Id, ct);
         await access.CommitAsync(ct);
         await db.Entry(user).Reference(u => u.Role).LoadAsync(ct);
         return Ok(ToDetail(user));
@@ -312,6 +330,16 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     {
         var companyId = db.CompanyContext.RequireCompanyId();
         return db.UserCompanyMemberships.AnyAsync(m => m.UserId == userId && m.CompanyId != companyId, ct);
+    }
+
+    private AccessActor ToAccessActor(AccessManagementActor actor) =>
+        new(actor.UserId, actor.IsAdministrator, actor.Permissions.Contains("Company.Users.ManageBranchAccess"), HttpContext.TraceIdentifier);
+
+    private ObjectResult AccessForbidden(AccessManagementForbiddenException ex)
+    {
+        var problem = new ProblemDetails { Status = StatusCodes.Status403Forbidden, Title = ex.Message };
+        problem.Extensions["code"] = ex.Code;
+        return new ObjectResult(problem) { StatusCode = StatusCodes.Status403Forbidden };
     }
 
     private ObjectResult SharedAccountForbidden() =>

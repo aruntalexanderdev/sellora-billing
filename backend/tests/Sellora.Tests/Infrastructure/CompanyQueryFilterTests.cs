@@ -63,15 +63,15 @@ public class CompanyQueryFilterTests
     }
 
     [Fact]
-    public void Model_CompanyOwnedTypes_AreTheTwentyFiveDesignedTypes()
+    public void Model_CompanyOwnedTypes_AreTheTwentySevenDesignedTypes()
     {
         using var db = NewDb(TestCompany.Context);
         var owned = ModelTypes(db).Select(t => t.ClrType).Where(t => typeof(ICompanyOwned).IsAssignableFrom(t)).Select(t => t.Name).Order().ToArray();
         string[] expected =
         [
-            "Branch", "BusinessSettings", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
+            "AuditEvent", "Branch", "BusinessSettings", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
             "FinancialTransaction", "IdempotencyKey", "Product", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
-            "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "Supplier", "Tax", "Vehicle", "Warehouse",
+            "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "Supplier", "Tax", "UserBranchAssignment", "Vehicle", "Warehouse",
         ];
         Assert.Equal(expected, owned);
     }
@@ -97,7 +97,9 @@ public class CompanyQueryFilterTests
             (property.IsNullable ? optional_ : required_).Add(type.ClrType.Name);
             Assert.True(typeof(ICompanyOwned).IsAssignableFrom(type.ClrType), $"{type.ClrType.Name} carries a BranchId so it must be company-owned.");
         }
-        Assert.Equal(required.Order(), required_.Order());
+        // Phase 5: UserBranchAssignment.BranchId is mandatory (an allocation, not a document tag); it is NOT branch-filtered (the middleware reads it).
+        string[] allocations = ["UserBranchAssignment"];
+        Assert.Equal(required.Concat(allocations).Order(), required_.Order());
         Assert.Equal(optional.Concat(counterScope).Concat(locations).Order(), optional_.Order());
         Assert.Null(db.Model.FindEntityType(typeof(Branch))!.FindProperty("BranchId"));
     }
@@ -117,6 +119,29 @@ public class CompanyQueryFilterTests
         Assert.True(typeof(ICompanyOwned).IsAssignableFrom(typeof(Warehouse)));
         Assert.True(HasCompanyFilter(vehicle));
         Assert.True(HasCompanyFilter(warehouse));
+    }
+
+    [Fact]
+    public void Model_BranchFilter_IsOnExactlyTheFiveHeadersExpensesAndFinancialAccounts()
+    {
+        // Phase 5 T2: the named "Branch" filter narrows the five documents (mandatory BranchId) and Expenses/FinancialAccounts (NULL stays visible).
+        using var db = NewDb(TestCompany.Context);
+        string[] expected = ["Expense", "FinancialAccount", "PurchaseOrder", "PurchaseReturn", "SalesInvoice", "SalesReturn", "StockAdjustment"];
+        var actual = ModelTypes(db)
+            .Where(t => t.GetDeclaredQueryFilters().Any(f => f.Key == BranchQueryFilter.Name))
+            .Select(t => t.ClrType.Name).Order().ToArray();
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void Model_UserBranchAssignmentAndAuditEvent_AreCompanyOwnedAndFiltered()
+    {
+        using var db = NewDb(TestCompany.Context);
+        foreach (var clr in new[] { typeof(UserBranchAssignment), typeof(AuditEvent) })
+        {
+            Assert.True(typeof(ICompanyOwned).IsAssignableFrom(clr));
+            Assert.True(HasCompanyFilter(db.Model.FindEntityType(clr)!), clr.Name);
+        }
     }
 
     [Fact]

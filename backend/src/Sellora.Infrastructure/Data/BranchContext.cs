@@ -14,20 +14,23 @@ public sealed class BranchContext : IBranchContext
     private bool _isSet;
     private Guid? _requestedBranchId;
     private IReadOnlySet<Guid>? _allowedBranchIds = NoBranches;
+    private Guid? _primaryBranchId;
 
     public Guid? RequestedBranchId => _requestedBranchId;
     public IReadOnlySet<Guid>? AllowedBranchIds => _allowedBranchIds;
+    public Guid? PrimaryBranchId => _primaryBranchId;
 
     public bool CanAccess(Guid branchId) => _allowedBranchIds is null || _allowedBranchIds.Contains(branchId);
 
     /// <summary>Sets the scope once; a second call throws (no mid-request branch switch). <paramref name="allowedBranchIds"/> null = every branch.</summary>
-    public void Set(Guid? requestedBranchId, IReadOnlySet<Guid>? allowedBranchIds)
+    public void Set(Guid? requestedBranchId, IReadOnlySet<Guid>? allowedBranchIds, Guid? primaryBranchId = null)
     {
         if (requestedBranchId == Guid.Empty) throw new ArgumentException("A branch id must not be empty.", nameof(requestedBranchId));
         if (_isSet) throw new InvalidOperationException("The branch context cannot change within a scope.");
         _isSet = true;
         _requestedBranchId = requestedBranchId;
         _allowedBranchIds = allowedBranchIds;
+        _primaryBranchId = primaryBranchId;
     }
 
     /// <summary>Shared context that grants nothing (design-time, tests that must not resolve a branch).</summary>
@@ -40,6 +43,7 @@ public sealed class BranchContext : IBranchContext
     {
         public Guid? RequestedBranchId => requested;
         public IReadOnlySet<Guid>? AllowedBranchIds => allowed;
+        public Guid? PrimaryBranchId => null;
         public bool CanAccess(Guid branchId) => allowed is null || allowed.Contains(branchId);
     }
 }

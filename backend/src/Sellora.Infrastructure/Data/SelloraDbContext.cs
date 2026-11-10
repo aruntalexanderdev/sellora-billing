@@ -11,7 +11,7 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
     /// <summary>The company this context instance operates in. Query filters and SaveChanges stamping read it.</summary>
     public ICompanyContext CompanyContext { get; } = companyContext;
 
-    /// <summary>The branch scope of this context instance (Phase 2). Services resolve the working branch from it; no query filter yet (Phase 5).</summary>
+    /// <summary>The branch scope of this context instance (Phase 2). Services resolve the working branch from it; the "Branch" query filter (Phase 5, D6) narrows branch documents to its allowed set.</summary>
     public IBranchContext BranchContext { get; } = branchContext;
 
     // Referenced by the query filters as an instance member: EF parameterises it per context instance. No company uses
@@ -20,6 +20,12 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
 
     public DbSet<Company> Companies => Set<Company>();
     public DbSet<UserCompanyMembership> UserCompanyMemberships => Set<UserCompanyMembership>();
+    // Parameter of the "Branch" filter (D6): null = every branch. A private instance member, like CurrentCompanyId, so EF
+    // parameterises it per query execution. The BranchContext default (never set) is an empty set = fail closed.
+    private Guid[]? CurrentAllowedBranchIds => BranchContext.AllowedBranchIds?.ToArray();
+
+    public DbSet<UserBranchAssignment> UserBranchAssignments => Set<UserBranchAssignment>();
+    public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<StockLocation> StockLocations => Set<StockLocation>();
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
@@ -70,6 +76,21 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(SelloraDbContext).Assembly);
         ConfigureCompanyOwnership(modelBuilder);
         ConfigureCompanyFilters(modelBuilder);
+        ConfigureBranchFilters(modelBuilder);
+    }
+
+    // Named filter "Branch" (BranchQueryFilter.Name), beside "Company". Mandatory-branch headers: Allowed == null || Allowed.Contains(BranchId).
+    // Optional-branch Expenses/FinancialAccounts: NULL BranchId = company-level, always visible. Children (lines, payments) are not
+    // filtered here: they reach the company through their header navigation (ASSUMPTION T3, proven by the integration test).
+    private void ConfigureBranchFilters(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<PurchaseOrder>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
+        modelBuilder.Entity<PurchaseReturn>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
+        modelBuilder.Entity<SalesInvoice>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
+        modelBuilder.Entity<SalesReturn>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
+        modelBuilder.Entity<StockAdjustment>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
+        modelBuilder.Entity<Expense>().HasQueryFilter(BranchQueryFilter.Name, e => e.BranchId == null || CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId.Value));
+        modelBuilder.Entity<FinancialAccount>().HasQueryFilter(BranchQueryFilter.Name, e => e.BranchId == null || CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId.Value));
     }
 
     // Every ICompanyOwned entity: CompanyId -> Companies (Restrict). Composite same-company FKs and the company-scoped
@@ -112,13 +133,27 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         ApplyCompanyOwnership();
+        EnforceAuditAppendOnly();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
     public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         ApplyCompanyOwnership();
+        EnforceAuditAppendOnly();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    // AuditEvents are append-only (D11): any tracked update or delete is a programming error (500). There is no update/delete API.
+    private void EnforceAuditAppendOnly()
+    {
+        foreach (var entry in ChangeTracker.Entries<AuditEvent>())
+        {
+            if (entry.State is EntityState.Modified or EntityState.Deleted)
+            {
+                throw new InvalidOperationException("AuditEvents are append-only; they cannot be modified or deleted.");
+            }
+        }
     }
 
     // Stamps new company-owned rows with the current company and refuses cross-company writes. Throws are programming

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Sellora.Domain.Auth;
+using Sellora.Domain.Entities;
 
 namespace Sellora.Api.Contracts;
 
@@ -12,6 +13,8 @@ public record RefreshRequest(
     [Required] string RefreshToken
 );
 
+public record AllowedBranchDto(Guid Id, string Code, string Name, bool IsPrimary, bool IsDefault);
+
 public record UserSummaryDto(
     Guid Id,
     string FirstName,
@@ -21,11 +24,16 @@ public record UserSummaryDto(
     string RoleName,
     string[] Permissions,
     Guid CompanyId,
-    string CompanyName
+    string CompanyName,
+    CompanyAccessScope AccessScope,
+    Guid? PrimaryBranchId,
+    AllowedBranchDto[] AllowedBranches
 )
 {
     public static UserSummaryDto From(AuthenticatedUserSummary s) =>
-        new(s.Id, s.FirstName, s.LastName, s.Username, s.Email, s.RoleName, s.Permissions.ToArray(), s.CompanyId, s.CompanyName);
+        new(s.Id, s.FirstName, s.LastName, s.Username, s.Email, s.RoleName, s.Permissions.ToArray(), s.CompanyId, s.CompanyName,
+            s.AccessScope, s.PrimaryBranchId,
+            (s.AllowedBranches ?? []).Select(b => new AllowedBranchDto(b.Id, b.Code, b.Name, b.IsPrimary, b.IsDefault)).ToArray());
 }
 
 public record CompanyOptionDto(Guid Id, string Name);
@@ -41,8 +49,11 @@ public record MeResponse(
     string[] Permissions,
     Guid CompanyId,
     string CompanyName,
+    CompanyAccessScope AccessScope,
+    Guid? PrimaryBranchId,
+    AllowedBranchDto[] AllowedBranches,
     CompanyOptionDto[] Companies
-) : UserSummaryDto(Id, FirstName, LastName, Username, Email, RoleName, Permissions, CompanyId, CompanyName);
+) : UserSummaryDto(Id, FirstName, LastName, Username, Email, RoleName, Permissions, CompanyId, CompanyName, AccessScope, PrimaryBranchId, AllowedBranches);
 
 public record SwitchCompanyRequest(
     [Required] Guid CompanyId,

@@ -220,5 +220,9 @@ public static class IsolationCases
         "UsersController.List", "UsersController.Get", "UsersController.Create", "UsersController.Update", "UsersController.SetStatus", "UsersController.ResetPassword",
         "SettingsController.Update", "BranchesController.Create", "SuppliersController.Create", "CustomersController.Create", "TaxesController.Create",
         "ExpenseCategoriesController.Create", "FinancialAccountsController.Create", "ExchangeRatesController.Create",
+        // Phase 5 access API: a user (or assignment) of another company answers 404 - UserAccessApiTests.Get_UnknownUserAndNonMemberAndForeignCompanyUser_AreNotFound_WithIdenticalBodies
+        // (read, events and a write against a foreign-company user); assignments carry their own company id and composite FKs (AddUserBranchAssignmentsMigrationTests constraint test).
+        "UserAccessController.Get", "UserAccessController.Events", "UserAccessController.SetScope", "UserAccessController.AddAssignment",
+        "UserAccessController.EndAssignment", "UserAccessController.SetPrimary", "UserAccessController.Reassign", "UserAccessController.SetStatus",
     ];
 }

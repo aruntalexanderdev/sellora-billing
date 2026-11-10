@@ -127,6 +127,8 @@ if (applyMigrationsOnStartup)
     var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
     // Seed data always belongs to the default company (ADR-11).
     scope.ServiceProvider.GetRequiredService<CompanyContext>().Set(DefaultTenant.CompanyId);
+    // Seeding must see every branch's documents (the "Branch" filter would otherwise make it blind): unrestricted scope.
+    scope.ServiceProvider.GetRequiredService<BranchContext>().Set(null, null);
     await db.Database.MigrateAsync();
     await DbSeeder.SeedAsync(db, hasher);
 }

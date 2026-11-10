@@ -23,6 +23,7 @@ FROM (VALUES
   ('Company.Branches.Create', 'Administration', 'Create', 'Add new branches.'),
   ('Company.Branches.Edit', 'Administration', 'Edit', 'Edit branch details, GSTIN and invoice prefix.'),
   ('Company.Branches.Disable', 'Administration', 'Disable', 'Activate or deactivate a branch.'),
+  ('Company.Users.ManageBranchAccess', 'Administration', 'ManageBranchAccess', 'Manage a user''s company membership and branch allocations (company-wide administrators only).'),
   ('Company.Warehouses.View', 'Administration', 'View', 'View the company''s warehouses.'),
   ('Company.Warehouses.Create', 'Administration', 'Create', 'Add company or branch warehouses.'),
   ('Company.Warehouses.Edit', 'Administration', 'Edit', 'Rename warehouses.'),

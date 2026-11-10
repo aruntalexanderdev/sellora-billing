@@ -155,14 +155,16 @@ internal static partial class DocumentNumbers
 
     private static async Task<long> ExistingMaxAsync(SelloraDbContext db, string series, Guid? branchId, CancellationToken ct)
     {
+        // Documented "Branch"-filter bypass (D7, company-integrity read): numbering must see every row of the series, including
+        // other branches' (the EXP series is company-wide); a restricted caller would otherwise reissue existing numbers.
         var numbers = series switch
         {
-            DocumentSeries.Purchase => await db.PurchaseOrders.Where(x => x.BranchId == branchId).Select(x => x.PurchaseNo).ToListAsync(ct),
-            DocumentSeries.PurchaseReturn => await db.PurchaseReturns.Where(x => x.BranchId == branchId).Select(x => x.ReturnNo).ToListAsync(ct),
-            DocumentSeries.Invoice => await db.SalesInvoices.Where(x => x.BranchId == branchId).Select(x => x.InvoiceNo).ToListAsync(ct),
-            DocumentSeries.SalesReturn => await db.SalesReturns.Where(x => x.BranchId == branchId).Select(x => x.ReturnNo).ToListAsync(ct),
-            DocumentSeries.StockAdjustment => await db.StockAdjustments.Where(x => x.BranchId == branchId).Select(x => x.AdjustmentNo).ToListAsync(ct),
-            DocumentSeries.Expense => await db.Expenses.Select(x => x.ExpenseNo).ToListAsync(ct),
+            DocumentSeries.Purchase => await db.PurchaseOrders.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(x => x.BranchId == branchId).Select(x => x.PurchaseNo).ToListAsync(ct),
+            DocumentSeries.PurchaseReturn => await db.PurchaseReturns.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(x => x.BranchId == branchId).Select(x => x.ReturnNo).ToListAsync(ct),
+            DocumentSeries.Invoice => await db.SalesInvoices.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(x => x.BranchId == branchId).Select(x => x.InvoiceNo).ToListAsync(ct),
+            DocumentSeries.SalesReturn => await db.SalesReturns.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(x => x.BranchId == branchId).Select(x => x.ReturnNo).ToListAsync(ct),
+            DocumentSeries.StockAdjustment => await db.StockAdjustments.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(x => x.BranchId == branchId).Select(x => x.AdjustmentNo).ToListAsync(ct),
+            DocumentSeries.Expense => await db.Expenses.IgnoreQueryFilters([BranchQueryFilter.Name]).Select(x => x.ExpenseNo).ToListAsync(ct),
             _ => [],
         };
 

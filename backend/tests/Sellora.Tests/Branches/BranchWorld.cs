@@ -29,16 +29,16 @@ public sealed class BranchWorld
     public static readonly DateOnly Day = new(2026, 11, 1);
 
     /// <summary>A context of the default company; <paramref name="requested"/> = the X-Branch-Id branch, <paramref name="allowed"/> null = every branch.</summary>
-    public SelloraDbContext Db(Guid? requested = null, IReadOnlySet<Guid>? allowed = null, bool unrestricted = true)
+    public SelloraDbContext Db(Guid? requested = null, IReadOnlySet<Guid>? allowed = null, bool unrestricted = true, Guid? primary = null)
     {
-        IBranchContext context = unrestricted && allowed is null ? BranchContext.Unrestricted(requested) : Scoped(requested, allowed);
+        IBranchContext context = unrestricted && allowed is null && primary is null ? BranchContext.Unrestricted(requested) : Scoped(requested, allowed, primary);
         return new SelloraDbContext(Options, TestCompany.Context, context);
     }
 
-    private static BranchContext Scoped(Guid? requested, IReadOnlySet<Guid>? allowed)
+    private static BranchContext Scoped(Guid? requested, IReadOnlySet<Guid>? allowed, Guid? primary = null)
     {
         var context = new BranchContext();
-        context.Set(requested, allowed ?? new HashSet<Guid>());
+        context.Set(requested, allowed ?? (primary is null ? new HashSet<Guid>() : null), primary);
         return context;
     }
 

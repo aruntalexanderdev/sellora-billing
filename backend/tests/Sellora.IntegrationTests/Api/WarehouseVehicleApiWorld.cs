@@ -12,7 +12,7 @@ namespace Sellora.IntegrationTests.Api;
 /// <summary>
 /// A dedicated API host for the Phase 4 tests (its own database, so warehouses/vehicles created here never disturb the shared
 /// <see cref="BranchApiWorld"/> assertions about stock-location lists). Holds the admin client, Main, and a branch-RESTRICTED user
-/// (AssignedBranches scope: until Phase 5 that fails closed, i.e. no branch is accessible).
+/// (AssignedBranches scope with a single primary allocation at Main: every branch the tests create stays inaccessible to it).
 /// </summary>
 public sealed class WarehouseVehicleApiWorld
 {
@@ -52,7 +52,10 @@ public sealed class WarehouseVehicleApiWorld
                 PasswordHash = new PasswordHasher().Hash(ApiHost.AdminPassword), RoleId = roleId, Status = UserStatus.Active,
             };
             db.Users.Add(user);
-            db.UserCompanyMemberships.Add(new UserCompanyMembership { Id = Guid.NewGuid(), UserId = user.Id, CompanyId = companyId, AccessScope = CompanyAccessScope.AssignedBranches });
+            var membership = new UserCompanyMembership { Id = Guid.NewGuid(), UserId = user.Id, CompanyId = companyId, AccessScope = CompanyAccessScope.AssignedBranches };
+            db.UserCompanyMemberships.Add(membership);
+            // Phase 5: an AssignedBranches member needs an active primary allocation to sign in (Main only; every branch a test creates is inaccessible to it).
+            db.UserBranchAssignments.Add(new UserBranchAssignment { Id = Guid.NewGuid(), CompanyId = companyId, UserCompanyMembershipId = membership.Id, BranchId = mainId, IsPrimary = true, AssignmentReason = "test fixture" });
             await db.SaveChangesAsync();
         }
         return new WarehouseVehicleApiWorld

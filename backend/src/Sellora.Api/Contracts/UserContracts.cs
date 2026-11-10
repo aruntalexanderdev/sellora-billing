@@ -21,7 +21,12 @@ public record CreateUserRequest(
     [MaxLength(30)] string? PhoneNumber,
     [Required, MinLength(8)] string Password,
     [Required] string ConfirmPassword,
-    [Required] Guid? RoleId
+    [Required] Guid? RoleId,
+    // Optional initial access (Phase 5, D12). Omitted: AssignedBranches with one primary allocation at the creator's working
+    // branch (company-wide for the Administrator role). Supplying any of them needs Company.Users.ManageBranchAccess and a company-wide actor.
+    CompanyAccessScope? AccessScope = null,
+    Guid[]? BranchIds = null,
+    Guid? PrimaryBranchId = null
 );
 
 public record UpdateUserRequest(

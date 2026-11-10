@@ -165,6 +165,15 @@ public sealed partial class BranchService(SelloraDbContext db) : IBranchService
                     l => l.CompanyId == companyId && l.BranchId == branchId && l.LocationType == StockLocationType.BranchWarehouse && l.IsActive, ct);
                 var hasVehicles = await db.Vehicles.AnyAsync(
                     v => v.CompanyId == companyId && v.AssignedBranchId == branchId && v.IsActive, ct);
+                // D13: a branch someone's primary allocation points at cannot be closed (non-primary allocations may stay).
+                var primaryUsers = await db.UserBranchAssignments.CountAsync(
+                    a => a.CompanyId == companyId && a.BranchId == branchId && a.IsPrimary && a.Status == AssignmentStatus.Active
+                        && a.Membership.Status == MembershipStatus.Active, ct);
+                if (primaryUsers > 0)
+                {
+                    throw new DomainValidationException("IsActive",
+                        $"{primaryUsers} user(s) have this as their primary branch. Change their primary branch first.");
+                }
                 if (hasWarehouses || hasVehicles)
                 {
                     throw new DomainValidationException("IsActive",
@@ -253,7 +262,8 @@ public sealed partial class BranchService(SelloraDbContext db) : IBranchService
     private async Task<bool> NumberOfShapeExistsAsync(string prefix, Guid exceptBranchId, CancellationToken ct)
     {
         var like = prefix + "-";
-        var numbers = db.SalesInvoices
+        // Documented "Branch"-filter bypass (company-integrity read, D7): a restricted caller must still see invoices of other branches.
+        var numbers = db.SalesInvoices.IgnoreQueryFilters([BranchQueryFilter.Name])
             .Where(i => i.BranchId != exceptBranchId && i.InvoiceNo.StartsWith(like) && i.InvoiceNo.Length > like.Length)
             .Select(i => i.InvoiceNo)
             .AsAsyncEnumerable();

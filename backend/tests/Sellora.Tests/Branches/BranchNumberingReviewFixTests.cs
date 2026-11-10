@@ -142,7 +142,7 @@ public class BranchNumberingReviewFixTests
     }
 
     [Fact]
-    public async Task UpdateHeaderAsync_DocumentOfAnInaccessibleBranch_IsRefused()
+    public async Task UpdateHeaderAsync_DocumentOfAnInaccessibleBranch_IsNotFound()
     {
         var w = await BranchWorld.CreateAsync();
         var purchase = await w.PurchaseAsync(w.Blr);
@@ -150,9 +150,9 @@ public class BranchNumberingReviewFixTests
         await using var allowed = w.Db(allowed: new HashSet<Guid> { w.Main, w.Blr });
         var input = new UpdatePurchaseHeaderInput("SUP-1", "note");
 
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(() =>
-            new PurchaseService(denied, new ExchangeRateService(denied)).UpdateHeaderAsync(purchase.Id, input));
-        Assert.Equal("branchId", ex.Field);
+        // Phase 5 CHANGED ASSERTION: the Branch query filter now hides the other branch's document, so it is "not found" (null -> 404)
+        // instead of the former DomainValidationException("branchId").
+        Assert.Null(await new PurchaseService(denied, new ExchangeRateService(denied)).UpdateHeaderAsync(purchase.Id, input));
         var updated = await new PurchaseService(allowed, new ExchangeRateService(allowed)).UpdateHeaderAsync(purchase.Id, input);
         Assert.Equal("SUP-1", updated!.SupplierInvoiceNumber);
     }

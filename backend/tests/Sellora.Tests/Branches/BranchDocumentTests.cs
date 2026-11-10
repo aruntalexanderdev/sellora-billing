@@ -129,13 +129,14 @@ public class BranchDocumentTests
     }
 
     [Fact]
-    public async Task AddPayment_OnAnInvoiceOfABranchTheCallerCannotAccess_IsRefused()
+    public async Task AddPayment_OnAnInvoiceOfABranchTheCallerCannotAccess_IsNotFound()
     {
         var w = await BranchWorld.CreateAsync();
         var sale = await w.SaleAsync(w.Blr);
         await using var restricted = w.Db(null, new HashSet<Guid> { w.Main }, unrestricted: false);
 
-        Assert.Equal("branchId", await FieldAsync(() => ListPricedSales.For(restricted).AddPaymentAsync(sale.Id, new AddSalePaymentInput(1m, PaymentMethod.Cash, sale.GrandTotal), w.UserId)));
+        // Phase 5 CHANGED ASSERTION: the Branch filter hides the invoice, so the payment target is "not found" (null -> 404), not a branchId 400.
+        Assert.Null(await ListPricedSales.For(restricted).AddPaymentAsync(sale.Id, new AddSalePaymentInput(1m, PaymentMethod.Cash, sale.GrandTotal), w.UserId));
     }
 
     // ---- returns follow the original's branch --------------------------------------------------------------------------

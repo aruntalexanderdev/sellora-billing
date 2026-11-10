@@ -148,8 +148,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             .Include(i => i.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.BaseUnit)
             .Include(i => i.Lines).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
             .Include(i => i.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.Units).ThenInclude(u => u.Unit)
-            .Include(i => i.Lines).ThenInclude(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch).ThenInclude(b => b.PurchaseOrderLine).ThenInclude(pl => pl!.PurchaseOrder)
-            .Include(i => i.Lines).ThenInclude(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch).ThenInclude(b => b.StockAdjustment)
+            .Include(i => i.Lines).ThenInclude(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch)
             .Include(i => i.Payments).ThenInclude(pay => pay.CreatedByUser)
             .Include(i => i.Payments).ThenInclude(pay => pay.SalesReturn)
             .Include(i => i.Returns).ThenInclude(r => r.Lines)
@@ -163,7 +162,22 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
         var branchGstin = await db.Branches.AsNoTracking()
             .Where(b => b.CompanyId == invoice.CompanyId && b.Id == invoice.BranchId).Select(b => b.Gstin).SingleOrDefaultAsync(ct);
         var sellerGstin = branchGstin ?? await db.GetCompanyGstinAsync(ct);
-        return Ok(ToDetail(invoice) with { BranchCode = labels.Code(invoice.BranchId), BranchName = labels.Name(invoice.BranchId), SellerGstin = sellerGstin });
+        // Batch source labels: documented "Branch"-filter bypass (D7). A batch bought or adjusted at another branch must still be
+        // labelled for a branch-restricted user (the reference number is company-internal traceability); the label is looked up
+        // by batch id instead of Include-ing PurchaseOrder/StockAdjustment, which the filter would null out.
+        var batchIds = invoice.Lines.SelectMany(l => l.BatchConsumptions).Select(c => c.PurchaseBatchId).Distinct().ToList();
+        var batchSources = (await db.PurchaseBatches.IgnoreQueryFilters([BranchQueryFilter.Name])
+            .Where(b => batchIds.Contains(b.Id))
+            .Select(b => new
+            {
+                b.Id,
+                IsPurchase = b.PurchaseOrderLineId != null,
+                RefNo = b.PurchaseOrderLineId != null ? b.PurchaseOrderLine!.PurchaseOrder.PurchaseNo : b.StockAdjustment!.AdjustmentNo,
+                PurchaseOrderId = b.PurchaseOrderLineId != null ? b.PurchaseOrderLine!.PurchaseOrderId : (Guid?)null,
+            })
+            .ToListAsync(ct))
+            .ToDictionary(b => b.Id, b => new BatchSource(b.IsPurchase ? "Purchase" : "Adjustment", b.RefNo, b.PurchaseOrderId));
+        return Ok(ToDetail(invoice, batchSources) with { BranchCode = labels.Code(invoice.BranchId), BranchName = labels.Name(invoice.BranchId), SellerGstin = sellerGstin });
     }
 
     [HttpPost]
@@ -276,14 +290,16 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
 
     private Guid CurrentUserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
 
-    private static SalesInvoiceDetailDto ToDetail(SalesInvoice i)
+    private sealed record BatchSource(string SourceType, string RefNo, Guid? PurchaseOrderId);
+
+    private static SalesInvoiceDetailDto ToDetail(SalesInvoice i, IReadOnlyDictionary<Guid, BatchSource> batchSources)
     {
         var returnedByLine = i.Returns.SelectMany(r => r.Lines).GroupBy(l => l.SalesInvoiceLineId).ToDictionary(g => g.Key, g => g.Sum(l => l.BaseQty));
         var reversed = i.Payments.Where(p => p.ReversesPaymentId != null).Select(p => p.ReversesPaymentId!.Value).ToHashSet();
-        return ToDetail(i, returnedByLine, reversed);
+        return ToDetail(i, returnedByLine, reversed, batchSources);
     }
 
-    private static SalesInvoiceDetailDto ToDetail(SalesInvoice i, Dictionary<Guid, decimal> returnedByLine, HashSet<Guid> reversed) => new(
+    private static SalesInvoiceDetailDto ToDetail(SalesInvoice i, Dictionary<Guid, decimal> returnedByLine, HashSet<Guid> reversed, IReadOnlyDictionary<Guid, BatchSource> batchSources) => new(
         i.Id, i.InvoiceNo, i.CustomerId, i.Customer.Name, i.InvoiceDate,
         i.PaymentMethod, i.PaidAmount, i.DueAmount, i.PaymentStatus,
         i.Subtotal, i.TaxTotal, i.DiscountTotal, i.GrandTotal,
@@ -297,9 +313,9 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             returnedByLine.GetValueOrDefault(l.Id), ReturnableBase(i, l, returnedByLine), ReturnUnits(i, l, returnedByLine),
             l.BatchConsumptions.OrderBy(c => c.PurchaseBatch.BatchSequence).Select(c => new SaleBatchConsumptionDto(
                 c.PurchaseBatchId, PurchaseBatch.FormatInternalBatchNo(c.PurchaseBatch.BatchSequence), c.PurchaseBatch.SupplierBatchNumber,
-                c.PurchaseBatch.PurchaseOrderLine != null ? "Purchase" : "Adjustment",
-                c.PurchaseBatch.PurchaseOrderLine != null ? c.PurchaseBatch.PurchaseOrderLine.PurchaseOrder.PurchaseNo : c.PurchaseBatch.StockAdjustment!.AdjustmentNo,
-                c.PurchaseBatch.PurchaseOrderLine?.PurchaseOrderId,
+                batchSources[c.PurchaseBatchId].SourceType,
+                batchSources[c.PurchaseBatchId].RefNo,
+                batchSources[c.PurchaseBatchId].PurchaseOrderId,
                 c.QtyBaseUnits, c.ReturnedQtyBaseUnits, c.UnitCost)).ToList()
         )).ToList(),
         i.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => ToPaymentDto(pay, reversed)).ToList(),

@@ -12,5 +12,8 @@ public interface IBranchContext
     /// <summary>Branches the caller may work in; null = every branch of the company.</summary>
     IReadOnlySet<Guid>? AllowedBranchIds { get; }
 
+    /// <summary>The primary branch of an AssignedBranches membership (working branch when no header is sent); null for company-wide members.</summary>
+    Guid? PrimaryBranchId { get; }
+
     bool CanAccess(Guid branchId);
 }

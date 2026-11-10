@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Auth;
@@ -25,6 +26,7 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
             var (status, code, message) = result.FailureReason switch
             {
                 LoginFailureReason.AccountDisabled => (403, "account_disabled", "Your account has been disabled. Contact an administrator."),
+                LoginFailureReason.NoBranchAccess => (403, "no_branch_access", "You have not been assigned to any branch. Contact an administrator."),
                 LoginFailureReason.NoCompanyAccess => (403, "no_company_access", "Your account is not a member of any active company. Contact an administrator."),
                 _ => (401, "invalid_credentials", "Invalid username/email or password."),
             };
@@ -41,8 +43,11 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
         var result = await authService.RefreshAsync(request.RefreshToken, ct);
         if (!result.Succeeded)
         {
-            return Problem(statusCode: 401, title: "The session has expired. Please sign in again.",
-                extensions: new Dictionary<string, object?> { ["code"] = "invalid_refresh_token" });
+            return result.NoBranchAccess
+                ? Problem(statusCode: 403, title: "You have not been assigned to any branch. Contact an administrator.",
+                    extensions: new Dictionary<string, object?> { ["code"] = "no_branch_access" })
+                : Problem(statusCode: 401, title: "The session has expired. Please sign in again.",
+                    extensions: new Dictionary<string, object?> { ["code"] = "invalid_refresh_token" });
         }
 
         return Ok(AuthResponse.From(result.Auth!));
@@ -52,6 +57,7 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
     /// and one the caller is not a member of yield the same 403 (no existence leak).</summary>
     [HttpPost("switch-company")]
     [Authorize]
+    [AllowWithoutBranch]
     public async Task<IActionResult> SwitchCompany(SwitchCompanyRequest request, CancellationToken ct)
     {
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
@@ -60,6 +66,11 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
         var result = await authService.SwitchCompanyAsync(userId, request.CompanyId, request.RefreshToken, ct);
         if (!result.Succeeded)
         {
+            if (result.FailureReason == SwitchCompanyFailureReason.NoBranchAccess)
+            {
+                return Problem(statusCode: 403, title: "You have not been assigned to any branch in that company. Contact an administrator.",
+                    extensions: new Dictionary<string, object?> { ["code"] = "no_branch_access" });
+            }
             return result.FailureReason == SwitchCompanyFailureReason.CompanyAccessDenied
                 ? Problem(statusCode: 403, title: "You do not have access to this company.",
                     extensions: new Dictionary<string, object?> { ["code"] = "company_access_denied" })
@@ -80,6 +91,7 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
 
     [HttpGet("me")]
     [Authorize]
+    [AllowWithoutBranch]
     public async Task<IActionResult> Me(CancellationToken ct)
     {
         var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
@@ -100,9 +112,25 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
         var current = companies.SingleOrDefault(c => c.Id == currentCompanyId);
         if (current is null) return NotFound();
 
+        // Branch scope as the middleware established it: null allowed set = CompanyWide (every active branch).
+        var allowedIds = db.BranchContext.AllowedBranchIds;
+        var primaryId = db.BranchContext.PrimaryBranchId;
+        var branchRows = await db.Branches.AsNoTracking()
+            .Where(b => b.CompanyId == currentCompanyId && b.IsActive)
+            .OrderByDescending(b => b.IsDefault).ThenBy(b => b.Name)
+            .Select(b => new { b.Id, b.Code, b.Name, b.IsDefault })
+            .ToListAsync(ct);
+        var allowedBranches = branchRows
+            .Where(b => allowedIds is null || allowedIds.Contains(b.Id))
+            .Select(b => new AllowedBranchDto(b.Id, b.Code, b.Name, b.Id == primaryId, b.IsDefault))
+            .OrderByDescending(b => b.IsPrimary)
+            .ToArray();
+        var scope = allowedIds is null ? CompanyAccessScope.CompanyWide : CompanyAccessScope.AssignedBranches;
+
         var summary = UserSummaryDto.From(new AuthenticatedUserSummary(
             user.Id, user.FirstName, user.LastName, user.Username, user.Email, user.Role.Name, permissions, current.Id, current.Name));
         return Ok(new MeResponse(summary.Id, summary.FirstName, summary.LastName, summary.Username, summary.Email,
-            summary.RoleName, summary.Permissions, summary.CompanyId, summary.CompanyName, companies));
+            summary.RoleName, summary.Permissions, summary.CompanyId, summary.CompanyName,
+            scope, primaryId, allowedBranches, companies));
     }
 }

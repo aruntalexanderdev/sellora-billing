@@ -139,6 +139,7 @@ public static class DbSeeder
     // administrator who renames or deactivates it is not overridden.
     private static async Task SeedMainCashAccountAsync(SelloraDbContext db, CancellationToken ct)
     {
+        // Under the "Branch" filter a context granting nothing still sees company-level (BranchId NULL) accounts, and Main Cash is one.
         if (await db.FinancialAccounts.AnyAsync(ct)) return;
 
         var admin = await db.Users.SingleAsync(u => u.Email == SeedAdminEmail, ct);

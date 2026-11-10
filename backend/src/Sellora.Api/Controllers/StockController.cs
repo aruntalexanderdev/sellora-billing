@@ -106,7 +106,9 @@ public class StockController(SelloraDbContext db) : ControllerBase
             m.PurchaseBatchId, m.BatchSequence is { } seq ? PurchaseBatch.FormatInternalBatchNo(seq) : null,
             m.ReasonCode, m.EnteredQuantity, m.EnteredProductUnitId, m.EnteredUnitCode, m.ConversionFactorSnapshot, m.EnteredDecimalPlaces, product.BaseUnit.DecimalPlaces)).ToList();
 
-        var batchRows = await db.PurchaseBatches
+        // Documented "Branch"-filter bypass (D7): the batch's source reference (PO / adjustment number) is company-internal
+        // traceability; a batch bought at another branch must not turn into a null/"Adjustment" label for a restricted user.
+        var batchRows = await db.PurchaseBatches.IgnoreQueryFilters([BranchQueryFilter.Name])
             .Where(b => b.ProductId == productId)
             .OrderByDescending(b => b.CreatedAt)
             .Select(b => new

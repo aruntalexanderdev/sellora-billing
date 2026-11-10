@@ -27,13 +27,13 @@ public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, IT
         }
 
         // Credentials are valid but there is no explicit active membership in an active company: no session (never inferred).
-        var company = await ResolveDefaultCompanyAsync(user.Id, ct);
+        var (company, anyActive) = await ResolveDefaultCompanyAsync(user.Id, ct);
         if (company is null)
         {
-            return LoginResult.Failure(LoginFailureReason.NoCompanyAccess);
+            return LoginResult.Failure(anyActive ? LoginFailureReason.NoBranchAccess : LoginFailureReason.NoCompanyAccess);
         }
 
-        var auth = IssueTokens(user, company.Value.Id, company.Value.Name);
+        var auth = await IssueTokensAsync(user, company, ct);
         if (user.Status == UserStatus.Invited)
         {
             user.Status = UserStatus.Active;
@@ -59,15 +59,24 @@ public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, IT
 
         // The token remembers its company so refresh never silently switches tenant. Tokens issued before multi-company
         // (CompanyId null) fall back to the login resolution. The membership and company must still be active.
-        var company = existing.CompanyId is { } boundCompanyId
-            ? await FindActiveMembershipCompanyAsync(existing.UserId, boundCompanyId, ct)
-            : await ResolveDefaultCompanyAsync(existing.UserId, ct);
+        MembershipInfo? company;
+        var noBranch = false;
+        if (existing.CompanyId is { } boundCompanyId)
+        {
+            company = await FindActiveMembershipAsync(existing.UserId, boundCompanyId, ct);
+            noBranch = company is { Usable: false };
+            if (noBranch) company = null;
+        }
+        else
+        {
+            (company, _) = await ResolveDefaultCompanyAsync(existing.UserId, ct);
+        }
         if (company is null)
         {
-            return RefreshResult.Failed;
+            return noBranch ? RefreshResult.NoBranch : RefreshResult.Failed;
         }
 
-        var auth = IssueTokens(existing.User, company.Value.Id, company.Value.Name);
+        var auth = await IssueTokensAsync(existing.User, company, ct);
 
         existing.RevokedAt = DateTimeOffset.UtcNow;
         existing.ReplacedByTokenHash = tokenService.HashRefreshToken(auth.RefreshToken);
@@ -90,13 +99,17 @@ public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, IT
         }
 
         // Same outcome for a company that does not exist and one the user is not a member of (no existence leak).
-        var company = await FindActiveMembershipCompanyAsync(userId, companyId, ct);
+        var company = await FindActiveMembershipAsync(userId, companyId, ct);
         if (company is null)
         {
             return SwitchCompanyResult.Failure(SwitchCompanyFailureReason.CompanyAccessDenied);
         }
+        if (!company.Usable)
+        {
+            return SwitchCompanyResult.Failure(SwitchCompanyFailureReason.NoBranchAccess);
+        }
 
-        var auth = IssueTokens(existing.User, company.Value.Id, company.Value.Name);
+        var auth = await IssueTokensAsync(existing.User, company, ct);
 
         existing.RevokedAt = DateTimeOffset.UtcNow;
         existing.ReplacedByTokenHash = tokenService.HashRefreshToken(auth.RefreshToken);
@@ -116,28 +129,68 @@ public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, IT
         }
     }
 
-    /// <summary>The user's active membership in an active company, deterministic: oldest membership first, then company id.</summary>
-    private async Task<(Guid Id, string Name)?> ResolveDefaultCompanyAsync(Guid userId, CancellationToken ct)
+    // Expression trees cannot contain collection expressions, so the filter-name list is a static array.
+    private static readonly string[] CompanyFilter = [CompanyQueryFilter.Name];
+
+    /// <summary>An active membership in an active company. Usable = CompanyWide, or AssignedBranches with >= 1 active allocation (D5).</summary>
+    private sealed record MembershipInfo(Guid Id, string Name, Guid MembershipId, CompanyAccessScope Scope, bool Usable);
+
+    /// <summary>The user's first usable active membership (oldest first, then company id). <c>AnyActive</c> tells login whether
+    /// active memberships exist at all, to tell no_company_access from no_branch_access.</summary>
+    private async Task<(MembershipInfo? Company, bool AnyActive)> ResolveDefaultCompanyAsync(Guid userId, CancellationToken ct)
     {
-        var row = await db.UserCompanyMemberships
-            .Where(m => m.UserId == userId && m.Status == MembershipStatus.Active && m.Company.IsActive)
+        var rows = await MembershipQuery(userId)
             .OrderBy(m => m.CreatedAt).ThenBy(m => m.CompanyId)
-            .Select(m => new { Id = m.CompanyId, m.Company.Name })
-            .FirstOrDefaultAsync(ct);
-        return row is null ? null : (row.Id, row.Name);
+            .Select(m => new MembershipInfo(m.CompanyId, m.Company.Name, m.Id, m.AccessScope,
+                m.AccessScope == CompanyAccessScope.CompanyWide
+                || db.UserBranchAssignments.IgnoreQueryFilters(CompanyFilter)
+                    .Any(a => a.CompanyId == m.CompanyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active)))
+            .ToListAsync(ct);
+        return (rows.FirstOrDefault(r => r.Usable), rows.Count > 0);
     }
 
-    private async Task<(Guid Id, string Name)?> FindActiveMembershipCompanyAsync(Guid userId, Guid companyId, CancellationToken ct)
+    private async Task<MembershipInfo?> FindActiveMembershipAsync(Guid userId, Guid companyId, CancellationToken ct)
     {
-        var row = await db.UserCompanyMemberships
-            .Where(m => m.UserId == userId && m.CompanyId == companyId && m.Status == MembershipStatus.Active && m.Company.IsActive)
-            .Select(m => new { Id = m.CompanyId, m.Company.Name })
+        return await MembershipQuery(userId)
+            .Where(m => m.CompanyId == companyId)
+            .Select(m => new MembershipInfo(m.CompanyId, m.Company.Name, m.Id, m.AccessScope,
+                m.AccessScope == CompanyAccessScope.CompanyWide
+                || db.UserBranchAssignments.IgnoreQueryFilters(CompanyFilter)
+                    .Any(a => a.CompanyId == m.CompanyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active)))
             .FirstOrDefaultAsync(ct);
-        return row is null ? null : (row.Id, row.Name);
     }
 
-    private AuthResult IssueTokens(User user, Guid companyId, string companyName)
+    private IQueryable<UserCompanyMembership> MembershipQuery(Guid userId) =>
+        db.UserCompanyMemberships.Where(m => m.UserId == userId && m.Status == MembershipStatus.Active && m.Company.IsActive);
+
+    /// <summary>Branches the session may work in. No company context exists yet at login, so the Company filter is bypassed with
+    /// explicit CompanyId predicates (documented bypass). CompanyWide = every active branch; AssignedBranches = active allocations.</summary>
+    private async Task<(Guid? Primary, AllowedBranchSummary[] Branches)> LoadBranchesAsync(MembershipInfo m, CancellationToken ct)
     {
+        var branches = db.Branches.IgnoreQueryFilters([CompanyQueryFilter.Name]).Where(b => b.CompanyId == m.Id);
+        if (m.Scope == CompanyAccessScope.CompanyWide)
+        {
+            var all = await branches.Where(b => b.IsActive).OrderByDescending(b => b.IsDefault).ThenBy(b => b.Name)
+                .Select(b => new AllowedBranchSummary(b.Id, b.Code, b.Name, false, b.IsDefault)).ToArrayAsync(ct);
+            return (null, all);
+        }
+
+        var assigned = await db.UserBranchAssignments.IgnoreQueryFilters([CompanyQueryFilter.Name])
+            .Where(a => a.CompanyId == m.Id && a.UserCompanyMembershipId == m.MembershipId && a.Status == AssignmentStatus.Active)
+            .Select(a => new { a.BranchId, a.IsPrimary })
+            .ToListAsync(ct);
+        var ids = assigned.Select(a => a.BranchId).ToArray();
+        var rows = await branches.Where(b => ids.Contains(b.Id)).Select(b => new { b.Id, b.Code, b.Name, b.IsDefault }).ToListAsync(ct);
+        var result = rows
+            .Select(b => new AllowedBranchSummary(b.Id, b.Code, b.Name, assigned.Any(a => a.BranchId == b.Id && a.IsPrimary), b.IsDefault))
+            .OrderByDescending(b => b.IsPrimary).ThenBy(b => b.Name).ToArray();
+        return (assigned.Where(a => a.IsPrimary).Select(a => (Guid?)a.BranchId).FirstOrDefault(), result);
+    }
+
+    private async Task<AuthResult> IssueTokensAsync(User user, MembershipInfo membership, CancellationToken ct)
+    {
+        var companyId = membership.Id;
+        var (primary, branches) = await LoadBranchesAsync(membership, ct);
         var permissions = PermissionResolver.Resolve(user.Role);
         var (accessToken, accessExpiresAt) = tokenService.CreateAccessToken(user, companyId, permissions);
         var (rawRefreshToken, refreshHash, refreshExpiresAt) = tokenService.CreateRefreshToken();
@@ -152,7 +205,8 @@ public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, IT
         });
 
         var summary = new AuthenticatedUserSummary(
-            user.Id, user.FirstName, user.LastName, user.Username, user.Email, user.Role.Name, permissions, companyId, companyName);
+            user.Id, user.FirstName, user.LastName, user.Username, user.Email, user.Role.Name, permissions, companyId, membership.Name,
+            membership.Scope, primary, branches);
 
         return new AuthResult(accessToken, accessExpiresAt, rawRefreshToken, refreshExpiresAt, summary);
     }

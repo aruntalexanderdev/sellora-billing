@@ -84,7 +84,7 @@ public class AccessManagementRulesTests
     private static UsersController Users(Fixture f, User actor)
     {
         f.Db.ChangeTracker.Clear();
-        return new UsersController(f.Db, new FakeHasher()) { ControllerContext = As(actor) };
+        return new UsersController(f.Db, new FakeHasher(), new Sellora.Infrastructure.Services.UserAccessService(f.Db)) { ControllerContext = As(actor) };
     }
 
     private static RolesController Roles(Fixture f, User actor)

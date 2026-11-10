@@ -20,7 +20,8 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         if (await Idempotency.FindAsync(db, createdByUserId, Idempotency.Purchase, input.IdempotencyKey, ct) is { } existingId)
         {
-            return await db.PurchaseOrders.SingleAsync(p => p.Id == existingId, ct);
+            return await db.PurchaseOrders.SingleOrDefaultAsync(p => p.Id == existingId, ct)
+                ?? throw new DomainValidationException("IdempotencyKey", "This request was already processed, but its result is no longer visible with your current branch access.");
         }
 
         var supplier = await db.Suppliers.SingleOrDefaultAsync(s => s.Id == input.SupplierId, ct)

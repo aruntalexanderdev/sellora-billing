@@ -97,7 +97,8 @@ public class ExpenseService(SelloraDbContext db, IExchangeRateService exchangeRa
                 var branch = await BranchRules.EnsureCanUseAsync(db, newBranchId, requireActive: true, "BranchId", ct);
                 var accountBranchId = await db.FinancialTransactions
                     .Where(t => t.ExpenseId == expense.Id && t.AccountId != null)
-                    .Join(db.FinancialAccounts, t => t.AccountId!.Value, a => a.Id, (t, a) => a.BranchId)
+                    // Integrity read: a hidden-branch account must still block retagging (Company filter stays on).
+                    .Join(db.FinancialAccounts.IgnoreQueryFilters([BranchQueryFilter.Name]), t => t.AccountId!.Value, a => a.Id, (t, a) => a.BranchId)
                     .FirstOrDefaultAsync(ct);
                 if (accountBranchId is { } tagged && tagged != branch.Id)
                 {

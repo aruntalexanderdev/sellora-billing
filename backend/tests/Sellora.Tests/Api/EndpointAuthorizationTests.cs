@@ -266,4 +266,60 @@ public class EndpointAuthorizationTests
 
         Assert.Empty(writers);
     }
+
+    // ---- Phase 5: user branch access ----------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("Get", "Users.View")]
+    [InlineData("Events", "Company.Users.ManageBranchAccess")]
+    [InlineData("SetScope", "Company.Users.ManageBranchAccess")]
+    [InlineData("AddAssignment", "Company.Users.ManageBranchAccess")]
+    [InlineData("EndAssignment", "Company.Users.ManageBranchAccess")]
+    [InlineData("SetPrimary", "Company.Users.ManageBranchAccess")]
+    [InlineData("Reassign", "Company.Users.ManageBranchAccess")]
+    [InlineData("SetStatus", "Company.Users.ManageBranchAccess")]
+    public void UserAccessEndpoints_RequireExactlyTheirPermission(string action, string policy)
+    {
+        var controller = typeof(UserAccessController);
+
+        var policies = Policies(controller, controller.GetMethod(action)!).Where(p => p.Length > 0).ToList();
+
+        Assert.Equal([policy], policies);
+    }
+
+    [Fact]
+    public void UserAccessController_IsRoutedUnderTheUserAndHasExactlyEightActions()
+    {
+        var controller = typeof(UserAccessController);
+        var routes = controller.GetCustomAttributes<Microsoft.AspNetCore.Mvc.RouteAttribute>().Select(r => r.Template).ToList();
+        var methods = controller.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(m => m.GetCustomAttributes<HttpMethodAttribute>().Any()).ToList();
+
+        Assert.Equal(["api/v1/users/{id:guid}/access"], routes);
+        Assert.Equal(8, methods.Count);
+    }
+
+    [Fact]
+    public void ManageBranchAccessPermission_IsInTheCatalogue_AdministratorHasIt_OtherRolesDoNot()
+    {
+        var code = "Company.Users.ManageBranchAccess";
+        var admin = Sellora.Domain.Auth.PermissionResolver.Resolve(new Sellora.Domain.Entities.Role { Id = Guid.NewGuid(), Name = "Administrator", IsSystem = true, RolePermissions = [] });
+        var clerk = Sellora.Domain.Auth.PermissionResolver.Resolve(new Sellora.Domain.Entities.Role { Id = Guid.NewGuid(), Name = "Clerk", IsSystem = false, RolePermissions = [] });
+
+        Assert.Contains(code, Sellora.Domain.Permissions.PermissionCatalog.All.Select(p => p.Code));
+        Assert.Contains(code, admin);
+        Assert.DoesNotContain(code, clerk);
+    }
+
+    [Fact]
+    public void OnlyTheAccountEndpointsAndAuthMe_AreMarkedAllowWithoutBranch()
+    {
+        var marked = Actions()
+            .Where(x => x.Action.GetCustomAttributes<Sellora.Api.Authorization.AllowWithoutBranchAttribute>().Any()
+                     || x.Controller.GetCustomAttributes<Sellora.Api.Authorization.AllowWithoutBranchAttribute>().Any())
+            .Select(x => $"{x.Controller.Name}.{x.Action.Name}")
+            .Order().ToList();
+
+        Assert.Equal(["AuthController.Me", "AuthController.SwitchCompany", "UsersController.ChangeOwnPassword", "UsersController.UpdateOwnUsername"], marked);
+    }
 }

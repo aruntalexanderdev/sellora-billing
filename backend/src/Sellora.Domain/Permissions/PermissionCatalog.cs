@@ -33,6 +33,7 @@ public static class PermissionCatalog
         new("Company.Branches.Create", "Administration", "Create", "Add new branches."),
         new("Company.Branches.Edit", "Administration", "Edit", "Edit branch details, GSTIN and invoice prefix."),
         new("Company.Branches.Disable", "Administration", "Disable", "Activate or deactivate a branch."),
+        new("Company.Users.ManageBranchAccess", "Administration", "ManageBranchAccess", "Manage a user's company membership and branch allocations (company-wide administrators only)."),
 
         // Administration — Warehouses and vehicles (Phase 4; Administrator only, granted via PermissionResolver)
         new("Company.Warehouses.View", "Administration", "View", "View the company's warehouses."),

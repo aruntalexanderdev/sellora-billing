@@ -24,7 +24,8 @@ public class FinancialTransactionsController(SelloraDbContext db) : ControllerBa
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var query = db.FinancialTransactions.AsQueryable();
+        // Phase 5 D7: visibility follows the source document / account (FinancialTransactionVisibility.VisibleTo); roots are filtered before projection.
+        var query = db.FinancialTransactions.VisibleTo(db);
         if (type is not null) query = query.Where(t => t.Type == type);
         if (direction is not null) query = query.Where(t => t.Direction == direction);
         if (status is not null) query = query.Where(t => t.Status == status);
@@ -35,9 +36,9 @@ public class FinancialTransactionsController(SelloraDbContext db) : ControllerBa
         {
             var s = search.Trim().ToLower();
             query = query.Where(t =>
-                (t.PurchasePayment != null && (t.PurchasePayment.PurchaseOrder.PurchaseNo.ToLower().Contains(s)
+                (t.PurchasePayment != null && (db.PurchaseOrders.Any(o => o.Id == t.PurchasePayment.PurchaseOrderId && o.PurchaseNo.ToLower().Contains(s))
                     || db.Suppliers.Any(x => x.Id == t.PurchasePayment.PurchaseOrder.SupplierId && x.Name.ToLower().Contains(s))))
-                || (t.SalesPayment != null && (t.SalesPayment.SalesInvoice.InvoiceNo.ToLower().Contains(s)
+                || (t.SalesPayment != null && (db.SalesInvoices.Any(i => i.Id == t.SalesPayment.SalesInvoiceId && i.InvoiceNo.ToLower().Contains(s))
                     || db.Customers.Any(x => x.Id == t.SalesPayment.SalesInvoice.CustomerId && x.Name.ToLower().Contains(s))))
                 || (t.Expense != null && (t.Expense.ExpenseNo.ToLower().Contains(s) || t.Expense.Category.Name.ToLower().Contains(s))));
         }
@@ -65,8 +66,8 @@ public class FinancialTransactionsController(SelloraDbContext db) : ControllerBa
                 t.PurchasePayment != null ? t.PurchasePayment.PurchaseOrderId
                     : t.SalesPayment != null ? t.SalesPayment.SalesInvoiceId
                     : t.ExpenseId,
-                t.PurchasePayment != null ? t.PurchasePayment.PurchaseOrder.PurchaseNo
-                    : t.SalesPayment != null ? t.SalesPayment.SalesInvoice.InvoiceNo
+                t.PurchasePayment != null ? db.PurchaseOrders.Where(o => o.Id == t.PurchasePayment.PurchaseOrderId).Select(o => o.PurchaseNo).FirstOrDefault()
+                    : t.SalesPayment != null ? db.SalesInvoices.Where(i => i.Id == t.SalesPayment.SalesInvoiceId).Select(i => i.InvoiceNo).FirstOrDefault()
                     : t.Expense != null ? t.Expense.ExpenseNo : null,
                 t.PaymentMethod, t.Amount, t.Currency.Code, t.ExchangeRateToBase, t.BaseAmount, t.CreatedAt,
                 t.AccountId, t.Account != null ? t.Account.Name : null, t.ReconciledAt != null, t.Notes))

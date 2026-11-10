@@ -5,7 +5,7 @@
 | Spec | `docs/architecture/Sellora-Multi-Company-Branch-Architecture-Claude.md` ("arch") |
 | Related | `docs/analysis/unit-conversion-restructuring-analysis.md` ("analysis") §13.4–13.6, §25 Phase B / 6b, §27 D5 |
 | Baseline | branch `analyse`, commit `a7c1c4e` (unit restructuring Phases 0–6a complete) |
-| Status | **Phase 0 approved (2026-11-09).** ADR-01…13 accepted; answers in §10. Phase H and 1–4 delivered (see the phase-1…4 design delivery records); next: Phase 5 (on approval). |
+| Status | **Phase 0 approved (2026-11-09).** ADR-01…13 accepted; answers in §10. Phase H and 1–5 delivered (see the phase-1…5 design delivery records); next: Phase 6 (on approval). |
 | Appendix A | `phase-0-appendix-a-backend-database-audit.md` — backend/DB current state, entity map, auth, inventory, workflow impact, migration risk, tests, conflicts C1–C14 (file:line evidence) |
 | Appendix B | `phase-0-appendix-b-frontend-ci-audit.md` — Angular current state, screen impact map, frontend tests, CI/CD and deployment |
 
@@ -183,3 +183,7 @@ All ADR-01…13 approved. Answers to §8:
 | H5 | Already implemented: dashboard sections are gated by `Sales.View` / `Purchase.View` / `Inventory.View` (the audit's defect 5 was a false positive). | `DashboardController` (no change) |
 | H6 | `EXP-` numbering takes the per-series advisory lock inside a transaction. | `ExpenseService` |
 | H7 | Already implemented: `MigrationTests` asserts no pending model changes and runs in CI. | (no change) |
+
+### Phase 11 carry-over list (frontend)
+
+All Angular work for Phases 1–10 is delivered in Phase 11 (owner decision, Phase 5 O3). Accumulated items: company/branch context service and header branch switcher (F1), error handling for `no_company_access`, `company_context_invalid`, `company_access_denied`, `branch_header_invalid`, `branch_access_denied`, `branch_required`, `no_branch_access` and revoked access (F2), sidebar company/branch names (F3), user branch-access management (F4), branches / warehouses / vehicles / stock-locations admin screens, branch filters and branch columns on document lists and reports, seller GSTIN on invoice detail, absolute production `apiBaseUrl` (needs the owner's SWA/App Service URLs), Vitest specs (F5); new features lazy-loaded (bundle budget).

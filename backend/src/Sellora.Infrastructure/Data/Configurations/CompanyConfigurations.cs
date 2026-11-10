@@ -26,6 +26,7 @@ public class UserCompanyMembershipConfiguration : IEntityTypeConfiguration<UserC
         builder.HasAlternateKey(m => new { m.CompanyId, m.Id });
         builder.Property(m => m.Status).HasConversion<string>().HasMaxLength(20);
         builder.Property(m => m.AccessScope).HasConversion<string>().HasMaxLength(20);
+        builder.Property(m => m.AccessVersion).HasDefaultValue(0L);
 
         builder.HasIndex(m => new { m.UserId, m.CompanyId }, "IX_UserCompanyMemberships_UserId_CompanyId").IsUnique();
         builder.HasIndex(m => m.CompanyId, "IX_UserCompanyMemberships_CompanyId");

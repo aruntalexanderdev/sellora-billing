@@ -15,6 +15,8 @@ namespace Sellora.Infrastructure.Services;
 /// </summary>
 public static class ProductUnitUsage
 {
+    private static readonly string[] BranchBypass = [BranchQueryFilter.Name];
+
     public const string Transactions = "Transactions";
     public const string Prices = "Prices";
     public const string ContainedInLockedUnit = "ContainedInLockedUnit";
@@ -27,13 +29,15 @@ public static class ProductUnitUsage
         var result = new Dictionary<Guid, string>();
         if (units.Count == 0) return result;
 
+        // Documented "Branch"-filter bypass (D7): ProductUnit immutability is company-wide, so the usage checks must see the
+        // documents of every branch (the Company filter stays). Applies to every document query below.
         var ids = units.Select(u => u.Id).ToList();
         var productIds = units.Select(u => u.ProductId).Distinct().ToList();
-        var inTransactions = (await db.PurchaseOrderLines.Where(l => ids.Contains(l.ProductUnitId)).Select(l => l.ProductUnitId).Distinct().ToListAsync(ct))
-            .Concat(await db.SalesInvoiceLines.Where(l => ids.Contains(l.ProductUnitId)).Select(l => l.ProductUnitId).Distinct().ToListAsync(ct))
-            .Concat(await db.PurchaseReturnLines.Where(r => ids.Contains(r.ProductUnitId)).Select(r => r.ProductUnitId).Distinct().ToListAsync(ct))
-            .Concat(await db.SalesReturnLines.Where(r => ids.Contains(r.ProductUnitId)).Select(r => r.ProductUnitId).Distinct().ToListAsync(ct))
-            .Concat(await db.StockAdjustments.Where(a => ids.Contains(a.ProductUnitId)).Select(a => a.ProductUnitId).Distinct().ToListAsync(ct))
+        var inTransactions = (await db.PurchaseOrderLines.IgnoreQueryFilters(BranchBypass).Where(l => ids.Contains(l.ProductUnitId)).Select(l => l.ProductUnitId).Distinct().ToListAsync(ct))
+            .Concat(await db.SalesInvoiceLines.IgnoreQueryFilters(BranchBypass).Where(l => ids.Contains(l.ProductUnitId)).Select(l => l.ProductUnitId).Distinct().ToListAsync(ct))
+            .Concat(await db.PurchaseReturnLines.IgnoreQueryFilters(BranchBypass).Where(r => ids.Contains(r.ProductUnitId)).Select(r => r.ProductUnitId).Distinct().ToListAsync(ct))
+            .Concat(await db.SalesReturnLines.IgnoreQueryFilters(BranchBypass).Where(r => ids.Contains(r.ProductUnitId)).Select(r => r.ProductUnitId).Distinct().ToListAsync(ct))
+            .Concat(await db.StockAdjustments.IgnoreQueryFilters(BranchBypass).Where(a => ids.Contains(a.ProductUnitId)).Select(a => a.ProductUnitId).Distinct().ToListAsync(ct))
             .Concat(await db.StockMovements.Where(m => productIds.Contains(m.ProductId) && m.EnteredProductUnitId != null && ids.Contains(m.EnteredProductUnitId.Value)).Select(m => m.EnteredProductUnitId!.Value).Distinct().ToListAsync(ct))
             .ToHashSet();
         var priced = (await db.SellingPrices.Where(p => ids.Contains(p.ProductUnitId)).Select(p => p.ProductUnitId).Distinct().ToListAsync(ct))

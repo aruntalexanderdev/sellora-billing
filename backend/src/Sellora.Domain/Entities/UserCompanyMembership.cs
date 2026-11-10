@@ -14,6 +14,12 @@ public class UserCompanyMembership
     public MembershipStatus Status { get; set; } = MembershipStatus.Active;
     public CompanyAccessScope AccessScope { get; set; } = CompanyAccessScope.CompanyWide;
 
+    /// <summary>Incremented on every access change (scope, status, allocations): the invalidation stamp the Phase 7 permission cache keys on.</summary>
+    public long AccessVersion { get; set; }
+
+    /// <summary>Allocation history (active and ended rows) of an AssignedBranches membership.</summary>
+    public ICollection<UserBranchAssignment> BranchAssignments { get; set; } = new List<UserBranchAssignment>();
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public Guid? CreatedByUserId { get; set; }
     public DateTimeOffset? UpdatedAt { get; set; }

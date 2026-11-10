@@ -56,7 +56,7 @@ public class AccessManagementConcurrencyTests(PostgresFixture postgres)
         PasswordHash = "x", RoleId = role.Id, Status = UserStatus.Active,
     };
 
-    private static UsersController As(SelloraDbContext db, User actor) => new(db, new FakeHasher())
+    private static UsersController As(SelloraDbContext db, User actor) => new(db, new FakeHasher(), new Sellora.Infrastructure.Services.UserAccessService(db))
     {
         ControllerContext = new ControllerContext
         {

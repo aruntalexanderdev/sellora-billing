@@ -15,7 +15,8 @@ public class FinancialAccountService(SelloraDbContext db) : IFinancialAccountSer
         {
             throw new DomainValidationException("Name", "Account name is required.");
         }
-        if (await db.FinancialAccounts.AnyAsync(a => a.Name.ToLower() == name.ToLower(), ct))
+        // Documented "Branch"-filter bypass (D7): the name unique index is company-wide, so accounts of other branches must count.
+        if (await db.FinancialAccounts.IgnoreQueryFilters([BranchQueryFilter.Name]).AnyAsync(a => a.Name.ToLower() == name.ToLower(), ct))
         {
             throw new DomainValidationException("Name", "An account with this name already exists.");
         }
@@ -57,7 +58,8 @@ public class FinancialAccountService(SelloraDbContext db) : IFinancialAccountSer
         {
             throw new DomainValidationException("Name", "Account name is required.");
         }
-        if (await db.FinancialAccounts.AnyAsync(a => a.Id != accountId && a.Name.ToLower() == name.ToLower(), ct))
+        // Documented "Branch"-filter bypass (D7): the name unique index is company-wide, so accounts of other branches must count.
+        if (await db.FinancialAccounts.IgnoreQueryFilters([BranchQueryFilter.Name]).AnyAsync(a => a.Id != accountId && a.Name.ToLower() == name.ToLower(), ct))
         {
             throw new DomainValidationException("Name", "An account with this name already exists.");
         }

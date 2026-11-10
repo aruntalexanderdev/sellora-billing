@@ -20,7 +20,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         if (await Idempotency.FindAsync(db, createdByUserId, Idempotency.Sale, input.IdempotencyKey, ct) is { } existingId)
         {
-            return await db.SalesInvoices.SingleAsync(i => i.Id == existingId, ct);
+            return await db.SalesInvoices.SingleOrDefaultAsync(i => i.Id == existingId, ct)
+                ?? throw new DomainValidationException("IdempotencyKey", "This request was already processed, but its result is no longer visible with your current branch access.");
         }
 
         var customer = await db.Customers.SingleOrDefaultAsync(c => c.Id == input.CustomerId, ct)

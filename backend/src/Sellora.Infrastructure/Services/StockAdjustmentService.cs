@@ -48,7 +48,8 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
 
         if (await Idempotency.FindAsync(db, userId, Idempotency.StockAdjustment, input.IdempotencyKey, ct) is { } existingId)
         {
-            return await db.StockAdjustments.Include(x => x.Product).Include(x => x.User).SingleAsync(x => x.Id == existingId, ct);
+            return await db.StockAdjustments.Include(x => x.Product).Include(x => x.User).SingleOrDefaultAsync(x => x.Id == existingId, ct)
+                ?? throw new DomainValidationException("IdempotencyKey", "This request was already processed, but its result is no longer visible with your current branch access.");
         }
 
         // 3. Product KEY SHARE before any product or unit read: a concurrent product-unit edit (FOR UPDATE on the

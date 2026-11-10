@@ -22,7 +22,7 @@ internal static class BranchRules
             ?? throw new InvalidOperationException("The company has no default branch.");
     }
 
-    /// <summary>The branch a new purchase, sale or adjustment is recorded at: the requested branch, else the default one.
+    /// <summary>The branch a new purchase, sale or adjustment is recorded at: the requested branch, else the primary one (AssignedBranches), else the default one.
     /// It must exist in the company, be active and be accessible to the caller (a context that grants nothing always fails).</summary>
     public static async Task<Branch> ResolveWorkingBranchAsync(SelloraDbContext db, CancellationToken ct)
     {
@@ -30,6 +30,12 @@ internal static class BranchRules
         if (requested is { } id)
         {
             return await EnsureCanUseAsync(db, id, requireActive: true, Field, ct);
+        }
+
+        // No header: an AssignedBranches member works in the primary branch (D4); a company-wide member in the default one.
+        if (db.BranchContext.PrimaryBranchId is { } primary)
+        {
+            return await EnsureCanUseAsync(db, primary, requireActive: true, Field, ct);
         }
 
         var branch = await GetDefaultBranchAsync(db, ct);
