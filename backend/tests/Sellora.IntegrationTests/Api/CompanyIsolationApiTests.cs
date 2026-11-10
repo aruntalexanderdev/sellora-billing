@@ -267,7 +267,7 @@ public class CompanyIsolationApiTests(PostgresFixture postgres)
     private static async Task<string> SnapshotAsync(IsolationWorld w, Guid company)
     {
         var parts = new List<string>();
-        foreach (var table in CompanyTables.Concat(["StockLocations", "Warehouses", "Vehicles", "CompanyGovernanceMembers", "GovernanceMemberPermissions"]))
+        foreach (var table in CompanyTables.Concat(["StockLocations", "Warehouses", "Vehicles", "CompanyGovernanceMembers", "GovernanceMemberPermissions", "Roles", "UserRoleAssignments"]))
         {
             parts.Add(await ScalarAsync<string>(w.Host.Database,
                 $"""SELECT '{table}=' || COALESCE(md5(string_agg(t::text, '|' ORDER BY t::text)), '-') FROM "{table}" t WHERE t."CompanyId" = '{company}'"""));

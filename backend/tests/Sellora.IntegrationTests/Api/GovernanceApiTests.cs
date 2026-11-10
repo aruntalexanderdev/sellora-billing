@@ -367,7 +367,7 @@ public class GovernanceApiTests(PostgresFixture postgres)
         var grant = await delegateClient.SendAsync(Json(HttpMethod.Post, "/api/v1/governance/administrators", new GrantAdministratorRequest(staff, "needs access")));
 
         Assert.Equal(HttpStatusCode.NoContent, grant.StatusCode);
-        Assert.True(await ScalarAsync<bool>(host.Database, $"""SELECT r."IsSystem" FROM "Users" u JOIN "Roles" r ON r."Id" = u."RoleId" WHERE u."Id" = '{staff}'"""));
+        Assert.True(await ScalarAsync<bool>(host.Database, $"""SELECT EXISTS (SELECT 1 FROM "UserRoleAssignments" a JOIN "UserCompanyMemberships" m ON m."Id" = a."UserCompanyMembershipId" JOIN "Roles" r ON r."Id" = a."RoleId" WHERE m."UserId" = '{staff}' AND a."Status" = 'Active' AND r."IsSystem")"""));
         Assert.True(await AccessVersionAsync(host, staff) > version);
         Assert.Equal(1L, await AuditCountAsync(host, "governance.administrator_granted"));
         // the governance catalogue stays out of the Administrator role: promoted user holds no governance grant
@@ -377,7 +377,7 @@ public class GovernanceApiTests(PostgresFixture postgres)
         var remove = await delegateClient.SendAsync(Json(HttpMethod.Post, $"/api/v1/governance/administrators/{staff}/remove", new RemoveAdministratorRequest(StaffRoleId, "no longer needed")));
 
         Assert.Equal(HttpStatusCode.NoContent, remove.StatusCode);
-        Assert.False(await ScalarAsync<bool>(host.Database, $"""SELECT r."IsSystem" FROM "Users" u JOIN "Roles" r ON r."Id" = u."RoleId" WHERE u."Id" = '{staff}'"""));
+        Assert.False(await ScalarAsync<bool>(host.Database, $"""SELECT EXISTS (SELECT 1 FROM "UserRoleAssignments" a JOIN "UserCompanyMemberships" m ON m."Id" = a."UserCompanyMembershipId" JOIN "Roles" r ON r."Id" = a."RoleId" WHERE m."UserId" = '{staff}' AND a."Status" = 'Active' AND r."IsSystem")"""));
         Assert.Equal(1L, await AuditCountAsync(host, "governance.administrator_removed"));
     }
 
@@ -391,7 +391,7 @@ public class GovernanceApiTests(PostgresFixture postgres)
         var response = await delegateClient.SendAsync(Json(HttpMethod.Post, $"/api/v1/governance/administrators/{w.AdminId}/remove", new RemoveAdministratorRequest(StaffRoleId, "oops")));
 
         await AssertProblemAsync(response, HttpStatusCode.BadRequest, "last_administrator_protected");
-        Assert.True(await ScalarAsync<bool>(host.Database, $"""SELECT r."IsSystem" FROM "Users" u JOIN "Roles" r ON r."Id" = u."RoleId" WHERE u."Id" = '{w.AdminId}'"""));
+        Assert.True(await ScalarAsync<bool>(host.Database, $"""SELECT EXISTS (SELECT 1 FROM "UserRoleAssignments" a JOIN "UserCompanyMemberships" m ON m."Id" = a."UserCompanyMembershipId" JOIN "Roles" r ON r."Id" = a."RoleId" WHERE m."UserId" = '{w.AdminId}' AND a."Status" = 'Active' AND r."IsSystem")"""));
     }
 
     [Fact]

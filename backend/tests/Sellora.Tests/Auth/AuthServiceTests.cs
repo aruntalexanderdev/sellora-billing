@@ -40,14 +40,12 @@ public class AuthServiceTests
             Username = "admin",
             Email = "admin@selloramart.in",
             PasswordHash = hasher.Hash(password),
-            RoleId = role.Id,
-            Role = role,
             Status = status,
         };
         db.Roles.Add(role);
         db.Users.Add(user);
         db.Companies.Add(new Company { Id = Sellora.Tests.TestData.TestCompany.DefaultId, Code = "DEFAULT", Name = "Default Company" });
-        db.UserCompanyMemberships.Add(Sellora.Tests.TestData.TestCompany.MembershipFor(user));
+        Sellora.Tests.TestData.Rbac.Join(db, user, role); // Phase 7: roles are held through assignments
         await db.SaveChangesAsync();
 
         var service = new AuthService(db, hasher, NewTokenService());
@@ -65,6 +63,40 @@ public class AuthServiceTests
         Assert.True(result.Succeeded);
         Assert.Equal("Administrator", result.Auth!.User.RoleName);
         Assert.NotEmpty(result.Auth.User.Permissions);
+        var role = Assert.Single(result.Auth.User.Roles!);
+        Assert.Equal(("Administrator", RoleScope.Company, (Guid?)null), (role.Name, role.ScopeType, role.BranchId));
+    }
+
+    [Fact]
+    public async Task LoginAsync_Administrator_ReceivesTheWholeCatalogue_AndTheTokenCarriesNoPermissionOrRoleClaims()
+    {
+        var (_, service, _, _) = await SeedAsync(new PasswordHasher());
+
+        var result = await service.LoginAsync("admin", "Passw0rd!23");
+
+        Assert.Equal(Sellora.Domain.Permissions.PermissionCatalog.All.Count, result.Auth!.User.Permissions.Count);
+        var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().ReadJwtToken(result.Auth.AccessToken);
+        Assert.DoesNotContain(jwt.Claims, c => c.Type == AuthClaimTypes.Permission);
+        Assert.DoesNotContain(jwt.Claims, c => c.Type == AuthClaimTypes.RoleName);
+        Assert.DoesNotContain(jwt.Claims, c => c.Type == "role");
+    }
+
+    [Fact]
+    public async Task LoginAsync_UserWithoutAnActiveAssignment_SignsInWithNoPermissionsAndNoRole()
+    {
+        var (db, service, _, user) = await SeedAsync(new PasswordHasher());
+        var row = await db.UserRoleAssignments.SingleAsync();
+        row.Status = AssignmentStatus.Ended;
+        row.EndAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
+
+        var result = await service.LoginAsync("admin", "Passw0rd!23");
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(result.Auth!.User.Permissions);
+        Assert.Equal(string.Empty, result.Auth.User.RoleName);
+        Assert.Empty(result.Auth.User.Roles!);
+        _ = user;
     }
 
     [Fact]

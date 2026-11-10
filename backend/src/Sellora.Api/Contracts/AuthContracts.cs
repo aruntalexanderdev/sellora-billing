@@ -13,6 +13,8 @@ public record RefreshRequest(
     [Required] string RefreshToken
 );
 
+public record AuthRoleDto(Guid Id, string Name, RoleScope ScopeType, Guid? BranchId);
+
 public record AllowedBranchDto(Guid Id, string Code, string Name, bool IsPrimary, bool IsDefault);
 
 public record UserSummaryDto(
@@ -27,13 +29,15 @@ public record UserSummaryDto(
     string CompanyName,
     CompanyAccessScope AccessScope,
     Guid? PrimaryBranchId,
-    AllowedBranchDto[] AllowedBranches
+    AllowedBranchDto[] AllowedBranches,
+    AuthRoleDto[]? Roles = null
 )
 {
     public static UserSummaryDto From(AuthenticatedUserSummary s) =>
         new(s.Id, s.FirstName, s.LastName, s.Username, s.Email, s.RoleName, s.Permissions.ToArray(), s.CompanyId, s.CompanyName,
             s.AccessScope, s.PrimaryBranchId,
-            (s.AllowedBranches ?? []).Select(b => new AllowedBranchDto(b.Id, b.Code, b.Name, b.IsPrimary, b.IsDefault)).ToArray());
+            (s.AllowedBranches ?? []).Select(b => new AllowedBranchDto(b.Id, b.Code, b.Name, b.IsPrimary, b.IsDefault)).ToArray(),
+            (s.Roles ?? []).Select(r => new AuthRoleDto(r.Id, r.Name, r.ScopeType, r.BranchId)).ToArray());
 }
 
 public record CompanyOptionDto(Guid Id, string Name);
@@ -53,8 +57,9 @@ public record MeResponse(
     Guid? PrimaryBranchId,
     AllowedBranchDto[] AllowedBranches,
     CompanyOptionDto[] Companies,
-    GovernanceHintDto? Governance
-) : UserSummaryDto(Id, FirstName, LastName, Username, Email, RoleName, Permissions, CompanyId, CompanyName, AccessScope, PrimaryBranchId, AllowedBranches);
+    GovernanceHintDto? Governance,
+    AuthRoleDto[]? Roles = null
+) : UserSummaryDto(Id, FirstName, LastName, Username, Email, RoleName, Permissions, CompanyId, CompanyName, AccessScope, PrimaryBranchId, AllowedBranches, Roles);
 
 public record SwitchCompanyRequest(
     [Required] Guid CompanyId,

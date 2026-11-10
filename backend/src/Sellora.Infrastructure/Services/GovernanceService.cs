@@ -176,18 +176,21 @@ public sealed class GovernanceService(SelloraDbContext db, IUserAccessService us
         {
             throw new DomainValidationException("userId", "The user must be an active member of this company.");
         }
-        if (membership.User.Role.IsSystem) throw new DomainValidationException("userId", "The user is already an Administrator.");
+        if (await RoleRules.HoldsAdministratorAsync(db, membership.Id, ct)) throw new DomainValidationException("userId", "The user is already an Administrator.");
 
-        var admin = await db.Roles.AsNoTracking().Where(r => r.IsSystem && r.IsActive).OrderBy(r => r.Name).FirstOrDefaultAsync(ct)
-            ?? throw new DomainValidationException("userId", "The Administrator role is not available.");
+        var admin = await RoleRules.AdministratorRoleAsync(db, ct);
+        if (admin is null || !admin.IsActive) throw new DomainValidationException("userId", "The Administrator role is not available.");
 
-        var before = new { roleId = membership.User.RoleId, role = membership.User.Role.Name, accessScope = membership.AccessScope.ToString() };
-        membership.User.RoleId = admin.Id;
+        var access = ToAccess(actor);
+        var before = new { roles = await RoleNamesAsync(membership.Id, ct), accessScope = membership.AccessScope.ToString() };
+        var row = RoleRules.NewAssignment(membership, admin, note, actor.UserId, DateTimeOffset.UtcNow);
+        db.UserRoleAssignments.Add(row);
+        RoleRules.AuditCreated(db, access, row, admin.Name, userId);
         await db.SaveChangesAsync(ct);
         await userAccess.EnsureCompanyWideForAdministratorAsync(new AccessActor(actor.UserId, false, false, actor.CorrelationId), userId, ct);
 
         Bump(membership, actor);
-        AuditLog.Append(db, ToAccess(actor), AuditActions.GovernanceAdministratorGranted, AuditTargets.Membership, membership.Id, userId, note,
+        AuditLog.Append(db, access, AuditActions.GovernanceAdministratorGranted, AuditTargets.Membership, membership.Id, userId, note,
             before, new { roleId = admin.Id, role = admin.Name, accessScope = CompanyAccessScope.CompanyWide.ToString() });
         await db.SaveChangesAsync(ct);
     }
@@ -200,29 +203,49 @@ public sealed class GovernanceService(SelloraDbContext db, IUserAccessService us
         if (userId == actor.UserId) throw SelfChange();
 
         var membership = await LoadAdminTargetAsync(actor, userId, ct);
-        if (!membership.User.Role.IsSystem) throw new DomainValidationException("userId", "The user is not an Administrator.");
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var adminRows = await db.UserRoleAssignments.Where(a =>
+            a.CompanyId == companyId && a.UserCompanyMembershipId == membership.Id && a.Status == AssignmentStatus.Active
+            && db.Roles.Any(r => r.Id == a.RoleId && r.IsSystem)).ToListAsync(ct);
+        if (adminRows.Count == 0) throw new DomainValidationException("userId", "The user is not an Administrator.");
 
         var role = await db.Roles.SingleOrDefaultAsync(r => r.Id == replacementRoleId, ct);
-        if (role is null || role.IsSystem || !role.IsActive)
+        if (role is null || role.IsSystem || !role.IsActive || role.ScopeType != RoleScope.Company)
         {
-            throw new DomainValidationException("replacementRoleId", "Select an active, non-system role.");
+            throw new DomainValidationException("replacementRoleId", "Select an active, non-system company role.");
         }
 
-        var before = new { roleId = membership.User.RoleId, role = membership.User.Role.Name };
-        membership.User.RoleId = role.Id;
+        var access = ToAccess(actor);
+        var before = new { roles = await RoleNamesAsync(membership.Id, ct) };
+        foreach (var row in adminRows)
+        {
+            var snap = RoleRules.Snap(row, "Administrator");
+            RoleRules.Close(row, actor.UserId, note);
+            RoleRules.AuditEnded(db, access, row, "Administrator", userId, snap);
+        }
+        await db.SaveChangesAsync(ct);
+        var already = await db.UserRoleAssignments.AnyAsync(a =>
+            a.CompanyId == companyId && a.UserCompanyMembershipId == membership.Id && a.RoleId == role.Id && a.Status == AssignmentStatus.Active, ct);
+        if (!already)
+        {
+            var added = RoleRules.NewAssignment(membership, role, note, actor.UserId, DateTimeOffset.UtcNow);
+            db.UserRoleAssignments.Add(added);
+            RoleRules.AuditCreated(db, access, added, role.Name, userId);
+        }
         Bump(membership, actor);
-        AuditLog.Append(db, ToAccess(actor), AuditActions.GovernanceAdministratorRemoved, AuditTargets.Membership, membership.Id, userId, note,
+        AuditLog.Append(db, access, AuditActions.GovernanceAdministratorRemoved, AuditTargets.Membership, membership.Id, userId, note,
             before, new { roleId = role.Id, role = role.Name });
         await db.SaveChangesAsync(ct);
 
+        await RoleRules.EnsureAdministratorRemainsAsync(db, ct);
+    }
+
+    private async Task<List<string>> RoleNamesAsync(Guid membershipId, CancellationToken ct)
+    {
         var companyId = db.CompanyContext.RequireCompanyId();
-        var remaining = await db.UserCompanyMemberships.AsNoTracking().AnyAsync(m =>
-            m.CompanyId == companyId && m.Status == MembershipStatus.Active && m.AccessScope == CompanyAccessScope.CompanyWide
-            && m.User.Status != UserStatus.Disabled && m.User.Role.IsSystem && m.User.Role.IsActive, ct);
-        if (!remaining)
-        {
-            throw new GovernanceRuleException("last_administrator_protected", "The company must keep at least one active company-wide Administrator.");
-        }
+        var roleIds = await db.UserRoleAssignments.Where(a => a.CompanyId == companyId && a.UserCompanyMembershipId == membershipId && a.Status == AssignmentStatus.Active)
+            .Select(a => a.RoleId).ToListAsync(ct);
+        return await db.Roles.Where(r => roleIds.Contains(r.Id)).Select(r => r.Name).OrderBy(n => n).ToListAsync(ct);
     }
 
     // ---- helpers ----
@@ -230,7 +253,7 @@ public sealed class GovernanceService(SelloraDbContext db, IUserAccessService us
     private async Task<UserCompanyMembership> LoadAdminTargetAsync(GovernanceActor actor, Guid userId, CancellationToken ct)
     {
         var companyId = db.CompanyContext.RequireCompanyId();
-        var membership = await db.UserCompanyMemberships.Include(m => m.User).ThenInclude(u => u.Role)
+        var membership = await db.UserCompanyMemberships.Include(m => m.User)
             .SingleOrDefaultAsync(m => m.CompanyId == companyId && m.UserId == userId, ct)
             ?? throw new AccessTargetNotFoundException();
         if (await db.UserCompanyMemberships.AnyAsync(m => m.UserId == userId && m.CompanyId != companyId, ct))

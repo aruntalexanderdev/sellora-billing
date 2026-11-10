@@ -52,7 +52,7 @@ public class BranchHeaderApiTests(PostgresFixture postgres)
         var called = false;
         var middleware = new CompanyContextMiddleware(_ => { called = true; return Task.CompletedTask; });
 
-        await middleware.InvokeAsync(context, db, new CompanyContext(), new BranchContext());
+        await middleware.InvokeAsync(context, db, new CompanyContext(), new BranchContext(), new MembershipContext());
 
         Assert.False(called);
         Assert.Equal(400, context.Response.StatusCode);

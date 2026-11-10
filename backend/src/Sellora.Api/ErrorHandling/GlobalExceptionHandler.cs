@@ -31,6 +31,12 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
                 };
                 break;
 
+            case ReferenceDataPlatformManagedException managed:
+                logger.LogWarning("Company write of platform-managed reference data refused on {Path}", httpContext.Request.Path);
+                problem = new ProblemDetails { Status = StatusCodes.Status403Forbidden, Title = managed.Message };
+                problem.Extensions["code"] = Sellora.Domain.Roles.RoleErrorCodes.ReferenceDataPlatformManaged;
+                break;
+
             case DbUpdateConcurrencyException:
             case DbUpdateException { InnerException: PostgresException { SqlState: PostgresErrorCodes.UniqueViolation or PostgresErrorCodes.CheckViolation or PostgresErrorCodes.ForeignKeyViolation } }:
                 logger.LogWarning(exception, "Data conflict on {Path}", httpContext.Request.Path);

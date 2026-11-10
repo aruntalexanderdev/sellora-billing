@@ -32,6 +32,8 @@ public static class CompanyMigrations
     public const string B6 = "20261110054716_AddUserBranchAssignments";
     // Phase 6 (platform administrators and company governance)
     public const string B7 = "20261110080545_AddPlatformAdminAndGovernance";
+    // Phase 7 (scoped RBAC)
+    public const string B8 = "20261110093408_AddScopedRoles";
     public const string DefaultStore = "0c0a1f00-0000-4000-8000-000000000003";
     public const string DefaultTransit = "0c0a1f00-0000-4000-8000-000000000004";
     public const string OtherTransitSql = $"md5('location:transit:' || '{OtherCompany}')::uuid";

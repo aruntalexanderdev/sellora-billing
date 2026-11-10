@@ -34,6 +34,9 @@ public class PermissionSeedScriptTests(PostgresFixture postgres)
     public async Task Script_OnAnEmptyPermissionsTable_InsertsExactlyTheCatalogue()
     {
         await using var database = await postgres.CreateDatabaseAsync();
+        // Phase 7: the AddScopedRoles migration itself inserts the four new codes (Company.Users.AssignRoles, Branch.Roles.*, Branch.Users.AssignRoles); start from a truly empty table.
+        Assert.Equal(4L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Permissions" """));
+        await ExecuteAsync(database, """DELETE FROM "Permissions" """);
         Assert.Equal(0L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Permissions" """));
 
         await ExecuteAsync(database, Script);
@@ -72,6 +75,23 @@ public class PermissionSeedScriptTests(PostgresFixture postgres)
         Assert.Equal("operator wording", await ScalarAsync<string>(database, """SELECT "Description" FROM "Permissions" WHERE "Code" = 'Users.View'"""));
         Assert.Equal(untouched, await ScalarAsync<string>(database, """SELECT "Id"::text FROM "Permissions" WHERE "Code" = 'Users.View'"""));
         Assert.Equal(PermissionCatalog.All.Count, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Permissions" """));
+    }
+
+    [Fact]
+    public async Task Script_AfterTheMigration_KeepsTheMigrationsIdsForTheFourPhase7Codes_AndDuplicatesNothing()
+    {
+        await using var database = await postgres.CreateDatabaseAsync();
+        string[] codes = ["Company.Users.AssignRoles", "Branch.Roles.View", "Branch.Roles.Manage", "Branch.Users.AssignRoles"];
+        var fromMigration = await QueryAsync(database, """SELECT "Code", "Id"::text FROM "Permissions" ORDER BY 1""", r => (r.GetString(0), r.GetString(1)));
+        Assert.Equal(codes.Order(), fromMigration.Select(x => x.Item1).Order());
+
+        await ExecuteAsync(database, Script);
+
+        var after = await QueryAsync(database, """SELECT "Code", "Id"::text FROM "Permissions" WHERE "Code" IN ('Company.Users.AssignRoles', 'Branch.Roles.View', 'Branch.Roles.Manage', 'Branch.Users.AssignRoles') ORDER BY 1""", r => (r.GetString(0), r.GetString(1)));
+        Assert.Equal(fromMigration, after); // one row per code, the migration's id (ON CONFLICT (Code) DO NOTHING in both)
+        Assert.Equal(PermissionCatalog.All.Count, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Permissions" """));
+        Assert.Equal(CatalogueRows(), (await RowsAsync(database)).OrderBy(r => r, StringComparer.Ordinal).ToList());
+        Assert.Empty(await QueryAsync(database, V5, r => r.GetString(0)));
     }
 
     [Fact]

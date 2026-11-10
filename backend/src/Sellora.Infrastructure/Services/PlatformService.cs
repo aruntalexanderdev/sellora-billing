@@ -124,6 +124,8 @@ public sealed partial class PlatformService(
     public async Task<CreatedCompany> CreateCompanyAsync(CreateCompanyInput input, Guid actorUserId, string? correlationId, CancellationToken ct = default)
     {
         if (!options.Value.CompanyCreationEnabled) throw new CompanyCreationDisabledException();
+        // Phase 7 D11/Q3 (fail closed): a second tenant must never be able to edit shared Units/Currencies.
+        if (options.Value.ReferenceDataEditableByCompanies) throw new ReferenceDataCompanyEditableException();
 
         var errors = new List<FieldError>();
         var code = (input.Code ?? string.Empty).Trim().ToUpperInvariant();
@@ -171,9 +173,13 @@ public sealed partial class PlatformService(
         {
             throw new DomainValidationException("baseCurrencyId", "Select a valid, active base currency.");
         }
-        // Roles are global until Phase 7: the owner is an Administrator (system role).
-        var administratorRole = await db.Roles.FirstOrDefaultAsync(r => r.IsSystem && r.IsActive, ct)
-            ?? throw new InvalidOperationException("The system Administrator role is missing.");
+        // Phase 7 D12/Q4: the company gets its own protected Administrator role (and nothing else); the owner is assigned to it below.
+        var administratorRole = new Role
+        {
+            Id = Guid.NewGuid(), CompanyId = companyId, Name = "Administrator", IsSystem = true, IsActive = true,
+            Description = "Full access to every feature of the company.", ScopeType = RoleScope.Company,
+            CreatedAt = DateTimeOffset.UtcNow, CreatedByUserId = actorUserId,
+        };
 
         var now = DateTimeOffset.UtcNow;
         User ownerUser;
@@ -192,10 +198,6 @@ public sealed partial class PlatformService(
             if (await db.UserCompanyMemberships.AnyAsync(m => m.UserId == ownerUser.Id && m.Status != MembershipStatus.Revoked, ct))
             {
                 throw new DomainValidationException("owner", "The selected user already belongs to another company; choose a user without a company membership or create a new owner.");
-            }
-            if (ownerUser.RoleId != administratorRole.Id && !await db.Roles.AnyAsync(r => r.Id == ownerUser.RoleId && r.IsSystem && r.IsActive, ct))
-            {
-                throw new DomainValidationException("owner", "The owner must hold the Administrator role.");
             }
         }
         else
@@ -223,7 +225,6 @@ public sealed partial class PlatformService(
                 Email = email,
                 PhoneNumber = Clean(n.PhoneNumber),
                 PasswordHash = passwordHasher.Hash(n.Password),
-                RoleId = administratorRole.Id,
                 Status = UserStatus.Invited,
             };
             db.Users.Add(ownerUser);
@@ -273,6 +274,16 @@ public sealed partial class PlatformService(
             Id = membershipId, UserId = ownerUser.Id, CompanyId = companyId, Status = MembershipStatus.Active,
             AccessScope = CompanyAccessScope.CompanyWide, CreatedAt = now, CreatedByUserId = actorUserId,
         });
+
+        db.Roles.Add(administratorRole);
+        var administratorAssignment = new UserRoleAssignment
+        {
+            Id = Guid.NewGuid(), CompanyId = companyId, UserCompanyMembershipId = membershipId, RoleId = administratorRole.Id,
+            ScopeType = RoleScope.Company, Status = AssignmentStatus.Active, StartAt = now,
+            AssignmentReason = "Company provisioning", CreatedAt = now, CreatedByUserId = actorUserId,
+        };
+        db.UserRoleAssignments.Add(administratorAssignment);
+        RoleRules.AuditCreated(db, new AccessActor(actorUserId, false, false, correlationId), administratorAssignment, administratorRole.Name, ownerUser.Id);
 
         var memberId = Guid.NewGuid();
         db.CompanyGovernanceMembers.Add(new CompanyGovernanceMember

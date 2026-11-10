@@ -196,6 +196,11 @@ public sealed class UserAccessService(SelloraDbContext db) : IUserAccessService
         {
             await GovernanceRules.EnsureRootOwnerRemainsAsync(db, ct);
         }
+        // Phase 7 D9 (defence in depth): suspending or revoking the last company-wide Administrator is refused (the scope rolls back).
+        if (m.Status != MembershipStatus.Active && await RoleRules.HoldsAdministratorAsync(db, m.Id, ct))
+        {
+            await RoleRules.EnsureAdministratorRemainsAsync(db, ct);
+        }
     }
 
     public async Task ReassignAsync(AccessActor actor, Guid userId, ReassignInput input, CancellationToken ct = default)
@@ -330,7 +335,6 @@ public sealed class UserAccessService(SelloraDbContext db) : IUserAccessService
         await RequireManagerAsync(actor, companyId, ct);
 
         var m = await db.UserCompanyMemberships
-            .Include(x => x.User).ThenInclude(u => u.Role)
             .SingleOrDefaultAsync(x => x.CompanyId == companyId && x.UserId == userId, ct)
             ?? throw new AccessTargetNotFoundException();
 
@@ -338,7 +342,7 @@ public sealed class UserAccessService(SelloraDbContext db) : IUserAccessService
         {
             throw new AccessManagementForbiddenException(AccessErrorCodes.SelfAccessChangeForbidden, "You cannot change your own access.");
         }
-        if (m.User.Role.IsSystem && !actor.IsAdministrator)
+        if (!actor.IsAdministrator && await RoleRules.HoldsAdministratorAsync(db, m.Id, ct))
         {
             throw new AccessManagementForbiddenException(AccessErrorCodes.AccessManagementForbidden, "Only Administrators can change Administrator accounts.");
         }
@@ -363,7 +367,7 @@ public sealed class UserAccessService(SelloraDbContext db) : IUserAccessService
         UserCompanyMembership m, CompanyAccessScope scope, IReadOnlyList<Guid>? branchIds, Guid? primaryBranchId, CancellationToken ct)
     {
         if (scope == CompanyAccessScope.CompanyWide) return [];
-        if (m.User.Role.IsSystem)
+        if (await RoleRules.HoldsAdministratorAsync(db, m.Id, ct))
         {
             throw new DomainValidationException("accessScope", "Administrator accounts are always company-wide.");
         }
@@ -438,6 +442,25 @@ public sealed class UserAccessService(SelloraDbContext db) : IUserAccessService
         }
 
         var now = DateTimeOffset.UtcNow;
+
+        // Phase 7 E2: branch-role assignments at a branch the member no longer holds an allocation to are closed in the same transaction.
+        var branchRolesClosed = false;
+        var removedBranchIds = current.Select(c => c.BranchId).Except(desired.Select(d => d.BranchId)).ToList();
+        if (removedBranchIds.Count > 0)
+        {
+            var branchRoles = await db.UserRoleAssignments.Where(a =>
+                a.CompanyId == m.CompanyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active
+                && a.ScopeType == RoleScope.Branch && a.BranchId != null && removedBranchIds.Contains(a.BranchId.Value)).ToListAsync(ct);
+            branchRolesClosed = branchRoles.Count > 0;
+            foreach (var row in branchRoles)
+            {
+                var roleName = await db.Roles.Where(r => r.Id == row.RoleId).Select(r => r.Name).SingleAsync(ct);
+                var before = RoleRules.Snap(row, roleName);
+                RoleRules.Close(row, actor.UserId, "Branch allocation ended");
+                RoleRules.AuditEnded(db, actor, row, roleName, m.UserId, before);
+            }
+        }
+
         var closing = current.Where(c => !desired.Contains((c.BranchId, c.IsPrimary))).ToList();
         foreach (var row in closing)
         {
@@ -446,7 +469,7 @@ public sealed class UserAccessService(SelloraDbContext db) : IUserAccessService
             row.EndedByUserId = actor.UserId;
             row.EndReason = endReason;
         }
-        if (closing.Count > 0)
+        if (closing.Count > 0 || branchRolesClosed)
         {
             await db.SaveChangesAsync(ct);
         }

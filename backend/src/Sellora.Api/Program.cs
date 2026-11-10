@@ -65,8 +65,8 @@ builder.Services
 
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
-builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
-// Platform.Admin re-reads the database per request, so its handler is scoped (the permission handler above is singleton).
+builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+// Handlers read the database / membership context per request, so they are scoped (permission evaluation is server-side, claims are ignored).
 builder.Services.AddScoped<IAuthorizationHandler, PlatformAdminHandler>();
 builder.Services.AddScoped<IAuthorizationHandler, GovernanceAuthorizationHandler>();
 builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, PlatformAuthorizationResultHandler>();

@@ -15,7 +15,7 @@ public class CompanyQueryFilterTests
 {
     private static readonly Type[] Platform =
     [
-        typeof(User), typeof(Role), typeof(RolePermission), typeof(Permission), typeof(RefreshToken),
+        typeof(User), typeof(Permission), typeof(RefreshToken),
         typeof(Unit), typeof(Currency), typeof(Company), typeof(UserCompanyMembership),
         // Phase 6: the governance catalogue, platform administrators and the platform audit trail belong to no company.
         typeof(GovernancePermission), typeof(PlatformAdministrator), typeof(PlatformAuditEvent),
@@ -26,6 +26,8 @@ public class CompanyQueryFilterTests
     [
         typeof(PurchaseOrderLine), typeof(PurchasePayment), typeof(PurchaseReturnLine), typeof(SalesInvoiceLine),
         typeof(SalesPayment), typeof(SalesReturnLine), typeof(SalesInvoiceLineBatchConsumption), typeof(SellingPrice),
+        // Phase 7: role grants are filtered through their (now company-owned) role.
+        typeof(RolePermission),
     ];
 
     private static SelloraDbContext NewDb(ICompanyContext context, string? name = null) =>
@@ -65,7 +67,7 @@ public class CompanyQueryFilterTests
     }
 
     [Fact]
-    public void Model_CompanyOwnedTypes_AreTheTwentyNineDesignedTypes()
+    public void Model_CompanyOwnedTypes_AreTheThirtyOneDesignedTypes()
     {
         using var db = NewDb(TestCompany.Context);
         var owned = ModelTypes(db).Select(t => t.ClrType).Where(t => typeof(ICompanyOwned).IsAssignableFrom(t)).Select(t => t.Name).Order().ToArray();
@@ -73,7 +75,7 @@ public class CompanyQueryFilterTests
         [
             "AuditEvent", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
             "FinancialTransaction", "GovernanceMemberPermission", "IdempotencyKey", "Product", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
-            "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "Supplier", "Tax", "UserBranchAssignment", "Vehicle", "Warehouse",
+            "Role", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "Supplier", "Tax", "UserBranchAssignment", "UserRoleAssignment", "Vehicle", "Warehouse",
         ];
         Assert.Equal(expected, owned);
     }
@@ -89,6 +91,8 @@ public class CompanyQueryFilterTests
         string[] counterScope = ["DocumentSequence"];
         // Phase 3: StockLocation.BranchId is optional (store/warehouse require it by CHECK; Transit/Vehicle/CompanyWarehouse are company-level).
         string[] locations = ["StockLocation"];
+        // Phase 7: Role.BranchId is set only for Branch-scoped roles and UserRoleAssignment.BranchId only for branch-role assignments (CK_Roles_Scope / CK_URA_Scope_Branch); neither is a document tag.
+        string[] roleScope = ["Role", "UserRoleAssignment"];
 
         var required_ = new List<string>();
         var optional_ = new List<string>();
@@ -102,7 +106,7 @@ public class CompanyQueryFilterTests
         // Phase 5: UserBranchAssignment.BranchId is mandatory (an allocation, not a document tag); it is NOT branch-filtered (the middleware reads it).
         string[] allocations = ["UserBranchAssignment"];
         Assert.Equal(required.Concat(allocations).Order(), required_.Order());
-        Assert.Equal(optional.Concat(counterScope).Concat(locations).Order(), optional_.Order());
+        Assert.Equal(optional.Concat(counterScope).Concat(locations).Concat(roleScope).Order(), optional_.Order());
         Assert.Null(db.Model.FindEntityType(typeof(Branch))!.FindProperty("BranchId"));
     }
 

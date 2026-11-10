@@ -33,7 +33,47 @@ public class EndpointAuthorizationTests
     [
         "BranchesController.Accessible", "CurrenciesController.List", "DashboardController.Get", "ExchangeRatesController.Resolve",
         "FinancialAccountsController.Options", "UsersController.UpdateOwnUsername", "UsersController.ChangeOwnPassword",
+        // Phase 7: scoped roles. A branch administrator holds Branch.Roles.* / Branch.Users.AssignRoles at ONE branch only, so a named company-level policy
+        // would lock them out. These endpoints are plain [Authorize] and every action checks the caller's effective permissions at the role's scope
+        // (RoleRules, R1-R4; 403 role_management_forbidden / role_assignment_forbidden, 404 outside reach). ScopedRolesApiTests.EveryServiceCheckedRoleRoute_RefusesASignedInUserWithoutAnyCode proves each route refuses a signed-in user with no codes.
+        "RolesController.List", "RolesController.Get", "RolesController.Create", "RolesController.Update", "RolesController.Duplicate", "RolesController.SetActive",
+        "RoleAssignmentsController.Get", "RoleAssignmentsController.Assign", "RoleAssignmentsController.End", "RoleAssignmentsController.Members",
     ];
+
+    /// <summary>The Phase 7 role routes that rely on service-level scope checks instead of a named policy (kept in sync with <see cref="SignedInOnly"/> by <see cref="RoleEndpoints_AreExactlyTheServiceCheckedRoutes"/>).</summary>
+    private static readonly string[] ServiceCheckedRoleRoutes =
+    [
+        "GET RoleAssignmentsController.Get", "GET RoleAssignmentsController.Members", "GET RolesController.Get", "GET RolesController.List",
+        "POST RoleAssignmentsController.Assign", "POST RoleAssignmentsController.End", "POST RolesController.Create", "POST RolesController.Duplicate",
+        "POST RolesController.SetActive", "PUT RolesController.Update",
+    ];
+
+    [Fact]
+    public void RoleEndpoints_AreExactlyTheServiceCheckedRoutes_AllBehindSignIn()
+    {
+        var actual = Protected()
+            .Where(x => x.Controller == typeof(RolesController) || x.Controller == typeof(RoleAssignmentsController))
+            .ToList();
+
+        Assert.Equal(ServiceCheckedRoleRoutes, actual.Select(x => $"{x.Verb} {x.Controller.Name}.{x.Action.Name}").Order().ToArray());
+        foreach (var (controller, action, _) in actual)
+            Assert.Contains(Policies(controller, action), p => p.Length == 0); // plain [Authorize]: never anonymous
+    }
+
+    [Theory]
+    [InlineData("Units", "Create")]
+    [InlineData("Units", "Update")]
+    [InlineData("Units", "SetActive")]
+    [InlineData("Currencies", "Create")]
+    [InlineData("Currencies", "Update")]
+    [InlineData("Currencies", "SetActive")]
+    public void CompanyReferenceDataWrites_StillRequireMastersEdit_AndAreNotPlatformEndpoints(string controllerName, string action)
+    {
+        var controller = controllerName == "Units" ? typeof(UnitsController) : typeof(CurrenciesController);
+
+        Assert.Contains("Masters.Edit", Policies(controller, controller.GetMethod(action)!));
+        Assert.False(IsPlatformEndpoint(controller, controller.GetMethod(action)!));
+    }
 
     private static IEnumerable<(Type Controller, MethodInfo Action, string Verb)> Protected() =>
         Actions().Where(x => !Public.Contains(x.Controller.Name) && !x.Action.GetCustomAttributes<AllowAnonymousAttribute>().Any());
@@ -332,12 +372,17 @@ public class EndpointAuthorizationTests
         || action.GetCustomAttributes<Sellora.Api.Authorization.PlatformEndpointAttribute>(true).Any();
 
     [Fact]
-    public void PlatformEndpoints_AreExactlyTheFourPlatformRoutes_EachRequiringOnlyPlatformAdmin()
+    public void PlatformEndpoints_AreExactlyTheTwelvePlatformRoutes_EachRequiringOnlyPlatformAdmin()
     {
         var platform = Actions().Where(x => IsPlatformEndpoint(x.Controller, x.Action)).ToList();
 
         Assert.Equal(
-            ["GET PlatformCompaniesController.Currencies", "GET PlatformCompaniesController.List", "POST PlatformCompaniesController.Create", "POST PlatformCompaniesController.SetStatus"],
+            [
+                "GET PlatformCompaniesController.Currencies", "GET PlatformCompaniesController.List", "GET PlatformReferenceDataController.Currencies", "GET PlatformReferenceDataController.Units",
+                "POST PlatformCompaniesController.Create", "POST PlatformCompaniesController.SetStatus", "POST PlatformReferenceDataController.CreateCurrency",
+                "POST PlatformReferenceDataController.CreateUnit", "POST PlatformReferenceDataController.SetCurrencyActive", "POST PlatformReferenceDataController.SetUnitActive",
+                "PUT PlatformReferenceDataController.UpdateCurrency", "PUT PlatformReferenceDataController.UpdateUnit",
+            ],
             platform.Select(x => $"{x.Verb} {x.Controller.Name}.{x.Action.Name}").Order().ToArray());
         foreach (var (controller, action, _) in platform)
             Assert.Equal([PlatformAdminPolicy], Policies(controller, action).Where(p => p.Length > 0).ToArray());

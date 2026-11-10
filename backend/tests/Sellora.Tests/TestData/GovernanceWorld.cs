@@ -61,13 +61,15 @@ public sealed class GovernanceWorld
         var user = new User
         {
             Id = Guid.NewGuid(), FirstName = name, LastName = "T", Username = name.ToLowerInvariant(), Email = $"{name.ToLowerInvariant()}@x.io",
-            PasswordHash = "x", RoleId = role.Id, Status = status,
+            PasswordHash = "x", Status = status,
         };
         Db.Users.Add(user);
-        Db.UserCompanyMemberships.Add(new UserCompanyMembership
+        var m = new UserCompanyMembership
         {
             Id = Guid.NewGuid(), UserId = user.Id, CompanyId = TestCompany.DefaultId, Status = membership, AccessScope = scope,
-        });
+        };
+        Db.UserCompanyMemberships.Add(m);
+        Db.UserRoleAssignments.Add(Rbac.Assignment(m, role)); // Phase 7: roles are held through assignments (Users.RoleId is deprecated)
         Db.SaveChanges();
         return user;
     }

@@ -19,7 +19,7 @@ public static class Phase6Support
 
     public static async Task EnsureStaffRoleAsync(ApiHost host) =>
         await ExecuteAsync(host.Database, $"""
-            INSERT INTO "Roles" ("Id", "Name", "Description", "IsActive", "IsSystem") VALUES ('{StaffRoleId}', 'Phase6 Staff', NULL, true, false) ON CONFLICT DO NOTHING;
+            INSERT INTO "Roles" ("Id", "CompanyId", "Name", "Description", "IsActive", "IsSystem", "CreatedAt") VALUES ('{StaffRoleId}', '0c0a1f00-0000-4000-8000-000000000001', 'Phase6 Staff', NULL, true, false, now()) ON CONFLICT DO NOTHING;
             """);
 
     /// <summary>A user (role Administrator when <paramref name="administrator"/>, else the Phase 6 staff role) with a CompanyWide membership in <paramref name="company"/> (null: none).</summary>
@@ -31,10 +31,14 @@ public static class Phase6Support
         var membership = company is null ? "" : $"""
             INSERT INTO "UserCompanyMemberships" ("Id", "UserId", "CompanyId", "Status", "AccessScope", "CreatedAt") VALUES (gen_random_uuid(), '{id}', '{company}', '{membershipStatus}', 'CompanyWide', now());
             """;
+        // Phase 7: the role is held through an assignment in the membership's company (the staff role belongs to the default company).
+        var roleOfCompany = administrator ? $"""(SELECT "Id" FROM "Roles" WHERE "CompanyId" = '{company}' AND "IsSystem" AND "IsActive" LIMIT 1)""" : $"'{StaffRoleId}'";
+        var assignment = company is null ? "" : Sellora.IntegrationTests.TestData.RbacSeed.AssignSql(id, company, roleOfCompany);
         await ExecuteAsync(host.Database, $"""
             INSERT INTO "Users" ("Id", "CreatedAt", "Email", "FirstName", "LastName", "PasswordHash", "RoleId", "Status", "Username")
             VALUES ('{id}', now(), '{username}@example.io', '{username}', 'T', '{PasswordHash}', {role}, '{status}', '{username}');
             {membership}
+            {assignment}
             """);
         return id;
     }

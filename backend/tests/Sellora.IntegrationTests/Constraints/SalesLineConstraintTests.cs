@@ -29,7 +29,7 @@ public class SalesLineConstraintTests(PostgresFixture postgres)
             INSERT INTO "Units" ("Id", "Name", "ShortCode", "MeasurementCategory", "DecimalPlaces", "StandardFactor", "IsActive") VALUES
               ('{UPc}', 'Piece', 'pc-t', 'Count', 0, NULL, true), ('{UBox}', 'Box', 'box-t', 'Packaging', 0, NULL, true), ('{ULitre}', 'Litre', 'l-t', 'Volume', 3, 1, true);
             INSERT INTO "Taxes" ("Id", "Name", "RatePercent", "IsActive") VALUES ('{TaxId}', 'GST 5% test', 5, true);
-            INSERT INTO "Roles" ("Id", "Name", "Description", "IsActive", "IsSystem") VALUES ('{RoleId}', 'Test role', NULL, true, false);
+            INSERT INTO "Roles" ("Id", "CompanyId", "Name", "Description", "IsActive", "IsSystem", "CreatedAt") VALUES ('{RoleId}', '0c0a1f00-0000-4000-8000-000000000001', 'Test role', NULL, true, false, now());
             INSERT INTO "Users" ("Id", "CreatedAt", "Email", "FirstName", "LastName", "PasswordHash", "RoleId", "Status", "Username")
             VALUES ('{UserId}', now(), 'sales-test@selloramart.in', 'Ravi', 'Krishnan', 'x', '{RoleId}', 'Active', 'sales-test');
             INSERT INTO "Customers" ("Id", "Name", "IsActive", "IsWalkIn") VALUES ('{CustomerId}', 'Walk-in test', true, true);

@@ -436,7 +436,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
 
     // ---- permissions ----------------------------------------------------------------------------------------------------------
 
-    private static HttpClient TokenClient(WarehouseVehicleApiWorld w, params string[] permissions) => w.Host.NewClient(ApiHost.SignToken(w.AdminId, w.CompanyId, permissions));
+    private static Task<HttpClient> TokenClientAsync(WarehouseVehicleApiWorld w, params string[] permissions) => w.Host.LimitedClientAsync(w.Admin, permissions);
 
     [Theory]
     [InlineData("Company.Warehouses.View", "GET", HttpStatusCode.OK)]
@@ -453,7 +453,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
     public async Task EachWarehousePermission_OpensExactlyItsOwnAction(string permission, string action, HttpStatusCode expected)
     {
         var w = await GetAsync(postgres);
-        using var client = TokenClient(w, permission);
+        using var client = await TokenClientAsync(w, permission);
         var wh = await w.NewWarehouseAsync();
 
         var response = action switch
@@ -482,7 +482,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
     public async Task EachVehiclePermission_OpensExactlyItsOwnAction(string permission, string action, HttpStatusCode expected)
     {
         var w = await GetAsync(postgres);
-        using var client = TokenClient(w, permission);
+        using var client = await TokenClientAsync(w, permission);
         var v = await w.NewVehicleAsync();
 
         var response = action switch
@@ -500,7 +500,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
     public async Task Endpoints_Anonymous_Answer401_AndWithoutAnyCodeAnswer403()
     {
         var w = await GetAsync(postgres);
-        using var nobody = TokenClient(w, "Masters.View", "StockLocations.View");
+        using var nobody = await TokenClientAsync(w, "Masters.View", "StockLocations.View");
         using var anonymous = w.Host.NewClient();
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await w.SendAsync(HttpMethod.Get, Wh, client: anonymous)).StatusCode);

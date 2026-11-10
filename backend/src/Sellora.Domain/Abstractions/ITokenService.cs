@@ -4,7 +4,7 @@ namespace Sellora.Domain.Abstractions;
 
 public interface ITokenService
 {
-    (string AccessToken, DateTimeOffset ExpiresAt) CreateAccessToken(User user, Guid companyId, IReadOnlyCollection<string> permissionCodes);
+    (string AccessToken, DateTimeOffset ExpiresAt) CreateAccessToken(User user, Guid companyId, IReadOnlyCollection<string>? permissionCodes = null);
 
     /// <summary>Platform session token (Phase 6 D2): sub/email/name and <c>sellora_session=platform</c>; no company_id, no permission claims.</summary>
     (string AccessToken, DateTimeOffset ExpiresAt) CreatePlatformAccessToken(User user, TimeSpan lifetime);

@@ -13,7 +13,7 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/auth")]
-public class AuthController(IAuthService authService, SelloraDbContext db) : ControllerBase
+public class AuthController(IAuthService authService, SelloraDbContext db, IEffectivePermissionService effectivePermissions) : ControllerBase
 {
     [HttpPost("login")]
     [AllowAnonymous]
@@ -95,13 +95,10 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
     public async Task<IActionResult> Me(CancellationToken ct)
     {
         var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
-        var user = await db.Users
-            .Include(u => u.Role).ThenInclude(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
-            .SingleOrDefaultAsync(u => u.Id == userId, ct);
+        var user = await db.Users.SingleOrDefaultAsync(u => u.Id == userId, ct);
 
         if (user is null) return NotFound();
 
-        var permissions = PermissionResolver.Resolve(user.Role);
         // The middleware validated the claim and set the context; the current company is whatever the token is bound to.
         var currentCompanyId = db.CompanyContext.RequireCompanyId();
         var companies = await db.UserCompanyMemberships
@@ -127,8 +124,22 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
             .ToArray();
         var scope = allowedIds is null ? CompanyAccessScope.CompanyWide : CompanyAccessScope.AssignedBranches;
 
+        // Effective permissions at the working branch (header, else primary, else the company's default branch); roles of this membership.
+        var set = await effectivePermissions.GetCurrentAsync(ct);
+        var working = db.BranchContext.RequestedBranchId ?? primaryId ?? branchRows.Where(b => b.IsDefault).Select(b => (Guid?)b.Id).FirstOrDefault();
+        var permissions = set.CodesAtBranch(working).OrderBy(c => c, StringComparer.Ordinal).ToArray();
+        var membershipId = HttpContext.RequestServices.GetRequiredService<IMembershipContext>().RequireMembershipId();
+        var roleRows = await (
+            from a in db.UserRoleAssignments
+            join r in db.Roles on a.RoleId equals r.Id
+            where a.UserCompanyMembershipId == membershipId && a.CompanyId == currentCompanyId && a.Status == AssignmentStatus.Active && r.IsActive
+            select new { r.Id, r.Name, r.ScopeType, r.BranchId })
+            .ToListAsync(ct);
+        var roles = roleRows.OrderBy(r => r.ScopeType).ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(r => new AuthRoleSummary(r.Id, r.Name, r.ScopeType, r.BranchId)).ToArray();
         var summary = UserSummaryDto.From(new AuthenticatedUserSummary(
-            user.Id, user.FirstName, user.LastName, user.Username, user.Email, user.Role.Name, permissions, current.Id, current.Name));
+            user.Id, user.FirstName, user.LastName, user.Username, user.Email, Sellora.Infrastructure.Services.AuthService.PrimaryRoleName(roles),
+            permissions, current.Id, current.Name, Roles: roles));
         var member = await db.CompanyGovernanceMembers.AsNoTracking()
             .Where(g => g.CompanyId == currentCompanyId && g.Status == GovernanceMemberStatus.Active && g.Membership.UserId == userId)
             .Select(g => new { g.Id, g.Title })
@@ -146,6 +157,6 @@ public class AuthController(IAuthService authService, SelloraDbContext db) : Con
 
         return Ok(new MeResponse(summary.Id, summary.FirstName, summary.LastName, summary.Username, summary.Email,
             summary.RoleName, summary.Permissions, summary.CompanyId, summary.CompanyName,
-            scope, primaryId, allowedBranches, companies, governance));
+            scope, primaryId, allowedBranches, companies, governance, summary.Roles));
     }
 }

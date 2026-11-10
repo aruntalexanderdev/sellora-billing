@@ -117,19 +117,24 @@ public static class DbSeeder
 
         await GrantNewPermissionToExistingHoldersAsync(db, "Purchase.Pay", "Purchase.Edit", ct);
         await GrantNewPermissionToExistingHoldersAsync(db, "Sales.Receive", "Sales.Create", ct);
+        // Phase 7: assigning roles was part of Users.Create/Users.Edit; the migration does the same for existing databases (B4).
+        await GrantNewPermissionToExistingHoldersAsync(db, PermissionCatalog.CompanyUsersAssignRoles, ["Users.Create", "Users.Edit"], ct);
     }
 
     // Recording payments used to be covered by an edit permission, so every role holding that permission keeps
     // the ability when the dedicated one is introduced. Only runs while nobody holds the new permission, so a
     // role an administrator later revokes it from is not re-granted.
-    private static async Task GrantNewPermissionToExistingHoldersAsync(SelloraDbContext db, string newCode, string existingCode, CancellationToken ct)
+    private static Task GrantNewPermissionToExistingHoldersAsync(SelloraDbContext db, string newCode, string existingCode, CancellationToken ct) =>
+        GrantNewPermissionToExistingHoldersAsync(db, newCode, [existingCode], ct);
+
+    private static async Task GrantNewPermissionToExistingHoldersAsync(SelloraDbContext db, string newCode, string[] existingCodes, CancellationToken ct)
     {
         var permission = await db.Permissions.SingleAsync(p => p.Code == newCode, ct);
         if (await db.RolePermissions.AnyAsync(rp => rp.PermissionId == permission.Id, ct)) return;
 
         var roleIds = await db.RolePermissions
-            .Where(rp => rp.Permission.Code == existingCode)
-            .Select(rp => rp.RoleId).ToListAsync(ct);
+            .Where(rp => existingCodes.Contains(rp.Permission.Code))
+            .Select(rp => rp.RoleId).Distinct().ToListAsync(ct);
         foreach (var roleId in roleIds)
         {
             db.RolePermissions.Add(new RolePermission { RoleId = roleId, PermissionId = permission.Id });
@@ -166,7 +171,8 @@ public static class DbSeeder
 
     private static async Task<Role> SeedAdministratorRoleAsync(SelloraDbContext db, CancellationToken ct)
     {
-        var role = await db.Roles.SingleOrDefaultAsync(r => r.Name == "Administrator", ct);
+        // Company filter: the default company's own Administrator (exactly one IsSystem role per company, IX_Roles_CompanyId_System).
+        var role = await db.Roles.SingleOrDefaultAsync(r => r.IsSystem, ct);
         if (role is not null) return role;
 
         role = new Role
@@ -174,6 +180,7 @@ public static class DbSeeder
             Id = Guid.NewGuid(),
             Name = "Administrator",
             Description = "Full access to every module. System role — cannot be edited or deleted.",
+            ScopeType = RoleScope.Company,
             IsSystem = true,
             IsActive = true,
         };
@@ -202,13 +209,27 @@ public static class DbSeeder
         }
 
         // Explicit membership, never inferred (arch 6.1): the seeded administrator can sign in to the default company.
-        var hasMembership = await db.UserCompanyMemberships.AnyAsync(m => m.UserId == admin.Id && m.CompanyId == DefaultTenant.CompanyId, ct);
-        if (!hasMembership)
+        var membershipId = await db.UserCompanyMemberships
+            .Where(m => m.UserId == admin.Id && m.CompanyId == DefaultTenant.CompanyId)
+            .Select(m => (Guid?)m.Id).SingleOrDefaultAsync(ct);
+        if (membershipId is null)
         {
+            membershipId = Guid.NewGuid();
             db.UserCompanyMemberships.Add(new UserCompanyMembership
             {
-                Id = Guid.NewGuid(), UserId = admin.Id, CompanyId = DefaultTenant.CompanyId,
+                Id = membershipId.Value, UserId = admin.Id, CompanyId = DefaultTenant.CompanyId,
                 Status = MembershipStatus.Active, AccessScope = CompanyAccessScope.CompanyWide,
+            });
+        }
+
+        // Phase 7 (D3/D9): the seeded administrator holds the company's Administrator role through an assignment (Users.RoleId is deprecated).
+        // Seeded once: an administrator whose assignment was later ended is not re-assigned. Id = md5('ura:' || membershipId), as the migration.
+        if (!await db.UserRoleAssignments.AnyAsync(a => a.UserCompanyMembershipId == membershipId.Value, ct))
+        {
+            db.UserRoleAssignments.Add(new UserRoleAssignment
+            {
+                Id = Md5Guid("ura:" + membershipId.Value.ToString("D")), UserCompanyMembershipId = membershipId.Value, RoleId = adminRole.Id,
+                ScopeType = RoleScope.Company, Status = AssignmentStatus.Active, AssignmentReason = "Seeded administrator",
             });
         }
 
@@ -217,6 +238,8 @@ public static class DbSeeder
 
     // Phase 6 D8: the governance catalogue lives in its own table (never in Permissions). Ids are deterministic (md5, as the migration);
     // existing rows are left untouched.
+    private static Guid Md5Guid(string text) => Guid.Parse(Convert.ToHexString(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(text))));
+
     private static async Task SeedGovernanceCatalogueAsync(SelloraDbContext db, CancellationToken ct)
     {
         var existingCodes = await db.GovernancePermissions.Select(p => p.Code).ToListAsync(ct);

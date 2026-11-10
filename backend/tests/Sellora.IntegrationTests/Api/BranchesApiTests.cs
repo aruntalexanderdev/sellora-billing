@@ -177,13 +177,13 @@ public class BranchesApiTests(PostgresFixture postgres)
 
     // ---- permissions (T7) ------------------------------------------------------------------------------------------------
 
-    private HttpClient TokenClient(BranchApiWorld w, params string[] permissions) => w.Host.NewClient(ApiHost.SignToken(w.AdminId, w.CompanyId, permissions));
+    private Task<HttpClient> TokenClientAsync(BranchApiWorld w, params string[] permissions) => w.Host.LimitedClientAsync(w.Admin, permissions);
 
     [Fact]
     public async Task Endpoints_WithoutTheirPermissionCode_Answer403_AndAccessibleNeedsOnlySignIn()
     {
         var w = await GetAsync(postgres);
-        using var nobody = TokenClient(w, "Masters.View");
+        using var nobody = await TokenClientAsync(w, "Masters.View");
         var (id, _) = await w.NewBranchAsync();
 
         var statuses = new[]
@@ -212,7 +212,7 @@ public class BranchesApiTests(PostgresFixture postgres)
     public async Task EachPermissionCode_OpensExactlyItsOwnAction(string permission, string action, HttpStatusCode expected)
     {
         var w = await GetAsync(postgres);
-        using var client = TokenClient(w, permission);
+        using var client = await TokenClientAsync(w, permission);
         var (id, _) = await w.NewBranchAsync();
         var code = "Q" + Guid.NewGuid().ToString("N")[..4];
 

@@ -15,10 +15,12 @@ public class IgnoreQueryFiltersBypassTests
     ];
 
     // Phase 5: auth/middleware read assignments/branches before a company context exists; they bypass "Company" with explicit CompanyId predicates.
-    private static readonly string[] CompanyBypassWithPredicate = ["AuthService.cs", "CompanyContextMiddleware.cs"];
+    // Phase 7: effective permissions are loaded by membership id before/outside the request company (login/refresh/switch) and the handler resolves the company's default branch.
+    private static readonly string[] CompanyBypassWithPredicate = ["AuthService.cs", "CompanyContextMiddleware.cs", "EffectivePermissionService.cs", "PermissionAuthorizationHandler.cs"];
 
     // Phase 6: platform sessions carry no company context; PlatformService reads company-owned rows with explicit CompanyId grouping/predicates.
-    private static readonly string[] PlatformBypass = ["PlatformService.cs"];
+    // Phase 7: platform reference-data endpoints (units/currencies) read in-use flags across every company's BusinessSettings; CurrencyService refuses deactivating any company's base currency.
+    private static readonly string[] PlatformBypass = ["PlatformService.cs", "PlatformReferenceDataController.cs", "CurrencyService.cs"];
 
     private static string SrcRoot()
     {
@@ -53,6 +55,21 @@ public class IgnoreQueryFiltersBypassTests
             foreach (var line in lines)
                 Assert.True(line.Contains("BranchQueryFilter.Name") || line.Contains("BranchBypass"),
                     $"{Path.GetFileName(file)}: a Phase 5 bypass must name only the Branch filter: {line.Trim()}");
+        }
+    }
+
+    [Fact]
+    public void ProductionSource_Phase7CompanyBypassFiles_NameOnlyTheCompanyFilterAndKeepAnExplicitCompanyPredicate()
+    {
+        foreach (var name in new[] { "EffectivePermissionService.cs", "PermissionAuthorizationHandler.cs" })
+        {
+            var file = Directory.EnumerateFiles(SrcRoot(), name, SearchOption.AllDirectories).Single();
+            var lines = File.ReadAllLines(file);
+            var bypasses = lines.Where(l => l.Contains("IgnoreQueryFilters") && !l.TrimStart().StartsWith("//") && !l.TrimStart().StartsWith("///")).ToList();
+            Assert.NotEmpty(bypasses);
+            foreach (var line in bypasses)
+                Assert.True(line.Contains("CompanyFilter") || line.Contains("CompanyQueryFilter.Name"), $"{name}: a Phase 7 bypass must name only the Company filter: {line.Trim()}");
+            Assert.Contains(lines, l => l.Contains("CompanyId ==") || l.Contains("== cid"));
         }
     }
 }

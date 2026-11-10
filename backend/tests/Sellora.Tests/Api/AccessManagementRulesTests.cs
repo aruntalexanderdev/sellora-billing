@@ -44,34 +44,25 @@ public class AccessManagementRulesTests
         var admin = new Role { Id = Guid.NewGuid(), Name = "Administrator", IsSystem = true };
         var manager = RoleWith("User Manager", permissions,
             "Users.View", "Users.Create", "Users.Edit", "Users.Disable", "Users.ResetPassword",
-            "Roles.View", "Roles.Create", "Roles.Edit", "Roles.Duplicate", "Roles.Disable", "Sales.View");
+            "Roles.View", "Roles.Create", "Roles.Edit", "Roles.Duplicate", "Roles.Disable", "Sales.View", "Company.Users.AssignRoles");
         var cashier = RoleWith("Cashier", permissions, "Sales.View", "Sales.Create");
 
-        var adminUser = UserIn(admin, "admin");
-        var managerUser = UserIn(manager, "manager");
-        var cashierUser = UserIn(cashier, "cashier");
-        db.AddRange(admin, manager, cashier, adminUser, managerUser, cashierUser);
-        db.UserCompanyMemberships.AddRange(new[] { adminUser, managerUser, cashierUser }.Select(u => TestCompany.MembershipFor(u)));
+        var adminUser = UserIn("admin");
+        var managerUser = UserIn("manager");
+        var cashierUser = UserIn("cashier");
+        db.AddRange(admin, manager, cashier);
+        Rbac.Join(db, adminUser, admin);
+        Rbac.Join(db, managerUser, manager);
+        Rbac.Join(db, cashierUser, cashier);
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
         return new Fixture(db, admin, manager, cashier, adminUser, managerUser, cashierUser);
     }
 
-    private static Role RoleWith(string name, IReadOnlyDictionary<string, Permission> permissions, params string[] codes)
-    {
-        var role = new Role { Id = Guid.NewGuid(), Name = name };
-        foreach (var code in codes)
-        {
-            role.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = permissions[code].Id });
-        }
-        return role;
-    }
+    private static Role RoleWith(string name, IReadOnlyDictionary<string, Permission> permissions, params string[] codes) =>
+        Rbac.RoleWith(name, permissions, codes);
 
-    private static User UserIn(Role role, string username) => new()
-    {
-        Id = Guid.NewGuid(), FirstName = username, LastName = "Test", Username = username, Email = $"{username}@selloramart.in",
-        PasswordHash = "x", RoleId = role.Id, Status = UserStatus.Active,
-    };
+    private static User UserIn(string username) => Rbac.NewUser(username);
 
     private static ControllerContext As(User actor) => new()
     {
@@ -84,13 +75,15 @@ public class AccessManagementRulesTests
     private static UsersController Users(Fixture f, User actor)
     {
         f.Db.ChangeTracker.Clear();
-        return new UsersController(f.Db, new FakeHasher(), new Sellora.Infrastructure.Services.UserAccessService(f.Db)) { ControllerContext = As(actor) };
+        var access = new Sellora.Infrastructure.Services.UserAccessService(f.Db);
+        return new UsersController(f.Db, new FakeHasher(), access, new Sellora.Infrastructure.Services.RoleAssignmentService(f.Db, access)) { ControllerContext = As(actor) };
     }
 
     private static RolesController Roles(Fixture f, User actor)
     {
         f.Db.ChangeTracker.Clear();
-        return new RolesController(f.Db) { ControllerContext = As(actor) };
+        var membership = Rbac.ContextOf(f.Db, actor.Id);
+        return new RolesController(f.Db, new Sellora.Infrastructure.Services.RoleService(f.Db), Rbac.Effective(f.Db, membership), membership) { ControllerContext = As(actor) };
     }
 
     private static CreateUserRequest NewUser(Guid roleId) =>
@@ -112,6 +105,13 @@ public class AccessManagementRulesTests
         return Assert.IsType<ProblemDetails>(obj.Value).Title!;
     }
 
+    private static string ForbiddenCode(IActionResult? result, int status = 403)
+    {
+        var obj = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(status, obj.StatusCode);
+        return (string)Assert.IsType<ProblemDetails>(obj.Value).Extensions["code"]!;
+    }
+
     private static async Task SetRoleActiveDirectlyAsync(Fixture f, Role role, bool active)
     {
         var tracked = await f.Db.Roles.SingleAsync(r => r.Id == role.Id);
@@ -128,7 +128,9 @@ public class AccessManagementRulesTests
 
         var result = await Users(f, f.ManagerUser).Create(NewUser(f.Admin.Id), default);
 
-        Assert.Equal("Only Administrators can assign the Administrator role.", FieldError(result.Result, "RoleId"));
+        // Phase 7: refused as 403 administrator_assignment_forbidden (was a 400 field error on RoleId).
+        Assert.Equal("Only Administrators can assign or end the Administrator role.", Title(result.Result, 403));
+        Assert.Equal("administrator_assignment_forbidden", ForbiddenCode(result.Result));
         Assert.False(await f.Db.Users.AnyAsync(u => u.Username == "anu"));
     }
 
@@ -140,7 +142,8 @@ public class AccessManagementRulesTests
         var result = await Users(f, f.AdminUser).Create(NewUser(f.Admin.Id), default);
 
         Assert.IsType<CreatedAtActionResult>(result.Result);
-        Assert.Equal(f.Admin.Id, (await f.Db.Users.SingleAsync(u => u.Username == "anu")).RoleId);
+        var anu = await f.Db.Users.SingleAsync(u => u.Username == "anu");
+        Assert.Equal([f.Admin.Id], await Rbac.ActiveRoleIdsAsync(f.Db, anu.Id));
     }
 
     [Fact]
@@ -150,8 +153,8 @@ public class AccessManagementRulesTests
 
         var result = await Users(f, f.ManagerUser).Update(f.CashierUser.Id, Edit(f.CashierUser, f.Admin.Id), default);
 
-        Assert.Equal("Only Administrators can assign the Administrator role.", FieldError(result.Result, "RoleId"));
-        Assert.Equal(f.Cashier.Id, (await f.Db.Users.SingleAsync(u => u.Id == f.CashierUser.Id)).RoleId);
+        Assert.Equal("administrator_assignment_forbidden", ForbiddenCode(result.Result));
+        Assert.Equal([f.Cashier.Id], await Rbac.ActiveRoleIdsAsync(f.Db, f.CashierUser.Id));
     }
 
     [Fact]
@@ -175,9 +178,8 @@ public class AccessManagementRulesTests
     public async Task Administrator_CanManageAnotherAdministratorAccount()
     {
         var f = await SeedAsync();
-        var second = UserIn(f.Admin, "admin2");
-        f.Db.Users.Add(second);
-        f.Db.UserCompanyMemberships.Add(TestCompany.MembershipFor(second));
+        var second = UserIn("admin2");
+        Rbac.Join(f.Db, second, f.Admin);
         await f.Db.SaveChangesAsync();
 
         var disable = await Users(f, f.AdminUser).SetStatus(second.Id, new SetUserStatusRequest(UserStatus.Disabled), default);
@@ -205,15 +207,18 @@ public class AccessManagementRulesTests
         var f = await SeedAsync();
         // Cashier holds Sales.Create, which the User Manager does not: assigning it would grant that to the new account.
         var create = await Users(f, f.ManagerUser).Create(NewUser(f.Cashier.Id), default);
-        var target = UserIn(f.Manager, "colleague");
-        f.Db.Users.Add(target);
-        f.Db.UserCompanyMemberships.Add(TestCompany.MembershipFor(target));
+        f.Db.ChangeTracker.Clear(); // a refused request is rolled back in production (scope disposed); InMemory has no transaction, so drop what it staged
+        var target = UserIn("colleague");
+        Rbac.Join(f.Db, target, f.Manager);
         await f.Db.SaveChangesAsync();
         var update = await Users(f, f.ManagerUser).Update(target.Id, Edit(target, f.Cashier.Id), default);
 
+        // Phase 7: 403 role_escalation_forbidden (was a 400 field error on RoleId).
         const string expected = "You can only assign a role whose permissions you hold yourself. Not held: Sales.Create.";
-        Assert.Equal(expected, FieldError(create.Result, "RoleId"));
-        Assert.Equal(expected, FieldError(update.Result, "RoleId"));
+        Assert.Equal(expected, Title(create.Result, 403));
+        Assert.Equal(expected, Title(update.Result, 403));
+        Assert.Equal("role_escalation_forbidden", ForbiddenCode(create.Result));
+        Assert.Equal("role_escalation_forbidden", ForbiddenCode(update.Result));
         Assert.False(await f.Db.Users.AnyAsync(u => u.Username == "anu"));
     }
 
@@ -235,17 +240,16 @@ public class AccessManagementRulesTests
     public async Task DisabledCaller_HoldsNothing_EvenAsAnAdministratorWithAStillValidToken()
     {
         var f = await SeedAsync();
-        var second = UserIn(f.Admin, "admin2");
+        var second = UserIn("admin2");
         second.Status = UserStatus.Disabled;
-        f.Db.Users.Add(second);
-        f.Db.UserCompanyMemberships.Add(TestCompany.MembershipFor(second));
+        Rbac.Join(f.Db, second, f.Admin);
         await f.Db.SaveChangesAsync();
 
         var demote = await Users(f, second).Update(f.AdminUser.Id, Edit(f.AdminUser, f.Cashier.Id), default);
         var role = await Roles(f, second).Create(new CreateRoleRequest("Viewer", null, ["Sales.View"]), default);
 
         Assert.Equal("Only Administrators can change Administrator accounts.", Title(demote.Result, 403));
-        Assert.Equal("You can only grant permissions you hold yourself. Not held: Sales.View.", FieldError(role.Result, "PermissionCodes"));
+        Assert.Equal("role_management_forbidden", ForbiddenCode(role.Result)); // holds nothing: refused before any code check
     }
 
     [Fact]
@@ -300,7 +304,8 @@ public class AccessManagementRulesTests
         Assert.Equal("You cannot change your own role.", FieldError(demote.Result, "RoleId"));
         Assert.Equal("You cannot disable your own account.", Title(disable, 400));
         var admin = await f.Db.Users.AsNoTracking().SingleAsync(u => u.Id == f.AdminUser.Id);
-        Assert.Equal((f.Admin.Id, UserStatus.Active), (admin.RoleId, admin.Status));
+        Assert.Equal(UserStatus.Active, admin.Status);
+        Assert.Equal([f.Admin.Id], await Rbac.ActiveRoleIdsAsync(f.Db, f.AdminUser.Id));
     }
 
     // ---- Inactive roles cannot be assigned ----
@@ -310,15 +315,15 @@ public class AccessManagementRulesTests
     {
         var f = await SeedAsync();
         var legacy = new Role { Id = Guid.NewGuid(), Name = "Legacy", IsActive = false };
-        var legacyUser = UserIn(legacy, "legacy");
-        f.Db.AddRange(legacy, legacyUser);
-        f.Db.UserCompanyMemberships.Add(TestCompany.MembershipFor(legacyUser));
+        var legacyUser = UserIn("legacy");
+        f.Db.Add(legacy);
+        Rbac.Join(f.Db, legacyUser, legacy);
         await f.Db.SaveChangesAsync();
 
         var assign = await Users(f, f.AdminUser).Update(f.CashierUser.Id, Edit(f.CashierUser, legacy.Id), default);
         var keep = await Users(f, f.AdminUser).Update(legacyUser.Id, Edit(legacyUser, legacy.Id) with { FirstName = "Kept" }, default);
 
-        Assert.Equal("This role is inactive. Activate it or choose another role.", FieldError(assign.Result, "RoleId"));
+        Assert.Equal("This role is inactive. Activate it or choose another role.", FieldError(assign.Result, "roleId"));
         Assert.IsType<OkObjectResult>(keep.Result);
     }
 
@@ -329,10 +334,12 @@ public class AccessManagementRulesTests
     {
         var f = await SeedAsync();
 
-        var result = await Roles(f, f.ManagerUser).Create(new CreateRoleRequest("Auditor", null, ["Sales.View", "Reports.Profit", "Inventory.Adjust"]), default);
+        // Phase 7: the services raise DomainValidationException (400 via the global handler) instead of the controller building the field error.
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(async () =>
+            await Roles(f, f.ManagerUser).Create(new CreateRoleRequest("Auditor", null, ["Sales.View", "Reports.Profit", "Inventory.Adjust"]), default));
 
-        Assert.Equal("You can only grant permissions you hold yourself. Not held: Inventory.Adjust, Reports.Profit.",
-            FieldError(result.Result, "PermissionCodes"));
+        Assert.Equal("permissionCodes", ex.Field);
+        Assert.Equal("You can only grant permissions you hold yourself. Not held: Inventory.Adjust, Reports.Profit.", ex.Message);
         Assert.False(await f.Db.Roles.AnyAsync(r => r.Name == "Auditor"));
     }
 
@@ -354,9 +361,10 @@ public class AccessManagementRulesTests
         var f = await SeedAsync();
         var current = await f.Db.RolePermissions.Where(rp => rp.RoleId == f.Manager.Id).Select(rp => rp.Permission.Code).ToArrayAsync();
 
-        var result = await Roles(f, f.ManagerUser).Update(f.Manager.Id, new UpdateRoleRequest("User Manager", null, [.. current, "Purchase.Cancel"]), default);
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(async () =>
+            await Roles(f, f.ManagerUser).Update(f.Manager.Id, new UpdateRoleRequest("User Manager", null, [.. current, "Purchase.Cancel"]), default));
 
-        Assert.Equal("You can only grant permissions you hold yourself. Not held: Purchase.Cancel.", FieldError(result.Result, "PermissionCodes"));
+        Assert.Equal(("permissionCodes", "You can only grant permissions you hold yourself. Not held: Purchase.Cancel."), (ex.Field, ex.Message));
         Assert.DoesNotContain("Purchase.Cancel", await f.Db.RolePermissions.Where(rp => rp.RoleId == f.Manager.Id).Select(rp => rp.Permission.Code).ToListAsync());
     }
 
@@ -438,6 +446,6 @@ public class AccessManagementRulesTests
 
         // Even with a still-valid token, management actions check the caller's current permissions.
         var result = await Roles(f, f.ManagerUser).Create(new CreateRoleRequest("Viewer", null, ["Sales.View"]), default);
-        Assert.Equal("You can only grant permissions you hold yourself. Not held: Sales.View.", FieldError(result.Result, "PermissionCodes"));
+        Assert.Equal("role_management_forbidden", ForbiddenCode(result.Result));
     }
 }

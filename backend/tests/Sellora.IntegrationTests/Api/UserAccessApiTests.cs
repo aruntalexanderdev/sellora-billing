@@ -531,8 +531,10 @@ public class UserAccessApiTests(PostgresFixture postgres)
         }
         else
         {
-            // creating a user with a role carrying permissions the creator lacks is refused by role-assignment rules; the access defaults then do not apply
-            Assert.Equal(HttpStatusCode.BadRequest, plain.StatusCode);
+            // creating a user with a role carrying permissions the creator lacks is refused by the role-assignment rules (Phase 7: 403 with a code, was a 400 field error
+            // on roleId); the access defaults then do not apply
+            Assert.Equal(HttpStatusCode.Forbidden, plain.StatusCode);
+            Assert.Contains(await plain.ProblemCodeAsync(), new[] { "role_assignment_forbidden", "role_escalation_forbidden" });
         }
         Assert.True(explicitFields.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.BadRequest, "explicit access fields by a restricted actor: " + (int)explicitFields.StatusCode);
         Assert.NotEqual(HttpStatusCode.Created, explicitFields.StatusCode);

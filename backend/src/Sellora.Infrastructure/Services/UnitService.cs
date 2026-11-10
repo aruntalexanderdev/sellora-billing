@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Inventory;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Security;
 
 namespace Sellora.Infrastructure.Services;
 
@@ -14,7 +16,7 @@ namespace Sellora.Infrastructure.Services;
 /// being deactivated, and a unit cannot be changed between a product's validation and its commit. Unique-index
 /// violations from concurrent duplicate creates/renames are mapped back to the duplicate field error.
 /// </remarks>
-public class UnitService(SelloraDbContext db) : IUnitService
+public class UnitService(SelloraDbContext db, IOptions<PlatformOptions>? platformOptions = null) : IUnitService
 {
     private const decimal MaxStandardFactor = 1_000_000_000m;
     private const int StandardFactorScale = 10;
@@ -22,8 +24,9 @@ public class UnitService(SelloraDbContext db) : IUnitService
     private static readonly HashSet<string> UniqueIndexes =
         ["IX_Units_Name", "IX_Units_ShortCode", "UX_Units_Name_Lower", "UX_Units_ShortCode_Lower"];
 
-    public async Task<Unit> CreateUnitAsync(UpsertUnitInput input, CancellationToken ct = default)
+    public async Task<Unit> CreateUnitAsync(UpsertUnitInput input, CancellationToken ct = default, ReferenceDataActor? actor = null)
     {
+        EnsureMayWrite(actor);
         var name = input.Name.Trim();
         var shortCode = input.ShortCode.Trim();
 
@@ -40,12 +43,14 @@ public class UnitService(SelloraDbContext db) : IUnitService
             StandardFactor = input.StandardFactor,
         };
         db.Units.Add(unit);
+        Audit(actor, PlatformAuditActions.UnitCreated, unit.Id, null, Snapshot(unit));
         await SaveMappingDuplicatesAsync(ct);
         return unit;
     }
 
-    public async Task<Unit?> UpdateUnitAsync(Guid id, UpsertUnitInput input, CancellationToken ct = default)
+    public async Task<Unit?> UpdateUnitAsync(Guid id, UpsertUnitInput input, CancellationToken ct = default, ReferenceDataActor? actor = null)
     {
+        EnsureMayWrite(actor);
         await using var transaction = await StockLocks.BeginAsync(db, ct);
         var unit = await LockUnitAsync(id, ct);
         if (unit is null) return null;
@@ -68,18 +73,21 @@ public class UnitService(SelloraDbContext db) : IUnitService
             throw Locked(nameof(input.StandardFactor), "standard factor");
         }
 
+        var before = Snapshot(unit);
         unit.Name = name;
         unit.ShortCode = shortCode;
         unit.MeasurementCategory = input.MeasurementCategory;
         unit.DecimalPlaces = input.DecimalPlaces;
         unit.StandardFactor = input.StandardFactor;
+        Audit(actor, PlatformAuditActions.UnitUpdated, unit.Id, before, Snapshot(unit));
         await SaveMappingDuplicatesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
         return unit;
     }
 
-    public async Task<Unit?> SetActiveAsync(Guid id, bool isActive, CancellationToken ct = default)
+    public async Task<Unit?> SetActiveAsync(Guid id, bool isActive, CancellationToken ct = default, ReferenceDataActor? actor = null)
     {
+        EnsureMayWrite(actor);
         await using var transaction = await StockLocks.BeginAsync(db, ct);
         var unit = await LockUnitAsync(id, ct);
         if (unit is null) return null;
@@ -89,7 +97,9 @@ public class UnitService(SelloraDbContext db) : IUnitService
             throw new DomainValidationException(nameof(Unit.IsActive), "This unit is used by products and cannot be deactivated.");
         }
 
+        var wasActive = unit.IsActive;
         unit.IsActive = isActive;
+        if (wasActive != isActive) Audit(actor, PlatformAuditActions.UnitStatusChanged, unit.Id, new { IsActive = wasActive }, new { unit.IsActive });
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
         return unit;
@@ -107,6 +117,21 @@ public class UnitService(SelloraDbContext db) : IUnitService
     public async Task<bool> IsUsedByActiveProductAsync(Guid id, CancellationToken ct = default) =>
         await db.Products.IgnoreQueryFilters([CompanyQueryFilter.Name]).AnyAsync(p => p.BaseUnitId == id, ct)
         || await db.ProductUnits.IgnoreQueryFilters([CompanyQueryFilter.Name]).AnyAsync(u => u.UnitId == id && u.IsActive, ct);
+
+    /// <summary>Phase 7 D11/Q3: company callers may write shared units only while the platform flag allows it. A null actor is a company caller.</summary>
+    private void EnsureMayWrite(ReferenceDataActor? actor)
+    {
+        if (actor is { IsPlatform: true }) return;
+        if (platformOptions is { Value.ReferenceDataEditableByCompanies: false }) throw new ReferenceDataPlatformManagedException();
+    }
+
+    private void Audit(ReferenceDataActor? actor, string action, Guid unitId, object? before, object? after)
+    {
+        if (actor is not { IsPlatform: true }) return;
+        PlatformAuditLog.Append(db, action, PlatformAuditTargets.Unit, unitId, actor.UserId, null, null, before, after, actor.CorrelationId);
+    }
+
+    private static object Snapshot(Unit u) => new { u.Name, u.ShortCode, u.MeasurementCategory, u.DecimalPlaces, u.StandardFactor, u.IsActive };
 
     private static void ValidateShape(UpsertUnitInput input)
     {

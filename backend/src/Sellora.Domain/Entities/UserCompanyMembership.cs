@@ -20,6 +20,9 @@ public class UserCompanyMembership
     /// <summary>Allocation history (active and ended rows) of an AssignedBranches membership.</summary>
     public ICollection<UserBranchAssignment> BranchAssignments { get; set; } = new List<UserBranchAssignment>();
 
+    /// <summary>Role assignment history (active and ended rows), Phase 7.</summary>
+    public ICollection<UserRoleAssignment> RoleAssignments { get; set; } = new List<UserRoleAssignment>();
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public Guid? CreatedByUserId { get; set; }
     public DateTimeOffset? UpdatedAt { get; set; }

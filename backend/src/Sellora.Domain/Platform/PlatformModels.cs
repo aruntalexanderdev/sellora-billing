@@ -45,4 +45,11 @@ public enum PlatformCompanyStatusOutcome
 }
 
 /// <summary>Raised when company creation is switched off (<c>Platform:CompanyCreationEnabled</c>); mapped to 403 company_creation_disabled.</summary>
-public sealed class CompanyCreationDisabledException() : Exception("Company creation is disabled.");
+public class CompanyCreationDisabledException(string message = "Company creation is disabled.", string code = "company_creation_disabled") : Exception(message)
+{
+    public string Code { get; } = code;
+}
+
+/// <summary>Raised while <c>Platform:ReferenceDataEditableByCompanies</c> is true: company creation is refused so a second tenant can never edit shared Units/Currencies (owner Q3).</summary>
+public sealed class ReferenceDataCompanyEditableException() : CompanyCreationDisabledException(
+    "Company creation is refused while companies can edit shared reference data (Platform:ReferenceDataEditableByCompanies).", "reference_data_company_editable");

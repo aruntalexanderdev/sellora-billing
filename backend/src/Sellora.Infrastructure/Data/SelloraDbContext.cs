@@ -24,6 +24,7 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
     // parameterises it per query execution. The BranchContext default (never set) is an empty set = fail closed.
     private Guid[]? CurrentAllowedBranchIds => BranchContext.AllowedBranchIds?.ToArray();
 
+    public DbSet<UserRoleAssignment> UserRoleAssignments => Set<UserRoleAssignment>();
     public DbSet<UserBranchAssignment> UserBranchAssignments => Set<UserBranchAssignment>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
@@ -129,6 +130,8 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
         modelBuilder.Entity<SalesReturnLine>().HasQueryFilter(CompanyQueryFilter.Name, e => e.SalesReturn.CompanyId == CurrentCompanyId);
         modelBuilder.Entity<SalesInvoiceLineBatchConsumption>().HasQueryFilter(CompanyQueryFilter.Name, e => e.PurchaseBatch.CompanyId == CurrentCompanyId);
         modelBuilder.Entity<SellingPrice>().HasQueryFilter(CompanyQueryFilter.Name, e => e.ProductUnit.CompanyId == CurrentCompanyId);
+        // Phase 7: Roles are company-owned (filtered above); a role's permission rows follow their role.
+        modelBuilder.Entity<RolePermission>().HasQueryFilter(CompanyQueryFilter.Name, e => e.Role.CompanyId == CurrentCompanyId);
     }
 
     private void FilterOwned<T>(ModelBuilder modelBuilder) where T : class, ICompanyOwned

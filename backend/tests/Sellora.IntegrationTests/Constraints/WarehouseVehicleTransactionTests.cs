@@ -20,7 +20,7 @@ public class WarehouseVehicleTransactionTests(PostgresFixture postgres)
 
     private static Task SeedUserAsync(TestDatabase database) => ExecuteAsync(database, $"""
         INSERT INTO "BusinessSettings" ("Id", "CompanyId", "BusinessName", "InvoicePrefix", "BaseCurrencyId") VALUES (gen_random_uuid(), '{DefaultCompany}', 'Acme', 'INV', '7c1a5b9e-3d24-4f8a-9e61-2b0f4a8d5c01');
-        INSERT INTO "Roles" ("Id", "Name", "Description", "IsActive", "IsSystem") VALUES (gen_random_uuid(), 'Administrator', NULL, true, true);
+        INSERT INTO "Roles" ("Id", "CompanyId", "Name", "Description", "IsActive", "IsSystem", "CreatedAt") VALUES (gen_random_uuid(), '0c0a1f00-0000-4000-8000-000000000001', 'Administrator', NULL, true, true, now());
         INSERT INTO "Users" ("Id", "CreatedAt", "Email", "FirstName", "LastName", "PasswordHash", "RoleId", "Status", "Username")
           SELECT '{UserId}', now(), 'a@b.c', 'R', 'K', 'x', "Id", 'Active', 'admin' FROM "Roles" LIMIT 1;
         """);

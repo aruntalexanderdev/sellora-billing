@@ -164,8 +164,8 @@ public class StockLocationsApiTests(PostgresFixture postgres)
     public async Task Endpoints_WithoutStockLocationsView_Answer403_WithItAnswer200()
     {
         var w = await GetAsync(postgres);
-        using var nobody = w.Host.NewClient(ApiHost.SignToken(w.AdminId, w.CompanyId, ["Masters.View", "Company.Branches.View", "Inventory.View"]));
-        using var viewer = w.Host.NewClient(ApiHost.SignToken(w.AdminId, w.CompanyId, ["StockLocations.View"]));
+        using var nobody = await w.Host.LimitedClientAsync(w.Admin, "Masters.View", "Company.Branches.View", "Inventory.View");
+        using var viewer = await w.Host.LimitedClientAsync(w.Admin, "StockLocations.View");
 
         Assert.Equal(HttpStatusCode.Forbidden, (await w.SendAsync(HttpMethod.Get, Route, client: nobody)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await w.SendAsync(HttpMethod.Get, $"{Route}/{DefaultTenant.MainStoreLocationId}", client: nobody)).StatusCode);

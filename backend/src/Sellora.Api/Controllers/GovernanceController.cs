@@ -109,6 +109,7 @@ public class GovernanceController(SelloraDbContext db, IGovernanceService govern
             }
             catch (AccessManagementForbiddenException ex) { return Problem(StatusCodes.Status403Forbidden, ex.Message, ex.Code); }
             catch (GovernanceRuleException ex) { return Problem(StatusCodes.Status400BadRequest, ex.Message, ex.Code); }
+            catch (Sellora.Domain.Roles.RoleRuleException ex) { return AccessProblems.Rule(ex); }
             catch (AccessTargetNotFoundException) { return NotFound(); }
         }
 

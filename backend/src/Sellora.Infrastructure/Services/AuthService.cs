@@ -6,14 +6,13 @@ using Sellora.Infrastructure.Data;
 
 namespace Sellora.Infrastructure.Services;
 
-public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, ITokenService tokenService) : IAuthService
+public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, ITokenService tokenService, IEffectivePermissionService? permissions = null) : IAuthService
 {
     public async Task<LoginResult> LoginAsync(string usernameOrEmail, string password, CancellationToken ct = default)
     {
         var normalized = usernameOrEmail.Trim().ToLowerInvariant();
 
         var user = await db.Users
-            .Include(u => u.Role).ThenInclude(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
             .SingleOrDefaultAsync(u => u.Username.ToLower() == normalized || u.Email.ToLower() == normalized, ct);
 
         if (user is null || !passwordHasher.Verify(password, user.PasswordHash))
@@ -49,7 +48,7 @@ public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, IT
         var hash = tokenService.HashRefreshToken(refreshToken);
 
         var existing = await db.RefreshTokens
-            .Include(t => t.User).ThenInclude(u => u.Role).ThenInclude(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
+            .Include(t => t.User)
             .SingleOrDefaultAsync(t => t.TokenHash == hash, ct);
 
         if (existing is null || !existing.IsActive || existing.User.Status == UserStatus.Disabled)
@@ -90,7 +89,7 @@ public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, IT
         var hash = tokenService.HashRefreshToken(refreshToken);
 
         var existing = await db.RefreshTokens
-            .Include(t => t.User).ThenInclude(u => u.Role).ThenInclude(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
+            .Include(t => t.User)
             .SingleOrDefaultAsync(t => t.TokenHash == hash, ct);
 
         if (existing is null || existing.UserId != userId || !existing.IsActive || existing.User.Status == UserStatus.Disabled)
@@ -133,7 +132,7 @@ public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, IT
     private static readonly string[] CompanyFilter = [CompanyQueryFilter.Name];
 
     /// <summary>An active membership in an active company. Usable = CompanyWide, or AssignedBranches with >= 1 active allocation (D5).</summary>
-    private sealed record MembershipInfo(Guid Id, string Name, Guid MembershipId, CompanyAccessScope Scope, bool Usable);
+    private sealed record MembershipInfo(Guid Id, string Name, Guid MembershipId, CompanyAccessScope Scope, bool Usable, long AccessVersion);
 
     /// <summary>The user's first usable active membership (oldest first, then company id). <c>AnyActive</c> tells login whether
     /// active memberships exist at all, to tell no_company_access from no_branch_access.</summary>
@@ -144,7 +143,8 @@ public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, IT
             .Select(m => new MembershipInfo(m.CompanyId, m.Company.Name, m.Id, m.AccessScope,
                 m.AccessScope == CompanyAccessScope.CompanyWide
                 || db.UserBranchAssignments.IgnoreQueryFilters(CompanyFilter)
-                    .Any(a => a.CompanyId == m.CompanyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active)))
+                    .Any(a => a.CompanyId == m.CompanyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active),
+                m.AccessVersion))
             .ToListAsync(ct);
         return (rows.FirstOrDefault(r => r.Usable), rows.Count > 0);
     }
@@ -156,7 +156,8 @@ public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, IT
             .Select(m => new MembershipInfo(m.CompanyId, m.Company.Name, m.Id, m.AccessScope,
                 m.AccessScope == CompanyAccessScope.CompanyWide
                 || db.UserBranchAssignments.IgnoreQueryFilters(CompanyFilter)
-                    .Any(a => a.CompanyId == m.CompanyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active)))
+                    .Any(a => a.CompanyId == m.CompanyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active),
+                m.AccessVersion))
             .FirstOrDefaultAsync(ct);
     }
 
@@ -191,8 +192,14 @@ public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, IT
     {
         var companyId = membership.Id;
         var (primary, branches) = await LoadBranchesAsync(membership, ct);
-        var permissions = PermissionResolver.Resolve(user.Role);
-        var (accessToken, accessExpiresAt) = tokenService.CreateAccessToken(user, companyId, permissions);
+        var set = permissions is not null
+            ? await permissions.GetAsync(membership.MembershipId, membership.AccessVersion, ct)
+            : await EffectivePermissionService.LoadAsync(db, membership.MembershipId, ct);
+        var roles = await LoadRolesAsync(membership, ct);
+        // Working branch for the returned permission list: the primary allocation, else the company's default branch.
+        var working = primary ?? branches.Where(b => b.IsDefault).Select(b => (Guid?)b.Id).FirstOrDefault();
+        var codes = set.CodesAtBranch(working).OrderBy(c => c, StringComparer.Ordinal).ToArray();
+        var (accessToken, accessExpiresAt) = tokenService.CreateAccessToken(user, companyId);
         var (rawRefreshToken, refreshHash, refreshExpiresAt) = tokenService.CreateRefreshToken();
 
         db.RefreshTokens.Add(new RefreshToken
@@ -205,9 +212,29 @@ public class AuthService(SelloraDbContext db, IPasswordHasher passwordHasher, IT
         });
 
         var summary = new AuthenticatedUserSummary(
-            user.Id, user.FirstName, user.LastName, user.Username, user.Email, user.Role.Name, permissions, companyId, membership.Name,
-            membership.Scope, primary, branches);
+            user.Id, user.FirstName, user.LastName, user.Username, user.Email, PrimaryRoleName(roles), codes, companyId, membership.Name,
+            membership.Scope, primary, branches, roles);
 
         return new AuthResult(accessToken, accessExpiresAt, rawRefreshToken, refreshExpiresAt, summary);
     }
+
+    /// <summary>Active, active-role assignments of the membership. Roles are company-filtered and no company context exists yet, so the
+    /// filter is bypassed with explicit CompanyId predicates (documented bypass).</summary>
+    private async Task<AuthRoleSummary[]> LoadRolesAsync(MembershipInfo m, CancellationToken ct)
+    {
+        var rows = await (
+            from a in db.UserRoleAssignments.IgnoreQueryFilters(CompanyFilter)
+            join r in db.Roles.IgnoreQueryFilters(CompanyFilter) on a.RoleId equals r.Id
+            where a.CompanyId == m.Id && a.UserCompanyMembershipId == m.MembershipId && a.Status == AssignmentStatus.Active
+                && r.CompanyId == m.Id && r.IsActive
+            select new { r.Id, r.Name, r.ScopeType, r.BranchId })
+            .ToListAsync(ct);
+        return rows.OrderBy(r => r.ScopeType).ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(r => new AuthRoleSummary(r.Id, r.Name, r.ScopeType, r.BranchId)).ToArray();
+    }
+
+    /// <summary>Compat display name: the first active company role by name, else the first role, else empty.</summary>
+    public static string PrimaryRoleName(IReadOnlyCollection<AuthRoleSummary> roles) =>
+        roles.Where(r => r.ScopeType == RoleScope.Company).OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).Select(r => r.Name).FirstOrDefault()
+        ?? roles.Select(r => r.Name).FirstOrDefault() ?? string.Empty;
 }

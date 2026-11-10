@@ -31,9 +31,9 @@ public sealed class CompanyContextMiddleware(RequestDelegate next)
     private static readonly string[] CompanyFilter = [CompanyQueryFilter.Name];
 
     private sealed record AssignmentRow(Guid BranchId, bool IsPrimary);
-    private sealed record MembershipAccess(CompanyAccessScope Scope, List<AssignmentRow> Assignments);
+    private sealed record MembershipAccess(Guid MembershipId, long AccessVersion, CompanyAccessScope Scope, List<AssignmentRow> Assignments);
 
-    public async Task InvokeAsync(HttpContext context, SelloraDbContext db, CompanyContext companyContext, BranchContext branchContext)
+    public async Task InvokeAsync(HttpContext context, SelloraDbContext db, CompanyContext companyContext, BranchContext branchContext, MembershipContext membershipContext)
     {
         if (context.User.Identity?.IsAuthenticated != true
             || context.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() is not null)
@@ -85,6 +85,7 @@ public sealed class CompanyContextMiddleware(RequestDelegate next)
         }
 
         companyContext.Set(companyId);
+        membershipContext.Set(access.MembershipId, access.AccessVersion);
 
         // Branch scope (D4): CompanyWide = every branch (allowed null, no primary); AssignedBranches = its active allocations
         // (inactive branches included so history stays readable). No allocation at all = 403 branch_required, except on
@@ -150,6 +151,8 @@ public sealed class CompanyContextMiddleware(RequestDelegate next)
                 && m.User.Status != UserStatus.Disabled)
             .Select(m => new
             {
+                m.Id,
+                m.AccessVersion,
                 m.AccessScope,
                 // Documented Company-filter bypass: the company context is not established until this check passes, so the
                 // allocations are matched by explicit membership + company predicates instead (single round-trip).
@@ -159,6 +162,6 @@ public sealed class CompanyContextMiddleware(RequestDelegate next)
                     .ToList(),
             })
             .FirstOrDefaultAsync(ct);
-        return membership is null ? null : new MembershipAccess(membership.AccessScope, membership.Assignments);
+        return membership is null ? null : new MembershipAccess(membership.Id, membership.AccessVersion, membership.AccessScope, membership.Assignments);
     }
 }

@@ -92,6 +92,22 @@ public sealed class ApiHost : IAsyncDisposable
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
+    /// <summary>
+    /// Phase 7: permissions are evaluated server-side from role assignments, so a "token with only these codes" no longer exists. This creates a real user who holds exactly
+    /// <paramref name="permissions"/> through a fresh company role (created through the API by <paramref name="admin"/>) and signs in as them.
+    /// </summary>
+    public async Task<HttpClient> LimitedClientAsync(HttpClient admin, params string[] permissions)
+    {
+        var tag = Guid.NewGuid().ToString("N")[..10];
+        var role = await admin.PostAsJsonAsync("/api/v1/roles", new CreateRoleRequest("Limited " + tag, null, permissions), Json);
+        if (!role.IsSuccessStatusCode) throw new InvalidOperationException($"create role: {(int)role.StatusCode} {await role.Content.ReadAsStringAsync()}");
+        var roleId = (await role.Content.ReadFromJsonAsync<JsonElement>(Json)).GetProperty("id").GetGuid();
+        var username = "limited" + tag;
+        var user = await admin.PostAsJsonAsync("/api/v1/users", new CreateUserRequest("Limited", "User", username, username + "@selloramart.in", null, AdminPassword, AdminPassword, roleId), Json);
+        if (!user.IsSuccessStatusCode) throw new InvalidOperationException($"create user: {(int)user.StatusCode} {await user.Content.ReadAsStringAsync()}");
+        return NewClient((await LoginAsync(username, AdminPassword)).AccessToken);
+    }
+
     public static string? ClaimOf(string accessToken, string type) =>
         new JwtSecurityTokenHandler().ReadJwtToken(accessToken).Claims.FirstOrDefault(c => c.Type == type)?.Value;
 

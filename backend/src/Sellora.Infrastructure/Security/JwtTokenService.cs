@@ -13,7 +13,8 @@ public class JwtTokenService(IOptions<JwtOptions> options) : ITokenService
 {
     private readonly JwtOptions _options = options.Value;
 
-    public (string AccessToken, DateTimeOffset ExpiresAt) CreateAccessToken(User user, Guid companyId, IReadOnlyCollection<string> permissionCodes)
+    // Phase 7: the token carries identity and company only. Permissions are evaluated server-side per request (permissionCodes is ignored, kept for source compatibility).
+    public (string AccessToken, DateTimeOffset ExpiresAt) CreateAccessToken(User user, Guid companyId, IReadOnlyCollection<string>? permissionCodes = null)
     {
         var expiresAt = DateTimeOffset.UtcNow.AddMinutes(_options.AccessTokenMinutes);
 
@@ -22,10 +23,8 @@ public class JwtTokenService(IOptions<JwtOptions> options) : ITokenService
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new(ClaimTypes.Email, user.Email),
             new(ClaimTypes.Name, $"{user.FirstName} {user.LastName}"),
-            new(AuthClaimTypes.RoleName, user.Role.Name),
             new(AuthClaimTypes.CompanyId, companyId.ToString()),
         };
-        claims.AddRange(permissionCodes.Select(code => new Claim(AuthClaimTypes.Permission, code)));
 
         var signingKey = new SymmetricSecurityKey(Convert.FromBase64String(_options.SigningKey));
         var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);

@@ -3,14 +3,19 @@ using Sellora.Domain.Entities;
 
 namespace Sellora.Api.Contracts;
 
+/// <summary>Phase 7: <c>RoleId</c>/<c>RoleName</c> = first Active company role by name (null/empty when none); <c>Roles</c> lists every Active assignment (company and branch).</summary>
+public record UserRoleSummaryDto(Guid Id, string Name, RoleScope ScopeType, Guid? BranchId);
+
 public record UserListItemDto(
     Guid Id, string FirstName, string LastName, string Username, string Email,
-    Guid RoleId, string RoleName, UserStatus Status, DateTimeOffset? LastLoginAt, DateTimeOffset CreatedAt
+    Guid? RoleId, string RoleName, UserStatus Status, DateTimeOffset? LastLoginAt, DateTimeOffset CreatedAt,
+    IReadOnlyList<UserRoleSummaryDto>? Roles = null
 );
 
 public record UserDetailDto(
     Guid Id, string FirstName, string LastName, string Username, string Email, string? PhoneNumber,
-    Guid RoleId, string RoleName, UserStatus Status, DateTimeOffset? LastLoginAt, DateTimeOffset CreatedAt
+    Guid? RoleId, string RoleName, UserStatus Status, DateTimeOffset? LastLoginAt, DateTimeOffset CreatedAt,
+    IReadOnlyList<UserRoleSummaryDto>? Roles = null
 );
 
 public record CreateUserRequest(

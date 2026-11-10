@@ -16,7 +16,7 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/sales")]
-public class SalesController(SelloraDbContext db, ISalesService salesService) : ControllerBase
+public class SalesController(SelloraDbContext db, ISalesService salesService, IEffectivePermissionService effectivePermissions) : ControllerBase
 {
     /// <summary>Product/price/stock lookup for the POS cart — kept under the Sales module so a Sales-only
     /// user can bill without needing Inventory permissions.</summary>
@@ -190,7 +190,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
         var input = new CreateSaleInput(
             request.CustomerId!.Value, request.InvoiceDate, request.PaymentMethod, request.PaidAmount,
             request.Lines.Select(l => new SaleLineInput(l.ProductId!.Value, l.ProductUnitId!.Value, l.Qty, l.UnitPrice, l.Discount, l.OverridePrice)).ToList(),
-            request.AccountId, key, User.HasClaim(AuthClaimTypes.Permission, "Sales.PriceOverride"));
+            request.AccountId, key, await CanOverridePriceAsync(ct));
 
         try
         {
@@ -203,6 +203,16 @@ public class SalesController(SelloraDbContext db, ISalesService salesService) : 
             ModelState.AddModelError(ex.Field, ex.Message);
             return ValidationProblem(ModelState);
         }
+    }
+
+    /// <summary>Sales.PriceOverride evaluated server-side at the working branch (Phase 7); token claims are not used.</summary>
+    private async Task<bool> CanOverridePriceAsync(CancellationToken ct)
+    {
+        var set = await effectivePermissions.GetCurrentAsync(ct);
+        var branchContext = HttpContext.RequestServices.GetRequiredService<BranchContext>();
+        var working = branchContext.RequestedBranchId ?? branchContext.PrimaryBranchId;
+        if (set.HasCompanyLevel("Sales.PriceOverride")) return true;
+        return working is { } id && set.HasAtBranch("Sales.PriceOverride", id);
     }
 
     [HttpPost("{id:guid}/payments")]

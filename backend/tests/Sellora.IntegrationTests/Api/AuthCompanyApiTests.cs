@@ -44,6 +44,16 @@ public class AuthCompanyApiTests(PostgresFixture postgres)
         await db.SaveChangesAsync();
     }
 
+    /// <summary>Gives the user's membership in <paramref name="company"/> the company's Administrator role (created when the company has none yet).</summary>
+    private static async Task GrantAdministratorAsync(ApiHost host, Guid userId, Guid company)
+    {
+        await using var db = host.Database.CreateDbContext(company);
+        var membership = await db.UserCompanyMemberships.SingleAsync(m => m.UserId == userId && m.CompanyId == company);
+        var admin = await db.Roles.SingleOrDefaultAsync(r => r.IsSystem) ?? Sellora.IntegrationTests.TestData.RbacSeed.AddAdministratorRole(db);
+        Sellora.IntegrationTests.TestData.RbacSeed.Assign(db, membership, admin.Id);
+        await db.SaveChangesAsync();
+    }
+
     private static async Task<User> AddUserAsync(ApiHost host, string username, params Guid[] companies)
     {
         await using var db = host.Database.CreateDbContext();
@@ -54,8 +64,17 @@ public class AuthCompanyApiTests(PostgresFixture postgres)
             PasswordHash = new PasswordHasher().Hash(ApiHost.AdminPassword), RoleId = role.Id, Status = UserStatus.Active,
         };
         db.Users.Add(user);
-        db.UserCompanyMemberships.AddRange(companies.Select(c => new UserCompanyMembership { Id = Guid.NewGuid(), UserId = user.Id, CompanyId = c }));
+        var memberships = companies.Select(c => new UserCompanyMembership { Id = Guid.NewGuid(), UserId = user.Id, CompanyId = c }).ToList();
+        db.UserCompanyMemberships.AddRange(memberships);
         await db.SaveChangesAsync();
+        // Phase 7: roles are company-owned; each company the user joins needs its own Administrator, held through an assignment.
+        foreach (var m in memberships)
+        {
+            await using var companyDb = host.Database.CreateDbContext(m.CompanyId);
+            var admin = await companyDb.Roles.SingleOrDefaultAsync(r => r.IsSystem) ?? Sellora.IntegrationTests.TestData.RbacSeed.AddAdministratorRole(companyDb);
+            Sellora.IntegrationTests.TestData.RbacSeed.Assign(companyDb, m, admin.Id);
+            await companyDb.SaveChangesAsync();
+        }
         return user;
     }
 
@@ -199,6 +218,7 @@ public class AuthCompanyApiTests(PostgresFixture postgres)
         await using var host = await ApiHost.StartAsync(postgres);
         await AddCompanyAsync(host, CompanyB, "Company B");
         await AddMembershipAsync(host, await AdminIdAsync(host), CompanyB);
+        await GrantAdministratorAsync(host, await AdminIdAsync(host), CompanyB); // Phase 7: roles are company-owned; the user needs a role in B to read B's data
         var auth = await host.LoginAsync();
         using var client = host.NewClient(auth.AccessToken);
 

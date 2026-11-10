@@ -8,6 +8,9 @@ public sealed record CompanyOption(Guid Id, string Name);
 /// <summary>A branch the user may work in (login/me). <c>IsPrimary</c> = the user's primary allocation, <c>IsDefault</c> = the company's default branch.</summary>
 public sealed record AllowedBranchSummary(Guid Id, string Code, string Name, bool IsPrimary, bool IsDefault);
 
+/// <summary>A role the membership holds (Phase 7): company scope, or branch scope with its branch.</summary>
+public sealed record AuthRoleSummary(Guid Id, string Name, RoleScope ScopeType, Guid? BranchId);
+
 public sealed record AuthenticatedUserSummary(
     Guid Id,
     string FirstName,
@@ -20,7 +23,8 @@ public sealed record AuthenticatedUserSummary(
     string CompanyName,
     CompanyAccessScope AccessScope = CompanyAccessScope.CompanyWide,
     Guid? PrimaryBranchId = null,
-    IReadOnlyCollection<AllowedBranchSummary>? AllowedBranches = null
+    IReadOnlyCollection<AllowedBranchSummary>? AllowedBranches = null,
+    IReadOnlyCollection<AuthRoleSummary>? Roles = null
 );
 
 public sealed record AuthResult(

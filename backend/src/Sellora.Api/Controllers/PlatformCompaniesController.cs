@@ -60,10 +60,10 @@ public class PlatformCompaniesController(IPlatformService platform, SelloraDbCon
             return Created($"/api/v1/platform/companies/{created.Id}",
                 new CreatedPlatformCompanyDto(created.Id, created.Code, created.MainBranchId, created.OwnerUserId));
         }
-        catch (CompanyCreationDisabledException)
+        catch (CompanyCreationDisabledException ex)
         {
-            return Problem(statusCode: 403, title: "Company creation is disabled on this platform.",
-                extensions: new Dictionary<string, object?> { ["code"] = "company_creation_disabled" });
+            return Problem(statusCode: 403, title: ex.Code == "company_creation_disabled" ? "Company creation is disabled on this platform." : ex.Message,
+                extensions: new Dictionary<string, object?> { ["code"] = ex.Code });
         }
     }
 

@@ -107,6 +107,10 @@ public class UserAccessController(SelloraDbContext db, IUserAccessService access
             {
                 return NotFound();
             }
+            catch (Sellora.Domain.Roles.RoleRuleException ex)
+            {
+                return AccessProblems.Rule(ex);
+            }
             catch (GovernanceRuleException ex)
             {
                 var problem = new ProblemDetails { Status = StatusCodes.Status400BadRequest, Title = ex.Message };

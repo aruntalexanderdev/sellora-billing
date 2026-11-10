@@ -19,7 +19,7 @@ public class BranchConstraintTests(PostgresFixture postgres)
     // Parents every header insert below needs; company A is the default company (its Main exists after migration), B is a second company with its own Main.
     private const string SeedSql = $"""
         CREATE FUNCTION pg_temp.g(n int) RETURNS uuid LANGUAGE sql AS $$ SELECT ('00000000-0000-0000-0000-' || lpad(to_hex(n), 12, '0'))::uuid $$;
-        INSERT INTO "Roles" ("Id", "Name", "Description", "IsActive", "IsSystem") VALUES (pg_temp.g(11), 'Administrator', NULL, true, true);
+        INSERT INTO "Roles" ("Id", "CompanyId", "Name", "Description", "IsActive", "IsSystem", "CreatedAt") VALUES (pg_temp.g(11), '0c0a1f00-0000-4000-8000-000000000001', 'Administrator', NULL, true, true, now());
         INSERT INTO "Users" ("Id", "CreatedAt", "Email", "FirstName", "LastName", "PasswordHash", "RoleId", "Status", "Username")
           VALUES (pg_temp.g(12), now(), 'a@b.c', 'R', 'K', 'x', pg_temp.g(11), 'Active', 'admin');
         INSERT INTO "Units" ("Id", "Name", "ShortCode", "MeasurementCategory", "DecimalPlaces", "StandardFactor", "IsActive") VALUES (pg_temp.g(1), 'Piece', 'pc', 'Count', 0, NULL, true);

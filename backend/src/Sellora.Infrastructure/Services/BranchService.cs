@@ -192,6 +192,17 @@ public sealed partial class BranchService(SelloraDbContext db) : IBranchService
                 store.UpdatedAt = branch.UpdatedAt;
                 store.UpdatedByUserId = userId;
             }
+
+            // Phase 7: a branch role only counts while its branch is active, so every membership holding an Active role
+            // assignment at this branch gets a new AccessVersion (same transaction) and re-evaluates on its next request.
+            var holderIds = await db.UserRoleAssignments
+                .Where(a => a.CompanyId == companyId && a.ScopeType == RoleScope.Branch && a.BranchId == branchId && a.Status == AssignmentStatus.Active)
+                .Select(a => a.UserCompanyMembershipId).Distinct().ToListAsync(ct);
+            if (holderIds.Count > 0)
+            {
+                var holders = await db.UserCompanyMemberships.Where(m => m.CompanyId == companyId && holderIds.Contains(m.Id)).ToListAsync(ct);
+                foreach (var m in holders) RoleRules.Bump(m, userId);
+            }
             await db.SaveChangesAsync(ct);
         }
         if (transaction is not null) await transaction.CommitAsync(ct);

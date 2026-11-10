@@ -35,6 +35,12 @@ public static class PlatformAuditActions
     public const string CompanyStatusChanged = "platform.company_status_changed";
     public const string AdminGranted = "platform.admin_granted";
     public const string AdminRevoked = "platform.admin_revoked";
+    public const string UnitCreated = "platform.unit_created";
+    public const string UnitUpdated = "platform.unit_updated";
+    public const string UnitStatusChanged = "platform.unit_status_changed";
+    public const string CurrencyCreated = "platform.currency_created";
+    public const string CurrencyUpdated = "platform.currency_updated";
+    public const string CurrencyStatusChanged = "platform.currency_status_changed";
 }
 
 /// <summary>Values of <see cref="PlatformAuditEvent.TargetType"/>.</summary>
@@ -43,4 +49,6 @@ public static class PlatformAuditTargets
     public const string User = "User";
     public const string Company = "Company";
     public const string PlatformAdministrator = "PlatformAdministrator";
+    public const string Unit = "Unit";
+    public const string Currency = "Currency";
 }

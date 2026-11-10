@@ -1,8 +1,11 @@
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Sellora.Domain.Abstractions;
 using Sellora.Domain.Auth;
+using Sellora.Infrastructure.Services;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Roles;
 using Sellora.Infrastructure.Data;
 
 namespace Sellora.Api.Authorization;
@@ -12,7 +15,33 @@ namespace Sellora.Api.Authorization;
 /// claims, so escalation checks use the caller's current role and permissions, not a token issued earlier.
 /// A missing or disabled caller holds nothing.
 /// </summary>
-internal sealed record AccessManagementActor(Guid UserId, bool IsAdministrator, IReadOnlySet<string> Permissions);
+internal sealed record AccessManagementActor(Guid UserId, bool IsAdministrator, IReadOnlySet<string> Permissions)
+{
+    /// <summary>The actor's membership in the current company (null when none) and whether it is CompanyWide (Phase 7, Q1).</summary>
+    public Guid? MembershipId { get; init; }
+    public bool IsCompanyWide { get; init; }
+
+    /// <summary>Effective permission set (company codes, per-branch codes, Administrator flag); None when the actor holds nothing.</summary>
+    public EffectivePermissionSet Effective { get; init; } = EffectivePermissionSet.None;
+
+    /// <summary>The actor as seen by the role and assignment services (Phase 7, D10).</summary>
+    public RoleActor ToRoleActor(string? correlationId) => new(UserId, MembershipId, IsAdministrator, IsCompanyWide, Effective, correlationId);
+}
+
+/// <summary>Maps the exceptions of role/assignment management to ProblemDetails (403/404/400 with a <c>code</c> extension).</summary>
+internal static class AccessProblems
+{
+    public static Microsoft.AspNetCore.Mvc.ObjectResult Forbidden(AccessManagementForbiddenException ex) => Create(StatusCodes.Status403Forbidden, ex.Message, ex.Code);
+
+    public static Microsoft.AspNetCore.Mvc.ObjectResult Rule(RoleRuleException ex) => Create(StatusCodes.Status400BadRequest, ex.Message, ex.Code);
+
+    public static Microsoft.AspNetCore.Mvc.ObjectResult Create(int status, string title, string code)
+    {
+        var problem = new Microsoft.AspNetCore.Mvc.ProblemDetails { Status = status, Title = title };
+        problem.Extensions["code"] = code;
+        return new Microsoft.AspNetCore.Mvc.ObjectResult(problem) { StatusCode = status };
+    }
+}
 
 /// <summary>
 /// One user/role management write. Every such write runs in a transaction holding one advisory lock, and the caller
@@ -43,13 +72,31 @@ internal sealed class AccessManagementScope : IAsyncDisposable
         }
 
         var userId = Guid.Parse(principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? principal.FindFirstValue("sub")!);
-        var user = await db.Users
-            .Include(u => u.Role).ThenInclude(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
-            .SingleOrDefaultAsync(u => u.Id == userId, ct);
+        var user = await db.Users.SingleOrDefaultAsync(u => u.Id == userId, ct);
 
-        var actor = user is null || user.Status == UserStatus.Disabled
-            ? new AccessManagementActor(userId, false, new HashSet<string>())
-            : new AccessManagementActor(userId, user.Role.IsSystem && user.Role.IsActive, PermissionResolver.Resolve(user.Role).ToHashSet());
+        AccessManagementActor actor;
+        var companyId = db.CompanyContext.CompanyId;
+        var membership = user is null || user.Status == UserStatus.Disabled || companyId is null
+            ? null
+            : await db.UserCompanyMemberships
+                .Where(m => m.UserId == userId && m.CompanyId == companyId && m.Status == MembershipStatus.Active)
+                .Select(m => new { m.Id, m.AccessScope })
+                .FirstOrDefaultAsync(ct);
+        if (membership is null)
+        {
+            actor = new AccessManagementActor(userId, false, new HashSet<string>());
+        }
+        else
+        {
+            // Read fresh (uncached) after the advisory lock so checks see the committed state.
+            var set = await EffectivePermissionService.LoadAsync(db, membership.Id, ct);
+            actor = new AccessManagementActor(userId, set.IsAdministrator, set.CodesAtBranch(null))
+            {
+                MembershipId = membership.Id,
+                IsCompanyWide = membership.AccessScope == CompanyAccessScope.CompanyWide,
+                Effective = set,
+            };
+        }
         return new AccessManagementScope(transaction, actor);
     }
 

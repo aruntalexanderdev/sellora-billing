@@ -51,6 +51,11 @@ public static class AuditActions
     public const string GovernanceOwnerMapped = "governance.owner_mapped";
     public const string GovernanceAdministratorGranted = "governance.administrator_granted";
     public const string GovernanceAdministratorRemoved = "governance.administrator_removed";
+
+    // Phase 7: scoped roles.
+    public const string RoleAssignmentMigrated = "role_assignment.migrated";
+    public const string RoleAssignmentCreated = "role_assignment.created";
+    public const string RoleAssignmentEnded = "role_assignment.ended";
 }
 
 /// <summary>Values of <see cref="AuditEvent.TargetType"/>.</summary>
@@ -59,4 +64,5 @@ public static class AuditTargets
     public const string Membership = "UserCompanyMembership";
     public const string BranchAssignment = "UserBranchAssignment";
     public const string GovernanceMember = "CompanyGovernanceMember";
+    public const string RoleAssignment = "UserRoleAssignment";
 }

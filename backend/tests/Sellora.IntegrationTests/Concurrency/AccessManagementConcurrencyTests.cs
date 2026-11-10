@@ -42,21 +42,32 @@ public class AccessManagementConcurrencyTests(PostgresFixture postgres)
             db.Roles.Add(admin);
         }
         var other = new Role { Id = Guid.NewGuid(), Name = "Race Viewer" };
-        var a = Admin(admin, "race-a");
-        var b = Admin(admin, "race-b");
+        var a = Admin("race-a");
+        var b = Admin("race-b");
         db.AddRange(other, a, b);
-        db.UserCompanyMemberships.AddRange(Sellora.IntegrationTests.TestData.TestCompany.MembershipFor(a), Sellora.IntegrationTests.TestData.TestCompany.MembershipFor(b));
+        var (ma, mb) = (Sellora.IntegrationTests.TestData.TestCompany.MembershipFor(a), Sellora.IntegrationTests.TestData.TestCompany.MembershipFor(b));
+        db.UserCompanyMemberships.AddRange(ma, mb);
+        await db.SaveChangesAsync();
+        // Phase 7: roles are held through assignments (Users.RoleId is ignored).
+        db.UserRoleAssignments.AddRange(Assignment(ma, admin.Id), Assignment(mb, admin.Id));
         await db.SaveChangesAsync();
         return new Seed(admin.Id, other.Id, a, b);
     }
 
-    private static User Admin(Role role, string username) => new()
+    private static User Admin(string username) => new()
     {
         Id = Guid.NewGuid(), FirstName = username, LastName = "Admin", Username = username, Email = $"{username}@selloramart.in",
-        PasswordHash = "x", RoleId = role.Id, Status = UserStatus.Active,
+        PasswordHash = "x", Status = UserStatus.Active,
     };
 
-    private static UsersController As(SelloraDbContext db, User actor) => new(db, new FakeHasher(), new Sellora.Infrastructure.Services.UserAccessService(db))
+    private static UserRoleAssignment Assignment(UserCompanyMembership m, Guid roleId) => new()
+    {
+        Id = Guid.NewGuid(), CompanyId = m.CompanyId, UserCompanyMembershipId = m.Id, RoleId = roleId, ScopeType = RoleScope.Company,
+        Status = AssignmentStatus.Active, StartAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+    };
+
+    private static UsersController As(SelloraDbContext db, User actor) => new(db, new FakeHasher(), new Sellora.Infrastructure.Services.UserAccessService(db),
+        new Sellora.Infrastructure.Services.RoleAssignmentService(db, new Sellora.Infrastructure.Services.UserAccessService(db)))
     {
         ControllerContext = new ControllerContext
         {
@@ -70,7 +81,8 @@ public class AccessManagementConcurrencyTests(PostgresFixture postgres)
     private static async Task<int> CountActiveAdministratorsAmongAsync(TestDatabase database, params Guid[] userIds)
     {
         await using var check = database.CreateDbContext();
-        return await check.Users.CountAsync(u => userIds.Contains(u.Id) && u.Role.IsSystem && u.Status != UserStatus.Disabled);
+        return await check.UserRoleAssignments.CountAsync(a => a.Status == AssignmentStatus.Active && check.Roles.Any(r => r.Id == a.RoleId && r.IsSystem)
+            && check.UserCompanyMemberships.Any(m => m.Id == a.UserCompanyMembershipId && userIds.Contains(m.UserId) && m.User.Status != UserStatus.Disabled));
     }
 
     /// <summary>Runs both requests behind the gate and returns their action results (in start order).</summary>

@@ -33,6 +33,17 @@ public sealed class BranchContext : IBranchContext
         _primaryBranchId = primaryBranchId;
     }
 
+    /// <summary>
+    /// Phase 7 (E5): narrows the allowed branches to <paramref name="permitted"/> (intersection; repeated calls intersect again), so documents of branches
+    /// where the required permission is not held vanish from lists/details. Only ever shrinks the scope; ignored before <see cref="Set"/> ran.
+    /// </summary>
+    public void Narrow(IReadOnlySet<Guid> permitted)
+    {
+        _allowedBranchIds = _allowedBranchIds is null
+            ? new HashSet<Guid>(permitted)
+            : _allowedBranchIds.Where(permitted.Contains).ToHashSet();
+    }
+
     /// <summary>Shared context that grants nothing (design-time, tests that must not resolve a branch).</summary>
     public static IBranchContext None { get; } = new FixedBranchContext(null, new HashSet<Guid>());
 

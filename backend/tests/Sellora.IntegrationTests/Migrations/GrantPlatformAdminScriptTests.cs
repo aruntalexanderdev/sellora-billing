@@ -30,7 +30,7 @@ public class GrantPlatformAdminScriptTests(PostgresFixture postgres)
     {
         var database = await postgres.CreateDatabaseAsync();
         await ExecuteAsync(database, $"""
-            INSERT INTO "Roles" ("Id", "Name", "Description", "IsActive", "IsSystem") VALUES ('{Role}', 'Ops', NULL, true, false);
+            INSERT INTO "Roles" ("Id", "CompanyId", "Name", "Description", "IsActive", "IsSystem", "CreatedAt") VALUES ('{Role}', '0c0a1f00-0000-4000-8000-000000000001', 'Ops', NULL, true, false, now());
             INSERT INTO "Users" ("Id", "CreatedAt", "Email", "FirstName", "LastName", "PasswordHash", "RoleId", "Status", "Username") VALUES
               ('{Ops}', now(), 'Ops.Alice@Example.io', 'Ops', 'Alice', 'x', '{Role}', 'Active', 'ops.alice'),
               ('{Disabled}', now(), 'gone@example.io', 'Gone', 'Bob', 'x', '{Role}', 'Disabled', 'gone.bob'),

@@ -9,7 +9,32 @@ namespace Sellora.Domain.Permissions;
 /// </summary>
 public static class PermissionCatalog
 {
-    public static readonly IReadOnlyList<PermissionDefinition> All = new List<PermissionDefinition>
+    /// <summary>
+    /// Codes a branch-scoped role may hold (Phase 7, D5, owner Q2: conservative; stock views/reports stay company-only until Phase 8).
+    /// Single source of the scope metadata: <see cref="PermissionDefinition.Scope"/> of <see cref="All"/> is derived from it.
+    /// </summary>
+    private static readonly HashSet<string> BranchEligibleCodes = new(StringComparer.Ordinal)
+    {
+        "Sales.View", "Sales.Create", "Sales.PriceOverride", "Sales.Edit", "Sales.Receive", "Sales.Return", "Sales.Refund", "Sales.Cancel",
+        "Purchase.View", "Purchase.Create", "Purchase.Edit", "Purchase.Pay", "Purchase.Return", "Purchase.Refund", "Purchase.Cancel",
+        "Inventory.Adjust", "StockLocations.View",
+        "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
+        "Reports.Sales", "Reports.Purchase",
+        BranchRolesView, BranchRolesManage, BranchUsersAssignRoles,
+    };
+
+    public const string CompanyUsersAssignRoles = "Company.Users.AssignRoles";
+    public const string BranchRolesView = "Branch.Roles.View";
+    public const string BranchRolesManage = "Branch.Roles.Manage";
+    public const string BranchUsersAssignRoles = "Branch.Users.AssignRoles";
+
+    /// <summary>True when a branch-scoped role may hold <paramref name="code"/>.</summary>
+    public static bool IsBranchEligible(string code) => BranchEligibleCodes.Contains(code);
+
+    /// <summary>Scope of a catalogue code; unknown codes are CompanyOnly (fail closed).</summary>
+    public static PermissionScope ScopeOf(string code) => IsBranchEligible(code) ? PermissionScope.CompanyOrBranch : PermissionScope.CompanyOnly;
+
+    private static readonly IReadOnlyList<PermissionDefinition> Definitions = new List<PermissionDefinition>
     {
         // Administration — Users
         new("Users.View", "Administration", "View", "View the user list and user details."),
@@ -24,6 +49,12 @@ public static class PermissionCatalog
         new("Roles.Edit", "Administration", "Edit", "Edit a role's details and permission mapping."),
         new("Roles.Duplicate", "Administration", "Duplicate", "Duplicate an existing role."),
         new("Roles.Disable", "Administration", "Disable", "Activate or deactivate a role."),
+
+        // Administration — Scoped role assignment and branch role administration (Phase 7)
+        new(CompanyUsersAssignRoles, "Administration", "AssignRoles", "Assign and end company-wide roles for users (company-wide administrators only)."),
+        new(BranchRolesView, "Administration", "View", "View the roles scoped to the branch."),
+        new(BranchRolesManage, "Administration", "Manage", "Create, edit, duplicate and deactivate roles scoped to the branch."),
+        new(BranchUsersAssignRoles, "Administration", "AssignRoles", "Assign and end branch roles for users allocated to the branch."),
 
         // Administration — Permissions catalogue (read-only)
         new("Permissions.View", "Administration", "View", "View the read-only system permission catalogue."),
@@ -112,4 +143,9 @@ public static class PermissionCatalog
         new("Reports.Accounts", "Reports", "View", "View the Accounts reports: payments, outstanding balances, expenses, cash flow, cash & bank and payment methods."),
         new("Reports.Profit", "Reports", "View", "View the profit/margin summary report."),
     };
+
+    // Declared after Definitions: static initialisers run in textual order.
+    public static readonly IReadOnlyList<PermissionDefinition> All = Definitions
+        .Select(d => d with { Scope = ScopeOf(d.Code) })
+        .ToList();
 }

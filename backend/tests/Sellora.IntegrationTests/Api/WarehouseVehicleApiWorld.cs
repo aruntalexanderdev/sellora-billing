@@ -56,6 +56,7 @@ public sealed class WarehouseVehicleApiWorld
             db.UserCompanyMemberships.Add(membership);
             // Phase 5: an AssignedBranches member needs an active primary allocation to sign in (Main only; every branch a test creates is inaccessible to it).
             db.UserBranchAssignments.Add(new UserBranchAssignment { Id = Guid.NewGuid(), CompanyId = companyId, UserCompanyMembershipId = membership.Id, BranchId = mainId, IsPrimary = true, AssignmentReason = "test fixture" });
+            Sellora.IntegrationTests.TestData.RbacSeed.Assign(db, membership, roleId); // Phase 7: held through an assignment
             await db.SaveChangesAsync();
         }
         return new WarehouseVehicleApiWorld

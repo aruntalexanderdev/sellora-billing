@@ -38,7 +38,6 @@ public class PlatformServiceTests
         public CompanyContext Context { get; } = new();
         public DbContextOptions<SelloraDbContext> Options { get; } = new DbContextOptionsBuilder<SelloraDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
         public SelloraDbContext Db { get; }
-        public Role Admin { get; } = new() { Id = Guid.NewGuid(), Name = "Administrator", IsSystem = true, IsActive = true };
         public Currency Inr { get; } = new() { Id = Guid.NewGuid(), Code = "INR", Name = "Rupee", Symbol = "R" };
         public User Ops { get; }
         public JwtTokenService Tokens { get; } = new(Microsoft.Extensions.Options.Options.Create(new JwtOptions
@@ -50,30 +49,30 @@ public class PlatformServiceTests
         {
             // A platform request: NO company context (the service sets it once, only while provisioning).
             Db = new SelloraDbContext(Options, Context, TestCompany.Branch);
-            Db.Roles.Add(Admin);
             Db.Currencies.Add(Inr);
             foreach (var def in GovernancePermissionCatalog.All)
             {
                 Db.GovernancePermissions.Add(new GovernancePermission { Id = GovernancePermissionCatalog.IdFor(def.Code), Code = def.Code, Description = def.Description });
             }
-            Ops = NewUser("ops", Admin);
+            Ops = NewUser("ops");
             Db.PlatformAdministrators.Add(new PlatformAdministrator { UserId = Ops.Id, Status = PlatformAdminStatus.Active, GrantedAt = DateTimeOffset.UtcNow });
             Db.SaveChanges();
         }
 
-        public User NewUser(string name, Role role, UserStatus status = UserStatus.Active)
+        public User NewUser(string name, UserStatus status = UserStatus.Active)
         {
             var user = new User
             {
                 Id = Guid.NewGuid(), FirstName = name, LastName = "T", Username = name, Email = $"{name}@x.io", PasswordHash = new Hasher().Hash(Password),
-                RoleId = role.Id, Status = status,
+                Status = status,
             };
             Db.Users.Add(user);
             return user;
         }
 
-        public PlatformService Service(bool creationEnabled = true, int minutes = 30) =>
-            new(Db, Context, new Hasher(), Tokens, Microsoft.Extensions.Options.Options.Create(new PlatformOptions { CompanyCreationEnabled = creationEnabled, SessionMinutes = minutes }));
+        public PlatformService Service(bool creationEnabled = true, int minutes = 30, bool referenceDataEditable = false) =>
+            new(Db, Context, new Hasher(), Tokens, Microsoft.Extensions.Options.Options.Create(
+                new PlatformOptions { CompanyCreationEnabled = creationEnabled, SessionMinutes = minutes, ReferenceDataEditableByCompanies = referenceDataEditable }));
 
         /// <summary>A service for a NEW request (its own context and company scope) over the same store: a request provisions at most one company.</summary>
         public PlatformService NewRequest()
@@ -198,8 +197,8 @@ public class PlatformServiceTests
     public async Task Login_UserWhoIsNotAPlatformAdministrator_OrWasRevoked_IsNotPlatformAdministrator()
     {
         var w = new World();
-        var plain = w.NewUser("plain", w.Admin);
-        var revoked = w.NewUser("revoked", w.Admin);
+        var plain = w.NewUser("plain");
+        var revoked = w.NewUser("revoked");
         w.Db.PlatformAdministrators.Add(new PlatformAdministrator { UserId = revoked.Id, Status = PlatformAdminStatus.Revoked, GrantedAt = DateTimeOffset.UtcNow, RevokedAt = DateTimeOffset.UtcNow });
         w.Db.SaveChanges();
 
@@ -255,6 +254,71 @@ public class PlatformServiceTests
         Assert.Null(w.Context.CompanyId);
     }
 
+    [Theory]
+    [InlineData(true, true, "refused: reference data is company-editable")]
+    [InlineData(false, true, "refused: creation disabled")]
+    [InlineData(false, false, "refused: creation disabled")]
+    public async Task CreateCompany_FlagCombinationsOtherThanEnabledAndPlatformManaged_AreRefusedAndWriteNothing(bool creationEnabled, bool referenceDataEditable, string _)
+    {
+        var w = new World();
+        // (enabled=false, editable=false) is covered by CreateCompany_WhenTheFlagIsOff; here the three non-provisioning combinations.
+        var service = w.Service(creationEnabled: creationEnabled, referenceDataEditable: referenceDataEditable);
+
+        if (!creationEnabled) await Assert.ThrowsAsync<CompanyCreationDisabledException>(() => service.CreateCompanyAsync(Input(w), w.Ops.Id, null));
+        else await Assert.ThrowsAsync<ReferenceDataCompanyEditableException>(() => service.CreateCompanyAsync(Input(w), w.Ops.Id, null));
+
+        Assert.Empty(w.Db.Companies);
+        Assert.Empty(w.Db.PlatformAuditEvents);
+        Assert.Empty(w.Db.Roles.IgnoreQueryFilters());
+        Assert.Empty(w.Db.UserRoleAssignments.IgnoreQueryFilters());
+    }
+
+    [Fact]
+    public async Task CreateCompany_CreationEnabledAndReferenceDataPlatformManaged_Succeeds()
+    {
+        var w = new World();
+
+        var created = await w.Service(creationEnabled: true, referenceDataEditable: false).CreateCompanyAsync(Input(w), w.Ops.Id, null);
+
+        Assert.Single(w.Db.Companies.Where(c => c.Id == created.Id));
+    }
+
+    [Fact]
+    public async Task CreateCompany_CreatesTheCompanysOwnAdministratorRole_AndTheOwnersAssignment_AndNothingElse()
+    {
+        var w = new World();
+
+        var created = await w.Service().CreateCompanyAsync(Input(w), w.Ops.Id, "corr-9");
+
+        w.Db.ChangeTracker.Clear();
+        var roles = w.Db.Roles.IgnoreQueryFilters().Where(r => r.CompanyId == created.Id).ToList();
+        var admin = Assert.Single(roles); // Q4: only the Administrator
+        Assert.Equal(("Administrator", true, true, RoleScope.Company, (Guid?)null), (admin.Name, admin.IsSystem, admin.IsActive, admin.ScopeType, admin.BranchId));
+        var membership = w.Db.UserCompanyMemberships.Single(m => m.CompanyId == created.Id);
+        var assignment = Assert.Single(w.Db.UserRoleAssignments.IgnoreQueryFilters().Where(a => a.CompanyId == created.Id));
+        Assert.Equal((membership.Id, admin.Id, RoleScope.Company, AssignmentStatus.Active), (assignment.UserCompanyMembershipId, assignment.RoleId, assignment.ScopeType, assignment.Status));
+        Assert.Empty(w.Db.RolePermissions.IgnoreQueryFilters().Where(rp => rp.RoleId == admin.Id)); // the system role holds everything implicitly
+        Assert.Contains(w.Db.AuditEvents.IgnoreQueryFilters(), a => a.Action == AuditActions.RoleAssignmentCreated && a.CompanyId == created.Id);
+        // The owner is an Administrator through the effective-permission evaluation (E3) and the default company's roles are untouched.
+        var set = await EffectivePermissionService.LoadAsync(w.Db, membership.Id, default);
+        Assert.True(set.IsAdministrator);
+        Assert.Empty(w.Db.Roles.IgnoreQueryFilters().Where(r => r.CompanyId != created.Id));
+    }
+
+    [Fact]
+    public async Task CreateCompany_ExistingNonAdministratorOwner_IsAccepted_NoGlobalSystemRoleIsRequiredAnyMore()
+    {
+        var w = new World();
+        var staff = w.NewUser("staff");
+        w.Db.SaveChanges();
+
+        var created = await w.Service().CreateCompanyAsync(Input(w, owner: new PlatformOwnerInput(staff.Id, null)), w.Ops.Id, null);
+
+        Assert.Equal(staff.Id, created.OwnerUserId);
+        var membership = w.Db.UserCompanyMemberships.Single(m => m.CompanyId == created.Id && m.UserId == staff.Id);
+        Assert.True((await EffectivePermissionService.LoadAsync(w.Db, membership.Id, default)).IsAdministrator);
+    }
+
     [Fact]
     public async Task CreateCompany_NewOwner_CreatesEveryRowOfTheCompany()
     {
@@ -277,7 +341,7 @@ public class PlatformServiceTests
         var account = w.Db.FinancialAccounts.IgnoreQueryFilters().Single(a => a.CompanyId == created.Id);
         Assert.Equal(("Main Cash", FinancialAccountKind.Cash), (account.Name, account.Kind));
         var owner = w.Db.Users.Single(u => u.Id == created.OwnerUserId);
-        Assert.Equal(("asha", UserStatus.Invited, w.Admin.Id), (owner.Username, owner.Status, owner.RoleId));
+        Assert.Equal(("asha", UserStatus.Invited, (Guid?)null), (owner.Username, owner.Status, owner.RoleId));
         Assert.Equal("hash:Str0ng!Passw0rd", owner.PasswordHash);
         var membership = w.Db.UserCompanyMemberships.Single(m => m.CompanyId == created.Id);
         Assert.Equal((owner.Id, MembershipStatus.Active, CompanyAccessScope.CompanyWide), (membership.UserId, membership.Status, membership.AccessScope));
@@ -295,7 +359,7 @@ public class PlatformServiceTests
     public async Task CreateCompany_ExistingUserWithMembershipInAnotherCompany_IsRejectedOnOwner()
     {
         var w = new World();
-        var existing = w.NewUser("existing", w.Admin);
+        var existing = w.NewUser("existing");
         w.Db.Companies.Add(new Company { Id = TestCompany.OtherId, Code = "B", Name = "B", IsActive = true });
         w.Db.UserCompanyMemberships.Add(new UserCompanyMembership { Id = Guid.NewGuid(), UserId = existing.Id, CompanyId = TestCompany.OtherId, Status = MembershipStatus.Active });
         w.Db.SaveChanges();
@@ -310,7 +374,7 @@ public class PlatformServiceTests
     public async Task CreateCompany_ExistingAdministratorOwner_ReusesTheUserAndGivesAMembershipOnly()
     {
         var w = new World();
-        var existing = w.NewUser("existing", w.Admin);
+        var existing = w.NewUser("existing");
         w.Db.SaveChanges();
 
         var created = await w.Service().CreateCompanyAsync(Input(w, owner: new PlatformOwnerInput(existing.Id, null)), w.Ops.Id, null);
@@ -370,22 +434,18 @@ public class PlatformServiceTests
     }
 
     [Fact]
-    public async Task CreateCompany_OwnerMustBeExactlyOneOfExistingOrNew_NotTheActor_NotDisabled_NotAPlatformAdmin_AndAnAdministrator()
+    public async Task CreateCompany_OwnerMustBeExactlyOneOfExistingOrNew_NotTheActor_NotDisabled_NotAPlatformAdmin()
     {
         var w = new World();
-        var disabled = w.NewUser("disabled", w.Admin, UserStatus.Disabled);
-        var staffRole = new Role { Id = Guid.NewGuid(), Name = "Staff", IsSystem = false, IsActive = true };
-        w.Db.Roles.Add(staffRole);
-        var staff = w.NewUser("staff", staffRole);
+        var disabled = w.NewUser("disabled", UserStatus.Disabled);
         w.Db.SaveChanges();
 
         await InvalidAsync(() => w.NewRequest().CreateCompanyAsync(Input(w, owner: new PlatformOwnerInput(null, null)), w.Ops.Id, null), "owner");
         await InvalidAsync(() => w.NewRequest().CreateCompanyAsync(Input(w, owner: new PlatformOwnerInput(Guid.NewGuid(), new PlatformNewOwner("a", "b", "c", "c@x.io", null, "Str0ng!Passw0rd"))), w.Ops.Id, null), "owner");
         await InvalidAsync(() => w.NewRequest().CreateCompanyAsync(Input(w, owner: new PlatformOwnerInput(w.Ops.Id, null)), w.Ops.Id, null), "owner"); // the actor
         await InvalidAsync(() => w.NewRequest().CreateCompanyAsync(Input(w, owner: new PlatformOwnerInput(disabled.Id, null)), w.Ops.Id, null), "owner");
-        await InvalidAsync(() => w.NewRequest().CreateCompanyAsync(Input(w, owner: new PlatformOwnerInput(staff.Id, null)), w.Ops.Id, null), "owner");
         await InvalidAsync(() => w.NewRequest().CreateCompanyAsync(Input(w, owner: new PlatformOwnerInput(Guid.NewGuid(), null)), w.Ops.Id, null), "owner");
-        var otherPlatform = w.NewUser("ops2", w.Admin);
+        var otherPlatform = w.NewUser("ops2");
         w.Db.PlatformAdministrators.Add(new PlatformAdministrator { UserId = otherPlatform.Id, Status = PlatformAdminStatus.Active, GrantedAt = DateTimeOffset.UtcNow });
         w.Db.SaveChanges();
         await InvalidAsync(() => w.NewRequest().CreateCompanyAsync(Input(w, owner: new PlatformOwnerInput(otherPlatform.Id, null)), w.Ops.Id, null), "owner");
@@ -397,7 +457,7 @@ public class PlatformServiceTests
     public async Task CreateCompany_NewOwnerWithATakenUsernameOrEmail_IsRejectedWithNestedFieldNames()
     {
         var w = new World();
-        w.NewUser("taken", w.Admin);
+        w.NewUser("taken");
         w.Db.SaveChanges();
         var clash = new PlatformOwnerInput(null, new PlatformNewOwner("A", "B", "TAKEN", "taken@x.io", null, "Str0ng!Passw0rd"));
 

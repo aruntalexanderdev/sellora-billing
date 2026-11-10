@@ -1645,6 +1645,18 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Description")
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
@@ -1660,12 +1672,41 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
 
+                    b.Property<string>("ScopeType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Company");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
-                        .IsUnique();
+                    b.HasAlternateKey("CompanyId", "Id");
 
-                    b.ToTable("Roles");
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("CompanyId", "BranchId");
+
+                    b.HasIndex(new[] { "CompanyId" }, "IX_Roles_CompanyId_System")
+                        .IsUnique()
+                        .HasFilter("\"IsSystem\"");
+
+                    b.ToTable("Roles", t =>
+                        {
+                            t.HasCheckConstraint("CK_Roles_Id_NotEmpty", "\"Id\" <> '00000000-0000-0000-0000-000000000000'");
+
+                            t.HasCheckConstraint("CK_Roles_Scope", "(\"ScopeType\" = 'Company' AND \"BranchId\" IS NULL) OR (\"ScopeType\" = 'Branch' AND \"BranchId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_Roles_SystemIsCompany", "NOT \"IsSystem\" OR \"ScopeType\" = 'Company'");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.RolePermission", b =>
@@ -2573,7 +2614,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
 
-                    b.Property<Guid>("RoleId")
+                    b.Property<Guid?>("RoleId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Status")
@@ -2731,6 +2772,91 @@ namespace Sellora.Infrastructure.Data.Migrations
                             t.HasCheckConstraint("CK_UserCompanyMemberships_AccessScope", "\"AccessScope\" IN ('CompanyWide', 'AssignedBranches')");
 
                             t.HasCheckConstraint("CK_UserCompanyMemberships_Status", "\"Status\" IN ('Active', 'Suspended', 'Revoked')");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.UserRoleAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AssignmentReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("EndAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EndReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("EndedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ScopeType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("StartAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("UserCompanyMembershipId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("EndedByUserId");
+
+                    b.HasIndex(new[] { "CompanyId", "BranchId" }, "IX_URA_Branch_Active")
+                        .HasFilter("\"Status\" = 'Active'");
+
+                    b.HasIndex(new[] { "CompanyId", "UserCompanyMembershipId", "StartAt" }, "IX_URA_Membership_History");
+
+                    b.HasIndex(new[] { "UserCompanyMembershipId", "RoleId" }, "IX_URA_Membership_Role_Active")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'Active'");
+
+                    b.HasIndex(new[] { "CompanyId", "RoleId" }, "IX_URA_Role_Active")
+                        .HasFilter("\"Status\" = 'Active'");
+
+                    b.HasIndex(new[] { "CompanyId", "RoleId", "ScopeType" }, "IX_URA_Role_Scope");
+
+                    b.ToTable("UserRoleAssignments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_URA_Active_EndAt", "(\"Status\" = 'Active') = (\"EndAt\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_URA_EndAt_After_StartAt", "\"EndAt\" IS NULL OR \"EndAt\" >= \"StartAt\"");
+
+                            t.HasCheckConstraint("CK_URA_Id_NotEmpty", "\"Id\" <> '00000000-0000-0000-0000-000000000000'");
+
+                            t.HasCheckConstraint("CK_URA_Scope_Branch", "(\"ScopeType\" = 'Branch') = (\"BranchId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_URA_Status", "\"Status\" IN ('Active', 'Ended')");
                         });
                 });
 
@@ -3562,6 +3688,32 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.Role", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Roles_Branches_CompanyId_BranchId");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.RolePermission", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.Permission", "Permission")
@@ -4016,8 +4168,7 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasOne("Sellora.Domain.Entities.Role", "Role")
                         .WithMany("Users")
                         .HasForeignKey("RoleId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Role");
                 });
@@ -4086,6 +4237,52 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("Company");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.UserRoleAssignment", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("EndedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_URA_Branch");
+
+                    b.HasOne("Sellora.Domain.Entities.UserCompanyMembership", "Membership")
+                        .WithMany("RoleAssignments")
+                        .HasForeignKey("CompanyId", "UserCompanyMembershipId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_URA_Membership");
+
+                    b.HasOne("Sellora.Domain.Entities.Role", "Role")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RoleId", "ScopeType")
+                        .HasPrincipalKey("CompanyId", "Id", "ScopeType")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_URA_Role");
+
+                    b.Navigation("Membership");
+
+                    b.Navigation("Role");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Vehicle", b =>
@@ -4222,6 +4419,8 @@ namespace Sellora.Infrastructure.Data.Migrations
             modelBuilder.Entity("Sellora.Domain.Entities.UserCompanyMembership", b =>
                 {
                     b.Navigation("BranchAssignments");
+
+                    b.Navigation("RoleAssignments");
                 });
 #pragma warning restore 612, 618
         }

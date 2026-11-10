@@ -9,6 +9,7 @@ using Sellora.Api.Validation;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Auth;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Roles;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
 
@@ -16,7 +17,7 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/users")]
-public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher, IUserAccessService userAccess) : ControllerBase
+public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher, IUserAccessService userAccess, IRoleAssignmentService roleAssignments) : ControllerBase
 {
     [HttpGet]
     [Authorize(Policy = "Users.View")]
@@ -27,7 +28,8 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var query = CompanyUsers().Include(u => u.Role).AsQueryable();
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var query = CompanyUsers().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -37,17 +39,28 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
                 u.Username.ToLower().Contains(s) || u.Email.ToLower().Contains(s));
         }
 
-        if (roleId is not null) query = query.Where(u => u.RoleId == roleId);
+        if (roleId is not null)
+        {
+            query = query.Where(u => db.UserRoleAssignments.Any(a => a.CompanyId == companyId && a.RoleId == roleId && a.Status == AssignmentStatus.Active
+                && db.UserCompanyMemberships.Any(m => m.Id == a.UserCompanyMembershipId && m.UserId == u.Id)));
+        }
         if (status is not null) query = query.Where(u => u.Status == status);
 
         var total = await query.CountAsync(ct);
         var items = await query
             .OrderBy(u => u.FirstName).ThenBy(u => u.LastName)
             .Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(u => new UserListItemDto(u.Id, u.FirstName, u.LastName, u.Username, u.Email, u.RoleId, u.Role.Name, u.Status, u.LastLoginAt, u.CreatedAt))
             .ToListAsync(ct);
 
-        return Ok(new PagedResult<UserListItemDto>(items, total, page, pageSize));
+        var roles = await ActiveRolesAsync(items.Select(u => u.Id).ToList(), ct);
+        var dtos = items.Select(u =>
+        {
+            var list = roles.GetValueOrDefault(u.Id) ?? [];
+            var primary = PrimaryRole(list);
+            return new UserListItemDto(u.Id, u.FirstName, u.LastName, u.Username, u.Email, primary?.Id, primary?.Name ?? "", u.Status, u.LastLoginAt, u.CreatedAt, list);
+        }).ToList();
+
+        return Ok(new PagedResult<UserListItemDto>(dtos, total, page, pageSize));
     }
 
     /// <summary>Self-service username change — any authenticated user may rename their own account.
@@ -67,11 +80,11 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
             return ValidationProblem(ModelState);
         }
 
-        var user = await db.Users.Include(u => u.Role).SingleAsync(u => u.Id == currentUserId, ct);
+        var user = await db.Users.SingleAsync(u => u.Id == currentUserId, ct);
         user.Username = request.Username.Trim();
         await db.SaveChangesAsync(ct);
 
-        return Ok(ToDetail(user));
+        return Ok(await BuildDetailAsync(user, ct));
     }
 
     /// <summary>Self-service password change — requires the caller's current password. Distinct from the
@@ -112,9 +125,9 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     [Authorize(Policy = "Users.View")]
     public async Task<ActionResult<UserDetailDto>> Get(Guid id, CancellationToken ct)
     {
-        var user = await CompanyUsers().Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await CompanyUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
-        return Ok(ToDetail(user));
+        return Ok(await BuildDetailAsync(user, ct));
     }
 
     [HttpPost]
@@ -141,7 +154,8 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
             ModelState.AddModelError(nameof(request.Email), "This email is already registered.");
         }
         var actor = access.Actor;
-        await ValidateRoleAssignmentAsync(request.RoleId, currentRoleId: null, actor, ct);
+        var role = request.RoleId is null ? null : await db.Roles.SingleOrDefaultAsync(r => r.Id == request.RoleId, ct);
+        if (role is null) ModelState.AddModelError("roleId", "Select a valid role.");
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
         var user = new User
@@ -153,7 +167,6 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
             Email = request.Email.Trim(),
             PhoneNumber = request.PhoneNumber,
             PasswordHash = passwordHasher.Hash(request.Password),
-            RoleId = request.RoleId!.Value,
             Status = UserStatus.Invited,
         };
 
@@ -169,22 +182,31 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         };
         db.UserCompanyMemberships.Add(membership);
 
-        // Initial access (Phase 5, D12/O1): scope + allocations (audited) are staged in the same save as the user and membership.
-        var isAdministratorRole = await db.Roles.AnyAsync(r => r.Id == request.RoleId && r.IsSystem, ct);
         try
         {
-            await userAccess.InitializeNewMembershipAsync(ToAccessActor(actor), membership, isAdministratorRole,
+            // Phase 7 compat: RoleId = the initial company-role assignment (R4: Company.Users.AssignRoles, CompanyWide actor, codes held).
+            await roleAssignments.StageInitialCompanyRoleAsync(actor.ToRoleActor(HttpContext.TraceIdentifier), membership, role!.Id, ct);
+            // Initial access (Phase 5, D12/O1): scope + allocations (audited) are staged in the same save as the user and membership.
+            await userAccess.InitializeNewMembershipAsync(ToAccessActor(actor), membership, role.IsSystem,
                 new AccessSelection(request.AccessScope, request.BranchIds, request.PrimaryBranchId), ct);
         }
         catch (AccessManagementForbiddenException ex)
         {
             return AccessForbidden(ex);
         }
+        catch (RoleRuleException ex)
+        {
+            return AccessProblems.Rule(ex);
+        }
+        catch (DomainValidationException ex) when (ex.Field is "roleId")
+        {
+            foreach (var error in ex.Errors) ModelState.AddModelError(error.Field, error.Message);
+            return ValidationProblem(ModelState);
+        }
         await db.SaveChangesAsync(ct);
         await access.CommitAsync(ct);
 
-        await db.Entry(user).Reference(u => u.Role).LoadAsync(ct);
-        return CreatedAtAction(nameof(Get), new { id = user.Id }, ToDetail(user));
+        return CreatedAtAction(nameof(Get), new { id = user.Id }, await BuildDetailAsync(user, ct));
     }
 
     [HttpPut("{id:guid}")]
@@ -194,11 +216,11 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
-        var user = await CompanyUsers().Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await CompanyUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         var actor = access.Actor;
-        if (user.Role.IsSystem && !actor.IsAdministrator) return AdministratorAccountForbidden();
+        if (!actor.IsAdministrator && await TargetHoldsAdministratorAsync(user.Id, ct)) return AdministratorAccountForbidden();
         if (await BelongsToAnotherCompanyAsync(user.Id, ct)) return SharedAccountForbidden();
         if (await ProtectedTargetAsync(user.Id, actor, ct) is { } protectedResult) return protectedResult;
 
@@ -210,16 +232,15 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         {
             ModelState.AddModelError(nameof(request.Email), "This email is already registered.");
         }
+        // Phase 7 compat: RoleId = "set the single company role". Unchanged = the user's only Active company role.
+        var currentRoleIds = (await ActiveRolesAsync([user.Id], ct)).GetValueOrDefault(user.Id)?.Where(r => r.ScopeType == RoleScope.Company).Select(r => r.Id).ToList() ?? [];
+        var roleChanged = request.RoleId is { } requested && !(currentRoleIds.Count == 1 && currentRoleIds[0] == requested);
         // Nobody changes their own role. Together with "only Administrators change Administrator accounts",
         // "nobody disables themselves" and the access-management lock (which re-loads the caller, so two
         // Administrators cannot remove each other concurrently), at least one active Administrator always remains.
-        if (request.RoleId is not null && request.RoleId != user.RoleId && user.Id == actor.UserId)
+        if (roleChanged && user.Id == actor.UserId)
         {
             ModelState.AddModelError(nameof(request.RoleId), "You cannot change your own role.");
-        }
-        else
-        {
-            await ValidateRoleAssignmentAsync(request.RoleId, user.RoleId, actor, ct);
         }
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
@@ -228,16 +249,26 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         user.Username = request.Username.Trim();
         user.Email = request.Email.Trim();
         user.PhoneNumber = request.PhoneNumber;
-        var promoted = user.RoleId != request.RoleId!.Value && !user.Role.IsSystem
-            && await db.Roles.AnyAsync(r => r.Id == request.RoleId && r.IsSystem, ct);
-        user.RoleId = request.RoleId!.Value;
-
         await db.SaveChangesAsync(ct);
-        // Administrators are always company-wide (D2): promotion forces it in the same transaction; demotion keeps the scope.
-        if (promoted) await userAccess.EnsureCompanyWideForAdministratorAsync(ToAccessActor(actor), user.Id, ct);
+
+        if (roleChanged)
+        {
+            try
+            {
+                // R4 (Company.Users.AssignRoles + CompanyWide actor, codes held, Administrator only by Administrators); promotion forces CompanyWide (D2).
+                await roleAssignments.SetSingleCompanyRoleAsync(actor.ToRoleActor(HttpContext.TraceIdentifier), user.Id, request.RoleId!.Value, ct);
+            }
+            catch (AccessManagementForbiddenException ex) { return AccessForbidden(ex); }
+            catch (RoleRuleException ex) { return AccessProblems.Rule(ex); }
+            catch (AccessTargetNotFoundException) { return NotFound(); }
+            catch (DomainValidationException ex) when (ex.Field is "roleId")
+            {
+                foreach (var error in ex.Errors) ModelState.AddModelError(error.Field, error.Message);
+                return ValidationProblem(ModelState);
+            }
+        }
         await access.CommitAsync(ct);
-        await db.Entry(user).Reference(u => u.Role).LoadAsync(ct);
-        return Ok(ToDetail(user));
+        return Ok(await BuildDetailAsync(user, ct));
     }
 
     [HttpPost("{id:guid}/status")]
@@ -245,7 +276,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     public async Task<IActionResult> SetStatus(Guid id, SetUserStatusRequest request, CancellationToken ct)
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
-        var user = await CompanyUsers().Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await CompanyUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         var actor = access.Actor;
@@ -253,13 +284,19 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         {
             return Problem(statusCode: 400, title: "You cannot disable your own account.");
         }
-        if (user.Role.IsSystem && !actor.IsAdministrator) return AdministratorAccountForbidden();
+        if (!actor.IsAdministrator && await TargetHoldsAdministratorAsync(user.Id, ct)) return AdministratorAccountForbidden();
         if (await BelongsToAnotherCompanyAsync(user.Id, ct)) return SharedAccountForbidden();
 
         if (await ProtectedTargetAsync(user.Id, actor, ct) is { } protectedResult) return protectedResult;
 
         user.Status = request.Status;
         await db.SaveChangesAsync(ct);
+        // Phase 7 D9 (defence in depth): disabling the last company-wide Administrator is refused (the scope rolls back on failure).
+        if (request.Status == UserStatus.Disabled && await TargetHoldsAdministratorAsync(user.Id, ct))
+        {
+            try { await RoleRules.EnsureAdministratorRemainsAsync(db, ct); }
+            catch (RoleRuleException ex) { return AccessProblems.Rule(ex); }
+        }
         // R4: disabling a user must leave the company a root owner (checked on the saved state; the scope rolls back on failure).
         if (request.Status == UserStatus.Disabled && await GovernanceRules.IsActiveOwnerAsync(db, user.Id, ct))
         {
@@ -275,11 +312,11 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     public async Task<ActionResult<ResetPasswordResponse>> ResetPassword(Guid id, CancellationToken ct)
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
-        var user = await CompanyUsers().Include(u => u.Role).SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await CompanyUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         var actor = access.Actor;
-        if (user.Role.IsSystem && !actor.IsAdministrator) return AdministratorAccountForbidden();
+        if (!actor.IsAdministrator && await TargetHoldsAdministratorAsync(user.Id, ct)) return AdministratorAccountForbidden();
         if (await BelongsToAnotherCompanyAsync(user.Id, ct)) return SharedAccountForbidden();
 
         if (await ProtectedTargetAsync(user.Id, actor, ct) is { } protectedResult) return protectedResult;
@@ -300,37 +337,42 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         return db.Users.Where(u => db.UserCompanyMemberships.Any(m => m.UserId == u.Id && m.CompanyId == companyId));
     }
 
-    /// <summary>
-    /// Role assignment rules: the role must exist and be active (an unchanged role is left alone), only
-    /// Administrators may hand out the Administrator role, and others only roles whose permissions they hold. Errors are added to <see cref="ControllerBase.ModelState"/>.
-    /// </summary>
-    private async Task ValidateRoleAssignmentAsync(Guid? roleId, Guid? currentRoleId, AccessManagementActor actor, CancellationToken ct)
+    private async Task<bool> TargetHoldsAdministratorAsync(Guid userId, CancellationToken ct)
     {
-        const string field = "RoleId";
-        var role = roleId is null
-            ? null
-            : await db.Roles.Include(r => r.RolePermissions).ThenInclude(rp => rp.Permission).SingleOrDefaultAsync(r => r.Id == roleId, ct);
-        if (role is null)
-        {
-            ModelState.AddModelError(field, "Select a valid role.");
-            return;
-        }
-        if (role.Id == currentRoleId) return;
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var membershipId = await db.UserCompanyMemberships.Where(m => m.CompanyId == companyId && m.UserId == userId).Select(m => (Guid?)m.Id).FirstOrDefaultAsync(ct);
+        return membershipId is { } id && await RoleRules.HoldsAdministratorAsync(db, id, ct);
+    }
 
-        if (!role.IsActive)
-        {
-            ModelState.AddModelError(field, "This role is inactive. Activate it or choose another role.");
-        }
-        else if (role.IsSystem && !actor.IsAdministrator)
-        {
-            ModelState.AddModelError(field, "Only Administrators can assign the Administrator role.");
-        }
-        else if (!actor.IsAdministrator
-            && PermissionResolver.Resolve(role).Where(c => !actor.Permissions.Contains(c)).OrderBy(c => c).ToList() is { Count: > 0 } notHeld)
-        {
-            // Assigning a role grants its permissions to that user (possibly an account the caller controls).
-            ModelState.AddModelError(field, $"You can only assign a role whose permissions you hold yourself. Not held: {string.Join(", ", notHeld)}.");
-        }
+    /// <summary>Active role assignments (company and branch) per user of the current company, with role names.</summary>
+    private async Task<Dictionary<Guid, List<UserRoleSummaryDto>>> ActiveRolesAsync(IReadOnlyCollection<Guid> userIds, CancellationToken ct)
+    {
+        if (userIds.Count == 0) return [];
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var members = await db.UserCompanyMemberships.AsNoTracking()
+            .Where(m => m.CompanyId == companyId && userIds.Contains(m.UserId)).Select(m => new { m.Id, m.UserId }).ToListAsync(ct);
+        var membershipIds = members.Select(m => m.Id).ToList();
+        var rows = await db.UserRoleAssignments.AsNoTracking()
+            .Where(a => a.CompanyId == companyId && a.Status == AssignmentStatus.Active && membershipIds.Contains(a.UserCompanyMembershipId))
+            .Select(a => new { a.UserCompanyMembershipId, a.RoleId, a.ScopeType, a.BranchId }).ToListAsync(ct);
+        var roleIds = rows.Select(r => r.RoleId).Distinct().ToList();
+        var names = await db.Roles.AsNoTracking().Where(r => roleIds.Contains(r.Id)).Select(r => new { r.Id, r.Name }).ToDictionaryAsync(r => r.Id, r => r.Name, ct);
+        var userByMembership = members.ToDictionary(m => m.Id, m => m.UserId);
+        return rows.GroupBy(r => userByMembership[r.UserCompanyMembershipId]).ToDictionary(
+            g => g.Key,
+            g => g.Select(r => new UserRoleSummaryDto(r.RoleId, names.GetValueOrDefault(r.RoleId, ""), r.ScopeType, r.BranchId))
+                  .OrderBy(r => r.ScopeType).ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList());
+    }
+
+    private static UserRoleSummaryDto? PrimaryRole(IEnumerable<UserRoleSummaryDto> roles) =>
+        roles.Where(r => r.ScopeType == RoleScope.Company).OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+
+    private async Task<UserDetailDto> BuildDetailAsync(User u, CancellationToken ct)
+    {
+        var list = (await ActiveRolesAsync([u.Id], ct)).GetValueOrDefault(u.Id) ?? [];
+        var primary = PrimaryRole(list);
+        return new UserDetailDto(u.Id, u.FirstName, u.LastName, u.Username, u.Email, u.PhoneNumber,
+            primary?.Id, primary?.Name ?? "", u.Status, u.LastLoginAt, u.CreatedAt, list);
     }
 
     /// <summary>
@@ -388,8 +430,4 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         var chars = bytes.Select(b => alphabet[b % alphabet.Length]).ToArray();
         return new string(chars);
     }
-
-    private static UserDetailDto ToDetail(User u) => new(
-        u.Id, u.FirstName, u.LastName, u.Username, u.Email, u.PhoneNumber,
-        u.RoleId, u.Role.Name, u.Status, u.LastLoginAt, u.CreatedAt);
 }

@@ -35,7 +35,7 @@ public class ProductUnitConstraintTests(PostgresFixture postgres)
             INSERT INTO "Products" ("Id", "Sku", "Name", "Category", "BaseUnitId", "TaxId", "ReorderLevel", "IsActive") VALUES
               ('{s.ProductA}', 'A', 'Product A', NULL, '{s.Kg}', '{tax}', 0, true),
               ('{s.ProductB}', 'B', 'Product B', NULL, '{s.Kg}', '{tax}', 0, true);
-            INSERT INTO "Roles" ("Id", "Name", "Description", "IsActive", "IsSystem") VALUES ('{role}', 'Administrator', NULL, true, true);
+            INSERT INTO "Roles" ("Id", "CompanyId", "Name", "Description", "IsActive", "IsSystem", "CreatedAt") VALUES ('{role}', '0c0a1f00-0000-4000-8000-000000000001', 'Administrator', NULL, true, true, now());
             INSERT INTO "Users" ("Id", "CreatedAt", "Email", "FirstName", "LastName", "PasswordHash", "RoleId", "Status", "Username")
             VALUES ('{s.UserId}', now(), 'admin@selloramart.in', 'Ravi', 'Krishnan', 'x', '{role}', 'Active', 'admin');
             """);

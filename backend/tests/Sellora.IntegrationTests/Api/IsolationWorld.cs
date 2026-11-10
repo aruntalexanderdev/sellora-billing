@@ -16,7 +16,8 @@ namespace Sellora.IntegrationTests.Api;
 public sealed record Ids(
     Guid Company, string Token, Guid UserId, Guid ProductId, Guid ProductUnitId, Guid BaseUnitId, Guid SupplierId, Guid CustomerId,
     Guid TaxId, Guid CategoryId, Guid AccountId, Guid PurchaseId, Guid PurchaseLineId, Guid PurchaseReturnId, Guid SaleId,
-    Guid SaleLineId, Guid SalesReturnId, Guid AdjustmentId, Guid ExpenseId, Guid ExchangeRateId, Guid BatchId, Guid CurrencyId, Guid BranchId, Guid LocationId, Guid WarehouseId, Guid VehicleId, Guid GovernanceMemberId);
+    Guid SaleLineId, Guid SalesReturnId, Guid AdjustmentId, Guid ExpenseId, Guid ExchangeRateId, Guid BatchId, Guid CurrencyId, Guid BranchId, Guid LocationId, Guid WarehouseId, Guid VehicleId, Guid GovernanceMemberId,
+    Guid RoleId, Guid StaffUserId, Guid AssignmentId);
 
 public static class IdsExtensions
 {
@@ -80,6 +81,11 @@ public sealed class IsolationWorld
                     GovernancePermissionId = Sellora.Domain.Permissions.GovernancePermissionCatalog.IdFor(def.Code),
                 });
             }
+            await dbB.SaveChangesAsync();
+
+            // Phase 7: roles are company-owned, so B has its own Administrator and its owner holds it through an assignment.
+            var adminB = Sellora.IntegrationTests.TestData.RbacSeed.AddAdministratorRole(dbB);
+            Sellora.IntegrationTests.TestData.RbacSeed.Assign(dbB, membershipB, adminB.Id);
             await dbB.SaveChangesAsync();
         }
 
@@ -162,18 +168,30 @@ public sealed class IsolationWorld
         var usage = new StockLocationUsageService();
         var warehouse = await new WarehouseService(db, usage).CreateAsync(new CreateWarehouseInput("ISO-WH", "Isolation warehouse", null), userId);
         var vehicle = await new VehicleService(db, usage).CreateAsync(new CreateVehicleInput("ISO-1", "Isolation van", VehicleType.Van, null), userId);
+        // Phase 7: the company's Administrator role and assignment (roles are company-owned), and a plain member to address in role-assignment writes.
+        var administratorRole = await db.Roles.Where(r => r.IsSystem).Select(r => r.Id).SingleAsync();
+        var assignment = await db.UserRoleAssignments.Where(a => a.RoleId == administratorRole).Select(a => a.Id).SingleAsync();
+        var staff = new User
+        {
+            Id = Guid.NewGuid(), FirstName = "Staff", LastName = "Member", Username = "staff" + company.ToString("N")[^4..], Email = $"staff{company.ToString("N")[^4..]}@selloramart.in",
+            PasswordHash = new PasswordHasher().Hash(ApiHost.AdminPassword), Status = UserStatus.Active,
+        };
+        db.Users.Add(staff);
+        db.UserCompanyMemberships.Add(new UserCompanyMembership { Id = Guid.NewGuid(), UserId = staff.Id, CompanyId = company });
+        await db.SaveChangesAsync();
         return new Ids(company, token, userId, product.Id, baseUnit.Id, baseUnit.UnitId, supplier.Id, customer.Id, product.TaxId, category.Id, account.Id,
             purchase.Id, purchase.Lines.Single().Id, purchaseReturn.Id, sale.Id, sale.Lines.Single().Id, salesReturn.Id, adjustment.Id, expense.Id, rate.Id, batch.Id, currencyId,
             await db.Branches.Where(b => b.IsDefault).Select(b => b.Id).SingleAsync(),
             await db.StockLocations.Where(l => l.LocationType == Sellora.Domain.Inventory.StockLocationType.BranchStore).Select(l => l.Id).SingleAsync(),
-            warehouse.Id, vehicle.Id, await db.CompanyGovernanceMembers.Select(m => m.Id).SingleAsync());
+            warehouse.Id, vehicle.Id, await db.CompanyGovernanceMembers.Select(m => m.Id).SingleAsync(),
+            administratorRole, staff.Id, assignment);
     }
 
     /// <summary>Every row id (as lower-case text) owned by a company: company tables plus the child tables owned through their parent.</summary>
     private static async Task<HashSet<string>> RowIdsAsync(ApiHost host, Guid company)
     {
         var tables = CompanyTables.Where(t => t != "StockItems").Append("Branches").Append("StockLocations").Append("Warehouses").Append("Vehicles")
-            .Append("CompanyGovernanceMembers").Append("GovernanceMemberPermissions");
+            .Append("CompanyGovernanceMembers").Append("GovernanceMemberPermissions").Append("Roles").Append("UserRoleAssignments");
         var parts = tables.Select(t => $"""SELECT "Id"::text FROM "{t}" WHERE "CompanyId" = '{company}'""").Concat(
         [
             $"""SELECT l."Id"::text FROM "PurchaseOrderLines" l JOIN "PurchaseOrders" p ON p."Id" = l."PurchaseOrderId" WHERE p."CompanyId" = '{company}'""",

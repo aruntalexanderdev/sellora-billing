@@ -64,7 +64,7 @@ public class ProductUnitEndpointsTests
     private static SalesController Catalog(Fixture f)
     {
         f.Db.ChangeTracker.Clear();
-        return WithContext(new SalesController(f.Db, new SalesService(f.Db)));
+        return WithContext(new SalesController(f.Db, new SalesService(f.Db), new FakeEffectivePermissions()));
     }
 
     private static ProductsController Products(Fixture f) => WithContext(new ProductsController(f.Db, new ProductService(f.Db)));

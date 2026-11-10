@@ -83,6 +83,11 @@ public static class IsolationCases
         new("AccountsReportsController.PaymentMethods", _ => "/api/v1/reports/accounts/payment-methods", ShowsRowIds: false),
         new("GovernanceController.Members", _ => "/api/v1/governance/members?includeEnded=true"),
         new("GovernanceController.Events", _ => "/api/v1/governance/events?pageSize=100", ShowsRowIds: false),
+        // Phase 7: roles and assignments are company-owned.
+        new("RolesController.List", _ => "/api/v1/roles"),
+        new("RolesController.Get", i => $"/api/v1/roles/{i.RoleId}", Detail: true),
+        new("RoleAssignmentsController.Get", i => $"/api/v1/users/{i.UserId}/roles", Detail: true),
+        new("RoleAssignmentsController.Members", i => $"/api/v1/branches/{i.BranchId}/members", Detail: true, ShowsRowIds: false),
         new("ExchangeRatesController.Resolve", i => $"/api/v1/exchange-rates/resolve?currencyId={i.CurrencyId}&date={Today:yyyy-MM-dd}", ShowsRowIds: false),
     ];
 
@@ -213,6 +218,25 @@ public static class IsolationCases
             ("/api/v1/governance/administrators", new GrantAdministratorRequest(other.UserId, "x"))),
         new("GovernanceController.RemoveAdministrator", "other company's user", Post, (own, other) =>
             ($"/api/v1/governance/administrators/{other.UserId}/remove", new RemoveAdministratorRequest(Guid.NewGuid(), "x"))),
+        // Phase 7: role and assignment writes naming the other company's role / user / branch answer 404 or 400 (a foreign id is an unknown id).
+        new("RolesController.Update", "other company's role", Put, (own, other) =>
+            ($"/api/v1/roles/{other.RoleId}", new UpdateRoleRequest("Hijacked", null, []))),
+        new("RolesController.Update", "other company's role (system)", Put, (own, other) =>
+            ($"/api/v1/roles/{other.RoleId}", new UpdateRoleRequest("Administrator", null, ["Sales.View"], RoleScope.Company, null))),
+        new("RolesController.Duplicate", "other company's role", Post, (own, other) =>
+            ($"/api/v1/roles/{other.RoleId}/duplicate", null)),
+        new("RolesController.SetActive", "other company's role", Post, (own, other) =>
+            ($"/api/v1/roles/{other.RoleId}/status", new SetRoleActiveRequest(false))),
+        new("RolesController.Create", "branch role at other company's branch", Post, (own, other) =>
+            ("/api/v1/roles", new CreateRoleRequest("Cross branch", null, ["Sales.View"], RoleScope.Branch, other.BranchId))),
+        new("RoleAssignmentsController.Assign", "other company's user", Post, (own, other) =>
+            ($"/api/v1/users/{other.StaffUserId}/roles", new AssignRoleRequest(own.RoleId, "x"))),
+        new("RoleAssignmentsController.Assign", "other company's role", Post, (own, other) =>
+            ($"/api/v1/users/{own.StaffUserId}/roles", new AssignRoleRequest(other.RoleId, "x"))),
+        new("RoleAssignmentsController.End", "other company's user and assignment", Post, (own, other) =>
+            ($"/api/v1/users/{other.UserId}/roles/{other.AssignmentId}/end", new EndRoleAssignmentRequest("x"))),
+        new("RoleAssignmentsController.End", "own user, other company's assignment", Post, (own, other) =>
+            ($"/api/v1/users/{own.StaffUserId}/roles/{other.AssignmentId}/end", new EndRoleAssignmentRequest("x"))),
         new("ExchangeRatesController.Update", "other company's rate", Put, (own, other) =>
             ($"/api/v1/exchange-rates/{other.ExchangeRateId}", new UpsertExchangeRateRequest(own.CurrencyId, 5m, Today))),
     ];
@@ -223,7 +247,9 @@ public static class IsolationCases
         "UnitsController.List", "UnitsController.Get", "UnitsController.Create", "UnitsController.Update", "UnitsController.SetActive",
         "CurrenciesController.List", "CurrenciesController.Create", "CurrenciesController.Update", "CurrenciesController.SetActive",
         "PermissionsController.List",
-        "RolesController.List", "RolesController.Get", "RolesController.Create", "RolesController.Update", "RolesController.Duplicate", "RolesController.SetActive",
+        // Phase 7: units and currencies stay platform rows; their company writes are refused (403 reference_data_platform_managed) and the platform surface manages them.
+        "PlatformReferenceDataController.Units", "PlatformReferenceDataController.CreateUnit", "PlatformReferenceDataController.UpdateUnit", "PlatformReferenceDataController.SetUnitActive",
+        "PlatformReferenceDataController.Currencies", "PlatformReferenceDataController.CreateCurrency", "PlatformReferenceDataController.UpdateCurrency", "PlatformReferenceDataController.SetCurrencyActive",
         "UsersController.UpdateOwnUsername", "UsersController.ChangeOwnPassword",
         // Phase 6: the platform surface never reads company data (no company context: company-owned queries fail closed); the governance catalogue is global.
         "PlatformAuthController.Login", "PlatformCompaniesController.List", "PlatformCompaniesController.Currencies", "PlatformCompaniesController.Create",

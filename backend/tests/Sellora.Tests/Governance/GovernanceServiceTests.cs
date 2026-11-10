@@ -454,7 +454,9 @@ public class GovernanceServiceTests
     {
         var s = NewSetup();
         var foreign = s.W.AddUser("foreign1");
-        s.W.Db.UserCompanyMemberships.Remove(s.W.Db.UserCompanyMemberships.Single(m => m.UserId == foreign.Id));
+        var own = s.W.Db.UserCompanyMemberships.Single(m => m.UserId == foreign.Id);
+        s.W.Db.UserRoleAssignments.RemoveRange(s.W.Db.UserRoleAssignments.Where(a => a.UserCompanyMembershipId == own.Id));
+        s.W.Db.UserCompanyMemberships.Remove(own);
         s.W.Db.Companies.Add(new Company { Id = TestCompany.OtherId, Code = "B", Name = "B", IsActive = true });
         s.W.Db.UserCompanyMemberships.Add(new UserCompanyMembership { Id = Guid.NewGuid(), UserId = foreign.Id, CompanyId = TestCompany.OtherId, Status = MembershipStatus.Active });
         s.W.Db.SaveChanges();
@@ -611,7 +613,7 @@ public class GovernanceServiceTests
         await w.Service.GrantAdministratorAsync(Actor(d), staff.Id, "promote", default);
 
         w.Db.ChangeTracker.Clear();
-        Assert.Equal(w.AdminRole.Id, w.Db.Users.Single(u => u.Id == staff.Id).RoleId);
+        Assert.Contains(w.AdminRole.Id, await Rbac.ActiveRoleIdsAsync(w.Db, staff.Id)); // additive: the Staff assignment stays
         Assert.Equal(CompanyAccessScope.CompanyWide, w.Db.UserCompanyMemberships.Single(m => m.UserId == staff.Id).AccessScope);
         Assert.True(w.AccessVersion(staff) > version);
         var audit = Assert.Single(w.Audit(AuditActions.GovernanceAdministratorGranted));
@@ -697,7 +699,7 @@ public class GovernanceServiceTests
         await w.Service.RemoveAdministratorAsync(Actor(d), extra.Id, w.StaffRole.Id, "demote", default);
 
         w.Db.ChangeTracker.Clear();
-        Assert.Equal(w.StaffRole.Id, w.Db.Users.Single(u => u.Id == extra.Id).RoleId);
+        Assert.Equal([w.StaffRole.Id], await Rbac.ActiveRoleIdsAsync(w.Db, extra.Id));
         Assert.Equal(version + 1, w.AccessVersion(extra));
         var audit = Assert.Single(w.Audit(AuditActions.GovernanceAdministratorRemoved));
         Assert.Equal("demote", audit.Reason);
@@ -715,7 +717,9 @@ public class GovernanceServiceTests
         // only administrator: the owner
 
         var owner = w.Db.Users.Single(u => u.Username == "owner1");
-        await RuleAsync(() => w.Service.RemoveAdministratorAsync(Actor(d), owner.Id, w.StaffRole.Id, "r", default), "last_administrator_protected");
+        // Phase 7: the last-Administrator rule lives in RoleRules (assignments); it surfaces as a RoleRuleException with the same code.
+        var ex = await Assert.ThrowsAsync<Sellora.Domain.Roles.RoleRuleException>(() => w.Service.RemoveAdministratorAsync(Actor(d), owner.Id, w.StaffRole.Id, "r", default));
+        Assert.Equal("last_administrator_protected", ex.Code);
     }
 
     [Fact]
@@ -756,7 +760,7 @@ public class GovernanceServiceTests
         await w.Service.RemoveAdministratorAsync(Actor(strong), owner1.Id, w.StaffRole.Id, "r", default);
 
         w.Db.ChangeTracker.Clear();
-        Assert.Equal(w.StaffRole.Id, w.Db.Users.Single(u => u.Id == owner1.Id).RoleId);
+        Assert.Equal([w.StaffRole.Id], await Rbac.ActiveRoleIdsAsync(w.Db, owner1.Id));
         Assert.Equal(GovernanceMemberStatus.Active, w.Db.CompanyGovernanceMembers.Single(m => m.Membership.UserId == owner1.Id).Status);
         _ = owner2;
     }
