@@ -1,5 +1,9 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import type { AccessibleBranch } from '../../../../shared/branches/branch-select';
+import { UserAccessService } from '../../users/user-access/user-access.service';
+import { canManageRole, scopeLabel } from '../roles.logic';
+import type { RoleScope } from '../roles.models';
 import { UiDataTable } from '../../../../shared/ui/data-table/data-table';
 import { UiButton } from '../../../../shared/ui/button/button';
 import type { DataTableColumn, DataTableRow, DataTableState } from '../../../../shared/ui/data-table/data-table.types';
@@ -11,6 +15,7 @@ import type { RoleListItem } from '../roles.models';
 
 const COLS: DataTableColumn[] = [
   { label: 'Role', align: 'left' },
+  { label: 'Scope', align: 'left' },
   { label: 'Users', align: 'right' },
   { label: 'Status', align: 'left' },
   { label: '', align: 'right' },
@@ -29,20 +34,30 @@ export class RoleList implements OnInit {
   private readonly confirm = inject(ConfirmDialogService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly accessService = inject(UserAccessService);
+
+  /** Company-level Roles.View is needed to list company roles; branch administrators (Branch.Roles.View) only see branch roles. */
+  readonly canViewCompany = computed(() => this.auth.hasPermission('Roles.View'));
+  readonly scope = signal<RoleScope>(this.auth.hasPermission('Roles.View') ? 'Company' : 'Branch');
+  readonly branchId = signal<string>('');
+  readonly branches = signal<AccessibleBranch[]>([]);
 
   readonly cols = COLS;
   readonly state = signal<DataTableState>('loading');
   readonly items = signal<RoleListItem[]>([]);
 
-  readonly canCreate = computed(() => this.auth.hasPermission('Roles.Create'));
-  readonly canEdit = computed(() => this.auth.hasPermission('Roles.Edit'));
-  readonly canDuplicate = computed(() => this.auth.hasPermission('Roles.Duplicate'));
-  readonly canDisable = computed(() => this.auth.hasPermission('Roles.Disable'));
+  readonly canCreate = computed(() => this.auth.hasPermission('Roles.Create') || this.auth.hasPermission('Branch.Roles.Manage'));
+
+  /** Per-row gating: company roles need Roles.*, branch roles Roles.* or Branch.Roles.Manage. */
+  can(r: Pick<RoleListItem, 'scopeType'>, code: 'Roles.Edit' | 'Roles.Duplicate' | 'Roles.Disable'): boolean {
+    return canManageRole((c) => this.auth.hasPermission(c), r.scopeType, code);
+  }
 
   readonly rows = computed<DataTableRow[]>(() =>
     this.items().map((r) => ({
       cells: [
         { kind: 'text', text: r.name, sub: r.description ?? undefined, weight: '600', wrap: 'normal' },
+        { kind: 'text', text: scopeLabel(r), color: 'var(--color-text-muted)' },
         { kind: 'text', text: String(r.userCount), align: 'right', color: 'var(--color-text-muted)' },
         {
           kind: 'badge',
@@ -52,11 +67,14 @@ export class RoleList implements OnInit {
         {
           kind: 'actions',
           actions: [
-            ...(this.canEdit() && !r.isSystem
+            ...(this.can(r, 'Roles.Edit') && !r.isSystem
               ? [{ label: 'Edit', onClick: () => this.router.navigate(['/administration/roles', r.id, 'edit']) }]
               : []),
-            ...(this.canDuplicate() ? [{ label: 'Duplicate', onClick: () => this.duplicate(r) }] : []),
-            ...(this.canDisable() && !r.isSystem
+            ...(r.scopeType === 'Branch' && r.branchId
+              ? [{ label: 'Members', onClick: () => this.router.navigate(['/administration/roles/branches', r.branchId, 'members']) }]
+              : []),
+            ...(this.can(r, 'Roles.Duplicate') ? [{ label: 'Duplicate', onClick: () => this.duplicate(r) }] : []),
+            ...(this.can(r, 'Roles.Disable') && !r.isSystem
               ? [{ label: r.isActive ? 'Deactivate' : 'Activate', onClick: () => this.toggleActive(r) }]
               : []),
           ],
@@ -66,6 +84,18 @@ export class RoleList implements OnInit {
   );
 
   ngOnInit(): void {
+    this.accessService.branches().subscribe({ next: (b) => this.branches.set(b), error: () => this.branches.set([]) });
+    this.load();
+  }
+
+  setScope(scope: RoleScope): void {
+    this.scope.set(scope);
+    if (scope === 'Company') this.branchId.set('');
+    this.load();
+  }
+
+  setBranch(id: string): void {
+    this.branchId.set(id);
     this.load();
   }
 
@@ -79,7 +109,7 @@ export class RoleList implements OnInit {
 
   private load(): void {
     this.state.set('loading');
-    this.rolesService.list().subscribe({
+    this.rolesService.list({ scope: this.scope(), branchId: this.branchId() || null }).subscribe({
       next: (roles) => {
         this.items.set(roles);
         this.state.set('ready');

@@ -15,7 +15,10 @@
   <div class="summary-grid">
     <div class="summary-card">
       <div class="summary-label">On hand</div>
-      <div class="summary-value">{{ d.quantityOnHand.toFixed(2) }} {{ d.baseUnitLabel }}</div>
+      <div class="summary-value">{{ d.quantityOnHand | quantity: d.baseDecimalPlaces }} {{ d.baseUnitLabel }}</div>
+      @if (breakdownText(d, d.quantityOnHand); as bd) {
+        <div class="muted" data-testid="onhand-breakdown">{{ bd }}</div>
+      }
       <ui-badge
         [text]="d.status === 'OutOfStock' ? 'Out of stock' : d.status"
         [tone]="d.status === 'Normal' ? 'good' : d.status === 'Low' ? 'warn' : 'bad'"
@@ -40,6 +43,42 @@
   </div>
 
   <div class="panels">
+    @if (d.locations?.length) {
+      <div class="panel">
+        <div class="panel-title">Stock by location <span class="panel-hint">Base units at each location; quantities are for this product only.</span></div>
+        <div class="panel-body">
+          <table class="mini-table">
+            <thead>
+              <tr>
+                <th>Location</th>
+                <th class="num">Quantity</th>
+                <th class="num">Avg. cost</th>
+                <th class="num">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (l of d.locations; track l.locationId) {
+                <tr data-testid="location-row">
+                  <td>
+                    <span class="strong">{{ l.code }}</span> {{ l.name }}
+                    @if (l.type === 'Transit') { <ui-badge text="Transit" tone="info" /> }
+                  </td>
+                  <td class="num">
+                    {{ l.qty | quantity: d.baseDecimalPlaces }} {{ d.baseUnitLabel }}
+                    @if (breakdownText(d, l.qty); as bd) {
+                      <div class="muted" data-testid="location-breakdown">{{ bd }}</div>
+                    }
+                  </td>
+                  <td class="num">{{ INR(l.avgCost) }}</td>
+                  <td class="num">{{ INR(l.value) }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+
     <div class="panel">
       <div class="panel-title">Purchase batches <span class="panel-hint">Product → stock → batch → purchase. Sales draw from the oldest batch first.</span></div>
       <div class="panel-body">
@@ -76,8 +115,8 @@
                     }
                   </td>
                   <td class="muted">{{ b.receivedDate | date: 'd MMM y' }}</td>
-                  <td class="num">{{ b.purchasedBaseQty }}</td>
-                  <td class="num" [class.depleted]="b.remainingBaseQty === 0">{{ b.remainingBaseQty }}</td>
+                  <td class="num">{{ b.purchasedBaseQty | quantity: d.baseDecimalPlaces }}</td>
+                  <td class="num" [class.depleted]="b.remainingBaseQty === 0">{{ b.remainingBaseQty | quantity: d.baseDecimalPlaces }}</td>
                   <td class="num">{{ INR(b.unitCost) }}</td>
                   <td>
                     <ui-badge
@@ -92,7 +131,7 @@
                     <td colspan="8">
                       <div class="detail-box">
                         <div class="detail-line">
-                          Consumed {{ consumedQty(b) }} of {{ b.purchasedBaseQty }} {{ d.baseUnitLabel }} ·
+                          Consumed {{ consumedQty(b) | quantity: d.baseDecimalPlaces }} of {{ b.purchasedBaseQty | quantity: d.baseDecimalPlaces }} {{ d.baseUnitLabel }} ·
                           @if (b.sourceType === 'Purchase') {
                             from {{ b.sourceRefNo }}
                           } @else {
@@ -104,6 +143,14 @@
                             }
                           }
                         </div>
+                        @if (b.locations?.length) {
+                          <div class="detail-line">
+                            At:
+                            @for (bl of b.locations; track bl.locationId; let last = $last) {
+                              {{ bl.code }} {{ bl.qty | quantity: d.baseDecimalPlaces }} {{ d.baseUnitLabel }}{{ last ? '' : ' · ' }}
+                            }
+                          </div>
+                        }
                         @if (!canViewSales()) {
                           <div class="detail-note">Sales detail needs the Sales view permission.</div>
                         } @else {
@@ -131,8 +178,8 @@
                                   <tr>
                                     <td><a [routerLink]="['/sales', c.salesInvoiceId]">{{ c.invoiceNo }}</a></td>
                                     <td class="muted">{{ c.invoiceDate | date: 'd MMM y' }}</td>
-                                    <td class="num">{{ c.qtyBaseUnits }}</td>
-                                    <td class="num">{{ c.returnedQtyBaseUnits }}</td>
+                                    <td class="num">{{ c.qtyBaseUnits | quantity: d.baseDecimalPlaces }}</td>
+                                    <td class="num">{{ c.returnedQtyBaseUnits | quantity: d.baseDecimalPlaces }}</td>
                                     <td class="num">{{ INR(c.unitCost) }}</td>
                                     <td>
                                       <ui-badge [text]="c.saleStatus" [tone]="c.saleStatus === 'Completed' ? 'good' : 'bad'" />
@@ -165,6 +212,7 @@
             <tr>
               <th>When</th>
               <th>Type</th>
+              <th>Location</th>
               <th class="num">Change</th>
               <th>Reference</th>
               <th>By</th>
@@ -175,12 +223,21 @@
               <tr>
                 <td class="muted">{{ m.occurredAt | date: 'd MMM, HH:mm' }}</td>
                 <td>
-                  <ui-badge [text]="m.type" [tone]="m.type === 'Purchase' ? 'info' : m.type === 'Sale' ? 'good' : 'warn'" />
+                  <ui-badge [text]="movementTypeLabel(m.type, m.reasonCode)" [tone]="movementTone(m.type)" />
+                </td>
+                <td class="muted">
+                  @if (m.stockLocationCode) { <span [title]="m.stockLocationName ?? ''">{{ m.stockLocationCode }}</span> } @else { — }
                 </td>
                 <td class="num" [class.positive]="m.quantityBaseUnits > 0" [class.negative]="m.quantityBaseUnits < 0">
-                  {{ m.quantityBaseUnits > 0 ? '+' : '' }}{{ m.quantityBaseUnits }}
+                  {{ m.quantityBaseUnits > 0 ? '+' : '' }}{{ m.baseDecimalPlaces == null ? m.quantityBaseUnits : formatQuantity(m.quantityBaseUnits, m.baseDecimalPlaces) }} {{ d.baseUnitLabel }}
+                  @if (enteredLabel(m); as e) { <div class="entered">{{ e }}</div> }
                 </td>
-                <td class="muted">{{ m.referenceNo }}@if (m.internalBatchNo) { <span class="batch-chip">{{ m.internalBatchNo }}</span> }</td>
+                <td class="muted">
+                  @if (transferLinkId(m); as tid) {
+                    <a [routerLink]="transferRoute(tid)">{{ m.referenceNo }}</a>
+                  } @else {
+                    {{ m.referenceNo }}
+                  }@if (m.internalBatchNo) { <span class="batch-chip">{{ m.internalBatchNo }}</span> }</td>
                 <td class="muted">{{ m.userName }}</td>
               </tr>
             }

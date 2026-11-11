@@ -4,10 +4,14 @@ import { UiDataTable } from '../../../../shared/ui/data-table/data-table';
 import { UiButton } from '../../../../shared/ui/button/button';
 import type { DataTableColumn, DataTableRow, DataTableState } from '../../../../shared/ui/data-table/data-table.types';
 import { AuthService } from '../../../../core/auth/auth.service';
+import { problemMessage, toProblem } from '../../../../core/http/api-errors';
+import { LoadError } from '../../../../shared/scope/load-error';
+import { ScopeFilters } from '../../../../shared/scope/scope-filters';
+import { injectBranchColumnVisible, placeLabel } from '../../../../shared/scope/list-scope';
 import { ExpensesService } from '../expenses.service';
 import type { ExpenseCategory, ExpenseListItem, ExpenseStatus } from '../expenses.models';
 
-const COLS: DataTableColumn[] = [
+const HEAD_COLS: DataTableColumn[] = [
   { label: 'Expense', align: 'left' },
   { label: 'Date', align: 'left' },
   { label: 'Category', align: 'left' },
@@ -22,7 +26,7 @@ const money = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 
 @Component({
   selector: 'app-expense-list',
   standalone: true,
-  imports: [UiDataTable, UiButton],
+  imports: [UiDataTable, UiButton, ScopeFilters, LoadError],
   templateUrl: './expense-list.html',
   styleUrl: './expense-list.scss',
 })
@@ -31,7 +35,10 @@ export class ExpenseList implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
 
-  readonly cols = COLS;
+  readonly showBranch = injectBranchColumnVisible();
+  readonly cols = computed<DataTableColumn[]>(() => [...HEAD_COLS, ...(this.showBranch() ? [{ label: 'Branch', align: 'left' as const }] : [])]);
+  readonly branchId = signal<string | null>(null);
+  readonly errorMessage = signal<string | null>(null);
   readonly search = signal('');
   readonly categoryId = signal('');
   readonly status = signal<ExpenseStatus | ''>('');
@@ -61,6 +68,9 @@ export class ExpenseList implements OnInit {
           weight: '650',
         },
         { kind: 'badge', text: e.status, tone: e.status === 'Active' ? 'good' : 'mute' },
+        ...(this.showBranch()
+          ? [{ kind: 'text' as const, text: e.branchId ? placeLabel(e.branchCode, e.branchName) : 'Company', color: 'var(--color-text-muted)' }]
+          : []),
       ],
     })),
   );
@@ -82,6 +92,11 @@ export class ExpenseList implements OnInit {
 
   onStatus(value: string): void {
     this.status.set(value as ExpenseStatus | '');
+    this.resetAndLoad();
+  }
+
+  onBranchChange(value: string | null): void {
+    this.branchId.set(value);
     this.resetAndLoad();
   }
 
@@ -109,11 +124,13 @@ export class ExpenseList implements OnInit {
 
   private load(): void {
     this.state.set('loading');
+    this.errorMessage.set(null);
     this.expensesService
       .list({
         search: this.search(),
         categoryId: this.categoryId() || undefined,
         status: this.status() || undefined,
+        branchId: this.branchId(),
         page: this.page(),
         pageSize: PAGE_SIZE,
       })
@@ -123,7 +140,10 @@ export class ExpenseList implements OnInit {
           this.total.set(res.total);
           this.state.set('ready');
         },
-        error: () => this.state.set('error'),
+        error: (err) => {
+          this.errorMessage.set(problemMessage(toProblem(err)));
+          this.state.set('error');
+        },
       });
   }
 }

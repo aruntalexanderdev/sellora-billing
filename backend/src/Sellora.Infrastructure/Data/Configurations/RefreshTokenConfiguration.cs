@@ -13,6 +13,9 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         builder.HasIndex(t => t.TokenHash).IsUnique();
         builder.Ignore(t => t.IsActive);
 
+        // Platform table (no query filter). The token remembers the selected company; NULL for tokens issued before multi-company.
+        builder.HasOne<Company>().WithMany().HasForeignKey(t => t.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
         builder.HasOne(t => t.User)
             .WithMany(u => u.RefreshTokens)
             .HasForeignKey(t => t.UserId)

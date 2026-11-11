@@ -1,0 +1,59 @@
+<div class="page-head">
+  <div>
+    <h1>Warehouses</h1>
+    <p>Company-level warehouses and warehouses owned by a branch.</p>
+  </div>
+  @if (canCreate()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New warehouse</ui-button>
+  }
+</div>
+
+<div class="report-filters">
+  <label class="report-filter-field">
+    <span class="report-filter-label">Ownership</span>
+    <select class="report-filter-input" aria-label="Ownership filter" [value]="ownership()" (change)="setOwnership($any($event.target).value)">
+      <option value="">All</option>
+      <option value="Company">Company</option>
+      <option value="Branch">Branch</option>
+    </select>
+  </label>
+  <div class="report-filter-field">
+    <span class="report-filter-label">Branch</span>
+    <app-branch-select [value]="branchId()" (valueChange)="setBranch($event)" />
+  </div>
+  <label class="report-filter-field">
+    <span class="report-filter-label">Show</span>
+    <select class="report-filter-input" aria-label="Status filter" [value]="includeInactive() ? 'all' : 'active'"
+            (change)="setIncludeInactive($any($event.target).value === 'all')">
+      <option value="active">Active only</option>
+      <option value="all">Including inactive</option>
+    </select>
+  </label>
+</div>
+
+@if (notice()) {
+  <div class="server-error" role="alert" data-testid="notice">{{ notice() }}
+    <button type="button" class="dismiss" (click)="notice.set(null)">Dismiss</button>
+  </div>
+}
+
+@if (statusTarget()) {
+  <app-reason-prompt
+    [title]="statusPromptTitle()"
+    [confirmLabel]="statusTarget()!.isActive ? 'Deactivate' : 'Activate'"
+    [destructive]="statusTarget()!.isActive"
+    [busy]="statusBusy()"
+    [error]="statusError()"
+    (confirmed)="confirmStatus($event)"
+    (cancelled)="cancelStatus()"
+  />
+}
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  emptyTitle="No warehouses"
+  emptyBody="No warehouses match these filters."
+  (retry)="load()"
+/>

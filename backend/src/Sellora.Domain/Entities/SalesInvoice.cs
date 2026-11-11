@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>
@@ -5,8 +7,17 @@ namespace Sellora.Domain.Entities;
 /// atomically writes its lines, consumes purchase batches FIFO for real COGS, writes a stock
 /// movement per line, and decrements each product's StockItem — all in one DB transaction.
 /// </summary>
-public class SalesInvoice
+public class SalesInvoice : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
+    /// <summary>The branch that owns this document (Phase 2, same-company composite FK). Never taken from a client body.</summary>
+    public Guid BranchId { get; set; }
+
+    /// <summary>The one stock location this document moves stock at (receiving / source / issuing / restock / adjusted). Phase 8:
+    /// legacy rows map to the company's default branch store; same-company composite FK to StockLocations. Never taken from a client body unchecked.</summary>
+    public Guid StockLocationId { get; set; }
+
     public Guid Id { get; set; }
     public required string InvoiceNo { get; set; }
 

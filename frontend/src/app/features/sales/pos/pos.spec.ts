@@ -1,12 +1,18 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
-import { Router, provideRouter } from '@angular/router';
-import { of, throwError } from 'rxjs';
+import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
+import { Subject, of, throwError } from 'rxjs';
 import { Pos } from './pos';
 import { SalesService } from '../sales.service';
 import { CustomersService } from '../customers/customers.service';
 import { CashBankService } from '../../accounts/cash-bank/cash-bank.service';
 import { AuthService } from '../../../core/auth/auth.service';
+import { ContextService } from '../../../core/context/context.service';
+import { ConfirmDialogService } from '../../../shared/ui/confirm-dialog/confirm-dialog.service';
+import { StockLocationsService } from '../../../shared/locations/stock-locations.service';
+import type { StockLocation } from '../../../shared/locations/locations.models';
+import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
+import { signal } from '@angular/core';
 import { ToastService } from '../../../shared/ui/toast/toast.service';
 import type { SaleCatalogProduct, SaleCatalogUnit } from '../sales.models';
 
@@ -28,18 +34,34 @@ const RICE: SaleCatalogProduct = {
   units: [unit({ productUnitId: 'pu-kg', unitId: 'kg', unitCode: 'kg', displayName: 'Kg', decimalPlaces: 3, isDefault: true, currentPrice: 60 })],
 };
 
-function setup(opts: { permissions?: string[]; lookup?: (code: string) => unknown; create?: () => unknown } = {}) {
+const loc = (id: string, type: StockLocation['locationType'], name: string): StockLocation => ({
+  id, code: id.toUpperCase(), name, locationType: type, branchId: 'b1', branchCode: 'MAIN', branchName: 'Main', isActive: true,
+  canSell: true, canReceivePurchase: true, isSystemManaged: false,
+});
+const STORE = loc('store', 'BranchStore', 'Main Store');
+const VAN = loc('van', 'Vehicle', 'Van 1');
+
+function setup(opts: {
+  permissions?: string[]; lookup?: (code: string) => unknown; create?: () => unknown;
+  locations?: StockLocation[]; accounts?: AccountOption[]; confirm?: boolean; query?: Record<string, string>;
+} = {}) {
   const permissions = opts.permissions ?? [];
   const toast = { show: vi.fn() };
   const lookupBarcode = vi.fn(opts.lookup ?? (() => throwError(() => new HttpErrorResponse({ status: 404 }))));
   const create = vi.fn<(...args: unknown[]) => unknown>(opts.create ?? (() => of({ id: 'inv-1', invoiceNo: 'INV-1' })));
+  const catalog = vi.fn((..._args: unknown[]) => of([PEN, RICE]));
+  const ask = vi.fn(() => Promise.resolve(opts.confirm ?? true));
   TestBed.configureTestingModule({
     imports: [Pos],
     providers: [
       provideRouter([]),
-      { provide: SalesService, useValue: { catalog: () => of([PEN, RICE]), lookupBarcode, create } },
+      { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(opts.query ?? {}) } } },
+      { provide: SalesService, useValue: { catalog, lookupBarcode, create } },
+      { provide: StockLocationsService, useValue: { list: () => of(opts.locations ?? []) } },
+      { provide: ContextService, useValue: { contextVersion: signal(0).asReadonly(), workingBranch: signal({ id: 'b1' }) } },
+      { provide: ConfirmDialogService, useValue: { ask } },
       { provide: CustomersService, useValue: { list: () => of({ items: [{ id: 'c1', name: 'Walk-in', isActive: true, isWalkIn: true }] }) } },
-      { provide: CashBankService, useValue: { options: () => of([]) } },
+      { provide: CashBankService, useValue: { options: () => of(opts.accounts ?? []) } },
       { provide: AuthService, useValue: { hasPermission: (c: string) => permissions.includes(c) } },
       { provide: ToastService, useValue: toast },
     ],
@@ -54,7 +76,7 @@ function setup(opts: { permissions?: string[]; lookup?: (code: string) => unknow
     component.scan();
     fixture.detectChanges();
   };
-  return { fixture, component, el, toast, lookupBarcode, create, scan };
+  return { fixture, component, el, toast, lookupBarcode, create, scan, catalog, ask };
 }
 
 const sentLine = (create: { mock: { calls: unknown[][] } }) =>
@@ -164,5 +186,127 @@ describe('POS pricing and units', () => {
     kg.controls.productUnitId.setValue('pu-kg');
     kg.controls.qty.setValue(0.0005);
     expect(kg.controls.qty.invalid).toBe(true);
+  });
+});
+
+describe('POS location', () => {
+  const view = ['StockLocations.View'];
+
+  it('shows the picker only with StockLocations.View and more than one eligible location (O5)', () => {
+    const withView = setup({ permissions: view, locations: [STORE, VAN] });
+    expect(withView.el.querySelector('[data-testid="pos-location"] select')).not.toBeNull();
+    TestBed.resetTestingModule();
+    const single = setup({ permissions: view, locations: [STORE] });
+    expect(single.el.querySelector('[data-testid="pos-location"] select')).toBeNull();
+    TestBed.resetTestingModule();
+    const noView = setup({ locations: [STORE, VAN] });
+    expect(noView.el.querySelector('[data-testid="pos-location"] select')).toBeNull();
+  });
+
+  it('without a picker the catalog, barcode and sale omit stockLocationId (server default)', () => {
+    const { component, catalog, lookupBarcode, create, scan } = setup({ lookup: hit(PEN, 'pu-box') });
+    expect(catalog).toHaveBeenLastCalledWith(undefined, null);
+    scan('222');
+    expect(lookupBarcode).toHaveBeenCalledWith('222', null);
+    component.submit();
+    expect((create.mock.calls[0][0] as { stockLocationId: unknown }).stockLocationId).toBeNull();
+  });
+
+  it('defaults to the store, lists vehicles, and passes the location to catalog, barcode and the sale POST', async () => {
+    const { component, catalog, lookupBarcode, create, scan, el } = setup({ permissions: view, locations: [STORE, VAN], lookup: hit(PEN, 'pu-box') });
+    await Promise.resolve();
+    expect(Array.from(el.querySelectorAll('[data-testid="pos-location"] option')).map((o) => o.textContent?.trim())).toEqual(['Main Store (STORE)', 'Van 1 (VAN)']);
+    expect(component.locationId()).toBe('store');
+    expect(catalog).toHaveBeenLastCalledWith(undefined, 'store');
+    await component.onLocationChange('van');
+    expect(catalog).toHaveBeenLastCalledWith(undefined, 'van');
+    scan('222');
+    expect(lookupBarcode).toHaveBeenLastCalledWith('222', 'van');
+    component.submit();
+    expect((create.mock.calls[0][0] as { stockLocationId: string }).stockLocationId).toBe('van');
+  });
+
+  it('preselects ?locationId when it is an eligible sale location and loads the catalog there', async () => {
+    const { component, catalog, el } = setup({ permissions: view, locations: [STORE, VAN], query: { locationId: 'van' } });
+    await Promise.resolve();
+    expect(component.locationId()).toBe('van');
+    expect(catalog).toHaveBeenCalledTimes(1);
+    expect(catalog).toHaveBeenLastCalledWith(undefined, 'van');
+    expect((el.querySelector('[data-testid="pos-location"] select') as HTMLSelectElement).value).toBe('van');
+  });
+
+  it('silently ignores ?locationId that is unknown, inactive, non-selling, or when the user cannot list locations', async () => {
+    // [locations, permissions, requested id, catalog location]; with a single eligible location the picker (and default) is absent.
+    const cases: [StockLocation[], string[], string, string | null][] = [
+      [[STORE, VAN], view, 'missing', 'store'],
+      [[STORE, { ...VAN, isActive: false }], view, 'van', null],
+      [[STORE, { ...VAN, canSell: false }], view, 'van', null],
+      [[STORE, VAN], [], 'van', null],
+    ];
+    for (const [locations, permissions, locationId, expected] of cases) {
+      TestBed.resetTestingModule();
+      const { component, catalog } = setup({ permissions, locations, query: { locationId } });
+      await Promise.resolve();
+      expect(component.locationId()).not.toBe('van');
+      expect(catalog).toHaveBeenLastCalledWith(undefined, expected);
+    }
+  });
+
+  it('asks before changing location with items in the cart, then clears the cart', async () => {
+    const { component, ask, catalog } = setup({ permissions: view, locations: [STORE, VAN] });
+    component.addToCart(PEN);
+    await component.onLocationChange('van');
+    expect(ask).toHaveBeenCalledOnce();
+    expect(component.lines.length).toBe(0);
+    expect(component.locationId()).toBe('van');
+    expect(catalog).toHaveBeenLastCalledWith(undefined, 'van');
+  });
+
+  it('clears the catalog while the new location catalog loads, so nothing is added from the stale list', async () => {
+    const { component, catalog } = setup({ permissions: view, locations: [STORE, VAN] });
+    expect(component.catalog().length).toBeGreaterThan(0);
+    const pending = new Subject<unknown[]>();
+    catalog.mockReturnValueOnce(pending as never);
+    await component.onLocationChange('van');
+    expect(component.catalog()).toEqual([]);
+    pending.next([RICE]);
+    expect(component.catalog()).toEqual([RICE]);
+  });
+
+  it('keeps the cart and the old location when the change is declined', async () => {
+    const { component, catalog } = setup({ permissions: view, locations: [STORE, VAN], confirm: false });
+    component.addToCart(PEN);
+    const calls = catalog.mock.calls.length;
+    await component.onLocationChange('van');
+    expect(component.lines.length).toBe(1);
+    expect(component.locationId()).toBe('store');
+    expect(catalog.mock.calls.length).toBe(calls);
+  });
+
+  it('does not ask when the cart is empty', async () => {
+    const { component, ask } = setup({ permissions: view, locations: [STORE, VAN] });
+    await component.onLocationChange('van');
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it('maps a stockLocationId field error next to the picker', () => {
+    const problem = new HttpErrorResponse({ status: 400, error: { title: 'Validation', errors: { StockLocationId: ['This location cannot sell.'] } } });
+    const { component, fixture, el } = setup({ permissions: view, locations: [STORE, VAN], create: () => throwError(() => problem) });
+    component.addToCart(PEN);
+    component.submit();
+    fixture.detectChanges();
+    expect(component.locationError()).toBe('This location cannot sell.');
+    expect(el.querySelector('[data-testid="pos-location"] .field-error')?.textContent).toContain('This location cannot sell.');
+    expect(component.serverError()).toBe('This location cannot sell.');
+  });
+
+  it('offers company-level accounts and the working branch accounts only', () => {
+    const accounts: AccountOption[] = [
+      { id: 'a-co', name: 'Company cash', kind: 'Cash', branchId: null },
+      { id: 'a-b1', name: 'Main till', kind: 'Cash', branchId: 'b1' },
+      { id: 'a-b2', name: 'North till', kind: 'Cash', branchId: 'b2' },
+    ];
+    const { component } = setup({ accounts });
+    expect(component.accountOptions().map((a) => a.id)).toEqual(['a-co', 'a-b1']);
   });
 });

@@ -1,7 +1,11 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
-public class Supplier
+public class Supplier : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
     public required string Name { get; set; }
     public string? City { get; set; }

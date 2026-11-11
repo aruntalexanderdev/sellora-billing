@@ -18,6 +18,21 @@
     </div>
   }
 
+  @if (showLocationPicker()) {
+    <div class="fx-card" data-testid="return-location">
+      <label class="field-label" for="return-location">Return from location</label>
+      <select id="return-location" class="field-input" [value]="returnLocationId() ?? ''" (change)="onLocationChange($any($event.target).value)">
+        <option value="">Default location</option>
+        @for (o of locationOptions(); track o.id) {
+          <option [value]="o.id">{{ o.name }} ({{ o.code }})</option>
+        }
+      </select>
+      @if (locationError(); as e) {
+        <div class="field-error">{{ e }}</div>
+      }
+    </div>
+  }
+
   @if (lines().length === 0) {
     <div class="not-found">There is nothing left on this purchase that can be returned.</div>
   } @else {

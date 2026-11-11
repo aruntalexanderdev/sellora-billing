@@ -1,4 +1,5 @@
 import { HttpClient } from '@angular/common/http';
+import { primaryLoad } from '../../core/http/request-context';
 import { Injectable, inject } from '@angular/core';
 import { idempotencyHeaders } from '../../core/idempotency';
 import { Observable } from 'rxjs';
@@ -24,6 +25,8 @@ const RETURNS_URL = `${environment.apiBaseUrl}/sales-returns`;
 export interface SalesListQuery {
   search?: string;
   status?: SalesStatus;
+  branchId?: string | null;
+  stockLocationId?: string | null;
   page?: number;
   pageSize?: number;
 }
@@ -32,26 +35,30 @@ export interface SalesListQuery {
 export class SalesService {
   private readonly http = inject(HttpClient);
 
-  catalog(search?: string): Observable<SaleCatalogProduct[]> {
+  catalog(search?: string, stockLocationId?: string | null): Observable<SaleCatalogProduct[]> {
     const params: Record<string, string> = {};
     if (search) params['search'] = search;
+    if (stockLocationId) params['stockLocationId'] = stockLocationId;
     return this.http.get<SaleCatalogProduct[]>(`${BASE_URL}/catalog`, { params });
   }
 
   /** Exact barcode lookup; 404 when no sellable item carries the code. */
-  lookupBarcode(code: string): Observable<SaleBarcodeMatch> {
-    return this.http.get<SaleBarcodeMatch>(`${BASE_URL}/catalog/by-barcode/${encodeURIComponent(code.trim())}`);
+  lookupBarcode(code: string, stockLocationId?: string | null): Observable<SaleBarcodeMatch> {
+    const params: Record<string, string> = stockLocationId ? { stockLocationId } : {};
+    return this.http.get<SaleBarcodeMatch>(`${BASE_URL}/catalog/by-barcode/${encodeURIComponent(code.trim())}`, { params });
   }
 
   list(query: SalesListQuery): Observable<PagedResult<SalesInvoiceListItem>> {
     const params: Record<string, string> = { page: String(query.page ?? 1), pageSize: String(query.pageSize ?? 20) };
     if (query.search) params['search'] = query.search;
     if (query.status) params['status'] = query.status;
+    if (query.branchId) params['branchId'] = query.branchId;
+    if (query.stockLocationId) params['stockLocationId'] = query.stockLocationId;
     return this.http.get<PagedResult<SalesInvoiceListItem>>(BASE_URL, { params });
   }
 
   get(id: string): Observable<SalesInvoiceDetail> {
-    return this.http.get<SalesInvoiceDetail>(`${BASE_URL}/${id}`);
+    return this.http.get<SalesInvoiceDetail>(`${BASE_URL}/${id}`, { context: primaryLoad() });
   }
 
   create(request: CreateSaleRequest, idempotencyKey?: string): Observable<SalesInvoiceDetail> {
@@ -70,18 +77,20 @@ export class SalesService {
     return this.http.post<SalesInvoiceDetail>(`${BASE_URL}/${id}/payments/${paymentId}/reverse`, { reason });
   }
 
-  createReturn(request: CreateSaleReturnRequest): Observable<SalesReturnDetail> {
-    return this.http.post<SalesReturnDetail>(RETURNS_URL, request);
+  createReturn(request: CreateSaleReturnRequest, idempotencyKey?: string): Observable<SalesReturnDetail> {
+    return this.http.post<SalesReturnDetail>(RETURNS_URL, request, { headers: idempotencyHeaders(idempotencyKey) });
   }
 
-  returns(query: { search?: string; page?: number; pageSize?: number }): Observable<PagedResult<SalesReturnListItem>> {
+  returns(query: { search?: string; branchId?: string | null; stockLocationId?: string | null; page?: number; pageSize?: number }): Observable<PagedResult<SalesReturnListItem>> {
     const params: Record<string, string> = { page: String(query.page ?? 1), pageSize: String(query.pageSize ?? 20) };
     if (query.search) params['search'] = query.search;
+    if (query.branchId) params['branchId'] = query.branchId;
+    if (query.stockLocationId) params['stockLocationId'] = query.stockLocationId;
     return this.http.get<PagedResult<SalesReturnListItem>>(RETURNS_URL, { params });
   }
 
   getReturn(id: string): Observable<SalesReturnDetail> {
-    return this.http.get<SalesReturnDetail>(`${RETURNS_URL}/${id}`);
+    return this.http.get<SalesReturnDetail>(`${RETURNS_URL}/${id}`, { context: primaryLoad() });
   }
 
   cancel(id: string): Observable<void> {

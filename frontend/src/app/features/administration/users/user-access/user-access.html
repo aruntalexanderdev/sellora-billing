@@ -1,0 +1,197 @@
+<div class="page-head">
+  <div>
+    <h1>{{ user() ? user()!.firstName + ' ' + user()!.lastName : 'User access' }}</h1>
+    <p>Branch allocations, role assignments and the access history of this user in the current company.</p>
+  </div>
+  <a routerLink="/administration/users" class="muted">Back to users</a>
+</div>
+
+<div class="tabs" role="tablist">
+  <button type="button" role="tab" class="tab" [class.on]="tab() === 'access'" (click)="setTab('access')">Access</button>
+  <button type="button" role="tab" class="tab" [class.on]="tab() === 'roles'" (click)="setTab('roles')">Roles</button>
+  @if (canManage()) {
+    <button type="button" role="tab" class="tab" [class.on]="tab() === 'audit'" (click)="setTab('audit')">Audit events</button>
+  }
+</div>
+
+@if (panel(); as p) {
+  <form class="panel" [formGroup]="form" (ngSubmit)="submit()" [attr.aria-label]="panelTitle()">
+    <h3>{{ panelTitle() }}</h3>
+    @if (banner()) {
+      <div class="server-error">{{ banner() }}</div>
+    }
+
+    @if (p.kind === 'add' || p.kind === 'reassign') {
+      <label class="field-label" for="alloc-branch">{{ p.kind === 'add' ? 'Branch' : 'Move to branch' }}</label>
+      <select id="alloc-branch" formControlName="branchId" class="field-input">
+        <option value="">Select a branch…</option>
+        @for (b of addableBranches(); track b.id) {
+          <option [value]="b.id">{{ b.name }} ({{ b.code }})</option>
+        }
+      </select>
+      @if (form.controls.branchId.touched && form.controls.branchId.errors?.['required']) {
+        <div class="field-error">Choose a branch.</div>
+      }
+      @if (form.controls.branchId.errors?.['server']) {
+        <div class="field-error">{{ form.controls.branchId.errors?.['server'] }}</div>
+      }
+      @if (p.kind === 'add') {
+        <label class="check"><input type="checkbox" formControlName="isPrimary" /> Make this the primary branch</label>
+      } @else if (!p.a.isPrimary) {
+        <label class="check"><input type="checkbox" formControlName="makePrimary" /> Make the new allocation primary</label>
+      }
+    }
+
+    @if (p.kind === 'scope' || (p.kind === 'status' && p.action === 'reinstate')) {
+      <label class="field-label" for="scope-select">Access scope</label>
+      <select id="scope-select" formControlName="accessScope" class="field-input">
+        <option value="CompanyWide">Company-wide (all branches)</option>
+        <option value="AssignedBranches">Assigned branches only</option>
+      </select>
+      @if (form.controls.accessScope.errors?.['server']) {
+        <div class="field-error">{{ form.controls.accessScope.errors?.['server'] }}</div>
+      }
+      @if (needsBranchList()) {
+        <div class="field-label">Branches</div>
+        @for (b of branches(); track b.id) {
+          <label class="check"><input type="checkbox" [checked]="selectedBranchIds().has(b.id)" (change)="toggleBranch(b.id)" /> {{ b.name }} ({{ b.code }})</label>
+        }
+        <label class="field-label" for="primary-select">Primary branch</label>
+        <select id="primary-select" formControlName="primaryBranchId" class="field-input">
+          <option value="">First selected branch</option>
+          @for (b of pickedBranches(); track b.id) {
+            <option [value]="b.id">{{ b.name }}</option>
+          }
+        </select>
+        @if (form.controls.primaryBranchId.errors?.['server']) {
+          <div class="field-error">{{ form.controls.primaryBranchId.errors?.['server'] }}</div>
+        }
+      }
+    }
+
+    @if (p.kind === 'assignRole') {
+      <label class="field-label" for="role-scope">Role scope</label>
+      <select id="role-scope" formControlName="roleScope" class="field-input" (change)="loadAssignable()">
+        <option value="Company">Company role</option>
+        <option value="Branch">Branch role</option>
+      </select>
+      @if (form.controls.roleScope.value === 'Branch') {
+        <label class="field-label" for="role-branch">Branch</label>
+        <select id="role-branch" formControlName="branchId" class="field-input" (change)="loadAssignable()">
+          <option value="">Select a branch…</option>
+          @for (b of branches(); track b.id) {
+            <option [value]="b.id">{{ b.name }} ({{ b.code }})</option>
+          }
+        </select>
+      }
+      <label class="field-label" for="role-pick">Role</label>
+      <select id="role-pick" formControlName="roleId" class="field-input">
+        <option value="">Select a role…</option>
+        @for (r of assignable(); track r.id) {
+          <option [value]="r.id">{{ r.name }}</option>
+        }
+      </select>
+      @if (form.controls.roleId.touched && form.controls.roleId.errors?.['required']) {
+        <div class="field-error">Choose a role.</div>
+      }
+      @if (form.controls.roleId.errors?.['server']) {
+        <div class="field-error">{{ form.controls.roleId.errors?.['server'] }}</div>
+      }
+    }
+
+    <label class="field-label" for="panel-reason">Reason{{ reasonRequired() ? '' : ' (optional)' }}</label>
+    <textarea id="panel-reason" formControlName="reason" class="field-input" rows="2" maxlength="500"></textarea>
+    @if (form.controls.reason.touched && form.controls.reason.errors?.['required']) {
+      <div class="field-error">A reason is required.</div>
+    }
+    @if (form.controls.reason.errors?.['server']) {
+      <div class="field-error">{{ form.controls.reason.errors?.['server'] }}</div>
+    }
+
+    <div class="actions">
+      <ui-button type="submit" variant="primary" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Confirm' }}</ui-button>
+      <ui-button (onClick)="closePanel()">Cancel</ui-button>
+    </div>
+  </form>
+}
+
+@switch (tab()) {
+  @case ('access') {
+    @if (access(); as a) {
+      <div class="card">
+        <div class="card-head">
+          <h2>Membership</h2>
+          <div class="row">
+            @for (action of membershipActionList(); track action) {
+              <ui-button [variant]="action === 'revoke' ? 'destructive' : 'secondary'" (onClick)="open({ kind: 'status', action })">{{ actionLabels[action] }}</ui-button>
+            }
+            @if (canManage() && a.status !== 'Revoked') {
+              <ui-button (onClick)="open({ kind: 'scope' })">Change access scope</ui-button>
+            }
+          </div>
+        </div>
+        <div class="row">
+          <ui-badge [text]="a.status" [tone]="a.status === 'Active' ? 'good' : a.status === 'Suspended' ? 'warn' : 'bad'" />
+          <ui-badge [text]="a.accessScope === 'CompanyWide' ? 'Company-wide' : 'Assigned branches'" tone="info" />
+          <span class="muted">Access version {{ a.accessVersion }}</span>
+        </div>
+      </div>
+
+      <div class="card-head">
+        <h2>Current allocations</h2>
+        @if (canManage() && a.status !== 'Revoked') {
+          <ui-button variant="primary" [disabled]="addableBranches().length === 0" disabledReason="Every reachable branch is already allocated" (onClick)="open({ kind: 'add' })">+ Add allocation</ui-button>
+        }
+      </div>
+      @if (a.accessScope === 'CompanyWide') {
+        <p class="muted">This user is company-wide and reaches every branch; allocations only decide the primary branch.</p>
+      }
+      <ui-data-table [cols]="allocCols" [rows]="allocRows()" [state]="state()" emptyTitle="No active allocations" emptyBody="This user has no branch allocation." (retry)="loadAccess()" />
+
+      <div class="card-head" style="margin-top: 20px"><h2>Allocation history</h2></div>
+      <ui-data-table [cols]="historyCols" [rows]="historyRows()" [state]="state()" emptyTitle="No history" emptyBody="Ended allocations appear here." />
+    } @else if (state() === 'error') {
+      <div class="server-error">Could not load this user's access. <a href="javascript:void 0" (click)="loadAccess()">Retry</a></div>
+    } @else {
+      <p class="muted">Loading…</p>
+    }
+  }
+  @case ('roles') {
+    <div class="card-head">
+      <h2>Current roles</h2>
+      @if (canAssignRoles()) {
+        <ui-button variant="primary" (onClick)="open({ kind: 'assignRole' })">+ Assign role</ui-button>
+      }
+    </div>
+    <ui-data-table [cols]="roleCols" [rows]="roleRows()" [state]="rolesState()" emptyTitle="No roles" emptyBody="This user holds no role in this company." (retry)="loadRoles()" />
+    <div class="card-head" style="margin-top: 20px"><h2>Role history</h2></div>
+    <ui-data-table [cols]="roleHistoryCols" [rows]="roleHistoryRows()" [state]="rolesState()" emptyTitle="No history" emptyBody="Ended role assignments appear here." />
+  }
+  @case ('audit') {
+    <div class="card">
+      <h2>Access audit events</h2>
+      @for (e of events()?.items ?? []; track e.id) {
+        <div class="event">
+          <strong>{{ e.action }}</strong>
+          <span class="muted"> · {{ e.occurredAt | date: 'medium' }} · {{ e.actorName ?? 'system' }}</span>
+          @if (e.reason) {
+            <div>{{ e.reason }}</div>
+          }
+          @if (e.before || e.after) {
+            <details>
+              <summary class="muted">Before / after</summary>
+              <pre>{{ eventJson(e.before) }}</pre>
+              <pre>{{ eventJson(e.after) }}</pre>
+            </details>
+          }
+        </div>
+      } @empty {
+        <p class="muted">No audit events yet.</p>
+      }
+      <div class="row" style="margin-top: 12px">
+        <ui-button [disabled]="eventsPage() <= 1" (onClick)="loadEvents(eventsPage() - 1)">Previous</ui-button>
+        <ui-button [disabled]="eventsPage() * 20 >= (events()?.total ?? 0)" (onClick)="loadEvents(eventsPage() + 1)">Next</ui-button>
+      </div>
+    </div>
+  }
+}

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
@@ -29,7 +30,8 @@ public class AccountsReportsController(SelloraDbContext db) : ControllerBase
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var query = db.PurchasePayments.AsQueryable();
+        // Phase 5: only payments whose purchase order is visible (filter the root before aggregating/projecting).
+        var query = db.PurchasePayments.Where(p => db.PurchaseOrders.Any(o => o.Id == p.PurchaseOrderId));
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim().ToLower();
@@ -70,7 +72,7 @@ public class AccountsReportsController(SelloraDbContext db) : ControllerBase
         pageSize = Math.Clamp(pageSize, 1, 100);
 
         var baseCurrency = await BaseCurrencyAsync(ct);
-        var query = db.SalesPayments.AsQueryable();
+        var query = db.SalesPayments.Where(p => db.SalesInvoices.Any(i => i.Id == p.SalesInvoiceId));
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim().ToLower();
@@ -258,7 +260,7 @@ public class AccountsReportsController(SelloraDbContext db) : ControllerBase
     public async Task<ActionResult<CashFlowReportDto>> CashFlow([FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo, CancellationToken ct = default)
     {
         // Opening balances are not money movement; everything else is, active only.
-        var query = db.FinancialTransactions.Where(t => t.Status == FinancialTransactionStatus.Active && t.Type != FinancialTransactionType.OpeningBalance);
+        var query = db.FinancialTransactions.VisibleTo(db).Where(t => t.Status == FinancialTransactionStatus.Active && t.Type != FinancialTransactionType.OpeningBalance);
         if (dateFrom is not null) query = query.Where(t => t.TransactionDate >= dateFrom);
         if (dateTo is not null) query = query.Where(t => t.TransactionDate <= dateTo);
 
@@ -361,7 +363,7 @@ public class AccountsReportsController(SelloraDbContext db) : ControllerBase
     {
         // Only movements that came from a payment, refund or expense have a real method; opening balances and
         // transfers between accounts do not.
-        var query = db.FinancialTransactions.Where(t => t.Status == FinancialTransactionStatus.Active
+        var query = db.FinancialTransactions.VisibleTo(db).Where(t => t.Status == FinancialTransactionStatus.Active
             && t.Type != FinancialTransactionType.OpeningBalance && t.Type != FinancialTransactionType.Transfer);
         if (dateFrom is not null) query = query.Where(t => t.TransactionDate >= dateFrom);
         if (dateTo is not null) query = query.Where(t => t.TransactionDate <= dateTo);
@@ -383,7 +385,7 @@ public class AccountsReportsController(SelloraDbContext db) : ControllerBase
 
     private async Task<BaseCurrencyDto> BaseCurrencyAsync(CancellationToken ct)
     {
-        var c = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);
+        var c = await db.GetBaseCurrencyAsync(ct);
         return new BaseCurrencyDto(c.Code, c.Symbol, c.DecimalPrecision);
     }
 }

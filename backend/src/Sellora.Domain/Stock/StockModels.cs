@@ -13,5 +13,6 @@ public sealed record CreateAdjustmentInput(
     decimal Quantity,
     decimal? UnitCost,
     string? Reason,
-    string? IdempotencyKey = null
+    string? IdempotencyKey = null,
+    Guid? StockLocationId = null
 );

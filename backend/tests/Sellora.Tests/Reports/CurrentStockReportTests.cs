@@ -36,7 +36,7 @@ public class CurrentStockReportTests
                 bag = TestProductUnits.Pack(p, bagUnit, kg, 25m);
             })
             .Build();
-        db.AddRange(role, user, kgUnit, gUnit, bagUnit, rice, new StockItem { ProductId = rice.Id, QuantityOnHand = 50m, AverageCost = 40m });
+        db.AddRange(role, user, kgUnit, gUnit, bagUnit, rice, new StockItem { StockLocationId = Sellora.Domain.Companies.DefaultTenant.MainStoreLocationId, ProductId = rice.Id, QuantityOnHand = 50m, AverageCost = 40m });
         await db.SaveChangesAsync();
         return new Fixture(db, rice, kg, g, bag, user);
     }
@@ -49,7 +49,7 @@ public class CurrentStockReportTests
 
     private static async Task<CurrentStockReportRowDto> RowAsync(Fixture f)
     {
-        var result = await new ReportsController(f.Db).CurrentStock(null, null, null, ct: default);
+        var result = await new ReportsController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).CurrentStock(null, null, null, ct: default);
         var page = (PagedResult<CurrentStockReportRowDto>)Assert.IsType<OkObjectResult>(result.Result).Value!;
         return Assert.Single(page.Items);
     }

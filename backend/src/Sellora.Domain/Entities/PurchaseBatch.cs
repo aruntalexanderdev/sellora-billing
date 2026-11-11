@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>
@@ -8,8 +10,10 @@ namespace Sellora.Domain.Entities;
 /// oldest-first (FIFO) so COGS reflects actual landed cost rather than the latest purchase price
 /// (docx §12.5, §17).
 /// </summary>
-public class PurchaseBatch
+public class PurchaseBatch : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
 
     public Guid? PurchaseOrderLineId { get; set; }
@@ -17,6 +21,9 @@ public class PurchaseBatch
 
     public Guid? StockAdjustmentId { get; set; }
     public StockAdjustment? StockAdjustment { get; set; }
+
+    /// <summary>The location the batch was received into (Phase 8). Where its stock sits now is <see cref="BatchLocationBalance"/>.</summary>
+    public Guid OriginStockLocationId { get; set; }
 
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = null!;

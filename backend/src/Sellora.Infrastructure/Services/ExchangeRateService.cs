@@ -8,7 +8,7 @@ public class ExchangeRateService(SelloraDbContext db) : IExchangeRateService
 {
     public async Task<decimal> ResolveRateToBaseAsync(Guid currencyId, DateOnly asOfDate, CancellationToken ct = default)
     {
-        var baseCurrencyId = await db.BusinessSettings.Select(s => s.BaseCurrencyId).SingleAsync(ct);
+        var baseCurrencyId = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyId;
         if (currencyId == baseCurrencyId) return 1m;
 
         var rate = await db.ExchangeRates

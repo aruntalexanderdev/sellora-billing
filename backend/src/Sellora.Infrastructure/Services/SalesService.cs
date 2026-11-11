@@ -7,8 +7,15 @@ using Sellora.Infrastructure.Data;
 
 namespace Sellora.Infrastructure.Services;
 
-public class SalesService(SelloraDbContext db) : ISalesService
+public class SalesService(SelloraDbContext db, IEffectivePermissionService? permissions = null) : ISalesService
 {
+    public async Task<Guid> ResolveSellingLocationAsync(Guid? stockLocationId, CancellationToken ct = default)
+    {
+        var branch = await BranchRules.ResolveWorkingBranchAsync(db, ct);
+        var companyLevel = await StockLocationRules.HasCompanyLevelAsync(permissions, "Sales.Create", ct);
+        return await StockLocationRules.ResolveAsync(db, PostingKind.Sale, stockLocationId, branch.Id, companyLevel, ct);
+    }
+
     public async Task<SalesInvoice> CreateSaleAsync(CreateSaleInput input, Guid createdByUserId, CancellationToken ct = default)
     {
         if (input.Lines.Count == 0)
@@ -20,7 +27,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         if (await Idempotency.FindAsync(db, createdByUserId, Idempotency.Sale, input.IdempotencyKey, ct) is { } existingId)
         {
-            return await db.SalesInvoices.SingleAsync(i => i.Id == existingId, ct);
+            return await db.SalesInvoices.SingleOrDefaultAsync(i => i.Id == existingId, ct)
+                ?? throw new DomainValidationException("IdempotencyKey", "This request was already processed, but its result is no longer visible with your current branch access.");
         }
 
         var customer = await db.Customers.SingleOrDefaultAsync(c => c.Id == input.CustomerId, ct)
@@ -30,14 +38,22 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("CustomerId", "This customer is inactive.");
         }
 
-        await FinancialAccountRules.EnsureUsableAsync(db, input.PaidAmount > 0 ? input.AccountId : null, ct);
+        var branch = await BranchRules.ResolveWorkingBranchAsync(db, ct);
+        await FinancialAccountRules.EnsureUsableAsync(db, input.PaidAmount > 0 ? input.AccountId : null, branch.Id, ct);
 
-        var invoiceNo = await NextInvoiceNoAsync(ct);
+        var invoiceNo = await DocumentNumbers.NextNumberAsync(db, DocumentSeries.Invoice, branch, ct);
+
+        // Phase 8b: issued from the requested location (a store or vehicle that can sell), else the working branch's store.
+        // A central vehicle needs Sales.Create company-wide. Re-read and re-checked under the location lock below.
+        var companyLevel = await StockLocationRules.HasCompanyLevelAsync(permissions, "Sales.Create", ct);
+        var locationId = await StockLocationRules.ResolveAsync(db, PostingKind.Sale, input.StockLocationId, branch.Id, companyLevel, ct);
 
         var invoice = new SalesInvoice
         {
             Id = Guid.NewGuid(),
             InvoiceNo = invoiceNo,
+            BranchId = branch.Id,
+            StockLocationId = locationId,
             CustomerId = customer.Id,
             InvoiceDate = input.InvoiceDate,
             PaymentMethod = input.PaymentMethod,
@@ -69,12 +85,13 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         // Hold each product's stock lock from here to commit, so the availability check and the FIFO batch
         // consumption below see the same, current quantities.
-        await StockLocks.LockStockItemsAsync(db, requestedBaseQtyByProduct.Keys, ct);
+        await StockLocks.LockLocationsKeyShareAsync(db, [locationId], ct);
+        await StockLocationRules.ResolveAsync(db, PostingKind.Sale, locationId, branch.Id, companyLevel, ct);
+        var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, requestedBaseQtyByProduct.Keys.Select(id => (locationId, id)), ct);
 
         foreach (var (productId, requestedBaseQty) in requestedBaseQtyByProduct)
         {
-            var stockItem = await db.StockItems.Include(s => s.Product).SingleOrDefaultAsync(s => s.ProductId == productId, ct);
-            var available = stockItem?.QuantityOnHand ?? 0;
+            var available = stockItems.TryGetValue((locationId, productId), out var stockItem) ? stockItem.QuantityOnHand : 0;
             if (requestedBaseQty > available)
             {
                 var product = await db.Products.Include(p => p.BaseUnit).SingleAsync(p => p.Id == productId, ct);
@@ -85,7 +102,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         foreach (var line in invoice.Lines)
         {
-            await ApplySaleLineToStockAsync(line, invoiceNo, createdByUserId, ct);
+            await ApplySaleLineToStockAsync(line, stockItems[(locationId, line.ProductId)], invoiceNo, createdByUserId, ct);
         }
 
         invoice.Subtotal = subtotal;
@@ -119,7 +136,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("Status", "This sale is cancelled and cannot receive payments.");
         }
 
-        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, ct);
+        BranchRules.EnsureCanAccessDocument(db, invoice.BranchId);
+        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, invoice.BranchId, ct);
 
         var due = invoice.DueAmount;
         if (due <= 0)
@@ -155,7 +173,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
     private async Task<SalesInvoice?> LockInvoiceAsync(Guid salesInvoiceId, CancellationToken ct) =>
         db.Database.IsRelational()
             ? await db.SalesInvoices
-                .FromSqlInterpolated($"SELECT * FROM \"SalesInvoices\" WHERE \"Id\" = {salesInvoiceId} FOR UPDATE")
+                .FromSqlInterpolated($"SELECT * FROM \"SalesInvoices\" WHERE \"CompanyId\" = {db.CompanyContext.RequireCompanyId()} AND \"Id\" = {salesInvoiceId} FOR UPDATE")
                 .SingleOrDefaultAsync(ct)
             : await db.SalesInvoices.SingleOrDefaultAsync(i => i.Id == salesInvoiceId, ct);
 
@@ -188,7 +206,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         db.SalesPayments.Add(payment);
 
         // Sales are billed in the base currency, so the money moved is in the base currency too.
-        var baseCurrencyId = await db.BusinessSettings.Select(s => s.BaseCurrencyId).SingleAsync(ct);
+        var baseCurrencyId = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyId;
         db.FinancialTransactions.Add(FinancialTransaction.ForSalesPayment(payment, baseCurrencyId, accountId));
         return payment;
     }
@@ -202,7 +220,8 @@ public class SalesService(SelloraDbContext db) : ISalesService
         var invoice = await LockInvoiceAsync(salesInvoiceId, ct);
         if (invoice is null) return null;
 
-        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, ct);
+        BranchRules.EnsureCanAccessDocument(db, invoice.BranchId);
+        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, invoice.BranchId, ct);
         if (input.SalesReturnId is { } returnId
             && !await db.SalesReturns.AnyAsync(r => r.Id == returnId && r.SalesInvoiceId == invoice.Id, ct))
         {
@@ -244,6 +263,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         await using var transaction = await BeginAsync(ct);
         var invoice = await LockInvoiceAsync(salesInvoiceId, ct);
         if (invoice is null) return null;
+        BranchRules.EnsureCanAccessDocument(db, invoice.BranchId);
 
         var payment = await db.SalesPayments.SingleOrDefaultAsync(p => p.Id == paymentId && p.SalesInvoiceId == invoice.Id, ct)
             ?? throw new DomainValidationException("PaymentId", "Payment not found on this invoice.");
@@ -286,6 +306,19 @@ public class SalesService(SelloraDbContext db) : ISalesService
         }
 
         await using var transaction = await BeginAsync(ct);
+
+        if (await Idempotency.FindAsync(db, userId, Idempotency.SalesReturn, input.IdempotencyKey, ct) is { } existingReturnId)
+        {
+            var replayed = await db.SalesReturns.Include(r => r.Lines).SingleOrDefaultAsync(r => r.Id == existingReturnId, ct)
+                ?? throw new DomainValidationException("IdempotencyKey", "This request was already processed, but its result is no longer visible with your current branch access.");
+            // A key reused for another sale must not answer with an unrelated return (no refund would happen for this one).
+            if (replayed.SalesInvoiceId != input.SalesInvoiceId)
+            {
+                throw new DomainValidationException("IdempotencyKey", "This Idempotency-Key was already used for a return against a different sale. Use a new key.");
+            }
+            return replayed;
+        }
+
         var invoice = await LockInvoiceAsync(input.SalesInvoiceId, ct)
             ?? throw new DomainValidationException("SalesInvoiceId", "Select a valid sale.");
         if (invoice.Status == SalesStatus.Cancelled)
@@ -297,12 +330,22 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("ReturnDate", "Return date cannot be before the sale date.");
         }
 
+        // The return belongs to the branch of the sale (goods go back where they were sold).
+        var returnBranch = await BranchRules.ResolveReturnBranchAsync(db, invoice.BranchId, ct);
+
         // Lock the stock rows before reading the batches the goods go back into.
         var lineProductIds = await db.SalesInvoiceLines.Where(l => l.SalesInvoiceId == invoice.Id).Select(l => l.ProductId).ToListAsync(ct);
         // Lock order: SalesInvoices (above) -> Products KEY SHARE -> StockItems. The return reads the factor of a unit
         // that history may not yet reference, so a concurrent product-unit edit must wait until this commits.
         await StockLocks.LockProductsKeyShareAsync(db, lineProductIds, ct);
-        await StockLocks.LockStockItemsAsync(db, lineProductIds, ct);
+        // Phase 10 D1: goods go back to the location the sale issued from while it is active and still the invoice branch's;
+        // a vehicle that is inactive or reassigned falls back to the invoice branch's store. Resolved before the lock for an
+        // early failure; both candidates (invoice location, branch store) are locked in id order, then it is re-resolved under
+        // the lock, so the answer cannot change before commit and the chosen row is always one we hold.
+        await StockLocationRules.ResolveRestockAsync(db, invoice, false, ct);
+        await StockLocks.LockLocationsKeyShareAsync(db, await StockLocationRules.RestockCandidatesAsync(db, invoice, false, ct), ct);
+        var locationId = await StockLocationRules.ResolveRestockAsync(db, invoice, false, ct);
+        var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, lineProductIds.Select(id => (locationId, id)), ct);
         var lines = await db.SalesInvoiceLines
             .Include(l => l.Product).ThenInclude(p => p.BaseUnit)
             .Include(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch)
@@ -311,12 +354,14 @@ public class SalesService(SelloraDbContext db) : ISalesService
             .Where(r => r.SalesInvoiceLine.SalesInvoiceId == invoice.Id).ToListAsync(ct);
         var productUnits = await db.ProductUnits.Include(u => u.Unit)
             .Where(u => lineProductIds.Contains(u.ProductId)).ToListAsync(ct);
-        var precision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+        var precision = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyDecimalPrecision;
 
         var salesReturn = new SalesReturn
         {
             Id = Guid.NewGuid(),
-            ReturnNo = await NextReturnNoAsync(ct),
+            ReturnNo = await DocumentNumbers.NextNumberAsync(db, DocumentSeries.SalesReturn, returnBranch, ct),
+            BranchId = returnBranch.Id,
+            StockLocationId = locationId,
             SalesInvoiceId = invoice.Id,
             ReturnDate = input.ReturnDate,
             Reason = string.IsNullOrWhiteSpace(input.Reason) ? null : input.Reason.Trim(),
@@ -380,7 +425,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
                 if (alloc <= 0) continue;
 
                 consumption.ReturnedQtyBaseUnits += alloc;
-                consumption.PurchaseBatch.RemainingBaseQty += alloc;
+                await StockPosting.RestoreAsync(db, stockItems[(locationId, line.ProductId)], consumption.PurchaseBatch, alloc, ct);
                 costRestored += alloc * consumption.UnitCost;
                 remaining -= alloc;
             }
@@ -411,12 +456,11 @@ public class SalesService(SelloraDbContext db) : ISalesService
             salesReturn.TaxableTotal += taxable;
             salesReturn.TaxTotal += tax;
 
-            var stockItem = await db.StockItems.SingleAsync(s => s.ProductId == line.ProductId, ct);
-            stockItem.QuantityOnHand += baseQty;
-            db.StockMovements.Add(new StockMovement
+            db.StockMovements.Add(MovementSnapshot.Apply(new StockMovement
             {
                 Id = Guid.NewGuid(),
                 ProductId = line.ProductId,
+                StockLocationId = locationId,
                 Type = StockMovementType.SaleReturn,
                 QuantityBaseUnits = baseQty,
                 ReferenceType = "SalesReturn",
@@ -424,16 +468,17 @@ public class SalesService(SelloraDbContext db) : ISalesService
                 ReferenceNo = salesReturn.ReturnNo,
                 UserId = userId,
                 Notes = $"Returned from {invoice.InvoiceNo}",
-            });
+            }, returnLine.ProductUnitId, returnLine.UnitCode, returnLine.ConversionFactorToBase, returnLine.Qty));
         }
 
         salesReturn.Total = salesReturn.TaxableTotal + salesReturn.TaxTotal;
         invoice.ReturnedAmount += salesReturn.Total;
         db.SalesReturns.Add(salesReturn);
+        Idempotency.Record(db, userId, Idempotency.SalesReturn, input.IdempotencyKey, salesReturn.Id);
 
         if (input.Refund is { } refund)
         {
-            await FinancialAccountRules.EnsureUsableAsync(db, refund.AccountId, ct);
+            await FinancialAccountRules.EnsureUsableAsync(db, refund.AccountId, invoice.BranchId, ct);
             ValidateRefund(invoice, refund.Amount, null);
             await RecordEntryAsync(invoice, PaymentEntryKind.Refund, refund.Amount, refund.PaymentMethod, input.ReturnDate,
                 userId, refund.AccountId, refund.Reason, null, salesReturn.Id, ct);
@@ -447,8 +492,14 @@ public class SalesService(SelloraDbContext db) : ISalesService
     public async Task CancelSaleAsync(Guid salesInvoiceId, Guid cancelledByUserId, CancellationToken ct = default)
     {
         await using var transaction = await BeginAsync(ct);
-        _ = await LockInvoiceAsync(salesInvoiceId, ct) ?? throw new DomainValidationException("Id", "Sale not found.");
-        await StockLocks.LockStockItemsAsync(db, await db.SalesInvoiceLines.Where(l => l.SalesInvoiceId == salesInvoiceId).Select(l => l.ProductId).ToListAsync(ct), ct);
+        var locked = await LockInvoiceAsync(salesInvoiceId, ct) ?? throw new DomainValidationException("Id", "Sale not found.");
+        BranchRules.EnsureCanAccessDocument(db, locked.BranchId);
+        // Phase 10 D1: a cancellation is an exact undo at the sale's own location; no fallback. Re-resolved under the lock.
+        await StockLocationRules.ResolveRestockAsync(db, locked, true, ct);
+        await StockLocks.LockLocationsKeyShareAsync(db, [locked.StockLocationId], ct);
+        var locationId = await StockLocationRules.ResolveRestockAsync(db, locked, true, ct);
+        var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db,
+            (await db.SalesInvoiceLines.Where(l => l.SalesInvoiceId == salesInvoiceId).Select(l => l.ProductId).ToListAsync(ct)).Select(id => (locationId, id)), ct);
 
         var invoice = await db.SalesInvoices
             .Include(i => i.Lines).ThenInclude(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch)
@@ -463,34 +514,27 @@ public class SalesService(SelloraDbContext db) : ISalesService
             throw new DomainValidationException("Status", "Cannot cancel — items from this sale have been returned.");
         }
 
-        var baseQtyByProduct = new Dictionary<Guid, decimal>();
-
         foreach (var line in invoice.Lines)
         {
             foreach (var consumption in line.BatchConsumptions)
             {
-                consumption.PurchaseBatch.RemainingBaseQty += consumption.QtyBaseUnits;
+                await StockPosting.RestoreAsync(db, stockItems[(locationId, line.ProductId)], consumption.PurchaseBatch, consumption.QtyBaseUnits, ct);
             }
-            baseQtyByProduct[line.ProductId] = baseQtyByProduct.GetValueOrDefault(line.ProductId) + line.BaseQty;
-        }
 
-        foreach (var (productId, baseQty) in baseQtyByProduct)
-        {
-            var stockItem = await db.StockItems.SingleAsync(s => s.ProductId == productId, ct);
-            stockItem.QuantityOnHand += baseQty;
-
-            db.StockMovements.Add(new StockMovement
+            // One ledger row per sales line (mixed units on one invoice need each line's own unit snapshot).
+            db.StockMovements.Add(MovementSnapshot.Apply(new StockMovement
             {
                 Id = Guid.NewGuid(),
-                ProductId = productId,
+                ProductId = line.ProductId,
+                StockLocationId = locationId,
                 Type = StockMovementType.SaleCancellation,
-                QuantityBaseUnits = baseQty,
+                QuantityBaseUnits = line.BaseQty,
                 ReferenceType = "SalesInvoice",
                 ReferenceId = invoice.Id,
                 ReferenceNo = invoice.InvoiceNo,
                 UserId = cancelledByUserId,
                 Notes = "Sale cancelled",
-            });
+            }, line.ProductUnitId, line.UnitCode, line.ConversionFactorToBase, line.Qty));
         }
 
         invoice.Status = SalesStatus.Cancelled;
@@ -499,21 +543,6 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
-    }
-
-    private async Task<string> NextReturnNoAsync(CancellationToken ct)
-    {
-        await StockLocks.LockDocumentNumberAsync(db, "SRT", ct);
-        return $"SRT-{await db.SalesReturns.CountAsync(ct) + 1:D4}";
-    }
-
-    private async Task<string> NextInvoiceNoAsync(CancellationToken ct)
-    {
-        await StockLocks.LockDocumentNumberAsync(db, "INV", ct);
-        var settings = await db.BusinessSettings.FirstOrDefaultAsync(ct);
-        var prefix = settings?.InvoicePrefix ?? "INV";
-        var count = await db.SalesInvoices.CountAsync(ct);
-        return $"{prefix}-{count + 1:D4}";
     }
 
     private async Task<SalesInvoiceLine> BuildLineAsync(SalesInvoice invoice, SaleLineInput input, bool canOverridePrice, CancellationToken ct)
@@ -629,32 +658,11 @@ public class SalesService(SelloraDbContext db) : ISalesService
         };
     }
 
-    private async Task ApplySaleLineToStockAsync(SalesInvoiceLine line, string invoiceNo, Guid userId, CancellationToken ct)
-    {
-        var costConsumed = await ConsumeBatchesFifoAsync(line, ct);
-        line.CostOfGoodsSold = StockCost.Money(costConsumed);
-
-        db.StockMovements.Add(new StockMovement
-        {
-            Id = Guid.NewGuid(),
-            ProductId = line.ProductId,
-            Type = StockMovementType.Sale,
-            QuantityBaseUnits = -line.BaseQty,
-            ReferenceType = "SalesInvoice",
-            ReferenceId = line.SalesInvoiceId,
-            ReferenceNo = invoiceNo,
-            UserId = userId,
-        });
-
-        var stockItem = await db.StockItems.SingleAsync(s => s.ProductId == line.ProductId, ct);
-        stockItem.QuantityOnHand -= line.BaseQty;
-    }
-
-    private async Task<decimal> ConsumeBatchesFifoAsync(SalesInvoiceLine line, CancellationToken ct)
+    private async Task ApplySaleLineToStockAsync(SalesInvoiceLine line, StockItem stockItem, string invoiceNo, Guid userId, CancellationToken ct)
     {
         // Stock on hand and batch remainders are kept in step, so the shortage error is a safety net: never record a
         // sale whose cost (and batch trail) covers only part of the quantity.
-        var allocations = await BatchAllocator.ConsumeFifoAsync(db, line.ProductId, line.BaseQty,
+        var allocations = await StockPosting.IssueFifoAsync(db, stockItem, line.BaseQty,
             shortBy => new DomainValidationException("Lines", $"Batch stock is short by {StockQuantity.Format(shortBy)} for this item — cannot complete the sale."), ct);
 
         var costConsumed = 0m;
@@ -670,7 +678,19 @@ public class SalesService(SelloraDbContext db) : ISalesService
                 UnitCost = allocation.UnitCost,
             });
         }
+        line.CostOfGoodsSold = StockCost.Money(costConsumed);
 
-        return costConsumed;
+        db.StockMovements.Add(MovementSnapshot.Apply(new StockMovement
+        {
+            Id = Guid.NewGuid(),
+            ProductId = line.ProductId,
+            StockLocationId = stockItem.StockLocationId,
+            Type = StockMovementType.Sale,
+            QuantityBaseUnits = -line.BaseQty,
+            ReferenceType = "SalesInvoice",
+            ReferenceId = line.SalesInvoiceId,
+            ReferenceNo = invoiceNo,
+            UserId = userId,
+        }, line.ProductUnitId, line.UnitCode, line.ConversionFactorToBase, line.Qty));
     }
 }

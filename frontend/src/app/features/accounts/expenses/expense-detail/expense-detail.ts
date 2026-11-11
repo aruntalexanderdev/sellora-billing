@@ -1,4 +1,3 @@
-import { HttpErrorResponse } from '@angular/common/http';
 import { DatePipe } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -9,14 +8,16 @@ import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { ExpensesService } from '../expenses.service';
 import type { ExpenseCategory, ExpenseDetail as ExpenseDetailModel } from '../expenses.models';
-import type { ApiProblem } from '../../../../core/auth/auth.models';
+import { DocumentScope, type DocumentScopeItem } from '../../../../shared/scope/document-scope';
+import { placeLabel } from '../../../../shared/scope/list-scope';
+import { loadErrorText, problemText } from '../../../../shared/scope/problem-text';
 
 const FORMAT = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 @Component({
   selector: 'app-expense-detail',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, DatePipe, UiButton, UiBadge],
+  imports: [ReactiveFormsModule, RouterLink, DatePipe, UiButton, UiBadge, DocumentScope],
   templateUrl: './expense-detail.html',
   styleUrl: '../../../purchases/purchase-detail/purchase-detail.scss',
 })
@@ -34,6 +35,14 @@ export class ExpenseDetail implements OnInit {
   readonly cancelling = signal(false);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
+  readonly loadError = signal<string | null>(null);
+
+  /** Expenses may be company-level: no branch means "Company". */
+  readonly scopeItems = computed<DocumentScopeItem[]>(() => {
+    const e = this.expense();
+    if (!e) return [];
+    return [{ label: 'Branch', value: e.branchId ? placeLabel(e.branchCode, e.branchName) : 'Company', testId: 'scope-branch' }];
+  });
 
   readonly own = (n: number) => (this.expense()?.currencySymbol ?? '') + FORMAT(n);
   readonly base = (n: number) => (this.expense()?.baseCurrencySymbol ?? '₹') + FORMAT(n);
@@ -65,12 +74,16 @@ export class ExpenseDetail implements OnInit {
 
   private load(): void {
     this.loading.set(true);
+    this.loadError.set(null);
     this.expensesService.get(this.route.snapshot.paramMap.get('id')!).subscribe({
       next: (e) => {
         this.expense.set(e);
         this.loading.set(false);
       },
-      error: () => this.loading.set(false),
+      error: (err) => {
+        this.loadError.set(loadErrorText(err, 'Could not load this expense.'));
+        this.loading.set(false);
+      },
     });
   }
 
@@ -122,9 +135,8 @@ export class ExpenseDetail implements OnInit {
     });
   }
 
-  private fail(err: HttpErrorResponse): void {
+  private fail(err: unknown): void {
     this.saving.set(false);
-    const problem = err.error as ApiProblem | undefined;
-    this.error.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Something went wrong.');
+    this.error.set(problemText(err, 'Something went wrong.'));
   }
 }

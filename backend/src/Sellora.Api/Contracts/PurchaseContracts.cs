@@ -6,7 +6,9 @@ namespace Sellora.Api.Contracts;
 public record PurchaseListItemDto(
     Guid Id, string PurchaseNo, string SupplierName, DateOnly PurchaseDate,
     decimal GrandTotal, PaymentStatus PaymentStatus, PurchaseStatus Status,
-    string CurrencyCode, decimal OriginalGrandTotal
+    string CurrencyCode, decimal OriginalGrandTotal,
+    Guid BranchId, string? BranchCode, string? BranchName,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );
 
 public record PurchaseLineDto(
@@ -16,8 +18,12 @@ public record PurchaseLineDto(
     decimal TaxRatePercent, decimal OtherCharges, decimal Discount,
     decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal UnitCost,
     decimal ReturnedBaseQty, decimal ReturnableBaseQty, IReadOnlyList<PurchaseReturnUnitDto> ReturnUnits,
-    string? InternalBatchNo, string? SupplierBatchNumber, DateOnly? ReceivedDate
+    string? InternalBatchNo, string? SupplierBatchNumber, DateOnly? ReceivedDate,
+    IReadOnlyList<PurchaseLineLocationBalanceDto>? LocationBalances = null
 );
+
+/// <summary>Phase 10 (D3): base quantity of a purchase line's batch at one visible stock location (balance > 0 only).</summary>
+public record PurchaseLineLocationBalanceDto(Guid StockLocationId, string Code, string Name, decimal BaseQty);
 
 /// <summary>A unit a purchase line can be returned in. <see cref="MaxQty"/> is the returnable base quantity expressed in
 /// this unit, truncated to its decimal places (guidance only; the server re-validates).</summary>
@@ -45,7 +51,9 @@ public record PurchaseDetailDto(
     IReadOnlyList<PurchaseLineDto> Lines,
     IReadOnlyList<PurchasePaymentDto> Payments,
     decimal ReturnedAmount, decimal OriginalReturnedAmount, decimal NetTotal, decimal OriginalNetTotal,
-    decimal OriginalRefundableAmount, IReadOnlyList<PurchaseReturnSummaryDto> Returns
+    decimal OriginalRefundableAmount, IReadOnlyList<PurchaseReturnSummaryDto> Returns,
+    Guid BranchId, string? BranchCode, string? BranchName,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );
 
 public record CreatePurchaseLineRequest(
@@ -66,7 +74,8 @@ public record CreatePurchaseRequest(
     PaymentMethod PaymentMethod,
     [Range(0, 999999999)] decimal PaidAmount,
     [MinLength(1), MaxLength(200)] CreatePurchaseLineRequest[] Lines,
-    Guid? AccountId = null
+    Guid? AccountId = null,
+    Guid? StockLocationId = null
 );
 
 public record UpdatePurchaseHeaderRequest(
@@ -96,7 +105,8 @@ public record CreatePurchaseReturnRequest(
     [Required] DateOnly ReturnDate,
     [MaxLength(300)] string? Reason,
     [MinLength(1)] PurchaseReturnLineRequest[] Lines,
-    PurchaseRefundRequest? Refund = null
+    PurchaseRefundRequest? Refund = null,
+    Guid? StockLocationId = null
 );
 
 public record AddPurchaseRefundRequest(
@@ -110,7 +120,9 @@ public record AddPurchaseRefundRequest(
 
 public record PurchaseReturnListItemDto(
     Guid Id, string ReturnNo, DateOnly ReturnDate, Guid PurchaseOrderId, string PurchaseNo, string SupplierName,
-    decimal Total, decimal OriginalTotal, string CurrencyCode, decimal RefundedAmount
+    decimal Total, decimal OriginalTotal, string CurrencyCode, decimal RefundedAmount,
+    Guid BranchId, string? BranchCode, string? BranchName,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );
 
 public record PurchaseReturnLineDto(
@@ -125,5 +137,7 @@ public record PurchaseReturnDetailDto(
     string CurrencyCode, string CurrencySymbol, int CurrencyDecimalPrecision,
     string BaseCurrencyCode, string BaseCurrencySymbol, int BaseCurrencyDecimalPrecision,
     string CreatedByName, DateTimeOffset CreatedAt,
-    IReadOnlyList<PurchaseReturnLineDto> Lines, IReadOnlyList<PurchasePaymentDto> Refunds
+    IReadOnlyList<PurchaseReturnLineDto> Lines, IReadOnlyList<PurchasePaymentDto> Refunds,
+    Guid BranchId, string? BranchCode, string? BranchName,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );

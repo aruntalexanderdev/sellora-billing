@@ -5,6 +5,7 @@ import { StockAdjustmentList } from './stock-adjustment-list';
 import { StockAdjustmentsService, stockAdjustmentListParams } from '../stock-adjustments.service';
 import { ProductsService } from '../../products/products.service';
 import { AuthService } from '../../../../core/auth/auth.service';
+import { provideScopeStubs, type ScopeStub } from '../../../../shared/scope/scope-testing';
 import type { StockAdjustmentListItem } from '../stock-adjustments.models';
 
 function item(overrides: Partial<StockAdjustmentListItem> = {}): StockAdjustmentListItem {
@@ -13,11 +14,12 @@ function item(overrides: Partial<StockAdjustmentListItem> = {}): StockAdjustment
     type: 'OpeningStock', direction: 'Increase', enteredQuantity: 3, unitCode: 'fctn', enteredDecimalPlaces: 0,
     quantityBaseUnits: 300, baseUnitCode: 'pc', baseDecimalPlaces: 0, enteredUnitCost: 250, unitCost: 2.5,
     beforeQty: 0, afterQty: 300, userName: 'admin',
+    branchId: 'b1', branchCode: 'B1', branchName: 'Branch 1', stockLocationId: 'l1', stockLocationCode: 'STORE', stockLocationName: 'Main Store',
     ...overrides,
   };
 }
 
-function setup(queryParams: Record<string, string> = {}, permissions: string[] = ['Inventory.View']) {
+function setup(queryParams: Record<string, string> = {}, permissions: string[] = ['Inventory.View'], scope: ScopeStub = {}) {
   const list = vi.fn(() => of({ items: [item(), item({ id: 'adj-2', adjustmentNo: 'ADJ-0002', type: 'Damage', direction: 'Decrease',
     enteredQuantity: 1.25, unitCode: 'kg', enteredDecimalPlaces: 3, quantityBaseUnits: 1.25, baseUnitCode: 'kg', baseDecimalPlaces: 3,
     enteredUnitCost: null, unitCost: null, beforeQty: 10, afterQty: 8.75 })], total: 2, page: 1, pageSize: 20 }));
@@ -25,6 +27,7 @@ function setup(queryParams: Record<string, string> = {}, permissions: string[] =
     imports: [StockAdjustmentList],
     providers: [
       provideRouter([]),
+      ...provideScopeStubs(scope),
       { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(queryParams) } } },
       { provide: StockAdjustmentsService, useValue: { list } },
       { provide: ProductsService, useValue: { list: () => of({ items: [{ id: 'pen', sku: 'PEN-1', name: 'Pen', isActive: true }], total: 1, page: 1, pageSize: 100 }) } },
@@ -106,5 +109,49 @@ describe('StockAdjustmentList', () => {
     expect(setup().el.querySelector('.page-head')?.textContent).not.toContain('New adjustment');
     TestBed.resetTestingModule();
     expect(setup({}, ['Inventory.View', 'Inventory.Adjust']).el.querySelector('.page-head')?.textContent).toContain('New adjustment');
+  });
+
+  describe('branch and location scope', () => {
+    const headers = (el: HTMLElement) => Array.from(el.querySelectorAll('thead th')).map((h) => (h.textContent ?? '').trim());
+
+    it('sends branchId and stockLocationId, resets to page 1 and clears them with the filters', () => {
+      const { component, list } = setup();
+      component.onPageChange(3);
+
+      component.onBranchChange('b2');
+      component.onLocationChange('loc-van');
+
+      expect(lastQuery(list)).toMatchObject({ branchId: 'b2', stockLocationId: 'loc-van', page: 1 });
+      expect(stockAdjustmentListParams(lastQuery(list))).toMatchObject({ branchId: 'b2', stockLocationId: 'loc-van' });
+
+      component.clearFilters();
+      expect(lastQuery(list)['branchId']).toBeUndefined();
+      expect(lastQuery(list)['stockLocationId']).toBeUndefined();
+    });
+
+    it('hides the Branch column for a single-branch user without location access', () => {
+      const { el } = setup();
+
+      expect(headers(el)).not.toContain('Branch');
+      expect(headers(el)).not.toContain('Location');
+    });
+
+    it.each([
+      ['company-wide', { accessScope: 'CompanyWide' }],
+      ['multi-branch', { branches: 2 }],
+      ['all-branches mode', { branches: 1, allBranches: true }],
+    ] as [string, ScopeStub][])('shows the Branch column for a %s user, with each row\'s branch', (_label, scope) => {
+      const { el } = setup({}, ['Inventory.View'], scope);
+
+      expect(headers(el)).toContain('Branch');
+      expect(el.querySelector('tbody tr')?.textContent).toContain('Branch 1 (B1)');
+    });
+
+    it('shows the Location column with StockLocations.View', () => {
+      const { el } = setup({}, ['Inventory.View', 'StockLocations.View']);
+
+      expect(headers(el)).toContain('Location');
+      expect(el.querySelector('tbody tr')?.textContent).toContain('Main Store (STORE)');
+    });
   });
 });

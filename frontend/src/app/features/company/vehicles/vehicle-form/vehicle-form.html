@@ -1,0 +1,71 @@
+<div class="page-head">
+  <div>
+    <h1>{{ isEdit() ? 'Edit vehicle' : 'New vehicle' }}</h1>
+    <p>The vehicle number cannot be changed after creation. Changing the assigned branch is refused while the vehicle holds stock or has open transfers.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error" role="alert" data-testid="server-error">{{ serverError() }}</div>
+  }
+  @if (loading()) {
+    <p>Loading…</p>
+  } @else {
+    <form [formGroup]="form" (ngSubmit)="submit()">
+      <div class="grid-2">
+        <div>
+          <label class="field-label" for="v-number">Vehicle number</label>
+          <input id="v-number" type="text" formControlName="vehicleNumber" class="field-input" maxlength="40" />
+          @if (form.controls.vehicleNumber.touched && form.controls.vehicleNumber.errors?.['required']) {
+            <div class="field-error">Vehicle number is required.</div>
+          }
+          @if (form.controls.vehicleNumber.errors?.['server']) {
+            <div class="field-error">{{ form.controls.vehicleNumber.errors?.['server'] }}</div>
+          }
+        </div>
+        <div>
+          <label class="field-label" for="v-name">Name</label>
+          <input id="v-name" type="text" formControlName="vehicleName" class="field-input" maxlength="150" />
+          @if (form.controls.vehicleName.touched && form.controls.vehicleName.errors?.['required']) {
+            <div class="field-error">Name is required.</div>
+          }
+          @if (form.controls.vehicleName.errors?.['server']) {
+            <div class="field-error">{{ form.controls.vehicleName.errors?.['server'] }}</div>
+          }
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <label class="field-label" for="v-type">Type</label>
+          <select id="v-type" formControlName="vehicleType" class="field-input">
+            @for (t of vehicleTypes; track t) {
+              <option [value]="t">{{ t }}</option>
+            }
+          </select>
+          @if (form.controls.vehicleType.errors?.['server']) {
+            <div class="field-error">{{ form.controls.vehicleType.errors?.['server'] }}</div>
+          }
+        </div>
+        <div>
+          <label class="field-label" for="v-branch">Assigned branch</label>
+          <select id="v-branch" formControlName="assignedBranchId" class="field-input">
+            <option value="">Central (no branch)</option>
+            @for (b of branchOptions(); track b.id) {
+              <option [value]="b.id">{{ b.name }} ({{ b.code }})</option>
+            }
+          </select>
+          @if (form.controls.assignedBranchId.errors?.['server']) {
+            <div class="field-error" data-testid="reassign-error">{{ form.controls.assignedBranchId.errors?.['server'] }}</div>
+          }
+        </div>
+      </div>
+
+      <div class="actions">
+        <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
+        <a routerLink="/company/vehicles" class="cancel-link">Cancel</a>
+      </div>
+    </form>
+  }
+</div>

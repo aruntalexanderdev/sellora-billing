@@ -1,0 +1,64 @@
+<div class="page-head">
+  <div>
+    <h1>{{ editingId() ? 'Edit draft transfer' : 'New stock transfer' }}</h1>
+    <p>Move stock from one location to another. Quantities are entered in any unit of the product; stock is kept in base units.</p>
+  </div>
+</div>
+
+@if (loadError(); as e) {
+  <div class="server-error" role="alert" data-testid="load-error">{{ e }}</div>
+} @else if (!loading()) {
+  <div class="form-card">
+    @if (serverError(); as e) {
+      <div class="server-error" role="alert" data-testid="server-error">{{ e }}</div>
+    }
+    @if (!canPickLocations()) {
+      <div class="server-error" data-testid="no-locations">Choosing transfer locations needs the stock-locations view permission.</div>
+    }
+
+    <form [formGroup]="form" (ngSubmit)="submit()">
+      <div class="grid-2">
+        <div data-testid="source-select">
+          <label class="field-label">From (source)</label>
+          <app-location-select purpose="transfer" label="Source location" [value]="form.controls.sourceLocationId.value || null" (valueChange)="onLocation('sourceLocationId', $event)" />
+          @if (locationError('sourceLocationId'); as e) {
+            <div class="field-error" data-testid="source-error">{{ e }}</div>
+          }
+        </div>
+        <div data-testid="destination-select">
+          <label class="field-label">To (destination)</label>
+          <app-location-select purpose="transfer" label="Destination location" [value]="form.controls.destinationLocationId.value || null" (valueChange)="onLocation('destinationLocationId', $event)" />
+          @if (locationError('destinationLocationId'); as e) {
+            <div class="field-error" data-testid="destination-error">{{ e }}</div>
+          }
+        </div>
+      </div>
+
+      <h3 class="section">Lines</h3>
+      <app-transfer-lines-editor [lines]="form.controls.lines" />
+      @if (form.controls.lines.errors?.['server']; as e) {
+        <div class="field-error" data-testid="lines-error">{{ e }}</div>
+      }
+
+      <label class="field-label" style="margin-top: 16px">Notes</label>
+      <textarea formControlName="notes" class="field-input" rows="2" maxlength="500"></textarea>
+      @if (form.controls.notes.errors?.['server']; as e) {
+        <div class="field-error">{{ e }}</div>
+      }
+
+      @if (canSubmitNow()) {
+        <label class="check">
+          <input type="checkbox" formControlName="submitNow" data-testid="submit-now" />
+          Submit now (send for approval instead of saving as a draft)
+        </label>
+      }
+
+      <div class="actions">
+        <ui-button type="submit" variant="primary" [disabled]="saving()">
+          {{ saving() ? 'Saving…' : form.controls.submitNow.value ? 'Save and submit' : editingId() ? 'Save draft' : 'Create draft' }}
+        </ui-button>
+        <a routerLink="/inventory/stock-transfers" class="cancel-link">Cancel</a>
+      </div>
+    </form>
+  </div>
+}

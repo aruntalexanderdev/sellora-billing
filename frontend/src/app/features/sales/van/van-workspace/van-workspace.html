@@ -1,0 +1,68 @@
+<div class="page-head">
+  <div>
+    <h1>Van workspace</h1>
+    <p>Pick a vehicle to see its stock, sell from it, or load and unload it.</p>
+  </div>
+</div>
+
+@if (!canListLocations()) {
+  <div class="notice" data-testid="no-permission">Listing vehicles needs the stock-locations view permission.</div>
+} @else if (vehicleError(); as e) {
+  <div class="notice" role="alert" data-testid="vehicle-error">{{ e }}</div>
+} @else if (!loadingVehicles() && vehicles().length === 0) {
+  <div class="notice" data-testid="no-vehicles">There is no active vehicle in this branch. Add one under Administration → Locations.</div>
+} @else {
+  <div class="picker">
+    <label class="field-label" for="vehicle-select">Vehicle</label>
+    <select id="vehicle-select" class="field-input" data-testid="vehicle-select" [value]="vehicleId() ?? ''" (change)="selectVehicle($any($event.target).value)">
+      <option value="">Select a vehicle…</option>
+      @for (v of vehicles(); track v.id) {
+        <option [value]="v.id" [selected]="v.id === vehicleId()">{{ v.name }} ({{ v.code }})</option>
+      }
+    </select>
+  </div>
+
+  @if (vehicle(); as v) {
+    <div class="action-bar">
+      <ui-button variant="primary" data-testid="sell-from-vehicle" (onClick)="sell()">Sell from this vehicle</ui-button>
+      @if (canTransfer()) {
+        <ui-button data-testid="load-vehicle" (onClick)="openWizard('load')">Load vehicle</ui-button>
+        <ui-button data-testid="unload-vehicle" (onClick)="openWizard('unload')">Unload vehicle</ui-button>
+      }
+    </div>
+
+    @if (wizard(); as mode) {
+      <app-van-transfer-wizard [mode]="mode" [vehicle]="v" (changed)="onChanged()" (closed)="wizard.set(null)" />
+    }
+
+    <div class="stock-card">
+      <div class="card-title">Stock on {{ v.name }}</div>
+      @if (!canViewStock()) {
+        <p class="muted">Viewing stock needs the inventory view permission.</p>
+      } @else if (stockError(); as e) {
+        <div class="notice" role="alert">{{ e }}</div>
+      } @else if (stockLoading()) {
+        <p class="muted">Loading stock…</p>
+      } @else if (stockItems().length === 0) {
+        <p class="muted" data-testid="vehicle-stock-empty">This vehicle carries no stock. Use “Load vehicle” to stock it.</p>
+      } @else {
+        <table data-testid="vehicle-stock">
+          <thead><tr><th>Product</th><th>SKU</th><th class="num">On hand</th></tr></thead>
+          <tbody>
+            @for (p of stockItems(); track p.productId) {
+              <tr>
+                <td>{{ p.name }}</td>
+                <td>{{ p.sku }}</td>
+                <td class="num">{{ qty(p.quantityOnHand) }} {{ p.baseUnitLabel }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+        @if (stockTotal() > stockItems().length) {
+          <p class="muted">Showing {{ stockItems().length }} of {{ stockTotal() }} products.</p>
+        }
+        <a routerLink="/inventory/stock" [queryParams]="{ stockLocationId: vehicleId() }" class="link" data-testid="full-stock-link">Open full stock overview</a>
+      }
+    </div>
+  }
+}

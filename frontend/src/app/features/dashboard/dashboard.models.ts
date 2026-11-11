@@ -14,6 +14,7 @@ export interface DashboardLowStockItem {
   productId: string;
   name: string;
   baseUnitLabel: string;
+  baseDecimalPlaces: number;
   quantityOnHand: number;
   reorderLevel: number;
   status: StockStatus;

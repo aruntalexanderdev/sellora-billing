@@ -1,4 +1,5 @@
 import { HttpClient } from '@angular/common/http';
+import { primaryLoad } from '../../../core/http/request-context';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { idempotencyHeaders } from '../../../core/idempotency';
@@ -22,6 +23,8 @@ export function stockAdjustmentListParams(query: StockAdjustmentListQuery): Reco
   if (query.direction) params['direction'] = query.direction;
   if (query.dateFrom) params['dateFrom'] = query.dateFrom;
   if (query.dateTo) params['dateTo'] = query.dateTo;
+  if (query.branchId) params['branchId'] = query.branchId;
+  if (query.stockLocationId) params['stockLocationId'] = query.stockLocationId;
   return params;
 }
 
@@ -34,7 +37,7 @@ export class StockAdjustmentsService {
   }
 
   get(id: string): Observable<StockAdjustmentDetail> {
-    return this.http.get<StockAdjustmentDetail>(`${BASE_URL}/${id}`);
+    return this.http.get<StockAdjustmentDetail>(`${BASE_URL}/${id}`, { context: primaryLoad() });
   }
 
   create(request: CreateStockAdjustmentRequest, idempotencyKey?: string): Observable<StockAdjustmentDetail> {

@@ -2,6 +2,23 @@
   <span></span><span></span><span></span>
 </button>
 <div class="hd-spacer"></div>
+@if (showCompanySelect()) {
+  <select class="hd-select" aria-label="Company" title="Switch company" (change)="onCompany($event)">
+    @for (c of companies(); track c.id) {
+      <option [value]="c.id" [selected]="c.id === companyId()">{{ c.name }}</option>
+    }
+  </select>
+}
+@if (showBranchSelect()) {
+  <select class="hd-select" aria-label="Branch" title="Switch branch" (change)="onBranch($event)">
+    @if (canChooseAll()) {
+      <option [value]="allBranches" [selected]="branchId() === allBranches">All branches</option>
+    }
+    @for (b of branches(); track b.id) {
+      <option [value]="b.id" [selected]="b.id === branchId()">{{ b.name }}</option>
+    }
+  </select>
+}
 <a class="hd-user" routerLink="/profile" title="My profile">
   <div class="hd-avatar">{{ userInitials() }}</div>
   <div class="hd-user-text">

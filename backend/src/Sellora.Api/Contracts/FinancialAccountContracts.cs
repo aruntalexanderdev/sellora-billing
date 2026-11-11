@@ -7,7 +7,8 @@ namespace Sellora.Api.Contracts;
 /// <param name="ReconciledBalance">The same, counting only transactions already matched to the statement.</param>
 public record FinancialAccountDto(
     Guid Id, string Name, FinancialAccountKind Kind, string? Reference, bool IsActive,
-    decimal Balance, decimal ReconciledBalance, int UnreconciledCount
+    decimal Balance, decimal ReconciledBalance, int UnreconciledCount,
+    Guid? BranchId, string? BranchCode, string? BranchName
 );
 
 public record FinancialAccountListDto(
@@ -16,19 +17,22 @@ public record FinancialAccountListDto(
 );
 
 /// <summary>What a payment form needs to offer an account: no balances.</summary>
-public record AccountOptionDto(Guid Id, string Name, FinancialAccountKind Kind);
+/// <param name="BranchId">Null = company-level account (usable for any branch); otherwise only for documents of that branch.</param>
+public record AccountOptionDto(Guid Id, string Name, FinancialAccountKind Kind, Guid? BranchId = null);
 
 public record CreateFinancialAccountRequest(
     [Required, MaxLength(60)] string Name,
     FinancialAccountKind Kind,
     [MaxLength(60)] string? Reference,
     [Range(0, 999999999999)] decimal OpeningBalance,
-    DateOnly? OpeningDate
+    DateOnly? OpeningDate,
+    Guid? BranchId = null
 );
 
 public record UpdateFinancialAccountRequest(
     [Required, MaxLength(60)] string Name,
-    [MaxLength(60)] string? Reference
+    [MaxLength(60)] string? Reference,
+    Guid? BranchId = null
 );
 
 public record TransferRequest(

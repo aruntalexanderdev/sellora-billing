@@ -1,0 +1,40 @@
+<div class="panel" role="group" aria-label="Resolve transfer">
+  <h3>Resolve {{ transfer().transferNo }}</h3>
+  <p class="hint">Closes every outstanding line: write it off as a loss, or return it to the source location. This cannot be undone.</p>
+  @if (shown().form; as msg) {
+    <div class="server-error" data-testid="resolve-error">{{ msg }}</div>
+  }
+  <div class="actions" style="margin: 0 0 10px">
+    <ui-button (onClick)="setAll('ReturnToSource')">All: return to source</ui-button>
+    <ui-button (onClick)="setAll('WriteOff')">All: write off</ui-button>
+  </div>
+  <table>
+    <thead>
+      <tr><th>Product</th><th class="num">Outstanding</th><th>Action</th></tr>
+    </thead>
+    <tbody>
+      @for (r of rows(); track r.lineId; let i = $index) {
+        <tr>
+          <td>{{ r.line.productName }}<div class="sub">{{ r.line.sku }}</div></td>
+          <td class="num">{{ fmt(r.line, r.line.outstandingBaseQty) }} {{ r.line.baseUnitCode }}</td>
+          <td>
+            <select class="field-input" [attr.data-testid]="'resolve-action-' + i" [value]="r.action ?? ''" (change)="setAction(i, $any($event.target).value)">
+              <option value="" [selected]="!r.action">Choose…</option>
+              <option value="ReturnToSource" [selected]="r.action === 'ReturnToSource'">Return to source</option>
+              <option value="WriteOff" [selected]="r.action === 'WriteOff'">Write off (loss)</option>
+            </select>
+            @if (shown().rows[i]; as msg) {
+              <div class="field-error" [attr.data-testid]="'resolve-row-error-' + i">{{ msg }}</div>
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+  <label class="field-label" for="resolve-reason">Reason</label>
+  <textarea id="resolve-reason" class="field-input" rows="2" [maxLength]="reasonMax" data-testid="resolve-reason" [value]="reason()" (input)="setReason($any($event.target).value)"></textarea>
+  <div class="actions">
+    <ui-button variant="destructive" [disabled]="busy()" (onClick)="submit()">{{ busy() ? 'Resolving…' : 'Resolve' }}</ui-button>
+    <ui-button (onClick)="cancelled.emit()">Cancel</ui-button>
+  </div>
+</div>

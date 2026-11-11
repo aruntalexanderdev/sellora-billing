@@ -256,11 +256,19 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
         await using var database = await CreateLegacyDatabaseAsync(postgres);
         // Stop at this migration: later migrations (WidenCostPrecision) change cost scale and have their own Down tests.
         await using (var db = database.CreateDbContext()) await db.GetService<IMigrator>().MigrateAsync(AddStockAdjustmentUnitSnapshots);
-        await using (var db = database.CreateDbContext())
-        {
-            await new StockAdjustmentService(db).CreateAdjustmentAsync(
-                new CreateAdjustmentInput(PPen, PenBox, AdjustmentType.OpeningStock, AdjustmentDirection.Increase, 2m, 30m, null), UserId);
-        }
+        // Raw SQL at this schema: StockAdjustmentService now targets the latest model (Phase 6a movement columns).
+        var a5 = G(5, 5);
+        var b4 = G(6, 4);
+        await ExecuteAsync(database, $"""
+            INSERT INTO "StockAdjustments" ("Id", "AdjustmentNo", "AfterQty", "BeforeQty", "CreatedAt", "Direction", "ProductId", "QuantityBaseUnits", "Reason", "Type", "UnitCost", "UserId",
+              "ProductUnitId", "UnitId", "UnitCode", "ConversionFactorToBase", "EnteredQuantity", "EnteredUnitCost")
+            VALUES ('{a5}', 'ADJ-0005', 120, 100, '2026-09-02T08:00:00Z', 'Increase', '{PPen}', 20, NULL, 'OpeningStock', 3, '{UserId}', '{PenBox}', '{UBox}', 'box', 10, 2, 30);
+            INSERT INTO "PurchaseBatches" ("Id", "CreatedAt", "ProductId", "PurchaseOrderLineId", "PurchasedBaseQty", "ReceivedDate", "RemainingBaseQty", "StockAdjustmentId", "SupplierBatchNumber", "UnitCost")
+            VALUES ('{b4}', '2026-09-02T08:00:00Z', '{PPen}', NULL, 20, DATE '2026-09-02', 20, '{a5}', NULL, 3);
+            INSERT INTO "StockMovements" ("Id", "Notes", "OccurredAt", "ProductId", "PurchaseBatchId", "QuantityBaseUnits", "ReferenceId", "ReferenceNo", "ReferenceType", "Type", "UserId")
+            VALUES (gen_random_uuid(), 'OpeningStock', '2026-09-02T08:00:00Z', '{PPen}', '{b4}', 20, '{a5}', 'ADJ-0005', 'StockAdjustment', 'Adjustment', '{UserId}');
+            UPDATE "StockItems" SET "QuantityOnHand" = 120, "AverageCost" = 2.5833 WHERE "ProductId" = '{PPen}';
+            """);
         const string stockData = """
             SELECT 'A ' || "AdjustmentNo" || ' ' || "QuantityBaseUnits" || ' ' || COALESCE("UnitCost"::text, '-') || ' ' || "BeforeQty" || ' ' || "AfterQty" FROM "StockAdjustments"
             UNION ALL SELECT 'B ' || "Id" || ' ' || "PurchasedBaseQty" || ' ' || "RemainingBaseQty" || ' ' || "UnitCost" || ' ' || COALESCE("StockAdjustmentId"::text, '-') FROM "PurchaseBatches"
@@ -338,6 +346,9 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
             Assert.Equal(db.Database.GetMigrations().Where(m => string.CompareOrdinal(m, AddStockAdjustmentUnitSnapshots) > 0),
                 await db.Database.GetPendingMigrationsAsync());
             Assert.False(db.Database.HasPendingModelChanges());
+            // Multi-company: the head model's CompanyId filters read columns added by later migrations, so bring the schema to head
+            // before the EF-model assertions below (the data assertions themselves are unchanged).
+            await db.Database.MigrateAsync();
         }
         await AssertBackfilledAsync(database);
         await AssertVBlockEmptyAsync(database, v1);

@@ -14,5 +14,7 @@ public class PermissionConfiguration : IEntityTypeConfiguration<Permission>
         builder.Property(p => p.Action).HasMaxLength(40).IsRequired();
         builder.Property(p => p.Description).HasMaxLength(300).IsRequired();
         builder.HasIndex(p => p.Code).IsUnique();
+        // Phase 6 ADR-13: governance codes live in GovernancePermissions only; never in the operational catalogue.
+        builder.ToTable(t => t.HasCheckConstraint("CK_Permissions_NotGovernance", "\"Code\" NOT LIKE 'Company.Governance.%'"));
     }
 }

@@ -1,0 +1,140 @@
+<div class="page-head">
+  <div>
+    <h1>New company</h1>
+    <p>Creates the company with its main branch, defaults and its first owner.</p>
+  </div>
+</div>
+
+<form class="card" [formGroup]="form" (ngSubmit)="submit()">
+  @if (serverError()) {
+    <div class="server-error" role="alert">{{ serverError() }}</div>
+  }
+  <fieldset [disabled]="disabled()" style="border: 0; padding: 0; margin: 0">
+    <div class="grid-2">
+      <div>
+        <label class="field-label" for="co-code">Code</label>
+        <input id="co-code" class="field-input" formControlName="code" maxlength="20" />
+        @if (form.controls.code.errors?.['server']) { <div class="field-error">{{ form.controls.code.errors?.['server'] }}</div> }
+        @if (form.controls.code.touched && form.controls.code.errors?.['required']) { <div class="field-error">Code is required.</div> }
+      </div>
+      <div>
+        <label class="field-label" for="co-name">Name</label>
+        <input id="co-name" class="field-input" formControlName="name" maxlength="150" />
+        @if (form.controls.name.errors?.['server']) { <div class="field-error">{{ form.controls.name.errors?.['server'] }}</div> }
+        @if (form.controls.name.touched && form.controls.name.errors?.['required']) { <div class="field-error">Name is required.</div> }
+      </div>
+      <div>
+        <label class="field-label" for="co-biz">Legal business name</label>
+        <input id="co-biz" class="field-input" formControlName="businessName" maxlength="150" />
+        @if (form.controls.businessName.errors?.['server']) { <div class="field-error">{{ form.controls.businessName.errors?.['server'] }}</div> }
+        @if (form.controls.businessName.touched && form.controls.businessName.errors?.['required']) { <div class="field-error">Business name is required.</div> }
+      </div>
+      <div>
+        <label class="field-label" for="co-prefix">Invoice prefix</label>
+        <input id="co-prefix" class="field-input" formControlName="invoicePrefix" maxlength="10" />
+        @if (form.controls.invoicePrefix.errors?.['server']) { <div class="field-error">{{ form.controls.invoicePrefix.errors?.['server'] }}</div> }
+        @if (form.controls.invoicePrefix.touched && form.controls.invoicePrefix.errors?.['required']) { <div class="field-error">Invoice prefix is required.</div> }
+      </div>
+      <div>
+        <label class="field-label" for="co-cur">Base currency</label>
+        <select id="co-cur" class="field-input" formControlName="baseCurrencyId">
+          <option value="">Select a currency…</option>
+          @for (c of currencies(); track c.id) {
+            <option [value]="c.id">{{ c.code }} — {{ c.name }}</option>
+          }
+        </select>
+        @if (form.controls.baseCurrencyId.errors?.['server']) { <div class="field-error">{{ form.controls.baseCurrencyId.errors?.['server'] }}</div> }
+        @if (form.controls.baseCurrencyId.touched && form.controls.baseCurrencyId.errors?.['required']) { <div class="field-error">Choose the base currency.</div> }
+      </div>
+      <div>
+        <label class="field-label" for="co-gstin">GSTIN (optional)</label>
+        <input id="co-gstin" class="field-input" formControlName="gstin" maxlength="20" />
+        @if (form.controls.gstin.errors?.['server']) { <div class="field-error">{{ form.controls.gstin.errors?.['server'] }}</div> }
+      </div>
+      <div>
+        <label class="field-label" for="co-addr">Address (optional)</label>
+        <input id="co-addr" class="field-input" formControlName="addressLine" maxlength="300" />
+      </div>
+      <div>
+        <label class="field-label" for="co-city">City (optional)</label>
+        <input id="co-city" class="field-input" formControlName="city" maxlength="80" />
+      </div>
+      <div>
+        <label class="field-label" for="co-state">State (optional)</label>
+        <input id="co-state" class="field-input" formControlName="state" maxlength="80" />
+      </div>
+      <div>
+        <label class="field-label" for="co-phone">Phone (optional)</label>
+        <input id="co-phone" class="field-input" formControlName="phone" maxlength="30" />
+      </div>
+      <div>
+        <label class="field-label" for="co-email">Email (optional)</label>
+        <input id="co-email" class="field-input" formControlName="email" maxlength="200" />
+        @if (form.controls.email.errors?.['server']) { <div class="field-error">{{ form.controls.email.errors?.['server'] }}</div> }
+        @if (form.controls.email.touched && form.controls.email.errors?.['email']) { <div class="field-error">Enter a valid email.</div> }
+      </div>
+    </div>
+
+    <h2>Owner</h2>
+    <div class="row" role="radiogroup" aria-label="Owner">
+      <label class="check"><input type="radio" name="ownerMode" [checked]="ownerMode() === 'new'" (change)="setOwnerMode('new')" /> New user</label>
+      <label class="check"><input type="radio" name="ownerMode" [checked]="ownerMode() === 'existing'" (change)="setOwnerMode('existing')" /> Existing user</label>
+    </div>
+
+    <div formGroupName="owner">
+      @if (ownerMode() === 'existing') {
+        <label class="field-label" for="own-id">Existing user id</label>
+        <input id="own-id" class="field-input" formControlName="userId" />
+        @if (form.controls.owner.controls.userId.touched && form.controls.owner.controls.userId.errors?.['required']) { <div class="field-error">Enter the id of the owner user.</div> }
+        @if (form.controls.owner.controls.userId.errors?.['server']) { <div class="field-error">{{ form.controls.owner.controls.userId.errors?.['server'] }}</div> }
+      } @else {
+        <div formGroupName="newUser" class="grid-2">
+          <div>
+            <label class="field-label" for="own-first">First name</label>
+            <input id="own-first" class="field-input" formControlName="firstName" />
+            @if (form.controls.owner.controls.newUser.controls.firstName.errors?.['server']) { <div class="field-error">{{ form.controls.owner.controls.newUser.controls.firstName.errors?.['server'] }}</div> }
+          </div>
+          <div>
+            <label class="field-label" for="own-last">Last name</label>
+            <input id="own-last" class="field-input" formControlName="lastName" />
+            @if (form.controls.owner.controls.newUser.controls.lastName.errors?.['server']) { <div class="field-error">{{ form.controls.owner.controls.newUser.controls.lastName.errors?.['server'] }}</div> }
+          </div>
+          <div>
+            <label class="field-label" for="own-user">Username</label>
+            <input id="own-user" class="field-input" formControlName="username" />
+            @if (form.controls.owner.controls.newUser.controls.username.errors?.['server']) { <div class="field-error">{{ form.controls.owner.controls.newUser.controls.username.errors?.['server'] }}</div> }
+          </div>
+          <div>
+            <label class="field-label" for="own-email">Email</label>
+            <input id="own-email" class="field-input" formControlName="email" />
+            @if (form.controls.owner.controls.newUser.controls.email.errors?.['server']) { <div class="field-error">{{ form.controls.owner.controls.newUser.controls.email.errors?.['server'] }}</div> }
+          </div>
+          <div>
+            <label class="field-label" for="own-phone">Phone (optional)</label>
+            <input id="own-phone" class="field-input" formControlName="phoneNumber" />
+          </div>
+          <div>
+            <label class="field-label" for="own-pass">Password</label>
+            <input id="own-pass" type="password" class="field-input" formControlName="password" autocomplete="new-password" />
+            @if (form.controls.owner.controls.newUser.controls.password.errors?.['server']) { <div class="field-error">{{ form.controls.owner.controls.newUser.controls.password.errors?.['server'] }}</div> }
+            @if (form.controls.owner.controls.newUser.controls.password.touched && form.controls.owner.controls.newUser.controls.password.errors?.['minlength']) { <div class="field-error">At least 8 characters.</div> }
+          </div>
+          <div>
+            <label class="field-label" for="own-confirm">Confirm password</label>
+            <input id="own-confirm" type="password" class="field-input" formControlName="confirmPassword" autocomplete="new-password" />
+            @if (form.controls.owner.controls.newUser.controls.confirmPassword.errors?.['server']) { <div class="field-error">{{ form.controls.owner.controls.newUser.controls.confirmPassword.errors?.['server'] }}</div> }
+            @if (form.controls.owner.controls.newUser.controls.confirmPassword.errors?.['mismatch']) { <div class="field-error">Passwords do not match.</div> }
+          </div>
+        </div>
+      }
+    </div>
+
+    <label class="field-label" for="co-reason" style="margin-top: 12px">Reason (optional)</label>
+    <textarea id="co-reason" class="field-input" rows="2" formControlName="reason" maxlength="500"></textarea>
+  </fieldset>
+
+  <div class="actions">
+    <ui-button type="submit" variant="primary" [disabled]="saving() || disabled()">{{ saving() ? 'Creating…' : 'Create company' }}</ui-button>
+    <a routerLink="/platform/companies" class="muted">Cancel</a>
+  </div>
+</form>

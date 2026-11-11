@@ -1,8 +1,14 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { AuthService } from '../../../../core/auth/auth.service';
+import { ContextService } from '../../../../core/context/context.service';
+import { LocationSelect } from '../../../../shared/locations/location-select';
+import { StockLocationsService } from '../../../../shared/locations/stock-locations.service';
+import { splitLocationError } from '../../../../shared/locations/location-errors';
+import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { ConfirmDialogService } from '../../../../shared/ui/confirm-dialog/confirm-dialog.service';
@@ -10,10 +16,11 @@ import { quantityStep, quantityValidators } from '../../../../shared/forms/quant
 import { convert, costPerBaseUnit, formatQuantity, round10 } from '../../../../shared/units/unit-conversion';
 import { StockAdjustmentsService } from '../stock-adjustments.service';
 import { StockService } from '../../stock/stock.service';
+import type { StockDetail } from '../../stock/stock.models';
 import { ProductsService } from '../../products/products.service';
 import type { ProductUnit } from '../../products/products.models';
 import type { AdjustmentDirection, AdjustmentType } from '../stock-adjustments.models';
-import { newIdempotencyKey } from '../../../../core/idempotency';
+import { IdempotentSubmission } from '../../../../core/idempotency';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 
 const REQUIRED_DIRECTION: Record<AdjustmentType, AdjustmentDirection | null> = {
@@ -37,15 +44,15 @@ const money = (n: number, maxDecimals = 2) =>
 @Component({
   selector: 'app-stock-adjustment-form',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton],
+  imports: [ReactiveFormsModule, RouterLink, UiButton, LocationSelect],
   templateUrl: './stock-adjustment-form.html',
   styleUrl: './stock-adjustment-form.scss',
 })
-export class StockAdjustmentForm implements OnInit {
+export class StockAdjustmentForm implements OnInit, HasUnsavedChanges {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
   // One key per adjustment, so a double-click can't post it twice.
-  private readonly idempotencyKey = newIdempotencyKey();
+  private readonly submission = new IdempotentSubmission();
   private readonly adjustmentsService = inject(StockAdjustmentsService);
   private readonly stockService = inject(StockService);
   private readonly productsService = inject(ProductsService);
@@ -53,12 +60,17 @@ export class StockAdjustmentForm implements OnInit {
   private readonly confirm = inject(ConfirmDialogService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
+  private readonly context = inject(ContextService);
+  private readonly stockLocations = inject(StockLocationsService);
 
   readonly types: AdjustmentType[] = ['Damage', 'Loss', 'Correction', 'Expiry', 'OpeningStock'];
   readonly products = signal<AdjustableProduct[]>([]);
   /** Active units of the selected product, in API order (base first). */
   readonly units = signal<ProductUnit[]>([]);
   readonly currentQty = signal<number | null>(null);
+  /** True when the default-store preview cannot be resolved because no working/primary branch is known. */
+  readonly needsBranch = signal(false);
   /** Fallback base label from the stock detail, used until the product's units have loaded. */
   readonly baseUnitLabel = signal('');
 
@@ -124,6 +136,14 @@ export class StockAdjustmentForm implements OnInit {
   });
 
   readonly saving = signal(false);
+  /** Adjusting location (null = server default). The picker shows only for StockLocations.View holders with > 1 eligible location. */
+  readonly locationId = signal<string | null>(null);
+  readonly locationError = signal<string | null>(null);
+  private saved = false;
+
+  hasUnsavedChanges(): boolean {
+    return !this.saved && this.form.dirty;
+  }
   readonly serverError = signal<string | null>(null);
 
   readonly fmtBase = (n: number) => formatQuantity(n, this.baseDecimals());
@@ -144,6 +164,13 @@ export class StockAdjustmentForm implements OnInit {
   constructor() {
     // Quantity validators follow the selected unit's decimal places (1.5 Box is invalid when Box has 0 dp).
     this.form.controls.productUnitId.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.applyUnitValidators());
+    // The before/after preview is per location, so a different location reloads the current quantity.
+    effect(() => {
+      const location = this.locationId();
+      const productId = untracked(() => this.form.controls.productId.value);
+      this.locationError.set(null);
+      if (productId) untracked(() => this.loadCurrentQty(productId, location));
+    });
   }
 
   ngOnInit(): void {
@@ -184,12 +211,54 @@ export class StockAdjustmentForm implements OnInit {
         this.form.controls.productUnitId.setValue(base?.id ?? '');
       },
     });
-    this.stockService.detail(productId).subscribe({
+    this.loadCurrentQty(productId, this.locationId());
+  }
+
+  private loadCurrentQty(productId: string, locationId: string | null): void {
+    this.stockService.detail(productId, locationId).subscribe({
       next: (d) => {
-        if (this.form.controls.productId.value !== productId) return;
-        this.currentQty.set(d.quantityOnHand);
+        if (this.form.controls.productId.value !== productId || this.locationId() !== locationId) return;
         this.baseUnitLabel.set(d.baseUnitLabel);
+        if (locationId) {
+          this.currentQty.set(d.quantityOnHand);
+          return;
+        }
+        // No explicit location: the server posts to the working branch's store, so preview that store, not the visible total.
+        this.currentQty.set(null);
+        this.needsBranch.set(false);
+        this.resolveDefaultStoreQty(d, (qty) => {
+          if (this.form.controls.productId.value !== productId || this.locationId() !== null) return;
+          this.currentQty.set(qty);
+          this.needsBranch.set(qty === null);
+        });
       },
+    });
+  }
+
+  /** Quantity at the working branch's store from the stock detail's `locations[]` (falls back to the total when the server sends none). */
+  private resolveDefaultStoreQty(d: StockDetail, done: (qty: number | null) => void): void {
+    if (d.locations == null) {
+      done(d.quantityOnHand);
+      return;
+    }
+    // D13: the working branch (the route requires one); defensively the primary branch; otherwise no preview rather than a guess.
+    const branchId = this.context.workingBranch()?.id ?? this.context.primaryBranchId();
+    if (!branchId) {
+      done(null);
+      return;
+    }
+    // The balance DTO carries no branch, so the branch's store can only be identified via the location list (StockLocations.View).
+    // Fail closed: without it, or when the lookup fails or finds no store, there is no preview (needsBranch / no-preview hint).
+    if (!this.auth.hasPermission('StockLocations.View')) {
+      done(null);
+      return;
+    }
+    this.stockLocations.list({ branchId, type: 'BranchStore' }).subscribe({
+      next: (all) => {
+        const store = all.find((l) => l.isActive && l.locationType === 'BranchStore' && l.branchId === branchId);
+        done(store ? (d.locations!.find((s) => s.type === 'BranchStore' && s.locationId === store.id)?.qty ?? 0) : null);
+      },
+      error: () => done(null),
     });
   }
 
@@ -250,9 +319,7 @@ export class StockAdjustmentForm implements OnInit {
     if (!confirmed) return;
 
     this.saving.set(true);
-    this.adjustmentsService
-      .create(
-        {
+    const body = {
           productId: v.productId,
           productUnitId: v.productUnitId,
           type: v.type,
@@ -260,19 +327,23 @@ export class StockAdjustmentForm implements OnInit {
           quantity: v.quantity!,
           unitCost: direction === 'Increase' ? v.unitCost : null,
           reason: v.reason || null,
-        },
-        this.idempotencyKey,
-      )
+          stockLocationId: this.locationId(),
+};
+    this.adjustmentsService
+      .create(body, this.submission.keyFor(body))
       .subscribe({
         next: (result) => {
           this.saving.set(false);
+          this.saved = true;
           const fmt = (n: number) => formatQuantity(n, result.baseDecimalPlaces);
           this.toast.show(`${result.adjustmentNo} posted · ${result.productName}: ${fmt(result.beforeQty)} → ${fmt(result.afterQty)} ${result.baseUnitCode}.`);
           this.router.navigate(['/inventory/stock', result.productId]);
         },
         error: (err: HttpErrorResponse) => {
           this.saving.set(false);
-          const problem = err.error as ApiProblem | undefined;
+          const { locationError, rest: problem } = splitLocationError(err.error as ApiProblem | undefined);
+          this.locationError.set(locationError);
+          if (locationError && Object.keys(problem?.errors ?? {}).length === 0) return;
           if (problem?.errors) {
             let matched = false;
             for (const [field, messages] of Object.entries(problem.errors)) {

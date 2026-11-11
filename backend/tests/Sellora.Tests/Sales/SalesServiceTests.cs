@@ -16,7 +16,7 @@ public class SalesServiceTests
         var options = new DbContextOptionsBuilder<SelloraDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
-        return new SelloraDbContext(options);
+        return Sellora.Tests.TestData.TestCompany.NewDb(options);
     }
 
     private sealed record Fixture(

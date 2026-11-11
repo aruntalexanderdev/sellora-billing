@@ -12,6 +12,7 @@ namespace Sellora.Api.Authorization;
 public class PermissionPolicyProvider : IAuthorizationPolicyProvider
 {
     private static readonly HashSet<string> KnownPermissionCodes = PermissionCatalog.All.Select(p => p.Code).ToHashSet();
+    private static readonly HashSet<string> KnownGovernanceCodes = GovernancePermissionCatalog.All.Select(p => p.Code).ToHashSet();
     private readonly DefaultAuthorizationPolicyProvider _fallback;
 
     public PermissionPolicyProvider(IOptions<AuthorizationOptions> options)
@@ -25,6 +26,28 @@ public class PermissionPolicyProvider : IAuthorizationPolicyProvider
 
     public Task<AuthorizationPolicy?> GetPolicyAsync(string policyName)
     {
+        if (policyName == PlatformPolicies.Admin)
+        {
+            return Task.FromResult<AuthorizationPolicy?>(new AuthorizationPolicyBuilder()
+                .RequireAuthenticatedUser()
+                .AddRequirements(new PlatformAdminRequirement())
+                .Build());
+        }
+
+        // Governance policies ("Governance:<code>") are evaluated against the database by GovernanceAuthorizationHandler;
+        // governance codes are never operational permissions or token claims (ADR-13).
+        if (policyName.StartsWith(GovernancePolicy.Prefix, StringComparison.Ordinal))
+        {
+            var code = policyName[GovernancePolicy.Prefix.Length..];
+            if (KnownGovernanceCodes.Contains(code))
+            {
+                return Task.FromResult<AuthorizationPolicy?>(new AuthorizationPolicyBuilder()
+                    .RequireAuthenticatedUser()
+                    .AddRequirements(new GovernanceRequirement(code))
+                    .Build());
+            }
+        }
+
         if (KnownPermissionCodes.Contains(policyName))
         {
             var policy = new AuthorizationPolicyBuilder()

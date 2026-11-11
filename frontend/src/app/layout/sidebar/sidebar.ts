@@ -27,6 +27,8 @@ export class Sidebar {
   private readonly router = inject(Router);
 
   readonly navGroups = input.required<SidebarNavGroup[]>();
+  readonly companyName = input('');
+  readonly branchName = input('');
   readonly open = input(false);
   readonly closeRequested = output<void>();
 

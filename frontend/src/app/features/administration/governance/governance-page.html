@@ -1,0 +1,140 @@
+<div class="page-head">
+  <div>
+    <h1>Governance</h1>
+    <p>Who governs this company, what they may delegate, and every change made. Actions you cannot perform are hidden.</p>
+  </div>
+  @if (tab() === 'members' && capabilities().canAddMember) {
+    <ui-button variant="primary" (onClick)="open({ kind: 'add' })">+ Add member</ui-button>
+  }
+</div>
+
+<div class="tabs" role="tablist">
+  <button type="button" role="tab" class="tab" [class.on]="tab() === 'members'" (click)="setTab('members')">Members</button>
+  @if (capabilities().canManageAdministrators) {
+    <button type="button" role="tab" class="tab" [class.on]="tab() === 'administrators'" (click)="setTab('administrators')">Administrators</button>
+  }
+  <button type="button" role="tab" class="tab" [class.on]="tab() === 'events'" (click)="setTab('events')">Events</button>
+</div>
+
+@if (panel(); as p) {
+  <form class="panel" [formGroup]="form" (ngSubmit)="submit()" [attr.aria-label]="panelTitle()">
+    <h3>{{ panelTitle() }}</h3>
+    @if (banner()) {
+      <div class="server-error">{{ banner() }}</div>
+    }
+
+    @if (needsUser()) {
+      <label class="field-label" for="gov-user-search">Find a user</label>
+      <div class="row">
+        <input id="gov-user-search" formControlName="userSearch" class="field-input" style="max-width: 260px" placeholder="Name, username or email" (keydown.enter)="$event.preventDefault(); searchUsers()" />
+        <ui-button (onClick)="searchUsers()">Search</ui-button>
+      </div>
+      <select formControlName="userId" class="field-input" aria-label="User" style="margin-top: 8px">
+        <option value="">Select a user…</option>
+        @for (u of userOptions(); track u.id) {
+          <option [value]="u.id">{{ u.firstName }} {{ u.lastName }} ({{ u.username }})</option>
+        }
+      </select>
+      @if (form.controls.userId.touched && form.controls.userId.errors?.['required']) {
+        <div class="field-error">Choose a user.</div>
+      }
+      @if (form.controls.userId.errors?.['server']) {
+        <div class="field-error">{{ form.controls.userId.errors?.['server'] }}</div>
+      }
+    }
+
+    @if (needsTitle()) {
+      <label class="field-label" for="gov-title">Title</label>
+      <select id="gov-title" formControlName="title" class="field-input">
+        @for (t of addableTitles(); track t) {
+          <option [value]="t">{{ titleLabels[t] }}</option>
+        }
+      </select>
+      @if (form.controls.title.errors?.['server']) {
+        <div class="field-error">{{ form.controls.title.errors?.['server'] }}</div>
+      }
+    }
+
+    @if (needsCodes()) {
+      <div class="field-label">Governance permissions</div>
+      @for (c of grantable(); track c.code) {
+        <label class="check"><input type="checkbox" [checked]="selectedCodes().has(c.code)" (change)="toggleCode(c.code)" /> {{ c.code }} <span class="muted">{{ c.description }}</span></label>
+      } @empty {
+        <p class="muted">You hold no governance permission you could delegate.</p>
+      }
+    }
+
+    @if (p.kind === 'remove') {
+      <label class="field-label" for="gov-replacement">Replacement role</label>
+      <select id="gov-replacement" formControlName="replacementRoleId" class="field-input">
+        <option value="">Select a role…</option>
+        @for (r of roles(); track r.id) {
+          <option [value]="r.id">{{ r.name }}</option>
+        }
+      </select>
+      @if (form.controls.replacementRoleId.touched && form.controls.replacementRoleId.errors?.['required']) {
+        <div class="field-error">Choose the role the user keeps instead.</div>
+      }
+      @if (form.controls.replacementRoleId.errors?.['server']) {
+        <div class="field-error">{{ form.controls.replacementRoleId.errors?.['server'] }}</div>
+      }
+    }
+
+    <label class="field-label" for="gov-reason">Reason (optional)</label>
+    <textarea id="gov-reason" formControlName="reason" class="field-input" rows="2" maxlength="500"></textarea>
+    @if (form.controls.reason.errors?.['server']) {
+      <div class="field-error">{{ form.controls.reason.errors?.['server'] }}</div>
+    }
+
+    <div class="actions">
+      <ui-button type="submit" [variant]="p.kind === 'end' || p.kind === 'remove' ? 'destructive' : 'primary'" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Confirm' }}</ui-button>
+      <ui-button (onClick)="closePanel()">Cancel</ui-button>
+    </div>
+  </form>
+}
+
+@switch (tab()) {
+  @case ('members') {
+    <div class="filters">
+      <label class="check"><input type="checkbox" [checked]="includeEnded()" (change)="toggleEnded()" /> Show ended members</label>
+    </div>
+    <ui-data-table [cols]="cols" [rows]="rows()" [state]="state()" emptyTitle="No governance members" emptyBody="Add the owners and directors of this company." (retry)="loadMembers()" />
+  }
+  @case ('administrators') {
+    <div class="card">
+      <h2>Administrator role</h2>
+      <p class="muted">Delegate company administration by granting or removing the Administrator role. The last administrator cannot be removed.</p>
+      <div class="row">
+        <ui-button variant="primary" (onClick)="open({ kind: 'grant' })">Grant Administrator</ui-button>
+        <ui-button variant="destructive" (onClick)="open({ kind: 'remove' })">Remove Administrator</ui-button>
+      </div>
+    </div>
+  }
+  @case ('events') {
+    <div class="card">
+      <h2>Governance events</h2>
+      @for (e of events()?.items ?? []; track e.id) {
+        <div class="event">
+          <strong>{{ e.action }}</strong>
+          <span class="muted"> · {{ e.occurredAt | date: 'medium' }} · {{ e.actorName ?? 'system' }}</span>
+          @if (e.reason) {
+            <div>{{ e.reason }}</div>
+          }
+          @if (e.before || e.after) {
+            <details>
+              <summary class="muted">Before / after</summary>
+              <pre>{{ eventJson(e.before) }}</pre>
+              <pre>{{ eventJson(e.after) }}</pre>
+            </details>
+          }
+        </div>
+      } @empty {
+        <p class="muted">No governance events yet.</p>
+      }
+      <div class="row" style="margin-top: 12px">
+        <ui-button [disabled]="eventsPage() <= 1" (onClick)="loadEvents(eventsPage() - 1)">Previous</ui-button>
+        <ui-button [disabled]="eventsPage() * 20 >= (events()?.total ?? 0)" (onClick)="loadEvents(eventsPage() + 1)">Next</ui-button>
+      </div>
+    </div>
+  }
+}

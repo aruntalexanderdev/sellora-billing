@@ -8,7 +8,8 @@ public record DashboardSalesSummaryDto(decimal Amount, int TransactionCount);
 public record DashboardPurchaseSummaryDto(decimal Amount, int TransactionCount);
 
 public record DashboardLowStockItemDto(
-    Guid ProductId, string Name, string BaseUnitLabel, decimal QuantityOnHand, decimal ReorderLevel, StockStatus Status
+    Guid ProductId, string Name, string BaseUnitLabel, decimal QuantityOnHand, decimal ReorderLevel, StockStatus Status,
+    int BaseDecimalPlaces = 0
 );
 
 public record DashboardRecentSaleDto(Guid Id, string InvoiceNo, string CustomerName, decimal GrandTotal, SalesStatus Status, DateTimeOffset CreatedAt);

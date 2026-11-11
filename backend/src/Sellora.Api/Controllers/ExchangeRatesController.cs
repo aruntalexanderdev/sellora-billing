@@ -6,6 +6,7 @@ using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
@@ -45,7 +46,7 @@ public class ExchangeRatesController(SelloraDbContext db, IExchangeRateService e
         try
         {
             var rate = await exchangeRateService.ResolveRateToBaseAsync(currencyId, date, ct);
-            var baseCurrency = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);
+            var baseCurrency = await db.GetBaseCurrencyAsync(ct);
             return Ok(new ResolvedExchangeRateDto(currencyId, date, rate, baseCurrency.Code, baseCurrency.Symbol, baseCurrency.DecimalPrecision));
         }
         catch (DomainValidationException ex)
@@ -110,7 +111,7 @@ public class ExchangeRatesController(SelloraDbContext db, IExchangeRateService e
             ModelState.AddModelError(nameof(request.CurrencyId), "This currency is inactive.");
             return false;
         }
-        if (await db.BusinessSettings.AnyAsync(s => s.BaseCurrencyId == currency.Id, ct))
+        if ((await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyId == currency.Id)
         {
             ModelState.AddModelError(nameof(request.CurrencyId), "The base currency is always 1:1 with itself and cannot have an exchange rate.");
             return false;

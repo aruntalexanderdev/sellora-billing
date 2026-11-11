@@ -30,6 +30,8 @@
     }
   </div>
 
+  <app-document-scope [items]="scopeItems()" />
+
   @if (i.refundableAmount > 0) {
     <div class="fx-card no-print">
       <div><span class="fx-label">Held from the customer beyond what they owe</span><strong>{{ INR(i.refundableAmount) }}</strong></div>
@@ -318,5 +320,5 @@
     }
   </div>
 } @else if (!loading()) {
-  <div class="not-found">Sale not found.</div>
+  <div class="not-found" [attr.role]="loadError() ? 'alert' : null">{{ loadError() ?? 'Sale not found.' }}</div>
 }

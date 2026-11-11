@@ -1,10 +1,15 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal, viewChild } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
 import { Sidebar } from '../sidebar/sidebar';
 import { Header } from '../header/header';
 import { UiToastHost } from '../../shared/ui/toast/toast-host';
 import { UiConfirmDialogHost } from '../../shared/ui/confirm-dialog/confirm-dialog-host';
 import { AuthService } from '../../core/auth/auth.service';
+import { ALL_BRANCHES } from '../../core/context/context.models';
+import { ContextService } from '../../core/context/context.service';
+import { ToastService } from '../../shared/ui/toast/toast.service';
+import { problemMessage, toProblem } from '../../core/http/api-errors';
+import { NAV_DEF, filterNav } from './nav-def';
 import type { SidebarNavGroup } from '../sidebar/sidebar.types';
 
 const SIDEBAR_STORAGE_KEY = 'sellora.sidebarOpen';
@@ -26,89 +31,6 @@ function readInitialSidebarOpen(): boolean {
   }
 }
 
-interface NavItemDef {
-  label: string;
-  routerLink: string;
-  permission: string;
-}
-
-// Only routes that exist today are listed here, rather than showing dead links gated by
-// permissions no screen yet checks.
-const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
-  { label: 'Overview', items: [{ label: 'Dashboard', routerLink: '/dashboard', permission: '' }] },
-  {
-    label: 'Administration',
-    items: [
-      { label: 'Users', routerLink: '/administration/users', permission: 'Users.View' },
-      { label: 'Roles & Permissions', routerLink: '/administration/roles', permission: 'Roles.View' },
-      { label: 'Permissions', routerLink: '/administration/permissions', permission: 'Permissions.View' },
-      { label: 'Units', routerLink: '/administration/units', permission: 'Masters.View' },
-      { label: 'Taxes', routerLink: '/administration/taxes', permission: 'Masters.View' },
-      { label: 'Currencies', routerLink: '/administration/currencies', permission: 'Masters.View' },
-      { label: 'Exchange Rates', routerLink: '/administration/exchange-rates', permission: 'Masters.View' },
-      { label: 'Business Settings', routerLink: '/administration/settings', permission: 'Masters.View' },
-    ],
-  },
-  {
-    label: 'Inventory',
-    items: [
-      { label: 'Stock Overview', routerLink: '/inventory/stock', permission: 'Inventory.View' },
-      { label: 'Products', routerLink: '/inventory/products', permission: 'Inventory.View' },
-      { label: 'Stock Adjustments', routerLink: '/inventory/stock-adjustments', permission: 'Inventory.View' },
-      { label: 'Stock & Pricing', routerLink: '/inventory/pricing', permission: 'Inventory.Price' },
-    ],
-  },
-  {
-    label: 'Purchases',
-    items: [
-      { label: 'Purchases', routerLink: '/purchases', permission: 'Purchase.View' },
-      { label: 'Purchase Returns', routerLink: '/purchases/returns', permission: 'Purchase.View' },
-      { label: 'Suppliers', routerLink: '/purchases/suppliers', permission: 'Suppliers.View' },
-    ],
-  },
-  {
-    label: 'Sales & Billing',
-    items: [
-      { label: 'New Sale', routerLink: '/sales/new', permission: 'Sales.Create' },
-      { label: 'Sales', routerLink: '/sales', permission: 'Sales.View' },
-      { label: 'Sales Returns', routerLink: '/sales/returns', permission: 'Sales.View' },
-      { label: 'Customers', routerLink: '/sales/customers', permission: 'Customers.View' },
-    ],
-  },
-  {
-    label: 'Accounts',
-    items: [
-      { label: 'Expenses', routerLink: '/accounts/expenses', permission: 'Expenses.View' },
-      { label: 'Cash & Bank', routerLink: '/accounts/cash-bank', permission: 'CashBank.View' },
-      { label: 'Financial Transactions', routerLink: '/accounts/financial-transactions', permission: 'FinancialTransactions.View' },
-    ],
-  },
-  {
-    label: 'Accounts Reports',
-    items: [
-      { label: 'Purchase Payments', routerLink: '/accounts/reports/purchase-payments', permission: 'Reports.Accounts' },
-      { label: 'Sales Payments', routerLink: '/accounts/reports/sales-payments', permission: 'Reports.Accounts' },
-      { label: 'Supplier Outstanding', routerLink: '/accounts/reports/supplier-outstanding', permission: 'Reports.Accounts' },
-      { label: 'Customer Outstanding', routerLink: '/accounts/reports/customer-outstanding', permission: 'Reports.Accounts' },
-      { label: 'Expense Report', routerLink: '/accounts/reports/expenses', permission: 'Reports.Accounts' },
-      { label: 'Cash Flow', routerLink: '/accounts/reports/cash-flow', permission: 'Reports.Accounts' },
-      { label: 'Cash & Bank Report', routerLink: '/accounts/reports/cash-bank', permission: 'Reports.Accounts' },
-      { label: 'Payment Methods', routerLink: '/accounts/reports/payment-methods', permission: 'Reports.Accounts' },
-    ],
-  },
-  {
-    label: 'Reports',
-    items: [
-      { label: 'Current Stock', routerLink: '/reports/stock', permission: 'Reports.Stock' },
-      { label: 'Stock Movement', routerLink: '/reports/stock-movement', permission: 'Reports.Movement' },
-      { label: 'Purchase Report', routerLink: '/reports/purchases', permission: 'Reports.Purchase' },
-      { label: 'Sales Report', routerLink: '/reports/sales', permission: 'Reports.Sales' },
-      { label: 'Profit / Margin', routerLink: '/reports/profit', permission: 'Reports.Profit' },
-    ],
-  },
-  { label: 'System', items: [{ label: 'UI Kit', routerLink: '/ui-showcase', permission: '' }] },
-];
-
 @Component({
   selector: 'app-shell',
   standalone: true,
@@ -119,6 +41,10 @@ const NAV_DEF: { label: string; items: NavItemDef[] }[] = [
 export class Shell {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly context = inject(ContextService);
+  private readonly toast = inject(ToastService);
+
+  private readonly outlet = viewChild(RouterOutlet);
 
   readonly currentUser = this.auth.currentUser;
   readonly userInitials = computed(() => {
@@ -127,13 +53,45 @@ export class Shell {
   });
 
   readonly navGroups = computed<SidebarNavGroup[]>(() =>
-    NAV_DEF.map((g) => ({
-      label: g.label,
-      items: g.items.filter((it) => !it.permission || this.auth.hasPermission(it.permission)),
-    })).filter((g) => g.items.length > 0),
+    filterNav(NAV_DEF, {
+      hasPermission: (code) => this.auth.hasPermission(code),
+      hasGovernance: (code) => this.context.hasGovernance(code),
+    }),
   );
 
+  readonly companyName = computed(() => this.context.company()?.name ?? this.currentUser()?.companyName ?? '');
+  readonly companyId = computed(() => this.context.company()?.id ?? '');
+  readonly branchName = computed(() => (this.context.isAllBranches() ? 'All branches' : (this.context.workingBranch()?.name ?? '')));
+  readonly canChooseAll = this.context.canChooseAll;
+  readonly companies = this.context.companies;
+  readonly allowedBranches = this.context.allowedBranches;
+  readonly workingBranchId = computed(() => (this.context.isAllBranches() ? ALL_BRANCHES : (this.context.workingBranch()?.id ?? '')));
+  /** Changes on branch switch: the routed component is re-created, so every screen re-fetches for the new branch. */
+  readonly contextKey = computed(() => [this.context.contextVersion()]);
+
   readonly sidebarOpen = signal(readInitialSidebarOpen());
+
+  constructor() {
+    // D3: let the context service ask the routed component whether it has unsaved changes before switching.
+    const unregister = this.context.registerUnsavedProbe(() => {
+      const outlet = this.outlet();
+      const component = outlet?.isActivated ? (outlet.component as { hasUnsavedChanges?: () => boolean }) : null;
+      return component?.hasUnsavedChanges?.() ?? false;
+    });
+    inject(DestroyRef).onDestroy(unregister);
+  }
+
+  switchBranch(branchId: string): void {
+    void this.context.switchBranch(branchId);
+  }
+
+  async switchCompany(companyId: string): Promise<void> {
+    if (companyId === this.context.company()?.id) return;
+    if (!(await this.context.confirmDiscardIfDirty())) return;
+    this.context.switchCompany(companyId).subscribe({
+      error: (err: unknown) => this.toast.show(problemMessage(toProblem(err))),
+    });
+  }
 
   toggleSidebar(): void {
     const desktop = isDesktopWidth();

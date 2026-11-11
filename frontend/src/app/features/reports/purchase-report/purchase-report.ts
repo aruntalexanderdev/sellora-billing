@@ -1,10 +1,14 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { UiDataTable } from '../../../shared/ui/data-table/data-table';
 import type { DataTableColumn, DataTableRow, DataTableState } from '../../../shared/ui/data-table/data-table.types';
+import { problemMessage, toProblem } from '../../../core/http/api-errors';
+import { LoadError } from '../../../shared/scope/load-error';
+import { ScopeFilters } from '../../../shared/scope/scope-filters';
+import { injectBranchColumnVisible, placeLabel } from '../../../shared/scope/list-scope';
 import { ReportsService } from '../reports.service';
 import type { PurchaseReportRow } from '../reports.models';
 
-const COLS: DataTableColumn[] = [
+const BASE_COLS: DataTableColumn[] = [
   { label: 'Purchase No', align: 'left' },
   { label: 'Date', align: 'left' },
   { label: 'Supplier', align: 'left' },
@@ -26,14 +30,17 @@ const PAGE_SIZE = 20;
 @Component({
   selector: 'app-purchase-report',
   standalone: true,
-  imports: [UiDataTable],
+  imports: [UiDataTable, ScopeFilters, LoadError],
   templateUrl: './purchase-report.html',
   styleUrl: '../report-list.scss',
 })
 export class PurchaseReport implements OnInit {
   private readonly reportsService = inject(ReportsService);
 
-  readonly cols = COLS;
+  readonly showBranch = injectBranchColumnVisible();
+  readonly cols = computed<DataTableColumn[]>(() => [...BASE_COLS, ...(this.showBranch() ? [{ label: 'Branch', align: 'left' as const }] : [])]);
+  readonly branchId = signal<string | null>(null);
+  readonly errorMessage = signal<string | null>(null);
   readonly search = signal('');
   readonly dateFrom = signal('');
   readonly dateTo = signal('');
@@ -68,6 +75,7 @@ export class PurchaseReport implements OnInit {
         { kind: 'text', text: INR(p.grandTotal), sub: originalAmount(p.currencyCode, p.originalGrandTotal, p.grandTotal), align: 'right', weight: '650' },
         { kind: 'text', text: INR(p.paidAmount), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(p.dueAmount), align: 'right', color: p.dueAmount > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)' },
+        ...(this.showBranch() ? [{ kind: 'text' as const, text: placeLabel(p.branchCode, p.branchName), color: 'var(--color-text-muted)' }] : []),
       ],
     })),
   );
@@ -101,6 +109,12 @@ export class PurchaseReport implements OnInit {
     this.load();
   }
 
+  onBranchChange(value: string | null): void {
+    this.branchId.set(value);
+    this.page.set(1);
+    this.load();
+  }
+
   onPageChange(page: number): void {
     this.page.set(page);
     this.load();
@@ -116,15 +130,19 @@ export class PurchaseReport implements OnInit {
 
   private load(): void {
     this.state.set('loading');
+    this.errorMessage.set(null);
     this.reportsService
-      .purchases({ search: this.search(), dateFrom: this.dateFrom() || undefined, dateTo: this.dateTo() || undefined, page: this.page(), pageSize: PAGE_SIZE })
+      .purchases({ search: this.search(), branchId: this.branchId(), dateFrom: this.dateFrom() || undefined, dateTo: this.dateTo() || undefined, page: this.page(), pageSize: PAGE_SIZE })
       .subscribe({
         next: (res) => {
           this.items.set(res.items);
           this.total.set(res.total);
           this.state.set('ready');
         },
-        error: () => this.state.set('error'),
+        error: (err) => {
+          this.errorMessage.set(problemMessage(toProblem(err)));
+          this.state.set('error');
+        },
       });
   }
 }

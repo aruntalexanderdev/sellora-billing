@@ -86,3 +86,33 @@ If unsure, pick the smaller size and escalate.
 - Never push to `main` and never force-push (blocked by `.claude/hooks/guard-bash.sh`).
 - Pushing to `dev` deploys the API to Azure — only when the user asks.
 - Subagents never commit or push; the main session does, when asked.
+
+
+
+## Multi-Company and Multi-Branch Architecture Reference
+
+**Mandatory reference:** Before implementing, modifying, or restructuring any functionality related to multi-company, multi-branch, inventory locations, warehouses, vehicles, user allocations, company governance, or scoped permissions, Claude Code MUST read:
+
+`docs/architecture/Sellora-Multi-Company-Branch-Architecture-Claude.md`
+
+### Implementation Rules
+
+1. Treat this document as the approved architectural specification for multi-company and multi-branch functionality.
+2. Follow its database design principles, business rules, authorization requirements, workflows, and implementation phases.
+3. Preserve existing Sellora Billing functionality and existing data.
+4. Do not perform broad rewrites or introduce unrelated architectural changes.
+5. Do not skip phases or implement multiple phases without approval.
+6. Complete the repository audit (Phase 0) before implementation.
+7. After completing each phase:
+   - Summarize the changes.
+   - List modified and created files.
+   - Report database migrations and API changes.
+   - Report tests executed and their results.
+   - Identify risks or unresolved issues.
+   - Stop and wait for explicit approval before proceeding.
+
+### Important
+
+If existing code conflicts with the approved architecture, explain the conflict and propose a safe migration strategy before making changes.
+
+Do not assume that reading this reference authorizes implementation of all phases. Start with Phase 0 only and wait for approval.

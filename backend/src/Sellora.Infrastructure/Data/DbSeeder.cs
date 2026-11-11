@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Abstractions;
+using Sellora.Domain.Companies;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Inventory;
 using Sellora.Domain.Permissions;
@@ -8,7 +9,9 @@ namespace Sellora.Infrastructure.Data;
 
 /// <summary>
 /// Idempotent dev/seed data: the full permission catalogue, the system Administrator role, and one
-/// Administrator user so there's a way to sign in before any other user exists. Everything else
+/// Administrator user (an Active, company-wide member of the default company) so there's a way to sign in before any
+/// other user exists. Seeding always runs with the company context set to <see cref="DefaultTenant.CompanyId"/>: demo data
+/// never lands in another tenant. Everything else
 /// (additional roles, users, business data) is created live through the app per the docx §13 demo scenario.
 /// </summary>
 public static class DbSeeder
@@ -18,12 +21,28 @@ public static class DbSeeder
 
     public static async Task SeedAsync(SelloraDbContext db, IPasswordHasher passwordHasher, CancellationToken ct = default)
     {
+        if (db.CompanyContext.CompanyId != DefaultTenant.CompanyId)
+        {
+            throw new InvalidOperationException("DbSeeder must run with the company context set to the default company.");
+        }
+
+        var company = await SeedDefaultCompanyAsync(db, ct);
+        await SeedDefaultBranchAsync(db, ct);
+        await SeedDefaultLocationsAsync(db, ct);
         await SeedPermissionsAsync(db, ct);
         var adminRole = await SeedAdministratorRoleAsync(db, ct);
         await SeedAdminUserAsync(db, adminRole, passwordHasher, ct);
+        await SeedGovernanceCatalogueAsync(db, ct);
+        await SeedDefaultOwnerAsync(db, ct);
 
         var currencies = await SeedCurrenciesAsync(db, ct);
-        await SeedBusinessSettingsAsync(db, currencies["INR"], ct);
+        var settings = await SeedBusinessSettingsAsync(db, currencies["INR"], ct);
+        if (company.Name != settings.BusinessName)
+        {
+            // BusinessSettings is the company's profile (ADR-07); the company name follows it.
+            company.Name = settings.BusinessName;
+            await db.SaveChangesAsync(ct);
+        }
         var units = await SeedUnitsAsync(db, ct);
         var taxes = await SeedTaxesAsync(db, ct);
         await SeedSuppliersAsync(db, currencies, ct);
@@ -31,6 +50,50 @@ public static class DbSeeder
         await SeedCustomersAsync(db, ct);
         await SeedExpenseCategoriesAsync(db, ct);
         await SeedMainCashAccountAsync(db, ct);
+    }
+
+    // The M1 migration inserts the default company; this covers databases created without migrations (tests, InMemory).
+    private static async Task<Company> SeedDefaultCompanyAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        var company = await db.Companies.SingleOrDefaultAsync(c => c.Id == DefaultTenant.CompanyId, ct);
+        if (company is not null) return company;
+
+        company = new Company { Id = DefaultTenant.CompanyId, Code = DefaultTenant.Code, Name = "Default Company" };
+        db.Companies.Add(company);
+        await db.SaveChangesAsync(ct);
+        return company;
+    }
+
+    // Migration B1 inserts Main per company; this covers databases created without migrations (tests, InMemory).
+    private static async Task SeedDefaultBranchAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        if (await db.Branches.AnyAsync(b => b.IsDefault, ct)) return;
+
+        db.Branches.Add(new Branch { Id = DefaultTenant.BranchId, Code = DefaultTenant.BranchCode, Name = "Main", IsDefault = true, IsActive = true });
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Phase 3 migration inserts the store per branch and Transit per company; this covers databases created without migrations.
+    private static async Task SeedDefaultLocationsAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        var branch = await db.Branches.SingleAsync(b => b.Id == DefaultTenant.BranchId, ct);
+        if (!await db.StockLocations.AnyAsync(l => l.Id == DefaultTenant.MainStoreLocationId, ct))
+        {
+            db.StockLocations.Add(new StockLocation
+            {
+                Id = DefaultTenant.MainStoreLocationId, BranchId = branch.Id, LocationType = StockLocationType.BranchStore,
+                Code = branch.Code, Name = branch.Name, IsActive = branch.IsActive
+            });
+        }
+        if (!await db.StockLocations.AnyAsync(l => l.Id == DefaultTenant.TransitLocationId, ct))
+        {
+            db.StockLocations.Add(new StockLocation
+            {
+                Id = DefaultTenant.TransitLocationId, LocationType = StockLocationType.Transit,
+                Code = DefaultTenant.TransitCode, Name = "In transit", IsActive = true
+            });
+        }
+        await db.SaveChangesAsync(ct);
     }
 
     private static async Task SeedPermissionsAsync(SelloraDbContext db, CancellationToken ct)
@@ -54,19 +117,24 @@ public static class DbSeeder
 
         await GrantNewPermissionToExistingHoldersAsync(db, "Purchase.Pay", "Purchase.Edit", ct);
         await GrantNewPermissionToExistingHoldersAsync(db, "Sales.Receive", "Sales.Create", ct);
+        // Phase 7: assigning roles was part of Users.Create/Users.Edit; the migration does the same for existing databases (B4).
+        await GrantNewPermissionToExistingHoldersAsync(db, PermissionCatalog.CompanyUsersAssignRoles, ["Users.Create", "Users.Edit"], ct);
     }
 
     // Recording payments used to be covered by an edit permission, so every role holding that permission keeps
     // the ability when the dedicated one is introduced. Only runs while nobody holds the new permission, so a
     // role an administrator later revokes it from is not re-granted.
-    private static async Task GrantNewPermissionToExistingHoldersAsync(SelloraDbContext db, string newCode, string existingCode, CancellationToken ct)
+    private static Task GrantNewPermissionToExistingHoldersAsync(SelloraDbContext db, string newCode, string existingCode, CancellationToken ct) =>
+        GrantNewPermissionToExistingHoldersAsync(db, newCode, [existingCode], ct);
+
+    private static async Task GrantNewPermissionToExistingHoldersAsync(SelloraDbContext db, string newCode, string[] existingCodes, CancellationToken ct)
     {
         var permission = await db.Permissions.SingleAsync(p => p.Code == newCode, ct);
         if (await db.RolePermissions.AnyAsync(rp => rp.PermissionId == permission.Id, ct)) return;
 
         var roleIds = await db.RolePermissions
-            .Where(rp => rp.Permission.Code == existingCode)
-            .Select(rp => rp.RoleId).ToListAsync(ct);
+            .Where(rp => existingCodes.Contains(rp.Permission.Code))
+            .Select(rp => rp.RoleId).Distinct().ToListAsync(ct);
         foreach (var roleId in roleIds)
         {
             db.RolePermissions.Add(new RolePermission { RoleId = roleId, PermissionId = permission.Id });
@@ -78,6 +146,7 @@ public static class DbSeeder
     // administrator who renames or deactivates it is not overridden.
     private static async Task SeedMainCashAccountAsync(SelloraDbContext db, CancellationToken ct)
     {
+        // Under the "Branch" filter a context granting nothing still sees company-level (BranchId NULL) accounts, and Main Cash is one.
         if (await db.FinancialAccounts.AnyAsync(ct)) return;
 
         var admin = await db.Users.SingleAsync(u => u.Email == SeedAdminEmail, ct);
@@ -102,7 +171,8 @@ public static class DbSeeder
 
     private static async Task<Role> SeedAdministratorRoleAsync(SelloraDbContext db, CancellationToken ct)
     {
-        var role = await db.Roles.SingleOrDefaultAsync(r => r.Name == "Administrator", ct);
+        // Company filter: the default company's own Administrator (exactly one IsSystem role per company, IX_Roles_CompanyId_System).
+        var role = await db.Roles.SingleOrDefaultAsync(r => r.IsSystem, ct);
         if (role is not null) return role;
 
         role = new Role
@@ -110,6 +180,7 @@ public static class DbSeeder
             Id = Guid.NewGuid(),
             Name = "Administrator",
             Description = "Full access to every module. System role — cannot be edited or deleted.",
+            ScopeType = RoleScope.Company,
             IsSystem = true,
             IsActive = true,
         };
@@ -120,21 +191,88 @@ public static class DbSeeder
 
     private static async Task SeedAdminUserAsync(SelloraDbContext db, Role adminRole, IPasswordHasher passwordHasher, CancellationToken ct)
     {
-        var exists = await db.Users.AnyAsync(u => u.Email == SeedAdminEmail, ct);
-        if (exists) return;
-
-        db.Users.Add(new User
+        var admin = await db.Users.SingleOrDefaultAsync(u => u.Email == SeedAdminEmail, ct);
+        if (admin is null)
         {
-            Id = Guid.NewGuid(),
-            FirstName = "Ravi",
-            LastName = "Krishnan",
-            Username = "admin",
-            Email = SeedAdminEmail,
-            PasswordHash = passwordHasher.Hash(SeedAdminPassword),
-            RoleId = adminRole.Id,
-            Status = UserStatus.Active,
-        });
+            admin = new User
+            {
+                Id = Guid.NewGuid(),
+                FirstName = "Ravi",
+                LastName = "Krishnan",
+                Username = "admin",
+                Email = SeedAdminEmail,
+                PasswordHash = passwordHasher.Hash(SeedAdminPassword),
+                RoleId = adminRole.Id,
+                Status = UserStatus.Active,
+            };
+            db.Users.Add(admin);
+        }
 
+        // Explicit membership, never inferred (arch 6.1): the seeded administrator can sign in to the default company.
+        var membershipId = await db.UserCompanyMemberships
+            .Where(m => m.UserId == admin.Id && m.CompanyId == DefaultTenant.CompanyId)
+            .Select(m => (Guid?)m.Id).SingleOrDefaultAsync(ct);
+        if (membershipId is null)
+        {
+            membershipId = Guid.NewGuid();
+            db.UserCompanyMemberships.Add(new UserCompanyMembership
+            {
+                Id = membershipId.Value, UserId = admin.Id, CompanyId = DefaultTenant.CompanyId,
+                Status = MembershipStatus.Active, AccessScope = CompanyAccessScope.CompanyWide,
+            });
+        }
+
+        // Phase 7 (D3/D9): the seeded administrator holds the company's Administrator role through an assignment (Users.RoleId is deprecated).
+        // Seeded once: an administrator whose assignment was later ended is not re-assigned. Id = md5('ura:' || membershipId), as the migration.
+        if (!await db.UserRoleAssignments.AnyAsync(a => a.UserCompanyMembershipId == membershipId.Value, ct))
+        {
+            db.UserRoleAssignments.Add(new UserRoleAssignment
+            {
+                Id = Md5Guid("ura:" + membershipId.Value.ToString("D")), UserCompanyMembershipId = membershipId.Value, RoleId = adminRole.Id,
+                ScopeType = RoleScope.Company, Status = AssignmentStatus.Active, AssignmentReason = "Seeded administrator",
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Phase 6 D8: the governance catalogue lives in its own table (never in Permissions). Ids are deterministic (md5, as the migration);
+    // existing rows are left untouched.
+    private static Guid Md5Guid(string text) => Guid.Parse(Convert.ToHexString(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(text))));
+
+    private static async Task SeedGovernanceCatalogueAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        var existingCodes = await db.GovernancePermissions.Select(p => p.Code).ToListAsync(ct);
+        foreach (var def in GovernancePermissionCatalog.All.Where(d => !existingCodes.Contains(d.Code)))
+        {
+            db.GovernancePermissions.Add(new GovernancePermission { Id = GovernancePermissionCatalog.IdFor(def.Code), Code = def.Code, Description = def.Description });
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Covers databases created without migrations (tests, InMemory): the migration maps the earliest Administrator to Owner (owner decision O2).
+    // Only while the company has no governance member at all, so an owner who later changes governance is not overridden. Platform
+    // administrators are never seeded (O3: granted only by scripts/sql/grant-platform-admin.sql).
+    private static async Task SeedDefaultOwnerAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        if (await db.CompanyGovernanceMembers.AnyAsync(ct)) return;
+
+        var membershipId = await db.UserCompanyMemberships
+            .Where(m => m.CompanyId == DefaultTenant.CompanyId && m.Status == MembershipStatus.Active && m.User.Email == SeedAdminEmail)
+            .Select(m => (Guid?)m.Id).SingleOrDefaultAsync(ct);
+        if (membershipId is null) return;
+
+        var memberId = GovernancePermissionCatalog.MemberIdFor(membershipId.Value);
+        var member = new CompanyGovernanceMember { Id = memberId, CompanyId = DefaultTenant.CompanyId, UserCompanyMembershipId = membershipId.Value, Title = GovernanceTitle.Owner };
+        db.CompanyGovernanceMembers.Add(member);
+        foreach (var def in GovernancePermissionCatalog.All)
+        {
+            db.GovernanceMemberPermissions.Add(new GovernanceMemberPermission
+            {
+                Id = GovernancePermissionCatalog.GrantIdFor(memberId, def.Code), CompanyId = DefaultTenant.CompanyId, GovernanceMemberId = memberId,
+                GovernancePermissionId = GovernancePermissionCatalog.IdFor(def.Code),
+            });
+        }
         await db.SaveChangesAsync(ct);
     }
 
@@ -166,11 +304,12 @@ public static class DbSeeder
         return existing.ToDictionary(c => c.Code);
     }
 
-    private static async Task SeedBusinessSettingsAsync(SelloraDbContext db, Currency baseCurrency, CancellationToken ct)
+    private static async Task<BusinessSettings> SeedBusinessSettingsAsync(SelloraDbContext db, Currency baseCurrency, CancellationToken ct)
     {
-        if (await db.BusinessSettings.AnyAsync(ct)) return;
+        var existing = await db.BusinessSettings.SingleOrDefaultAsync(ct);
+        if (existing is not null) return existing;
 
-        db.BusinessSettings.Add(new BusinessSettings
+        var settings = new BusinessSettings
         {
             Id = Guid.NewGuid(),
             BusinessName = "Sellora Mart",
@@ -182,8 +321,10 @@ public static class DbSeeder
             Email = "contact@selloramart.in",
             InvoicePrefix = "INV",
             BaseCurrencyId = baseCurrency.Id,
-        });
+        };
+        db.BusinessSettings.Add(settings);
         await db.SaveChangesAsync(ct);
+        return settings;
     }
 
     private static readonly (string Name, string ShortCode, MeasurementCategory Category, short DecimalPlaces, decimal? StandardFactor)[] UnitSeed =

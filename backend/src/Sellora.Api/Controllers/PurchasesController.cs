@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Api.Validation;
 using Sellora.Domain.Abstractions;
@@ -15,19 +16,22 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/purchases")]
-public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseService) : ControllerBase
+public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseService, IEffectivePermissionService effectivePermissions) : ControllerBase
 {
     [HttpGet]
     [Authorize(Policy = "Purchase.View")]
     public async Task<ActionResult<PagedResult<PurchaseListItemDto>>> List(
         [FromQuery] string? search, [FromQuery] Guid? supplierId, [FromQuery] PurchaseStatus? status,
         [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
 
         var query = db.PurchaseOrders.Include(p => p.Supplier).AsQueryable();
+        if (branchId is not null) query = query.Where(p => p.BranchId == branchId);
+        if (stockLocationId is not null) query = query.Where(p => p.StockLocationId == stockLocationId);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -47,16 +51,25 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
                 p.Id, p.PurchaseNo, p.Supplier.Name, p.PurchaseDate, p.GrandTotal,
                 p.OriginalGrandTotal - p.OriginalReturnedAmount <= 0 || p.OriginalPaidAmount >= p.OriginalGrandTotal - p.OriginalReturnedAmount ? PaymentStatus.Paid
                     : p.OriginalPaidAmount <= 0 ? PaymentStatus.Due : PaymentStatus.PartiallyPaid,
-                p.Status, p.Currency.Code, p.OriginalGrandTotal))
+                p.Status, p.Currency.Code, p.OriginalGrandTotal, p.BranchId, null, null, p.StockLocationId))
             .ToListAsync(ct);
+
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
+        var locLabels = await StockLocationLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { StockLocationCode = locLabels.Code(i.StockLocationId!.Value), StockLocationName = locLabels.Name(i.StockLocationId!.Value) }).ToList();
 
         return Ok(new PagedResult<PurchaseListItemDto>(items, total, page, pageSize));
     }
 
     [HttpGet("{id:guid}")]
     [Authorize(Policy = "Purchase.View")]
-    public async Task<ActionResult<PurchaseDetailDto>> Get(Guid id, CancellationToken ct)
+    public async Task<ActionResult<PurchaseDetailDto>> Get(Guid id, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
     {
+        // Phase 10 (D3): an explicit location must be visible to the caller; hidden/foreign = one 403.
+        var visibility = await StockVisibility.LoadAsync(db, effectivePermissions, "Purchase.View", ct);
+        if (visibility.DenyUnlessVisible(this, stockLocationId) is { } denied) return denied;
+
         var purchase = await db.PurchaseOrders
             .Include(p => p.Supplier)
             .Include(p => p.Currency)
@@ -73,8 +86,26 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
 
         if (purchase is null) return NotFound();
 
-        var baseCurrency = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);
-        return Ok(ToDetail(purchase, baseCurrency));
+        var baseCurrency = await db.GetBaseCurrencyAsync(ct);
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        var locLabels = await StockLocationLabels.LoadAsync(db, ct);
+        // Phase 8: what can go back is limited by the batch's balance at the purchase's own location (not the company-wide batch total).
+        var batchIds = purchase.Lines.Where(l => l.Batch != null).Select(l => l.Batch!.Id).ToList();
+        var returnLocationId = stockLocationId ?? purchase.StockLocationId;
+        var atLocation = await db.BatchLocationBalances.AsNoTracking()
+            .Where(x => x.StockLocationId == returnLocationId && batchIds.Contains(x.PurchaseBatchId))
+            .ToDictionaryAsync(x => x.PurchaseBatchId, x => x.RemainingBaseQty, ct);
+        var visibleIds = visibility.Ids.ToList();
+        var balanceRows = await db.BatchLocationBalances.AsNoTracking()
+            .Where(x => batchIds.Contains(x.PurchaseBatchId) && x.RemainingBaseQty > 0 && visibleIds.Contains(x.StockLocationId))
+            .Select(x => new { x.PurchaseBatchId, x.StockLocationId, x.RemainingBaseQty })
+            .ToListAsync(ct);
+        var byBatch = balanceRows
+            .GroupBy(x => x.PurchaseBatchId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<PurchaseLineLocationBalanceDto>)g
+                .Select(x => new PurchaseLineLocationBalanceDto(x.StockLocationId, visibility.Code(x.StockLocationId) ?? "", visibility.Name(x.StockLocationId) ?? "", x.RemainingBaseQty))
+                .OrderBy(x => x.Code, StringComparer.Ordinal).ToList());
+        return Ok(ToDetail(purchase, baseCurrency, atLocation, byBatch) with { BranchCode = labels.Code(purchase.BranchId), BranchName = labels.Name(purchase.BranchId), StockLocationId = purchase.StockLocationId, StockLocationCode = locLabels.Code(purchase.StockLocationId), StockLocationName = locLabels.Name(purchase.StockLocationId) });
     }
 
     [HttpPost]
@@ -88,13 +119,13 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             request.SupplierId!.Value, request.PurchaseDate, request.SupplierInvoiceNumber, request.Notes,
             request.PaymentMethod, request.PaidAmount,
             request.Lines.Select(l => new PurchaseLineInput(l.ProductId!.Value, l.ProductUnitId!.Value, l.Qty, l.Rate, l.OtherCharges, l.Discount, l.SupplierBatchNumber)).ToList(),
-            request.AccountId, key);
+            request.AccountId, key, request.StockLocationId);
 
         try
         {
             var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
             var purchase = await purchaseService.CreatePurchaseAsync(input, userId, ct);
-            return await Get(purchase.Id, ct);
+            return await Get(purchase.Id, null, ct);
         }
         catch (DomainValidationException ex)
         {
@@ -115,7 +146,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
                 id, new UpdatePurchaseHeaderInput(request.SupplierInvoiceNumber, request.Notes), ct);
             if (purchase is null) return NotFound();
 
-            return await Get(id, ct);
+            return await Get(id, null, ct);
         }
         catch (DomainValidationException ex) when (ex.Field == "Status")
         {
@@ -141,7 +172,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
                 id, new AddPurchasePaymentInput(request.Amount, request.PaymentMethod, request.ExpectedDue, request.AccountId), userId, ct);
             if (purchase is null) return NotFound();
 
-            return await Get(id, ct);
+            return await Get(id, null, ct);
         }
         catch (DomainValidationException ex) when (ex.Field == "Status")
         {
@@ -167,7 +198,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
                 CurrentUserId(), ct);
             if (purchase is null) return NotFound();
 
-            return await Get(id, ct);
+            return await Get(id, null, ct);
         }
         catch (DomainValidationException ex)
         {
@@ -187,7 +218,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             var purchase = await purchaseService.ReversePaymentAsync(id, paymentId, new ReversePaymentInput(request.Reason), CurrentUserId(), ct);
             if (purchase is null) return NotFound();
 
-            return await Get(id, ct);
+            return await Get(id, null, ct);
         }
         catch (DomainValidationException ex)
         {
@@ -213,17 +244,17 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
 
     private Guid CurrentUserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
 
-    private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency)
+    private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency, Dictionary<Guid, decimal> balanceByBatch, Dictionary<Guid, IReadOnlyList<PurchaseLineLocationBalanceDto>> locationsByBatch)
     {
         var returnedByLine = p.Returns.SelectMany(r => r.Lines).GroupBy(l => l.PurchaseOrderLineId).ToDictionary(g => g.Key, g => g.Sum(l => l.BaseQty));
         var reversed = p.Payments.Where(x => x.ReversesPaymentId != null).Select(x => x.ReversesPaymentId!.Value).ToHashSet();
-        return ToDetail(p, baseCurrency, returnedByLine, reversed);
+        return ToDetail(p, baseCurrency, returnedByLine, reversed, balanceByBatch, locationsByBatch);
     }
 
     // What can still go back to the supplier, in base units: whatever was not returned yet, but no more than is still
     // in stock from this purchase's batch (goods already sold cannot be returned).
-    private static decimal ReturnableBase(PurchaseOrderLine l, decimal returnedBase) =>
-        Math.Max(0, Math.Min(l.BaseQty - returnedBase, l.Batch?.RemainingBaseQty ?? 0));
+    private static decimal ReturnableBase(PurchaseOrderLine l, decimal returnedBase, Dictionary<Guid, decimal> balanceByBatch) =>
+        Math.Max(0, Math.Min(l.BaseQty - returnedBase, l.Batch is { } b ? balanceByBatch.GetValueOrDefault(b.Id) : 0));
 
     // The line's own unit (even if deactivated since) plus every active unit of the product.
     private static List<PurchaseReturnUnitDto> ReturnUnits(PurchaseOrderLine l, decimal returnableBase) =>
@@ -235,20 +266,21 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
                     StockQuantity.MaxEnterableQty(returnableBase, u.ConversionFactorToBase, u.Unit.DecimalPlaces, l.Product.BaseUnit.DecimalPlaces)))
                 .ToList();
 
-    private static PurchaseLineDto ToLineDto(PurchaseOrder p, PurchaseOrderLine l, Dictionary<Guid, decimal> returnedByLine)
+    private static PurchaseLineDto ToLineDto(PurchaseOrder p, PurchaseOrderLine l, Dictionary<Guid, decimal> returnedByLine, Dictionary<Guid, decimal> balanceByBatch, Dictionary<Guid, IReadOnlyList<PurchaseLineLocationBalanceDto>> locationsByBatch)
     {
         var returned = returnedByLine.GetValueOrDefault(l.Id);
-        var returnable = p.Status == PurchaseStatus.Cancelled ? 0 : ReturnableBase(l, returned);
+        var returnable = p.Status == PurchaseStatus.Cancelled ? 0 : ReturnableBase(l, returned, balanceByBatch);
         return new PurchaseLineDto(
             l.Id, l.ProductId, l.Product.Name, l.ProductUnitId, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name,
             l.UnitCode, l.ConversionFactorToBase, l.ProductUnit.Unit.DecimalPlaces,
             l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Product.BaseUnit.DecimalPlaces, l.Rate,
             l.TaxRatePercent, l.OtherCharges, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.UnitCost,
             returned, returnable, ReturnUnits(l, returnable),
-            l.Batch?.InternalBatchNo, l.Batch?.SupplierBatchNumber, l.Batch?.ReceivedDate);
+            l.Batch?.InternalBatchNo, l.Batch?.SupplierBatchNumber, l.Batch?.ReceivedDate,
+            l.Batch is { } lb && locationsByBatch.TryGetValue(lb.Id, out var lbs) ? lbs : []);
     }
 
-    private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency, Dictionary<Guid, decimal> returnedByLine, HashSet<Guid> reversed) => new(
+    private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency, Dictionary<Guid, decimal> returnedByLine, HashSet<Guid> reversed, Dictionary<Guid, decimal> balanceByBatch, Dictionary<Guid, IReadOnlyList<PurchaseLineLocationBalanceDto>> locationsByBatch) => new(
         p.Id, p.PurchaseNo, p.SupplierId, p.Supplier.Name, p.PurchaseDate,
         p.SupplierInvoiceNumber, p.Notes, p.PaymentMethod,
         p.PaidAmount, p.DueAmount, p.PaymentStatus,
@@ -256,13 +288,14 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         p.Status, $"{p.CreatedByUser.FirstName} {p.CreatedByUser.LastName}", p.CreatedAt, p.CancelledAt,
         p.CurrencyId, p.Currency.Code, p.Currency.Symbol, p.ExchangeRateToBase, p.OriginalGrandTotal, p.OriginalPaidAmount, p.OriginalDueAmount,
         baseCurrency.Code, baseCurrency.Symbol, p.Currency.DecimalPrecision, baseCurrency.DecimalPrecision,
-        p.Lines.Select(l => ToLineDto(p, l, returnedByLine)).ToList(),
+        p.Lines.Select(l => ToLineDto(p, l, returnedByLine, balanceByBatch, locationsByBatch)).ToList(),
         p.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => ToPaymentDto(pay, reversed)).ToList(),
         p.ReturnedAmount, p.OriginalReturnedAmount, p.NetTotal, p.OriginalNetTotal, p.OriginalRefundableAmount,
         p.Returns.OrderBy(r => r.CreatedAt).Select(r => new PurchaseReturnSummaryDto(
             r.Id, r.ReturnNo, r.ReturnDate, r.Total, r.OriginalTotal,
             p.Payments.Where(x => x.PurchaseReturnId == r.Id && x.Kind == PaymentEntryKind.Refund).Sum(x => x.Amount)
-        )).ToList());
+        )).ToList(),
+        p.BranchId, null, null);
 
     internal static PurchasePaymentDto ToPaymentDto(PurchasePayment pay, HashSet<Guid> reversed) => new(
         pay.Id, pay.Kind, pay.PaymentDate, pay.Amount, pay.ExchangeRateToBase, pay.BaseAmount, pay.PaymentMethod,

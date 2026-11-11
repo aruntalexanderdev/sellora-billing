@@ -1,5 +1,9 @@
+import type { BranchFields, LocationFields } from '../../shared/scope/scope.models';
 export type StockStatus = 'Normal' | 'Low' | 'OutOfStock';
-export type StockMovementType = 'Purchase' | 'Sale' | 'Adjustment' | 'SaleReturn' | 'PurchaseReturn' | 'SaleCancellation';
+import type { BreakdownUnit } from '../../shared/units/unit.models';
+import type { StockMovementType, StockReasonCode } from '../../shared/units/stock-movement';
+
+export type { StockMovementType, StockReasonCode };
 export type PurchaseStatus = 'Completed' | 'Cancelled';
 export type SalesStatus = 'Completed' | 'Cancelled';
 export type PaymentMethod = 'Cash' | 'Upi' | 'Card' | 'Credit' | 'BankTransfer';
@@ -10,6 +14,8 @@ export interface CurrentStockReportRow {
   name: string;
   category: string | null;
   baseUnitLabel: string;
+  baseDecimalPlaces: number;
+  breakdownUnits?: BreakdownUnit[];
   quantityOnHand: number;
   averageCost: number;
   stockValue: number;
@@ -18,7 +24,7 @@ export interface CurrentStockReportRow {
   status: StockStatus;
 }
 
-export interface StockMovementReportRow {
+export interface StockMovementReportRow extends LocationFields {
   id: string;
   occurredAt: string;
   productName: string;
@@ -29,9 +35,18 @@ export interface StockMovementReportRow {
   referenceType: string;
   referenceNo: string;
   userName: string;
+  reasonCode: StockReasonCode | null;
+  enteredQuantity: number | null;
+  enteredProductUnitId: string | null;
+  enteredUnitCode: string | null;
+  conversionFactorSnapshot: number | null;
+  enteredDecimalPlaces: number | null;
+  baseDecimalPlaces: number;
+  /** Source document id (additive G2); set for StockTransfer movements. */
+  referenceId?: string | null;
 }
 
-export interface PurchaseReportRow {
+export interface PurchaseReportRow extends BranchFields {
   id: string;
   purchaseNo: string;
   purchaseDate: string;
@@ -47,7 +62,7 @@ export interface PurchaseReportRow {
   originalGrandTotal: number;
 }
 
-export interface SalesReportRow {
+export interface SalesReportRow extends BranchFields {
   id: string;
   invoiceNo: string;
   invoiceDate: string;
@@ -69,4 +84,5 @@ export interface ProfitSummary {
   costOfGoodsSold: number;
   grossProfit: number;
   grossMarginPercent: number | null;
+  branchId?: string | null;
 }

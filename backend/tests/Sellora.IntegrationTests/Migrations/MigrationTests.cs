@@ -48,6 +48,29 @@ public class MigrationTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task SeedAsync_RunTwice_LeavesOneDefaultCompanyAndExactlyOneAdminMembership()
+    {
+        await using var database = await postgres.CreateDatabaseAsync();
+        var hasher = new PasswordHasher();
+
+        for (var run = 0; run < 2; run++)
+        {
+            await using var db = database.CreateDbContext();
+            await DbSeeder.SeedAsync(db, hasher);
+        }
+
+        await using var check = database.CreateDbContext();
+        var company = await check.Companies.AsNoTracking().SingleAsync();
+        Assert.Equal((Sellora.Domain.Companies.DefaultTenant.CompanyId, "DEFAULT"), (company.Id, company.Code));
+        var admin = await check.Users.AsNoTracking().SingleAsync(u => u.Role.IsSystem);
+        var membership = await check.UserCompanyMemberships.AsNoTracking().SingleAsync(m => m.UserId == admin.Id);
+        Assert.Equal((company.Id, MembershipStatus.Active, CompanyAccessScope.CompanyWide), (membership.CompanyId, membership.Status, membership.AccessScope));
+        Assert.Equal(await check.Users.CountAsync(), await check.UserCompanyMemberships.CountAsync());
+        Assert.All(await check.BusinessSettings.ToListAsync(), s => Assert.Equal(company.Id, s.CompanyId));
+        Assert.Equal(6, await check.DocumentSequences.CountAsync());
+    }
+
+    [Fact]
     public async Task SeedAsync_FreshDatabase_SeedsUnitMasterWithCategoryDecimalsAndFactor()
     {
         await using var database = await postgres.CreateDatabaseAsync();

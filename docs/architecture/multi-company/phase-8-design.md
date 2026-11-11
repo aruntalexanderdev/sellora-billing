@@ -1,0 +1,138 @@
+# Phase 8 - Location-based inventory refactoring (= unit-analysis Phase B core) - file-level design
+Base: branch analyse @ 7a3eae6 (Phases H, 1-7 delivered; last migration 20261110093408_AddScopedRoles). Size XL -> 8a (schema+backfill+location-shaped engine at ONE location) / 8b (many locations live). Paths relative to backend/src unless noted.
+
+## 1. Scope
+Delivers: StockItems keyed (StockLocationId, ProductId); BatchLocationBalances (ADR-01/12, dual-write); StockLocationId on StockMovements, PurchaseBatches (Origin), 5 document headers; legacy backfill to each company's default store; locks/FIFO/availability per (location, product); one posting primitive set (StockPosting); per-document location resolution incl. Q5 sell rule; per-location / summed stock reads; real IStockLocationUsage; branch-eligible widening (Phase 7 Q2); additive API.
+Excludes: transfers, Transit postings, open-transfer usage (Phase 9); van loading/settlement flows, cross-branch returns (Phase 10, Q4); per-location reorder levels and price overrides (later); Angular (Phase 11 carry-over); retiring PurchaseBatches.RemainingBaseQty (ADR-12 later release); new movement types (none needed).
+
+## 2. Verified facts (code is source of truth)
+- StockItems PK = ProductId `Infrastructure/Data/Configurations/StockConfigurations.cs:64`, 1:1 nav WithOne `:68`, composite company FK `:70-71`; entity `Domain/Entities/StockItem.cs:11-20`.
+- Locks: Ensure/insert ON CONFLICT ("ProductId") + FOR UPDATE ORDER BY ProductId `Infrastructure/Services/StockLocks.cs:176-224` (line 187, 191); LockStockItemsAsync `:226-237`; KEY SHARE products `:134-145`.
+- FIFO filters ProductId only `Services/BatchAllocator.cs:30-33`, mutates PurchaseBatch.RemainingBaseQty `:54`.
+- Writers: purchase create Ensure `PurchaseService.cs:45`, receipt `:746-779`; purchase return `:391-400,458,493-508`; cancel untouched check `:583`, write `:596-614`; sale lock `SalesService.cs:75`, availability `:79-80`, line apply `:634-660`; sale return restore `:307-314,393,424-426`; cancel `:462,483-505`; adjustment Ensure `StockAdjustmentService.cs:90` BEFORE branch resolve `:96` (must reorder), FIFO `:134`, batch `:154`.
+- Reads that break at >1 location: StockController.cs:29-30 (FirstOrDefault), :88 SingleOrDefault (throws), ReportsController.cs:33-34, DashboardController.cs:85 (value, ok but unnarrowed), :94, SalesController.cs:71-73 ToDictionary (throws on duplicate key), PricingController.cs:40-42 ToDictionary (throws), PurchasesController.cs:232 returnable uses company batch total.
+- Branch resolution: BranchRules.ResolveWorkingBranchAsync `Services/BranchRules.cs:27-48`, ResolveReturnBranchAsync `:64-72`, EnsureCanAccessDocument `:75`. Branch.IsDefault `Domain/Entities/Branch.cs:24`. DefaultTenant MainStoreLocationId ...0003 `Domain/Companies/DefaultTenant.cs:15`.
+- Capabilities CanSell/CanReceivePurchase `Domain/Inventory/StockLocationType.cs:21,25`; vehicle location BranchId NULL, assignment on Vehicle.AssignedBranchId `Domain/Entities/Vehicle.cs:8-9,26`.
+- Usage hook inert `Services/StockLocationUsageService.cs:7-11`; callers VehicleService.cs:81,112, WarehouseService.cs:109; location admin takes company FOR UPDATE `CompanyLocks.cs:10-16`.
+- Branch-eligible set `Domain/Permissions/PermissionCatalog.cs:16-24`; E5 PermittedBranches `Domain/Abstractions/EffectivePermissionSet.cs:39-43`; dashboard pattern `Api/Controllers/DashboardController.cs:23-31`.
+- PurchaseBatches AK (CompanyId, Id) `PurchaseConfigurations.cs:196`. Consumptions have no CompanyId `Domain/Entities/SalesInvoiceLineBatchConsumption.cs:8-22`.
+
+## 3. Decisions
+D1 Schema (ADR-01/02/12). StockItems: +StockLocationId uuid NOT NULL; PK_StockItems -> (StockLocationId, ProductId); Product nav WithOne -> WithMany (IX_StockItems_ProductId); FK (CompanyId, StockLocationId) -> StockLocations AK, Restrict, name FK_StockItems_StockLocations_CompanyId_StockLocationId (54).
+   BatchLocationBalances: PurchaseBatchId, StockLocationId, CompanyId, ProductId (denormalised for FIFO), RemainingBaseQty numeric(18,3); PK (PurchaseBatchId, StockLocationId); FKs (explicit short names, <=63): FK_BatchLocationBalances_PurchaseBatches (CompanyId, PurchaseBatchId)->PurchaseBatches AK; FK_BatchLocationBalances_StockLocations (CompanyId, StockLocationId)->StockLocations AK; FK_BatchLocationBalances_StockItems (StockLocationId, ProductId)->StockItems PK (balance cannot exist without its lock anchor); all Restrict. CK_BatchLocationBalances_Remaining_NonNegative (>= 0). IX_BatchLocationBalances_Location_Product (StockLocationId, ProductId) WHERE "RemainingBaseQty" > 0. Zero rows are kept (no removal path; cheap upsert). ICompanyOwned -> company filter automatic.
+   StockMovements: +StockLocationId NOT NULL, composite FK, IX_StockMovements_StockLocationId_ProductId_OccurredAt; existing (ProductId, OccurredAt) kept. One signed row per location (ADR-02); no source/destination pair.
+   PurchaseBatches: +OriginStockLocationId NOT NULL, FK_PurchaseBatches_StockLocations_Origin (name shortened; default would be 65 chars).
+   Headers PurchaseOrders, PurchaseReturns, SalesInvoices, SalesReturns, StockAdjustments: +StockLocationId NOT NULL (uniform name = "the one location this document moves stock at": receiving / source / issuing / restock / adjusted), composite FK navigation-less (phase-1 section 8 rule), FK index leads with CompanyId.
+   Consumptions: NO column - location derived from SalesInvoices.StockLocationId (an invoice issues from exactly one location; consumptions never move; avoids rewriting a large table). DEVIATION from audit table (it allowed "or derive").
+D2 Backfill mapping: ALL legacy stock state and ALL legacy documents -> the store of the company's default branch (default company: ...0003), including documents whose BranchId is a non-default branch (phase-2 O-4 accepted). Justification: before Phase 8 stock was one shared pool; mapping documents to their own branch store would put movements/consumptions at B while the batches they drained sit at Main -> per-location reconciliation breaks and cancels/returns of those documents would create stock at B that never physically arrived. Consequence (documented default mapping, arch 17.3 last para): legacy header BranchId may differ from its location's branch -> "location belongs to document branch" is a service rule for new postings only, never a constraint.
+D3 Posting resolution (8b) - new public `IStockLocationResolver` (Domain/Abstractions) + `StockLocationRules` (Infrastructure/Services):
+   Sale: requested ?? working-branch store; must be active, CanSell (Q5), and either location.BranchId = working branch, or a Vehicle assigned to the working branch, or a central vehicle (AssignedBranchId NULL) when the caller holds Sales.Create company-level. Arch 13.2: a branch user cannot pick another branch's location.
+   Purchase: requested ?? working-branch store; CanReceivePurchase; BranchStore/BranchWarehouse of the working branch, or CompanyWarehouse when Purchase.Create is company-level (O2).
+   Adjustment: requested ?? working-branch store; any type except Transit; same branch-fit rule (company-level locations need company-level Inventory.Adjust).
+   Returns/cancellations: the original document's StockLocationId (Q4); no request field; location must be active for returns and sale cancels (restock), else 400 "Reactivate the location first". Purchase return in Phase 8 = receiving location (no other location can hold the batch before Phase 9; BatchLocationBalances check makes Phase 9 correct automatically).
+   Failures: 400 field `stockLocationId`, one message for unknown/foreign/inaccessible/inactive (no existence leak, mirrors BranchRules.cs:51-60). Document BranchId remains the working branch.
+D4 Locks and order (all writers): Products KEY SHARE (id order) -> StockLocations FOR KEY SHARE (new StockLocks.LockLocationsKeyShareAsync, id order; re-check IsActive under lock) -> StockItems ensure+FOR UPDATE ORDER BY (StockLocationId, ProductId) -> document-number advisory lock (unchanged). EnsureAndLockStockItemsAsync(db, IEnumerable<(Guid LocationId, Guid ProductId)>) with ON CONFLICT ("StockLocationId","ProductId") DO NOTHING; one ordered statement for any number of locations (Phase 9 transfer reuse, deadlock-free). Returns/cancels use Ensure too (row may be missing at a location after 8b). Location admin: company FOR UPDATE -> location row FOR UPDATE -> usage check; blocks/serialises against in-flight postings (KEY SHARE vs FOR UPDATE conflict) without blocking renames (NO KEY UPDATE).
+D5 StockPosting (Infrastructure/Services/StockPosting.cs, static, like BatchAllocator - no new pattern) = the only code that mutates QuantityOnHand, AverageCost, RemainingBaseQty, BatchLocationBalances: Receive(location, product, newBatch, qty, cost) [moving avg per location], IssueFifoAsync(location, product, qty, shortage) [BatchAllocator over balances], IssueFromBatch(location, batch, qty) [purchase return], Restore(location, batch, qty, cost) [sale return/cancel], ReverseReceipt(location, batch) [purchase cancel]. Each updates the location balance AND PurchaseBatches.RemainingBaseQty (ADR-12 dual-write) and stamps movement StockLocationId. Writers keep reference/snapshot fields (MovementSnapshot unchanged).
+   BatchAllocator.ConsumeFifoAsync(db, locationId, productId, ...): balances at (location, product) with Remaining > 0 joined to PurchaseBatches, ORDER BY batch CreatedAt, BatchSequence (FEFO later). Purchase cancel "untouched" = balance at receiving location = PurchasedBaseQty AND batch total = PurchasedBaseQty. Availability (SalesService.cs:72-84) per (location, product) after aggregating lines. AverageCost becomes per location; company average = SUM(QOH*Avg)/SUM(QOH). Adjustment BeforeQty/AfterQty = location quantities (identical at one location). Idempotency unchanged (replay returns the stored document; location not compared - existing behaviour).
+D6 Reads (8b; filter roots before projecting - Phase 4 rule; id lookups, no optional->required->required chains). New `StockVisibility` helper (Api): visible locations for code C = locations whose BranchId is in PermittedBranches(C) intersected with allowed branches, plus company-level locations (BranchId NULL; Phase 7 recorded decision) - explicit predicate, NOT a global filter (posting code must never be narrowed). Optional `stockLocationId` query param on stock overview/detail, current-stock(+categories), stock-movement, catalog; absent = SUM per product over visible locations (quantities summed only within one product; value across products). Explicit location not visible -> 403 `branch_access_denied` (reuse). Detail gains per-location rows and per-location batch remainders; StockController.cs:88 SingleOrDefault removed. Catalog qty = at the sale location the resolver would use (param or working store). Pricing avg cost = weighted company average. PurchasesController.cs:232 = balance at the purchase's location. Dashboard value/low-stock narrowed by Inventory.View visibility; low-stock compares summed qty with Product.ReorderLevel (ASSUMPTION until per-location reorder).
+D7 IStockLocationUsage real: HasStock = EXISTS StockItems at location with QuantityOnHand <> 0 (company filter only; StockItems carry no Branch filter); HasOpenTransfers false until Phase 9. Wired into vehicle reassign/deactivate, warehouse deactivate (existing callers) and BranchService.SetStatusAsync for the branch store (phase-3 D7 / phase-4 R2), each after the location FOR UPDATE (D4).
+D8 Branch-eligible widening (Phase 7 Q2): add Inventory.View, Reports.Stock, Reports.Movement. Keep company-only: Inventory.Create/Edit/Price (company product master), Reports.Profit, Reports.Accounts (financial; O3). Drift test + scripts/sql/seed-permissions.sql unaffected (no new codes).
+
+## 4. Design table
+| Layer | File | Change |
+|---|---|---|
+| Domain | Entities/StockItem.cs, StockMovement.cs, PurchaseBatch.cs, PurchaseOrder/PurchaseReturn/SalesInvoice/SalesReturn/StockAdjustment.cs | +StockLocationId / OriginStockLocationId (8a) |
+| Domain | Entities/BatchLocationBalance.cs (new) | D1 (8a) |
+| Domain | Abstractions/IStockLocationResolver.cs (new); Sales/Purchase/Adjustment input models | +StockLocationId? (8b) |
+| Domain | Permissions/PermissionCatalog.cs:16-24 | D8 (8b) |
+| Infra | Data/Configurations/StockConfigurations.cs, PurchaseConfigurations.cs, header configs, new BatchLocationBalanceConfiguration; SelloraDbContext DbSet | D1 (8a) |
+| Infra | Data/Migrations/<ts>_AddStockLocationDimension (+Designer, snapshot) | section 5 (8a) |
+| Infra | Services/StockLocks.cs, BatchAllocator.cs, StockPosting.cs (new), Purchase/Sales/StockAdjustmentService.cs | 8a: keyed by location, default store only; 8b: resolver, D3/D4 |
+| Infra | Services/StockLocationRules.cs (new), StockLocationUsageService.cs, BranchService.cs, VehicleService.cs, WarehouseService.cs | D3, D7 (8b) |
+| Api | Controllers Stock, Reports, Dashboard, Sales (catalog + create mapping), Pricing, Purchases (returnable + create mapping), StockAdjustments (create mapping); Contracts; StockVisibility.cs (new) | D6, section 6 (8b) |
+| Tests | tests/** | section 7 |
+
+## 5. Migration 8a `AddStockLocationDimension` (one transaction; header carries P/V blocks + maintenance-window note)
+Guards (RAISE): G1 every company owning rows in StockItems/StockMovements/PurchaseBatches/5 headers has exactly one IsDefault branch with a BranchStore location. G2 pre-existing per-product invariants clean (skill reconciliation SQL, QOH vs ledger and vs batches) - else refuse (O5). G3 model at AddScopedRoles head.
+Profiling (NOTICE): P1 row counts of the 9 touched tables; P2 documents per non-default branch (sizes O1); P3 SELECT version() (Q8 deployment check).
+Steps: 1 add nullable columns; 2 temp mapping company -> default store (Branches IsDefault join StockLocations BranchStore); 3 UPDATE ... FROM mapping for StockItems, StockMovements (largest rewrite), PurchaseBatches, 5 headers; 4 StockItems PK swap (ACCESS EXCLUSIVE, small table); 5 SET NOT NULL + composite FKs + indexes; 6 create BatchLocationBalances, INSERT one row per batch with RemainingBaseQty > 0 at the origin location; 7 V-block.
+V1 0 NULL StockLocationId in 8 columns. V2 row counts = P1. V3 per (location, product) QOH = ledger:
+  SELECT s."StockLocationId", s."ProductId" FROM "StockItems" s LEFT JOIN (SELECT "StockLocationId","ProductId",SUM("QuantityBaseUnits") q FROM "StockMovements" GROUP BY 1,2) m USING ("StockLocationId","ProductId") WHERE s."QuantityOnHand" <> COALESCE(m.q,0)
+  UNION ALL SELECT m."StockLocationId", m."ProductId" FROM "StockMovements" m LEFT JOIN "StockItems" s USING ("StockLocationId","ProductId") WHERE s."ProductId" IS NULL GROUP BY 1,2 HAVING SUM(m."QuantityBaseUnits") <> 0;
+V4 per (location, product) QOH = SUM balances (same shape over "BatchLocationBalances"). V5 dual-write:
+  SELECT pb."Id" FROM "PurchaseBatches" pb LEFT JOIN (SELECT "PurchaseBatchId", SUM("RemainingBaseQty") q FROM "BatchLocationBalances" GROUP BY 1) b ON b."PurchaseBatchId" = pb."Id" WHERE pb."RemainingBaseQty" <> COALESCE(b.q,0);
+V6 balance ProductId = batch ProductId. V7 every migrated row at its company's default store. V8 at most one StockItems row per (company, product) (true right after backfill).
+Down guard (RAISE, refuse): any (CompanyId, ProductId) with >1 StockItems row, or any StockItems/StockMovements/balance/header/batch-origin row not at the company's default store, or any non-zero balance whose sum differs from the batch total. Then restore PK on ProductId and revert the new table/columns (balances derivable from PurchaseBatches while the guard holds). Tests: Up on empty + on AddScopedRoles head with 2 companies and non-default-branch documents; V-block as shipped; Down guard refuses after an 8b-style second-location posting; Down -> Up; idempotent script.
+8b: no migration expected (ASSUMPTION; if one appears it is additive only).
+
+## 6. API/DTO (additive) and Phase 11 carry-over
+Requests: POST sales, purchases, stock-adjustments gain optional `stockLocationId` (default = working-branch store). Returns/cancels: none (derived).
+Responses: list/detail of the 5 documents + stock movements gain StockLocationId, StockLocationCode, StockLocationName; stock detail gains `locations[]` {locationId, code, name, type, qty, avgCost, value} and per-location batch remainders; catalog/current-stock/overview/stock-movement accept `stockLocationId`.
+Carry-over (Angular, Phase 11): location selector on POS / purchase / adjustment forms (default working store, CanSell/CanReceivePurchase from StockLocationDto); location filter + column on stock overview, stock detail, current-stock, stock-movement, document lists; per-location table on stock detail; `stockLocationId` field-error mapping; stock.models.ts/location types; Vitest specs.
+
+## 7. Work packages (max 2 parallel; agents never share files)
+8a: WP1 database-engineer - Domain entities (D1), configs, DbContext, migration+Designer+snapshot, section 5. AC: build green, no pending model changes, identifiers <=63, G/P/V/Down blocks present.
+    WP2 backend-engineer (after WP1 entities) - StockLocks keyed by location, BatchAllocator over balances, StockPosting, every writer posts at the company default store + stamps headers. AC: grep shows no write to QuantityOnHand/AverageCost/RemainingBaseQty outside StockPosting/BatchAllocator/batch creation; all existing suites green unchanged.
+    WP3 test-engineer - migration tests (Postgres/Testcontainers only), per-location reconciliation in StockInvariants/StockLedgerReconciliationTests, dual-write V5 after every writer, InMemory fixtures (TestCompany/BranchBuilder seed the store). AC: scripts/verify.sh all green. -> code-reviewer -> CHECKPOINT 8a (releasable alone: behaviour identical, one location).
+8b: WP4 backend-engineer (posting) - Domain inputs + IStockLocationResolver, StockLocationRules, services D3/D4 (incl. adjustment lock reorder), usage hook + Branch/Vehicle/Warehouse services D7, PermissionCatalog D8. AC: Q5 enforced; returns/cancels at original location; tests compile.
+    WP5 backend-engineer #2 (reads, parallel after WP4 publishes the resolver interface) - all Api controllers/contracts incl. Sales/Purchases/StockAdjustments create-request mapping, StockVisibility. AC: no FirstOrDefault/ToDictionary-by-ProductId over StockItems remain (grep); filters on roots.
+    WP6 test-engineer, then code-reviewer, then lead verify all.
+Tests: all existing suites green (single-location identical); per-(location, product) reconciliation + dual-write after mixed flows at 2 locations; concurrency (Postgres): concurrent first stock-in at the same (location, product), oversell race at one location while another location has stock, two documents locking {(L1,P1),(L2,P2)} in opposite request order -> no deadlock, posting vs location deactivation race; FIFO per location (older batch at L2 not consumed by a sale at L1); purchase cancel refused when its batch is partly consumed; returns/cancels restore same (batch, location); Q5 (warehouse sale 400, vehicle of another branch 400, central vehicle needs company-level grant); purchase into company warehouse rules; usage hook blocks vehicle reassign/deactivate, warehouse/branch-store deactivate when stock exists; stock reads per location and summed, 403 on invisible location, branch-role Inventory.View sees own branch + company-level only; catalog/pricing no 500 with 2 locations; migration tests in section 5.
+
+## 8. Risks / release notes
+R1 StockItems PK swap (ACCESS EXCLUSIVE) + full StockMovements UPDATE -> maintenance window; time on the production copy (R5). D10: snapshot -> idempotent script -> V-block -> deploy -> smoke; dev auto-migrate still on (accepted R1).
+R2 8b go-live: non-default branches sell from their own (empty) store and transfers arrive only in Phase 9 (O1).
+R3 Until 8b ships, SalesController.cs:71-73, PricingController.cs:40-42 (ToDictionary) and StockController.cs:88 (SingleOrDefault) would 500 if a second location held stock - 8a guarantees one location; never release 8b posting without WP5.
+R4 Dual-write drift -> V5 in tests and release V-block; retirement of the batch total is a later destructive release.
+R5 Legacy movements of non-default-branch documents sit at Main store: branch-only users do not see them in stock views (documented).
+R6 InMemory tests exercise neither locks nor FKs -> Postgres tests are the evidence.
+
+## 9. Owner questions (with recommendation)
+O1 Release 8b alone, or together with Phase 9 transfers? Rec: alone if P2 shows no recent stock postings at non-default branches; otherwise ship 8b with Phase 9.
+O2 Receiving into a company warehouse / adjusting company-level locations requires the code at company level? Rec: yes (fail closed).
+O3 Widen branch-eligible with Inventory.View, Reports.Stock, Reports.Movement only (Profit/Accounts stay company-only)? Rec: yes.
+O4 Accept vehicle locations in the sale API now (backend-validated), UI and loading in Phase 9-11? Rec: yes (same resolver).
+O5 Migration refuses on pre-existing invariant drift (G2) rather than migrating it? Rec: yes; fix data first.
+
+## 10. Deviations
+- Consumptions derive location from the invoice (no column).
+- Uniform header column StockLocationId (not Receiving/Source/Restock names).
+- Legacy documents of non-default branches map to the default store (D2) - documented default mapping.
+- Stock visibility is an explicit helper, not an EF named filter.
+- AverageCost per location; company average derived. Arch 10.1 UnitId/BatchId key and 10.2 source/destination pair stay replaced by ADR-01/02.
+
+## Owner approval (2026-11-10)
+
+Design approved, deviations accepted. O1 = A: build 8a and 8b now; 8a may be released alone (no behaviour change); **8b is released together with Phase 9 (transfers)** so branches can move stock as soon as per-location selling starts. O2 yes: receiving into company warehouses / adjusting company-level locations needs the permission at company level. O3 yes: branch-eligible list widened only by Inventory.View, Reports.Stock, Reports.Movement. O4 yes: sales API accepts a Vehicle location (CanSell) now. O5 yes: migration refuses when existing stock does not reconcile. Delivery: 8a → checkpoint report to owner → 8b.
+
+## 8a checkpoint (2026-11-10)
+
+Status: **8a delivered — review "Approve" (no Blocker/Major).** Verify: 1309 unit / 931 PostgreSQL integration / 192 Vitest. Migration `20261110114731_AddStockLocationDimension` verified on PostgreSQL (Up on empty and on a Phase 7 head with two companies and non-default-branch documents; V1–V8; guards G1–G3 incl. O5 drift refusal; Down guards; Down restore; Down→Up; idempotent script). Behaviour identical to before 8a (verified against the removed code and by the existing suites): every posting at the company's default store; `StockPosting` is the only writer of QOH / average cost / batch balances / dual-written batch totals (source-scan test); lock order products → locations → stock rows by (location, product) on every writer (deadlock hammer tests).
+
+**Carried into 8b (review minors):**
+- Re-resolve the posting location under the location KEY SHARE lock and check it is active (`StockLocationDefaults` / the 8b resolver).
+- `StockLocationUsageService` must report HasStock from per-location stock before any non-default location can hold stock.
+- Fix the reads that assume one stock row per product — `StockController.cs:88` and `SalesController.cs:71` would throw; Dashboard, Reports, Pricing and `StockController.cs:29-30` would silently show one location — together with 8b posting (never release 8b posting without them).
+- V2 row-count comparison relies on a transaction-local setting from the guard; keep guard and V-block in one transaction.
+- Returns/cancels may create a zero-quantity stock row where the old code threw (harmless).
+
+## 8b delivery record (2026-11-11)
+
+Status: **8b delivered — review "Approve with fixes", fixes applied.** Verify: 1360 unit / 958 PostgreSQL integration / 192 Vitest, 0 warnings. Release: **together with Phase 9** (O1 = A); do not deploy 8b alone.
+
+**Delivered**
+- Posting: `StockLocationRules` resolver (D3) runs before locks and again after the location KEY SHARE lock (active re-check). Sale needs CanSell, purchase CanReceivePurchase, adjustment any non-Transit location. A branch-owned location must be the working branch's own. A vehicle assigned to the working branch is allowed; **another branch's vehicle is always refused**; a central vehicle or company warehouse needs the code company-wide (O2). No permission service = not held (fail closed). Optional `stockLocationId` on POST sales / purchases / stock-adjustments; returns and cancels post at the original location.
+- `StockLocationUsageService` real (D7): HasStock = any StockItems row at the location with QOH ≠ 0, after FOR UPDATE on the location. Wired into warehouse/vehicle admin and `BranchService` store deactivation.
+- `PermissionCatalog` (D8/O3): Inventory.View, Reports.Stock, Reports.Movement are now CompanyOrBranch.
+- Reads (D6): `StockVisibility` = locations of accessible branches narrowed by the code's permitted branches, plus company-level locations. A vehicle counts as its assigned branch's location; only central vehicles and company warehouses are company-level. A hidden explicit `stockLocationId` is 403 `branch_access_denied`. Overview / current stock / dashboard sum per product over visible locations; stock detail has `locations[]` and per-location batch balances; pricing uses the weighted average; purchase returnable quantity is the balance at the purchase's location.
+- POS catalog: default = working branch store; an explicit `stockLocationId` is accepted only where the caller could sell (same resolver as POST /sales), else 403 — the catalog cannot be used to read stock elsewhere.
+- §6 DTOs: list and detail of sales, purchases, adjustments, sales returns, purchase returns carry `stockLocationId/Code/Name` (`StockLocationLabels`).
+
+**Deviation:** `CompanyLocks` now takes the company row `FOR NO KEY UPDATE` (was FOR UPDATE). Admin writers still serialise against each other; the lock no longer conflicts with the KEY SHARE that every insert's CompanyId FK takes. This removes a deadlock between location admin (company row → location FOR UPDATE) and an in-flight posting (location KEY SHARE → company FK). Nothing deletes or re-keys a company row.
+
+**Known limitations (accepted for 8b, revisit later)**
+- Dashboard low-stock compares the visible-scope quantity with the product-level ReorderLevel; a branch-only reader may see low-stock for stock held elsewhere. Per-location reorder levels are a later item.
+- `RestrictedUserApiTests.BatchLabels_*` simulates a cross-branch batch by re-tagging a PO; replace with a real transfer in Phase 9.
+- Stock detail lists a batch if it originated in scope or holds a balance in scope (ready for Phase 9 transfers).
+
+**Phase 11 carry-over:** location selector on POS / purchase / adjustment; location filter + column on stock overview, detail, current stock, stock movement and document lists; per-location table on stock detail; `stockLocationId` field-error mapping; the three new document DTO fields.

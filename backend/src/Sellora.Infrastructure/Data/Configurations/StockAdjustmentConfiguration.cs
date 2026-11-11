@@ -22,10 +22,23 @@ public class StockAdjustmentConfiguration : IEntityTypeConfiguration<StockAdjust
         builder.Property(a => a.AfterQty).HasColumnType("numeric(18,3)");
         builder.Property(a => a.Reason).HasMaxLength(300);
 
-        builder.HasIndex(a => a.AdjustmentNo).IsUnique();
+        builder.HasIndex(a => new { a.CompanyId, a.AdjustmentNo }, "IX_StockAdjustments_CompanyId_AdjustmentNo").IsUnique();
+        builder.HasIndex(a => new { a.CompanyId, a.BranchId, a.CreatedAt }, "IX_StockAdjustments_CompanyId_BranchId_CreatedAt");
+        // Same-company branch: (CompanyId, BranchId) -> Branches (CompanyId, Id). Navigation-less (no filtered required navigation, Phase 1 section 8).
+        builder.HasOne<Branch>().WithMany().HasForeignKey(a => new { a.CompanyId, a.BranchId })
+            .HasPrincipalKey(b => new { b.CompanyId, b.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_StockAdjustments_Branches_CompanyId_BranchId");
+        // Phase 8: the one location this document moves stock at. Same-company composite FK, navigation-less; FK index leads with CompanyId.
+        builder.HasOne<StockLocation>().WithMany().HasForeignKey(a => new { a.CompanyId, a.StockLocationId })
+            .HasPrincipalKey(l => new { l.CompanyId, l.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_StockAdjustments_StockLocations_CompanyId_StockLocationId");
+        builder.HasIndex(a => new { a.CompanyId, a.StockLocationId }, "IX_StockAdjustments_CompanyId_StockLocationId");
         builder.HasIndex(a => a.CreatedAt);
 
         builder.HasOne(a => a.Product).WithMany().HasForeignKey(a => a.ProductId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantee: the adjusted product belongs to the adjustment's company.
+        builder.HasOne<Product>().WithMany().HasForeignKey(a => new { a.CompanyId, a.ProductId })
+            .HasPrincipalKey(p => new { p.CompanyId, p.Id }).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(a => a.User).WithMany().HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.Restrict);
         // (ProductId, ProductUnitId) -> ProductUnits (ProductId, Id) via AK_ProductUnits_ProductId_Id: the entered unit
         // must belong to the adjusted product. Required, so the overlapping-FK null hazard does not apply.

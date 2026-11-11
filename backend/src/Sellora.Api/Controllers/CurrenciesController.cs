@@ -1,15 +1,18 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
+using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/currencies")]
-public class CurrenciesController(SelloraDbContext db) : ControllerBase
+public class CurrenciesController(SelloraDbContext db, ICurrencyService currencyService) : ControllerBase
 {
     // Read-only reference data that the supplier, settings and exchange-rate forms all need, so any
     // signed-in user can list it; creating, editing and (de)activating stay behind Masters.Edit.
@@ -29,23 +32,16 @@ public class CurrenciesController(SelloraDbContext db) : ControllerBase
     public async Task<ActionResult<CurrencyDto>> Create(UpsertCurrencyRequest request, CancellationToken ct)
     {
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
-
-        var code = request.Code.Trim().ToUpperInvariant();
-        if (await db.Currencies.AnyAsync(c => c.Code == code, ct))
+        try
         {
-            ModelState.AddModelError(nameof(request.Code), "A currency with this code already exists.");
+            var currency = await currencyService.CreateAsync(ToInput(request), ReferenceDataActor.Company, ct);
+            return Ok(ToDto(currency, isBase: false));
+        }
+        catch (DomainValidationException ex)
+        {
+            foreach (var error in ex.Errors) ModelState.AddModelError(error.Field, error.Message);
             return ValidationProblem(ModelState);
         }
-
-        var currency = new Currency
-        {
-            Id = Guid.NewGuid(), Code = code, Name = request.Name.Trim(),
-            Symbol = request.Symbol.Trim(), DecimalPrecision = request.DecimalPrecision,
-        };
-        db.Currencies.Add(currency);
-        await db.SaveChangesAsync(ct);
-
-        return Ok(ToDto(currency, isBase: false));
     }
 
     [HttpPut("{id:guid}")]
@@ -53,44 +49,35 @@ public class CurrenciesController(SelloraDbContext db) : ControllerBase
     public async Task<ActionResult<CurrencyDto>> Update(Guid id, UpsertCurrencyRequest request, CancellationToken ct)
     {
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
-
-        var currency = await db.Currencies.SingleOrDefaultAsync(c => c.Id == id, ct);
-        if (currency is null) return NotFound();
-
-        var code = request.Code.Trim().ToUpperInvariant();
-        if (await db.Currencies.AnyAsync(c => c.Id != id && c.Code == code, ct))
+        try
         {
-            ModelState.AddModelError(nameof(request.Code), "A currency with this code already exists.");
+            var currency = await currencyService.UpdateAsync(id, ToInput(request), ReferenceDataActor.Company, ct);
+            if (currency is null) return NotFound();
+            return Ok(ToDto(currency, currency.Id == await BaseCurrencyIdAsync(ct)));
+        }
+        catch (DomainValidationException ex)
+        {
+            foreach (var error in ex.Errors) ModelState.AddModelError(error.Field, error.Message);
             return ValidationProblem(ModelState);
         }
-
-        currency.Code = code;
-        currency.Name = request.Name.Trim();
-        currency.Symbol = request.Symbol.Trim();
-        currency.DecimalPrecision = request.DecimalPrecision;
-        await db.SaveChangesAsync(ct);
-
-        return Ok(ToDto(currency, currency.Id == await BaseCurrencyIdAsync(ct)));
     }
 
     [HttpPost("{id:guid}/status")]
     [Authorize(Policy = "Masters.Edit")]
     public async Task<IActionResult> SetActive(Guid id, SetActiveRequest request, CancellationToken ct)
     {
-        var currency = await db.Currencies.SingleOrDefaultAsync(c => c.Id == id, ct);
-        if (currency is null) return NotFound();
-
-        if (!request.IsActive && await db.BusinessSettings.AnyAsync(s => s.BaseCurrencyId == id, ct))
+        var outcome = await currencyService.SetActiveAsync(id, request.IsActive, ReferenceDataActor.Company, ct);
+        return outcome switch
         {
-            return Problem(statusCode: 400, title: "The business base currency cannot be deactivated. Choose a different base currency in Business Settings first.");
-        }
-
-        currency.IsActive = request.IsActive;
-        await db.SaveChangesAsync(ct);
-        return NoContent();
+            CurrencyStatusOutcome.NotFound => NotFound(),
+            CurrencyStatusOutcome.IsBaseCurrency => Problem(statusCode: 400, title: "The business base currency cannot be deactivated. Choose a different base currency in Business Settings first."),
+            _ => NoContent(),
+        };
     }
 
-    private Task<Guid> BaseCurrencyIdAsync(CancellationToken ct) => db.BusinessSettings.Select(s => s.BaseCurrencyId).SingleAsync(ct);
+    private async Task<Guid> BaseCurrencyIdAsync(CancellationToken ct) => (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyId;
+
+    private static UpsertCurrencyInput ToInput(UpsertCurrencyRequest r) => new(r.Code, r.Name, r.Symbol, r.DecimalPrecision);
 
     private static CurrencyDto ToDto(Currency c, bool isBase) => new(c.Id, c.Code, c.Name, c.Symbol, c.DecimalPrecision, c.IsActive, isBase);
 }

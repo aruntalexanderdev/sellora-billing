@@ -35,6 +35,13 @@
         </div>
       </div>
 
+      <div style="margin-bottom: 16px; max-width: 320px" data-testid="purchase-location">
+        <app-location-select purpose="purchase" label="Receiving location" [(value)]="locationId" />
+        @if (locationError(); as e) {
+          <div class="field-error">{{ e }}</div>
+        }
+      </div>
+
       <div class="line-items">
         <div class="line-header-row">
           <span class="field-label" style="margin: 0">Items</span>

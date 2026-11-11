@@ -23,9 +23,23 @@ public class SalesInvoiceConfiguration : IEntityTypeConfiguration<SalesInvoice>
         builder.Ignore(i => i.RefundableAmount);
         builder.Ignore(i => i.PaymentStatus);
 
-        builder.HasIndex(i => i.InvoiceNo).IsUnique();
+        builder.HasAlternateKey(i => new { i.CompanyId, i.Id });
+        builder.HasIndex(i => new { i.CompanyId, i.InvoiceNo }, "IX_SalesInvoices_CompanyId_InvoiceNo").IsUnique();
+        builder.HasIndex(i => new { i.CompanyId, i.BranchId, i.InvoiceDate }, "IX_SalesInvoices_CompanyId_BranchId_InvoiceDate");
+        // Same-company branch: (CompanyId, BranchId) -> Branches (CompanyId, Id). Navigation-less (no filtered required navigation, Phase 1 section 8).
+        builder.HasOne<Branch>().WithMany().HasForeignKey(i => new { i.CompanyId, i.BranchId })
+            .HasPrincipalKey(b => new { b.CompanyId, b.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_SalesInvoices_Branches_CompanyId_BranchId");
+        // Phase 8: the one location this document moves stock at. Same-company composite FK, navigation-less; FK index leads with CompanyId.
+        builder.HasOne<StockLocation>().WithMany().HasForeignKey(i => new { i.CompanyId, i.StockLocationId })
+            .HasPrincipalKey(l => new { l.CompanyId, l.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_SalesInvoices_StockLocations_CompanyId_StockLocationId");
+        builder.HasIndex(i => new { i.CompanyId, i.StockLocationId }, "IX_SalesInvoices_CompanyId_StockLocationId");
 
         builder.HasOne(i => i.Customer).WithMany().HasForeignKey(i => i.CustomerId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantee: the customer belongs to the invoice's company.
+        builder.HasOne<Customer>().WithMany().HasForeignKey(i => new { i.CompanyId, i.CustomerId })
+            .HasPrincipalKey(c => new { c.CompanyId, c.Id }).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(i => i.CreatedByUser).WithMany().HasForeignKey(i => i.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<User>().WithMany().HasForeignKey(i => i.CancelledByUserId).OnDelete(DeleteBehavior.Restrict);
     }
@@ -75,10 +89,23 @@ public class SalesReturnConfiguration : IEntityTypeConfiguration<SalesReturn>
         }
 
         builder.ToTable(t => t.HasCheckConstraint("CK_SalesReturns_Total_Positive", "\"Total\" >= 0"));
-        builder.HasIndex(r => r.ReturnNo).IsUnique();
+        builder.HasIndex(r => new { r.CompanyId, r.ReturnNo }, "IX_SalesReturns_CompanyId_ReturnNo").IsUnique();
+        builder.HasIndex(r => new { r.CompanyId, r.BranchId, r.ReturnDate }, "IX_SalesReturns_CompanyId_BranchId_ReturnDate");
+        // Same-company branch: (CompanyId, BranchId) -> Branches (CompanyId, Id). Navigation-less (no filtered required navigation, Phase 1 section 8).
+        builder.HasOne<Branch>().WithMany().HasForeignKey(r => new { r.CompanyId, r.BranchId })
+            .HasPrincipalKey(b => new { b.CompanyId, b.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_SalesReturns_Branches_CompanyId_BranchId");
+        // Phase 8: the one location this document moves stock at. Same-company composite FK, navigation-less; FK index leads with CompanyId.
+        builder.HasOne<StockLocation>().WithMany().HasForeignKey(r => new { r.CompanyId, r.StockLocationId })
+            .HasPrincipalKey(l => new { l.CompanyId, l.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_SalesReturns_StockLocations_CompanyId_StockLocationId");
+        builder.HasIndex(r => new { r.CompanyId, r.StockLocationId }, "IX_SalesReturns_CompanyId_StockLocationId");
         builder.HasIndex(r => new { r.SalesInvoiceId, r.CreatedAt });
 
         builder.HasOne(r => r.SalesInvoice).WithMany(i => i.Returns).HasForeignKey(r => r.SalesInvoiceId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantee: a return and its invoice share the company.
+        builder.HasOne<SalesInvoice>().WithMany().HasForeignKey(r => new { r.CompanyId, r.SalesInvoiceId })
+            .HasPrincipalKey(i => new { i.CompanyId, i.Id }).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(r => r.CreatedByUser).WithMany().HasForeignKey(r => r.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
     }
 }

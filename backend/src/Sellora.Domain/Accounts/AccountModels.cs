@@ -9,9 +9,17 @@ public sealed record CreateAccountInput(
     string? Reference,
     decimal OpeningBalance,
     DateOnly OpeningDate
-);
+)
+{
+    /// <summary>Optional branch tag (null = company-level account usable everywhere).</summary>
+    public Guid? BranchId { get; init; }
+}
 
-public sealed record UpdateAccountInput(string Name, string? Reference);
+public sealed record UpdateAccountInput(string Name, string? Reference)
+{
+    /// <summary>Optional branch tag; null = company-level (PUT replaces the tag).</summary>
+    public Guid? BranchId { get; init; }
+}
 
 public sealed record TransferInput(
     Guid FromAccountId,

@@ -1,3 +1,4 @@
+import { IdempotentSubmission } from '../../../../core/idempotency';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -33,6 +34,8 @@ export class SalesReturnForm implements OnInit, HasUnsavedChanges {
   private readonly salesService = inject(SalesService);
   private readonly cashBank = inject(CashBankService);
   private readonly toast = inject(ToastService);
+  // One key per return form, so a double-click or retry can't restock twice. The server resolves the restock location.
+  private readonly submission = new IdempotentSubmission();
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -169,14 +172,15 @@ export class SalesReturnForm implements OnInit, HasUnsavedChanges {
 
     const v = this.form.getRawValue();
     this.saving.set(true);
-    this.salesService
-      .createReturn({
+    const body = {
         salesInvoiceId: i.id,
         returnDate: v.returnDate,
         reason: v.reason || null,
         lines: this.chosen().map((l) => ({ salesInvoiceLineId: l.id, productUnitId: this.unitFor(l)?.productUnitId ?? null, qty: this.qty()[l.id]! })),
         refund: this.refundNow() ? { amount: r.amount!, paymentMethod: r.paymentMethod, accountId: r.accountId || null } : null,
-      })
+      };
+    this.salesService
+      .createReturn(body, this.submission.keyFor(body))
       .subscribe({
         next: (created) => {
           this.saving.set(false);

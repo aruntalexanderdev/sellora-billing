@@ -34,16 +34,25 @@ public class ExpenseService(SelloraDbContext db, IExchangeRateService exchangeRa
             throw new DomainValidationException("ExpenseDate", "Expense date cannot be in the future.");
         }
 
-        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, ct);
+        // Optional explicit branch tag (never stamped from the header: company-level stays the default).
+        var branch = input.BranchId is { } branchId
+            ? await BranchRules.EnsureCanUseAsync(db, branchId, requireActive: true, "BranchId", ct)
+            : null;
+        await FinancialAccountRules.EnsureUsableAsync(db, input.AccountId, branch?.Id, ct);
 
         var rate = await exchangeRateService.ResolveRateToBaseAsync(currency.Id, input.ExpenseDate, ct);
-        var basePrecision = await db.BusinessSettings.Select(s => s.BaseCurrency.DecimalPrecision).SingleAsync(ct);
+        var basePrecision = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyDecimalPrecision;
         var baseAmount = rate == 1m ? amount : Math.Round(amount * rate, basePrecision, MidpointRounding.AwayFromZero);
+
+        // The counter row lock (DocumentNumbers) serialises concurrent creates like every other document series.
+        await using var transaction = await StockLocks.BeginAsync(db, ct);
+        var expenseNo = await DocumentNumbers.NextNumberAsync(db, DocumentSeries.Expense, null, ct);
 
         var expense = new Expense
         {
             Id = Guid.NewGuid(),
-            ExpenseNo = $"EXP-{await db.Expenses.CountAsync(ct) + 1:D4}",
+            ExpenseNo = expenseNo,
+            BranchId = branch?.Id,
             CategoryId = category.Id,
             ExpenseDate = input.ExpenseDate,
             CurrencyId = currency.Id,
@@ -59,6 +68,7 @@ public class ExpenseService(SelloraDbContext db, IExchangeRateService exchangeRa
         db.Expenses.Add(expense);
         db.FinancialTransactions.Add(FinancialTransaction.ForExpense(expense, input.AccountId));
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return expense;
     }
 
@@ -78,6 +88,24 @@ public class ExpenseService(SelloraDbContext db, IExchangeRateService exchangeRa
         if (!category.IsActive && category.Id != expense.CategoryId)
         {
             throw new DomainValidationException("CategoryId", "This category is inactive.");
+        }
+
+        if (input.BranchId != expense.BranchId)
+        {
+            if (input.BranchId is { } newBranchId)
+            {
+                var branch = await BranchRules.EnsureCanUseAsync(db, newBranchId, requireActive: true, "BranchId", ct);
+                var accountBranchId = await db.FinancialTransactions
+                    .Where(t => t.ExpenseId == expense.Id && t.AccountId != null)
+                    // Integrity read: a hidden-branch account must still block retagging (Company filter stays on).
+                    .Join(db.FinancialAccounts.IgnoreQueryFilters([BranchQueryFilter.Name]), t => t.AccountId!.Value, a => a.Id, (t, a) => a.BranchId)
+                    .FirstOrDefaultAsync(ct);
+                if (accountBranchId is { } tagged && tagged != branch.Id)
+                {
+                    throw new DomainValidationException("BranchId", "This expense was paid from an account that belongs to another branch.");
+                }
+            }
+            expense.BranchId = input.BranchId;
         }
 
         expense.CategoryId = category.Id;

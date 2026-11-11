@@ -23,6 +23,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasOne(u => u.Role)
             .WithMany(r => r.Users)
             .HasForeignKey(u => u.RoleId)
+            .IsRequired(false) // deprecated column (Phase 7, D4): nullable, FK kept one release
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

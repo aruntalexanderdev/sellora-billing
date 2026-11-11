@@ -9,6 +9,8 @@
     </div>
   </div>
 
+  <app-document-scope [items]="scopeItems()" />
+
   @if (r.currencyCode !== r.baseCurrencyCode) {
     <div class="fx-card">
       <div><span class="fx-label">Credit ({{ r.currencyCode }})</span><strong>{{ original(r.originalTotal) }} {{ r.currencyCode }}</strong></div>
@@ -82,5 +84,5 @@
     }
   </div>
 } @else if (!loading()) {
-  <div class="not-found">Return not found.</div>
+  <div class="not-found" [attr.role]="loadError() ? 'alert' : null">{{ loadError() ?? 'Return not found.' }}</div>
 }

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
@@ -87,9 +88,12 @@ public class UnitsController(SelloraDbContext db, IUnitService unitService) : Co
     private static UnitDto ToDto(Unit u, bool isInUse, bool canDeactivate) => new(
         u.Id, u.Name, u.ShortCode, u.MeasurementCategory, u.DecimalPlaces, u.StandardFactor, u.IsActive, isInUse, canDeactivate);
 
-    /// <summary>Same rules as <see cref="IUnitService.IsInUseAsync"/> and <see cref="IUnitService.IsUsedByActiveProductAsync"/>.</summary>
+    private static readonly string[] CompanyFilter = [CompanyQueryFilter.Name];
+
+    /// <summary>Same rules as <see cref="IUnitService.IsInUseAsync"/> and <see cref="IUnitService.IsUsedByActiveProductAsync"/>.
+    /// Documented IgnoreQueryFilters bypass: units are platform-wide, so the in-use flags must see every company's products.</summary>
     private IQueryable<UnitDto> Project(IQueryable<Unit> units) => units.Select(u => new UnitDto(
         u.Id, u.Name, u.ShortCode, u.MeasurementCategory, u.DecimalPlaces, u.StandardFactor, u.IsActive,
-        db.Products.Any(p => p.BaseUnitId == u.Id) || db.ProductUnits.Any(pu => pu.UnitId == u.Id),
-        !db.Products.Any(p => p.BaseUnitId == u.Id) && !db.ProductUnits.Any(pu => pu.UnitId == u.Id && pu.IsActive)));
+        db.Products.IgnoreQueryFilters(CompanyFilter).Any(p => p.BaseUnitId == u.Id) || db.ProductUnits.IgnoreQueryFilters(CompanyFilter).Any(pu => pu.UnitId == u.Id),
+        !db.Products.IgnoreQueryFilters(CompanyFilter).Any(p => p.BaseUnitId == u.Id) && !db.ProductUnits.IgnoreQueryFilters(CompanyFilter).Any(pu => pu.UnitId == u.Id && pu.IsActive)));
 }

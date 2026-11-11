@@ -25,7 +25,7 @@ public class AccountsReportsTests
 
     private static async Task<Fixture> SeedAsync()
     {
-        var db = new SelloraDbContext(new DbContextOptionsBuilder<SelloraDbContext>()
+        var db = Sellora.Tests.TestData.TestCompany.NewDb(new DbContextOptionsBuilder<SelloraDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 
         var role = new Role { Id = Guid.NewGuid(), Name = "Administrator", IsSystem = true };

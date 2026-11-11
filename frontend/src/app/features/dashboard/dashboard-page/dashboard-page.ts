@@ -1,4 +1,5 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { QuantityPipe } from '../../../shared/units/quantity.pipe';
 import { Router, RouterLink } from '@angular/router';
 import { UiCard } from '../../../shared/ui/card/card';
 import { UiButton } from '../../../shared/ui/button/button';
@@ -12,7 +13,7 @@ const INR = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
 @Component({
   selector: 'app-dashboard-page',
   standalone: true,
-  imports: [RouterLink, UiCard, UiButton, UiBadge],
+  imports: [RouterLink, UiCard, UiButton, UiBadge, QuantityPipe],
   templateUrl: './dashboard-page.html',
   styleUrl: './dashboard-page.scss',
 })

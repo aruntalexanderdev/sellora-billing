@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
+using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Stock;
 using Sellora.Infrastructure.Data;
@@ -10,16 +11,21 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/reports")]
-public class ReportsController(SelloraDbContext db) : ControllerBase
+public class ReportsController(SelloraDbContext db, IEffectivePermissionService effectivePermissions) : ControllerBase
 {
     [HttpGet("current-stock")]
     [Authorize(Policy = "Reports.Stock")]
     public async Task<ActionResult<PagedResult<CurrentStockReportRowDto>>> CurrentStock(
         [FromQuery] string? search, [FromQuery] string? category, [FromQuery] StockStatus? status,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
+
+        // Phase 8: quantity summed per product over the visible (or requested) locations; value only is aggregated across products.
+        var visibility = await StockVisibility.LoadAsync(db, effectivePermissions, "Reports.Stock", ct);
+        if (visibility.DenyUnlessVisible(this, stockLocationId) is { } denied) return denied;
+        var scope = visibility.Scope(stockLocationId);
 
         var query = db.Products.Where(p => p.IsActive)
             .Select(p => new
@@ -30,8 +36,10 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
                 p.Category,
                 p.ReorderLevel,
                 BaseUnitLabel = p.BaseUnit.ShortCode,
-                QuantityOnHand = db.StockItems.Where(s => s.ProductId == p.Id).Select(s => s.QuantityOnHand).FirstOrDefault(),
-                AverageCost = db.StockItems.Where(s => s.ProductId == p.Id).Select(s => s.AverageCost).FirstOrDefault(),
+                BaseDecimalPlaces = (int)p.BaseUnit.DecimalPlaces,
+                QuantityOnHand = db.StockItems.Where(s => s.ProductId == p.Id && scope.Contains(s.StockLocationId)).Sum(s => s.QuantityOnHand),
+                StockValue = db.StockItems.Where(s => s.ProductId == p.Id && scope.Contains(s.StockLocationId)).Sum(s => s.QuantityOnHand * s.AverageCost),
+                MaxAverageCost = db.StockItems.Where(s => s.ProductId == p.Id && scope.Contains(s.StockLocationId)).Max(s => (decimal?)s.AverageCost) ?? 0m,
             });
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -79,14 +87,18 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
                     return (decimal?)(best.Price!.Value / best.ConversionFactorToBase);
                 });
 
+        var balances = await visibility.BalancesAsync(db, productIds, scope, ct);
+        var breakdowns = await BreakdownUnits.LoadAsync(db, productIds, ct);
         var items = rows.Select(p =>
         {
             var pricePerBaseUnit = bestPriceByProduct.GetValueOrDefault(p.Id);
             return new CurrentStockReportRowDto(
                 p.Id, p.Sku, p.Name, p.Category, p.BaseUnitLabel,
-                p.QuantityOnHand, p.AverageCost, p.QuantityOnHand * p.AverageCost,
+                p.QuantityOnHand, StockVisibility.WeightedAverage(p.QuantityOnHand, p.StockValue, p.MaxAverageCost), p.StockValue,
                 pricePerBaseUnit, pricePerBaseUnit is null ? null : p.QuantityOnHand * pricePerBaseUnit,
-                StockStatusCalculator.Calculate(p.QuantityOnHand, p.ReorderLevel));
+                StockStatusCalculator.Calculate(p.QuantityOnHand, p.ReorderLevel),
+                balances.GetValueOrDefault(p.Id),
+                p.BaseDecimalPlaces, breakdowns.GetValueOrDefault(p.Id) ?? []);
         }).ToList();
 
         return Ok(new PagedResult<CurrentStockReportRowDto>(items, total, page, pageSize));
@@ -110,12 +122,17 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
     public async Task<ActionResult<PagedResult<StockMovementReportRowDto>>> StockMovement(
         [FromQuery] string? search, [FromQuery] StockMovementType? type,
         [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var query = db.StockMovements.Include(m => m.Product).ThenInclude(p => p.BaseUnit).Include(m => m.User).AsQueryable();
+        var visibility = await StockVisibility.LoadAsync(db, effectivePermissions, "Reports.Movement", ct);
+        if (visibility.DenyUnlessVisible(this, stockLocationId) is { } denied) return denied;
+        var scope = visibility.Scope(stockLocationId);
+
+        var query = db.StockMovements.Include(m => m.Product).ThenInclude(p => p.BaseUnit).Include(m => m.User)
+            .Where(m => scope.Contains(m.StockLocationId));
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -138,8 +155,13 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
         var items = await query.OrderByDescending(m => m.OccurredAt).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(m => new StockMovementReportRowDto(
                 m.Id, m.OccurredAt, m.Product.Name, m.Product.Sku, m.Product.BaseUnit.ShortCode,
-                m.Type, m.QuantityBaseUnits, m.ReferenceType, m.ReferenceNo, $"{m.User.FirstName} {m.User.LastName}"))
+                m.Type, m.QuantityBaseUnits, m.ReferenceType, m.ReferenceNo, $"{m.User.FirstName} {m.User.LastName}",
+                m.ReasonCode, m.EnteredQuantity, m.EnteredProductUnitId, m.EnteredUnitCode, m.ConversionFactorSnapshot,
+                m.EnteredProductUnit != null ? m.EnteredProductUnit.Unit.DecimalPlaces : (int?)null,
+                m.Product.BaseUnit.DecimalPlaces,
+                m.StockLocationId, null, null, m.ReferenceId))
             .ToListAsync(ct);
+        items = items.Select(r => r with { StockLocationCode = visibility.Code(r.StockLocationId!.Value), StockLocationName = visibility.Name(r.StockLocationId!.Value) }).ToList();
 
         return Ok(new PagedResult<StockMovementReportRowDto>(items, total, page, pageSize));
     }
@@ -149,12 +171,15 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
     public async Task<ActionResult<PagedResult<PurchaseReportRowDto>>> Purchases(
         [FromQuery] string? search, [FromQuery] Guid? supplierId,
         [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
+
         var query = db.PurchaseOrders.Include(p => p.Supplier).AsQueryable();
+        if (branchId is not null) query = query.Where(p => p.BranchId == branchId);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -172,8 +197,11 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
             .Select(p => new PurchaseReportRowDto(
                 p.Id, p.PurchaseNo, p.PurchaseDate, p.Supplier.Name,
                 p.Subtotal, p.TaxTotal, p.OtherChargesTotal, p.GrandTotal, p.PaidAmount, p.DueAmount, p.Status,
-                p.Currency.Code, p.OriginalGrandTotal))
+                p.Currency.Code, p.OriginalGrandTotal, p.BranchId, null, null))
             .ToListAsync(ct);
+
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
 
         return Ok(new PagedResult<PurchaseReportRowDto>(items, total, page, pageSize));
     }
@@ -183,12 +211,15 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
     public async Task<ActionResult<PagedResult<SalesReportRowDto>>> Sales(
         [FromQuery] string? search, [FromQuery] PaymentMethod? paymentMethod,
         [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
+
         var query = db.SalesInvoices.Include(i => i.Customer).AsQueryable();
+        if (branchId is not null) query = query.Where(i => i.BranchId == branchId);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -205,8 +236,11 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(i => new SalesReportRowDto(
                 i.Id, i.InvoiceNo, i.InvoiceDate, i.Customer.Name,
-                i.Subtotal, i.TaxTotal, i.DiscountTotal, i.GrandTotal, i.PaidAmount, i.DueAmount, i.Status))
+                i.Subtotal, i.TaxTotal, i.DiscountTotal, i.GrandTotal, i.PaidAmount, i.DueAmount, i.Status, i.BranchId, null, null))
             .ToListAsync(ct);
+
+        var labels = await BranchLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
 
         return Ok(new PagedResult<SalesReportRowDto>(items, total, page, pageSize));
     }
@@ -214,9 +248,12 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
     [HttpGet("profit-summary")]
     [Authorize(Policy = "Reports.Profit")]
     public async Task<ActionResult<ProfitSummaryDto>> ProfitSummary(
-        [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo, CancellationToken ct)
+        [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo, [FromQuery] Guid? branchId, CancellationToken ct)
     {
+        if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
+
         var query = db.SalesInvoices.Where(i => i.Status == SalesStatus.Completed).AsQueryable();
+        if (branchId is not null) query = query.Where(i => i.BranchId == branchId);
         if (dateFrom is not null) query = query.Where(i => i.InvoiceDate >= dateFrom);
         if (dateTo is not null) query = query.Where(i => i.InvoiceDate <= dateTo);
 
@@ -234,6 +271,6 @@ public class ReportsController(SelloraDbContext db) : ControllerBase
         var grossProfit = salesRevenue - cogs;
         var grossMarginPercent = salesRevenue > 0 ? Math.Round(grossProfit / salesRevenue * 100, 2) : (decimal?)null;
 
-        return Ok(new ProfitSummaryDto(dateFrom, dateTo, invoiceCount, salesRevenue, cogs, grossProfit, grossMarginPercent));
+        return Ok(new ProfitSummaryDto(dateFrom, dateTo, invoiceCount, salesRevenue, cogs, grossProfit, grossMarginPercent, branchId));
     }
 }

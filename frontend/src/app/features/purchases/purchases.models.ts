@@ -1,9 +1,11 @@
+import type { BranchFields, LocationFields } from '../../shared/scope/scope.models';
+
 export type PurchaseStatus = 'Completed' | 'Cancelled';
 export type PaymentStatus = 'Due' | 'PartiallyPaid' | 'Paid';
 export type PaymentMethod = 'Cash' | 'Upi' | 'Card' | 'Credit' | 'BankTransfer';
 export type PaymentEntryKind = 'Payment' | 'Refund' | 'Reversal';
 
-export interface PurchaseListItem {
+export interface PurchaseListItem extends BranchFields, LocationFields {
   id: string;
   purchaseNo: string;
   supplierName: string;
@@ -43,6 +45,16 @@ export interface PurchaseLine {
   internalBatchNo: string | null;
   supplierBatchNumber: string | null;
   receivedDate: string | null;
+  /** Phase 10: per visible location, the base qty of this line's batch still held there (> 0 only). Present with a location in scope. */
+  locationBalances?: PurchaseLineLocationBalance[] | null;
+}
+
+/** Mirrors `PurchaseLineLocationBalanceDto`. */
+export interface PurchaseLineLocationBalance {
+  stockLocationId: string;
+  code: string;
+  name: string;
+  baseQty: number;
 }
 
 export interface PurchaseReturnUnit {
@@ -105,7 +117,7 @@ export interface PurchaseProduct {
   units: PurchaseProductUnit[];
 }
 
-export interface PurchaseDetail {
+export interface PurchaseDetail extends BranchFields, LocationFields {
   id: string;
   purchaseNo: string;
   supplierId: string;
@@ -165,6 +177,8 @@ export interface CreatePurchaseRequest {
   paymentMethod: PaymentMethod;
   paidAmount: number;
   accountId?: string | null;
+  /** Receiving location; omitted/null = the working branch's default store. */
+  stockLocationId?: string | null;
   lines: CreatePurchaseLineRequest[];
 }
 
@@ -196,11 +210,13 @@ export interface CreatePurchaseReturnRequest {
   purchaseOrderId: string;
   returnDate: string;
   reason?: string | null;
+  /** Location the goods leave from; omitted/null = server default. */
+  stockLocationId?: string | null;
   lines: { purchaseOrderLineId: string; productUnitId?: string | null; qty: number }[];
   refund?: PurchaseRefundDetails | null;
 }
 
-export interface PurchaseReturnListItem {
+export interface PurchaseReturnListItem extends BranchFields, LocationFields {
   id: string;
   returnNo: string;
   returnDate: string;
@@ -229,7 +245,7 @@ export interface PurchaseReturnLine {
   lineTotal: number;
 }
 
-export interface PurchaseReturnDetail {
+export interface PurchaseReturnDetail extends BranchFields, LocationFields {
   id: string;
   returnNo: string;
   returnDate: string;

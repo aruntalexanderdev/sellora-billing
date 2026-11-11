@@ -9,7 +9,8 @@ public record UpsertExpenseCategoryRequest([Required, MaxLength(60)] string Name
 
 public record ExpenseListItemDto(
     Guid Id, string ExpenseNo, DateOnly ExpenseDate, string CategoryName, string? Reference,
-    PaymentMethod PaymentMethod, decimal Amount, string CurrencyCode, decimal BaseAmount, ExpenseStatus Status
+    PaymentMethod PaymentMethod, decimal Amount, string CurrencyCode, decimal BaseAmount, ExpenseStatus Status,
+    Guid? BranchId, string? BranchCode, string? BranchName
 );
 
 public record ExpenseDetailDto(
@@ -19,7 +20,8 @@ public record ExpenseDetailDto(
     string BaseCurrencyCode, string BaseCurrencySymbol, int BaseCurrencyDecimalPrecision,
     PaymentMethod PaymentMethod, string? Reference, string? Notes, ExpenseStatus Status,
     string CreatedByName, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt,
-    DateTimeOffset? CancelledAt, string? CancelledByName, string? CancellationReason
+    DateTimeOffset? CancelledAt, string? CancelledByName, string? CancellationReason,
+    Guid? BranchId, string? BranchCode, string? BranchName
 );
 
 public record CreateExpenseRequest(
@@ -30,13 +32,15 @@ public record CreateExpenseRequest(
     PaymentMethod PaymentMethod,
     [MaxLength(60)] string? Reference,
     [MaxLength(500)] string? Notes,
-    Guid? AccountId = null
+    Guid? AccountId = null,
+    Guid? BranchId = null
 );
 
 public record UpdateExpenseRequest(
     [Required] Guid? CategoryId,
     [MaxLength(60)] string? Reference,
-    [MaxLength(500)] string? Notes
+    [MaxLength(500)] string? Notes,
+    Guid? BranchId = null
 );
 
 public record CancelExpenseRequest([MaxLength(200)] string? Reason);

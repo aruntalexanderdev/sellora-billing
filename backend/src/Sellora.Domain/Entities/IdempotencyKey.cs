@@ -1,3 +1,5 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
 /// <summary>
@@ -5,8 +7,10 @@ namespace Sellora.Domain.Entities;
 /// produced a document, so a double-click, retry or replayed request returns that document instead of creating
 /// a second purchase/sale/adjustment and moving stock twice.
 /// </summary>
-public class IdempotencyKey
+public class IdempotencyKey : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
 

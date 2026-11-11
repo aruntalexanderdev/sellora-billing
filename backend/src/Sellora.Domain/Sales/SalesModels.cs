@@ -29,7 +29,8 @@ public sealed record CreateSaleInput(
     IReadOnlyList<SaleLineInput> Lines,
     Guid? AccountId = null,
     string? IdempotencyKey = null,
-    bool CanOverridePrice = false
+    bool CanOverridePrice = false,
+    Guid? StockLocationId = null
 );
 
 /// <summary><see cref="Qty"/> is in <see cref="ProductUnitId"/> (default: the unit the invoice line was sold in).</summary>
@@ -41,7 +42,8 @@ public sealed record CreateSaleReturnInput(
     DateOnly ReturnDate,
     string? Reason,
     IReadOnlyList<SaleReturnLineInput> Lines,
-    RefundDetails? Refund = null
+    RefundDetails? Refund = null,
+    string? IdempotencyKey = null
 );
 
 /// <summary>Money paid back to a customer. <see cref="ExpectedRefundable"/> is the refundable amount the caller

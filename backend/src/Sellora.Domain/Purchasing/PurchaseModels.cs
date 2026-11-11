@@ -22,7 +22,8 @@ public sealed record CreatePurchaseInput(
     decimal PaidAmount,
     IReadOnlyList<PurchaseLineInput> Lines,
     Guid? AccountId = null,
-    string? IdempotencyKey = null
+    string? IdempotencyKey = null,
+    Guid? StockLocationId = null
 );
 
 /// <summary>Editable header fields of a saved purchase. Payments are not editable here.</summary>
@@ -52,7 +53,9 @@ public sealed record CreatePurchaseReturnInput(
     DateOnly ReturnDate,
     string? Reason,
     IReadOnlyList<PurchaseReturnLineInput> Lines,
-    RefundDetails? Refund = null
+    RefundDetails? Refund = null,
+    Guid? StockLocationId = null,
+    string? IdempotencyKey = null
 );
 
 /// <summary>Money a supplier paid back, in the purchase's transaction currency. <see cref="ExpectedRefundable"/>

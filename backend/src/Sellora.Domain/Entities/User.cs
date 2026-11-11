@@ -10,7 +10,8 @@ public class User
     public string? PhoneNumber { get; set; }
     public required string PasswordHash { get; set; }
 
-    public Guid RoleId { get; set; }
+    /// <summary>Deprecated (Phase 7, D4): nullable, no longer used for authorization or written for new users; dropped in a later release. Evaluation reads <see cref="UserRoleAssignment"/>.</summary>
+    public Guid? RoleId { get; set; }
     public Role Role { get; set; } = null!;
 
     public UserStatus Status { get; set; } = UserStatus.Active;

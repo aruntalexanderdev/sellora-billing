@@ -34,7 +34,7 @@ public class SalesEndpointsTests
     {
         var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, userId.ToString()) };
         claims.AddRange(permissions.Select(p => new Claim(AuthClaimTypes.Permission, p)));
-        var services = new ServiceCollection().AddLogging().AddMvcCore().Services.BuildServiceProvider();
+        var services = new ServiceCollection().AddLogging().AddMvcCore().Services.AddSingleton(new Sellora.Infrastructure.Data.BranchContext()).BuildServiceProvider();
         return new ControllerContext { HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(claims, "test")), RequestServices = services } };
     }
 
@@ -66,7 +66,7 @@ public class SalesEndpointsTests
 
         var service = new SalesService(db);
         var ctx = Context(user.Id, permissions);
-        return new Fixture(db, service, new SalesController(db, salesOverride ?? service) { ControllerContext = ctx },
+        return new Fixture(db, service, new SalesController(db, salesOverride ?? service, new FakeEffectivePermissions(permissions)) { ControllerContext = ctx },
             new SalesReturnsController(db, service) { ControllerContext = ctx }, user.Id, customer, pen, rows, tax, pc, box);
     }
 
@@ -190,6 +190,7 @@ public class SalesEndpointsTests
             throw new DomainValidationException("Lines", "captured");
         }
 
+        public Task<Guid> ResolveSellingLocationAsync(Guid? stockLocationId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<SalesInvoice?> AddPaymentAsync(Guid salesInvoiceId, AddSalePaymentInput input, Guid receivedByUserId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<SalesReturn> CreateReturnAsync(CreateSaleReturnInput input, Guid userId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<SalesInvoice?> AddRefundAsync(Guid salesInvoiceId, AddSaleRefundInput input, Guid userId, CancellationToken ct = default) => throw new NotSupportedException();

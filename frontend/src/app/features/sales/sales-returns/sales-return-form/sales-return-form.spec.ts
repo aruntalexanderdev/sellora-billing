@@ -88,4 +88,14 @@ describe('SalesReturnForm', () => {
     expect(c.unitFor(LINE)?.productUnitId).toBe('pu-pc');
     expect(c.qty()['l1']).toBe(26);
   });
+
+  it('sends one Idempotency-Key per form and no location (the server resolves the restock location)', () => {
+    const { c, createReturn } = setup();
+    c.setQty('l1', '2');
+    c.submit();
+    const [req, key] = createReturn.mock.calls[0] as unknown as [Record<string, unknown>, string];
+    expect(req).not.toHaveProperty('stockLocationId');
+    expect(typeof key).toBe('string');
+    expect(key.length).toBeGreaterThan(8);
+  });
 });

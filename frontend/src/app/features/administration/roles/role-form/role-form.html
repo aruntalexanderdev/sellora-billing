@@ -24,6 +24,41 @@
       <label class="field-label" style="margin-top: 14px">Description</label>
       <textarea formControlName="description" class="field-input" rows="3"></textarea>
 
+      <label class="field-label" style="margin-top: 14px" for="role-scope">Scope</label>
+      <select id="role-scope" formControlName="scopeType" class="field-input">
+        @if (!branchOnly || isEdit()) {
+          <option value="Company">Company role</option>
+        }
+        <option value="Branch">Branch role</option>
+      </select>
+      @if (isEdit()) {
+        <div class="field-hint">The scope of a role cannot be changed after it is created.</div>
+      }
+      @if (form.get('scopeType')?.errors?.['server']) {
+        <div class="field-error">{{ form.get('scopeType')?.errors?.['server'] }}</div>
+      }
+
+      @if (scope() === 'Branch') {
+        <label class="field-label" style="margin-top: 14px" for="role-branch">Branch</label>
+        @if (isEdit()) {
+          <input id="role-branch" class="field-input" [value]="branchLabel() ?? ''" disabled />
+        } @else {
+          <select id="role-branch" formControlName="branchId" class="field-input">
+            <option value="">Select a branch…</option>
+            @for (b of branches(); track b.id) {
+              <option [value]="b.id">{{ b.name }} ({{ b.code }})</option>
+            }
+          </select>
+          @if (form.get('branchId')?.touched && form.get('branchId')?.errors?.['required']) {
+            <div class="field-error">Choose the branch this role belongs to.</div>
+          }
+          @if (form.get('branchId')?.errors?.['server']) {
+            <div class="field-error">{{ form.get('branchId')?.errors?.['server'] }}</div>
+          }
+          <div class="field-hint">Branch roles can only hold branch-eligible permissions.</div>
+        }
+      }
+
       <div class="summary-line">{{ selectedCount() }} of {{ totalCount() }} permissions selected</div>
 
       <div class="actions">

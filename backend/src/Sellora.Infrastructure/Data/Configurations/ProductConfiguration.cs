@@ -13,10 +13,15 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(p => p.Name).HasMaxLength(150).IsRequired();
         builder.Property(p => p.Category).HasMaxLength(60);
         builder.Property(p => p.ReorderLevel).HasColumnType("numeric(18,3)");
-        builder.HasIndex(p => p.Sku).IsUnique();
+        // Company-scoped unique (two companies may use the same SKU); (CompanyId, Id) is the target of same-company composite FKs.
+        builder.HasAlternateKey(p => new { p.CompanyId, p.Id });
+        builder.HasIndex(p => new { p.CompanyId, p.Sku }, "IX_Products_CompanyId_Sku").IsUnique();
 
         builder.HasOne(p => p.BaseUnit).WithMany().HasForeignKey(p => p.BaseUnitId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(p => p.Tax).WithMany().HasForeignKey(p => p.TaxId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantee: a product's tax belongs to the product's company.
+        builder.HasOne<Tax>().WithMany().HasForeignKey(p => new { p.CompanyId, p.TaxId })
+            .HasPrincipalKey(t => new { t.CompanyId, t.Id }).OnDelete(DeleteBehavior.Restrict);
     }
 }
 
@@ -35,6 +40,9 @@ public class ProductUnitConfiguration : IEntityTypeConfiguration<ProductUnit>
 
         builder.HasOne(u => u.Product).WithMany(p => p.Units).HasForeignKey(u => u.ProductId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(u => u.Unit).WithMany().HasForeignKey(u => u.UnitId).OnDelete(DeleteBehavior.Restrict);
+        // Same-company guarantee: a unit row belongs to the company of its product.
+        builder.HasOne<Product>().WithMany().HasForeignKey(u => new { u.CompanyId, u.ProductId })
+            .HasPrincipalKey(p => new { p.CompanyId, p.Id }).OnDelete(DeleteBehavior.Restrict);
         // (ProductId, InnerProductUnitId) -> (ProductId, Id). Optional: MATCH SIMPLE skips the check while
         // InnerProductUnitId is NULL (base row). Services set the scalar only; never assign InnerProductUnit = null.
         builder.HasOne(u => u.InnerProductUnit).WithMany()
@@ -53,7 +61,7 @@ public class ProductUnitConfiguration : IEntityTypeConfiguration<ProductUnit>
             .IsUnique().HasFilter("\"IsDefaultPurchaseUnit\"");
         builder.HasIndex(u => u.ProductId, "IX_ProductUnits_ProductId_DefaultSales")
             .IsUnique().HasFilter("\"IsDefaultSalesUnit\"");
-        builder.HasIndex(u => u.Barcode, "IX_ProductUnits_Barcode")
+        builder.HasIndex(u => new { u.CompanyId, u.Barcode }, "IX_ProductUnits_CompanyId_Barcode")
             .IsUnique().HasFilter("\"Barcode\" IS NOT NULL AND \"IsActive\"");
 
         // Rules SQL cannot express (base UnitId = Product.BaseUnitId, cycles, category compatibility, factor

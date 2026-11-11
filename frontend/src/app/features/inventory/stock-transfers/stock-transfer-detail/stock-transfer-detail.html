@@ -1,0 +1,177 @@
+@if (loadError(); as e) {
+  <div class="server-error" role="alert" data-testid="load-error">{{ e }}</div>
+}
+@if (!loading() && transfer(); as t) {
+  <div class="page-head">
+    <div>
+      <h1>{{ t.transferNo }}</h1>
+      <p>{{ label(t.from) }} → {{ label(t.to) }} · created {{ t.created.at | date: 'd MMM y, HH:mm' }}{{ t.created.userName ? ' by ' + t.created.userName : '' }}</p>
+    </div>
+    <div class="header-actions">
+      <a routerLink="/inventory/stock-transfers" class="back-link">Back to transfers</a>
+    </div>
+  </div>
+
+  <div class="status-row">
+    <ui-badge [text]="t.status" [tone]="tone(t.status)" />
+    <span class="muted">{{ t.sourceBranch.code || t.sourceBranch.name || 'Company' }} → {{ t.destinationBranch.code || t.destinationBranch.name || 'Company' }}</span>
+  </div>
+
+  @if (actionError(); as e) {
+    <div class="server-error" role="alert" data-testid="action-error">{{ e }}</div>
+  }
+
+  <div class="action-bar" data-testid="actions">
+    @if (can('edit')) {
+      <ui-button data-testid="act-edit" (onClick)="edit()">Edit draft</ui-button>
+    }
+    @if (can('submit')) {
+      <ui-button variant="primary" data-testid="act-submit" [disabled]="busy()" (onClick)="submit()">Submit</ui-button>
+    }
+    @if (can('approve')) {
+      <ui-button variant="primary" data-testid="act-approve" [disabled]="busy()" (onClick)="approve()">Approve</ui-button>
+    }
+    @if (can('reject')) {
+      <ui-button variant="destructive" data-testid="act-reject" (onClick)="open('reject')">Reject</ui-button>
+    }
+    @if (can('dispatch')) {
+      <ui-button variant="primary" data-testid="act-dispatch" (onClick)="open('dispatch')">Dispatch</ui-button>
+    }
+    @if (can('receive')) {
+      <ui-button variant="primary" data-testid="act-receive" (onClick)="open('receive')">Receive</ui-button>
+    }
+    @if (can('resolve')) {
+      <ui-button data-testid="act-resolve" (onClick)="open('resolve')">Resolve outstanding</ui-button>
+    }
+    @if (can('cancel')) {
+      <ui-button variant="destructive" data-testid="act-cancel" (onClick)="open('cancel')">Cancel transfer</ui-button>
+    }
+  </div>
+
+  @switch (panel()) {
+    @case ('reject') {
+      <app-reason-prompt title="Reject this transfer" confirmLabel="Reject" [destructive]="true" [busy]="busy()" [error]="actionError()" (confirmed)="confirmReason('reject', $event)" (cancelled)="close()" />
+    }
+    @case ('cancel') {
+      <app-reason-prompt title="Cancel this transfer" confirmLabel="Cancel transfer" [destructive]="true" [busy]="busy()" [error]="actionError()" (confirmed)="confirmReason('cancel', $event)" (cancelled)="close()" />
+    }
+    @case ('dispatch') {
+      <app-transfer-dispatch-dialog [transfer]="t" [submission]="submissionFor('dispatch')" (done)="onUpdated($event, 'Transfer dispatched.')" (cancelled)="close()" />
+    }
+    @case ('receive') {
+      <app-transfer-receive-dialog [transfer]="t" [submission]="submissionFor('receive')" (done)="onUpdated($event, 'Receipt recorded.')" (cancelled)="close()" />
+    }
+    @case ('resolve') {
+      <app-transfer-resolve-dialog [transfer]="t" [submission]="submissionFor('resolve')" (done)="onUpdated($event, 'Outstanding goods resolved.')" (cancelled)="close()" />
+    }
+  }
+
+  <div class="detail-card">
+    <div class="card-title">Timeline</div>
+    <ul class="timeline" data-testid="timeline">
+      @for (e of timeline(); track e.label) {
+        <li>
+          <strong>{{ e.label }}</strong>
+          <span class="muted">{{ e.actor.at | date: 'd MMM y, HH:mm' }}{{ e.actor.userName ? ' · ' + e.actor.userName : '' }}</span>
+          @if (e.note) {
+            <div class="note">{{ e.note }}</div>
+          }
+        </li>
+      }
+    </ul>
+    @if (t.notes) {
+      <div class="note" data-testid="notes">Notes: {{ t.notes }}</div>
+    }
+  </div>
+
+  <div class="detail-card">
+    <div class="card-title">Lines</div>
+    <table class="lines" data-testid="lines">
+      <thead>
+        <tr>
+          <th>#</th><th>Product</th><th class="num">Requested</th><th class="num">Dispatched</th>
+          <th class="num">Received</th><th class="num">Damaged</th><th class="num">Written off</th><th class="num">Returned</th><th class="num">Outstanding</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (l of t.lines; track l.id) {
+          <tr [attr.data-testid]="'line-' + l.lineNo">
+            <td>{{ l.lineNo }}</td>
+            <td>{{ l.productName }}<div class="sub">{{ l.sku }}</div></td>
+            <td class="num">
+              {{ entered(l.requestedQty) }} {{ l.unitCode }}
+              <div class="sub">= {{ base(l, l.requestedBaseQty) }} {{ l.baseUnitCode }} (1 {{ l.unitCode }} = {{ factor(l.conversionFactorToBase) }})</div>
+            </td>
+            <td class="num">
+              @if (dispatched(l)) {
+                {{ entered(l.dispatchedQty) }} {{ l.dispatchUnitCode }}
+                <div class="sub">= {{ base(l, l.dispatchedBaseQty) }} {{ l.baseUnitCode }}{{ l.dispatchFactor !== null ? ' (1 ' + l.dispatchUnitCode + ' = ' + factor(l.dispatchFactor) + ')' : '' }}</div>
+              } @else {
+                —
+              }
+            </td>
+            <td class="num">{{ base(l, l.receivedBaseQty) }} {{ l.baseUnitCode }}</td>
+            <td class="num">{{ base(l, l.damagedBaseQty) }} {{ l.baseUnitCode }}</td>
+            <td class="num">{{ base(l, l.writtenOffBaseQty) }} {{ l.baseUnitCode }}</td>
+            <td class="num">{{ base(l, l.returnedBaseQty) }} {{ l.baseUnitCode }}</td>
+            <td class="num" [class.outstanding]="l.outstandingBaseQty > 0"><strong>{{ base(l, l.outstandingBaseQty) }} {{ l.baseUnitCode }}</strong></td>
+          </tr>
+          @if (l.batches.length > 0) {
+            <tr class="batch-row">
+              <td></td>
+              <td colspan="8">
+                <table class="batches" [attr.data-testid]="'batches-' + l.lineNo">
+                  <thead><tr><th>Batch</th><th class="num">Unit cost</th><th class="num">Dispatched</th><th class="num">Received</th><th class="num">Damaged</th><th class="num">Written off</th><th class="num">Returned</th><th class="num">Outstanding</th></tr></thead>
+                  <tbody>
+                    @for (b of l.batches; track b.purchaseBatchId) {
+                      <tr>
+                        <td>{{ b.internalBatchNo }}</td>
+                        <td class="num">{{ b.unitCost }}</td>
+                        <td class="num">{{ base(l, b.dispatchedBaseQty) }}</td>
+                        <td class="num">{{ base(l, b.receivedBaseQty) }}</td>
+                        <td class="num">{{ base(l, b.damagedBaseQty) }}</td>
+                        <td class="num">{{ base(l, b.writtenOffBaseQty) }}</td>
+                        <td class="num">{{ base(l, b.returnedBaseQty) }}</td>
+                        <td class="num">{{ base(l, b.outstandingBaseQty) }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+
+  @if (t.receipts.length > 0) {
+    <div class="detail-card">
+      <div class="card-title">Receipts and resolutions</div>
+      @for (r of t.receipts; track r.id) {
+        <div class="receipt" [attr.data-testid]="'receipt-' + r.sequence">
+          <div>
+            <strong>#{{ r.sequence }} {{ r.kind === 'Receipt' ? 'Receipt' : 'Resolution' }}</strong>
+            <span class="muted"> · {{ r.at | date: 'd MMM y, HH:mm' }}{{ r.byUserName ? ' · ' + r.byUserName : '' }}</span>
+          </div>
+          @if (r.notes) {
+            <div class="note">{{ r.notes }}</div>
+          }
+          <ul>
+            @for (rl of r.lines; track rl.transferLineId) {
+              <li>
+                {{ lineName(t, rl.transferLineId) }}:
+                @if (rl.acceptedQty > 0) { accepted {{ entered(rl.acceptedQty) }} {{ rl.unitCode }}; }
+                @if (rl.damagedQty > 0) { damaged {{ entered(rl.damagedQty) }} {{ rl.unitCode }}; }
+                @if (rl.writtenOffBaseQty > 0) { written off {{ rbase(t, rl.transferLineId, rl.writtenOffBaseQty) }}; }
+                @if (rl.returnedBaseQty > 0) { returned to source {{ rbase(t, rl.transferLineId, rl.returnedBaseQty) }}; }
+              </li>
+            }
+          </ul>
+        </div>
+      }
+    </div>
+  }
+} @else if (!loading() && !loadError()) {
+  <p>Transfer not found.</p>
+}

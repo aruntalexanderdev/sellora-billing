@@ -93,6 +93,12 @@ internal static class Idempotency
     public const string Purchase = "purchase";
     public const string Sale = "sale";
     public const string StockAdjustment = "stock-adjustment";
+    public const string SalesReturn = "sales-return";
+    public const string PurchaseReturn = "purchase-return";
+    public const string StockTransfer = "stock-transfer";
+    public const string StockTransferDispatch = "stock-transfer-dispatch";
+    public const string StockTransferReceipt = "stock-transfer-receipt";
+    public const string StockTransferResolve = "stock-transfer-resolve";
 
     /// <summary>The document an earlier request with this key created, or null if the key is new. Concurrent
     /// requests with the same key queue on an advisory lock, so the second one sees the first's committed record
@@ -103,7 +109,9 @@ internal static class Idempotency
 
         if (db.Database.IsRelational())
         {
-            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtext({$"sellora:idem:{userId}:{scope}:{key}"}))", ct);
+            // Company-scoped key: the same user/scope/key in two companies must not serialise (or collide).
+            var companyId = db.CompanyContext.RequireCompanyId();
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtext({$"sellora:idem:{companyId}:{userId}:{scope}:{key}"}))", ct);
         }
 
         return await db.IdempotencyKeys
@@ -125,17 +133,6 @@ internal static class StockLocks
         db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
 
     /// <summary>
-    /// Serialises generation of one kind of document number (PUR, INV, ADJ…) until the surrounding transaction
-    /// ends. Numbers are derived from a row count, so two concurrent creations would otherwise pick the same
-    /// number and one would fail on the unique index. Callers must be inside a transaction.
-    /// </summary>
-    public static async Task LockDocumentNumberAsync(SelloraDbContext db, string series, CancellationToken ct)
-    {
-        if (!db.Database.IsRelational()) return;
-        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtext({"sellora:docno:" + series}))", ct);
-    }
-
-    /// <summary>
     /// Takes FOR KEY SHARE locks on the given products (distinct, product-id order). Document creates hold this
     /// before the StockItems lock so a concurrent product-unit edit (which takes FOR UPDATE on the product) cannot
     /// change or deactivate the units a line is being built from. KEY SHARE does not conflict with other creates.
@@ -146,9 +143,10 @@ internal static class StockLocks
 
         var ids = productIds.Distinct().Order().ToArray();
         if (ids.Length == 0) return;
+        var companyId = db.CompanyContext.RequireCompanyId();
 
         await db.Database
-            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Products\" WHERE \"Id\" = ANY({ids}) ORDER BY \"Id\" FOR KEY SHARE")
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Products\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = ANY({ids}) ORDER BY \"Id\" FOR KEY SHARE")
             .ToListAsync(ct);
     }
 
@@ -160,82 +158,132 @@ internal static class StockLocks
     {
         if (!db.Database.IsRelational()) return;
 
+        var companyId = db.CompanyContext.RequireCompanyId();
+
         await db.Database
-            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Products\" WHERE \"Id\" = {productId} FOR UPDATE")
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Products\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = {productId} FOR UPDATE")
             .ToListAsync(ct);
     }
 
     /// <summary>
-    /// Ensures a StockItem row (QOH 0, average cost 0) exists for each given product that exists, then FOR UPDATE-locks
-    /// them in product-id order and returns the tracked rows keyed by ProductId. This is the only place StockItem rows
-    /// are created: a plain lock finds nothing to lock for a product's first stock-in, so two concurrent first
-    /// stock-ins would both insert (one failing on the primary key). Inserting in id order with ON CONFLICT DO NOTHING
-    /// makes the second writer wait on the first's uncommitted row instead, then lock it. Unknown product ids are
-    /// skipped (no FK error) and are simply absent from the result; callers validate them. Must be the first load of
-    /// these StockItems in the context so the returned instances are the locked, current values. Callers must be
-    /// inside a transaction (relational) — the in-memory provider just adds untracked-missing rows to the tracker.
+    /// Exclusive FOR UPDATE lock on one transfer header (Phase 9 D6): serialises every state change, dispatch, receipt and
+    /// resolution of the transfer. Taken right after the idempotency lock and never after a stock lock. Returns false when the
+    /// company has no such transfer. The caller then loads the entity (which applies the Branch filter). Callers must be inside a transaction.
+    /// </summary>
+    public static async Task<bool> LockTransferAsync(SelloraDbContext db, Guid transferId, CancellationToken ct)
+    {
+        if (!db.Database.IsRelational()) return true;
+
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var rows = await db.Database
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"StockTransfers\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = {transferId} FOR UPDATE")
+            .ToListAsync(ct);
+        return rows.Count > 0;
+    }
+
+    /// <summary>
+    /// Takes FOR KEY SHARE locks on the given stock locations (distinct, id order), after the products and before the
+    /// StockItems (Phase 8 D4). A location admin operation (FOR UPDATE on the location row) therefore waits for in-flight
+    /// postings and vice versa, while postings never block each other or renames.
+    /// </summary>
+    public static async Task LockLocationsKeyShareAsync(SelloraDbContext db, IEnumerable<Guid> locationIds, CancellationToken ct)
+    {
+        if (!db.Database.IsRelational()) return;
+
+        var ids = locationIds.Distinct().Order().ToArray();
+        if (ids.Length == 0) return;
+        var companyId = db.CompanyContext.RequireCompanyId();
+
+        await db.Database
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"StockLocations\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = ANY({ids}) ORDER BY \"Id\" FOR KEY SHARE")
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Ensures a StockItem row (QOH 0, average cost 0) exists for each given (location, product) whose product exists in
+    /// the company, then FOR UPDATE-locks them in (location, product) order and returns the tracked rows keyed by that
+    /// pair. This is the only place StockItem rows are created: a plain lock finds nothing to lock for a first stock-in,
+    /// so two concurrent first stock-ins would both insert (one failing on the primary key). Inserting in key order with
+    /// ON CONFLICT DO NOTHING makes the second writer wait on the first's uncommitted row instead, then lock it. Unknown
+    /// product ids are skipped (no FK error) and are simply absent from the result; callers validate them. One ordered
+    /// statement serves any number of locations, so multi-location callers cannot deadlock. Must be the first load of
+    /// these StockItems in the context so the returned instances are the locked, current values. Callers must be inside a
+    /// transaction (relational) — the in-memory provider just adds untracked-missing rows to the change tracker.
     /// <para>In-memory remark: missing rows are added to the change tracker (state Added) without saving. If the caller
     /// later throws, they stay Added in that context and would be saved by a later SaveChanges on the same context. This
     /// only affects tests that reuse a context after a failed call; request-scoped contexts are discarded, and on the
     /// relational path the insert rolls back with the transaction.</para>
     /// </summary>
-    public static async Task<IReadOnlyDictionary<Guid, StockItem>> EnsureAndLockStockItemsAsync(
-        SelloraDbContext db, IEnumerable<Guid> productIds, CancellationToken ct)
+    public static async Task<IReadOnlyDictionary<(Guid LocationId, Guid ProductId), StockItem>> EnsureAndLockStockItemsAsync(
+        SelloraDbContext db, IEnumerable<(Guid LocationId, Guid ProductId)> keys, CancellationToken ct)
     {
-        var ids = productIds.Distinct().Order().ToArray();
-        if (ids.Length == 0) return new Dictionary<Guid, StockItem>();
+        var sorted = keys.Distinct().OrderBy(k => k.LocationId).ThenBy(k => k.ProductId).ToArray();
+        if (sorted.Length == 0) return new Dictionary<(Guid, Guid), StockItem>();
 
         if (db.Database.IsRelational())
         {
+            // Only products and locations of the current company are inserted (another company's id is "unknown" and skipped).
+            var companyId = db.CompanyContext.RequireCompanyId();
+            var locs = sorted.Select(k => k.LocationId).ToArray();
+            var prods = sorted.Select(k => k.ProductId).ToArray();
             await db.Database.ExecuteSqlInterpolatedAsync(
-                $"INSERT INTO \"StockItems\" (\"ProductId\", \"QuantityOnHand\", \"AverageCost\") SELECT p.\"Id\", 0, 0 FROM \"Products\" p WHERE p.\"Id\" = ANY({ids}) ORDER BY p.\"Id\" ON CONFLICT (\"ProductId\") DO NOTHING",
+                $"INSERT INTO \"StockItems\" (\"StockLocationId\", \"ProductId\", \"CompanyId\", \"QuantityOnHand\", \"AverageCost\") SELECT k.loc, p.\"Id\", p.\"CompanyId\", 0, 0 FROM unnest({locs}::uuid[], {prods}::uuid[]) AS k(loc, prod) JOIN \"Products\" p ON p.\"Id\" = k.prod AND p.\"CompanyId\" = {companyId} JOIN \"StockLocations\" l ON l.\"Id\" = k.loc AND l.\"CompanyId\" = {companyId} ORDER BY k.loc, k.prod ON CONFLICT (\"StockLocationId\", \"ProductId\") DO NOTHING",
                 ct);
 
             var locked = await db.StockItems
-                .FromSqlInterpolated($"SELECT * FROM \"StockItems\" WHERE \"ProductId\" = ANY({ids}) ORDER BY \"ProductId\" FOR UPDATE")
+                .FromSqlInterpolated($"SELECT s.* FROM \"StockItems\" s JOIN unnest({locs}::uuid[], {prods}::uuid[]) AS k(loc, prod) ON s.\"StockLocationId\" = k.loc AND s.\"ProductId\" = k.prod WHERE s.\"CompanyId\" = {companyId} ORDER BY s.\"StockLocationId\", s.\"ProductId\" FOR UPDATE OF s")
                 .ToListAsync(ct);
-            return locked.ToDictionary(s => s.ProductId);
+            return locked.ToDictionary(s => (s.StockLocationId, s.ProductId));
         }
 
-        var result = new Dictionary<Guid, StockItem>();
-        foreach (var local in db.StockItems.Local.Where(s => ids.Contains(s.ProductId)))
+        var result = new Dictionary<(Guid LocationId, Guid ProductId), StockItem>();
+        var wantedLocations = sorted.Select(k => k.LocationId).Distinct().ToArray();
+        var wantedProducts = sorted.Select(k => k.ProductId).Distinct().ToArray();
+        var wanted = sorted.ToHashSet();
+
+        foreach (var local in db.StockItems.Local.Where(s => wanted.Contains((s.StockLocationId, s.ProductId))))
         {
-            result[local.ProductId] = local;
+            result[(local.StockLocationId, local.ProductId)] = local;
         }
 
-        var toQuery = ids.Where(id => !result.ContainsKey(id)).ToArray();
-        if (toQuery.Length > 0)
+        if (result.Count < sorted.Length)
         {
-            foreach (var stored in await db.StockItems.Where(s => toQuery.Contains(s.ProductId)).ToListAsync(ct))
+            foreach (var stored in await db.StockItems.Where(s => wantedLocations.Contains(s.StockLocationId) && wantedProducts.Contains(s.ProductId)).ToListAsync(ct))
             {
-                result[stored.ProductId] = stored;
+                if (wanted.Contains((stored.StockLocationId, stored.ProductId))) result[(stored.StockLocationId, stored.ProductId)] = stored;
             }
         }
 
-        var missing = ids.Where(id => !result.ContainsKey(id)).ToArray();
+        var missing = sorted.Where(k => !result.ContainsKey(k)).ToArray();
         if (missing.Length > 0)
         {
-            var existingProducts = await db.Products.Where(p => missing.Contains(p.Id)).Select(p => p.Id).ToListAsync(ct);
-            foreach (var productId in existingProducts)
+            var missingProducts = missing.Select(k => k.ProductId).Distinct().ToArray();
+            var existingProducts = (await db.Products.Where(p => missingProducts.Contains(p.Id)).Select(p => p.Id).ToListAsync(ct)).ToHashSet();
+            foreach (var key in missing.Where(k => existingProducts.Contains(k.ProductId)))
             {
-                StockItem created = new() { ProductId = productId, QuantityOnHand = 0, AverageCost = 0 };
+                StockItem created = new() { StockLocationId = key.LocationId, ProductId = key.ProductId, QuantityOnHand = 0, AverageCost = 0 };
                 db.StockItems.Add(created);
-                result[productId] = created;
+                result[key] = created;
             }
         }
 
         return result;
     }
 
-    public static async Task LockStockItemsAsync(SelloraDbContext db, IEnumerable<Guid> productIds, CancellationToken ct)
+    /// <summary>FOR UPDATE on existing StockItems rows in (location, product) order, without creating any. Prefer
+    /// <see cref="EnsureAndLockStockItemsAsync"/>; this is for callers whose rows are known to exist.</summary>
+    public static async Task LockStockItemsAsync(SelloraDbContext db, IEnumerable<(Guid LocationId, Guid ProductId)> keys, CancellationToken ct)
     {
         if (!db.Database.IsRelational()) return;
 
-        var ids = productIds.Distinct().Order().ToArray();
-        if (ids.Length == 0) return;
+        var sorted = keys.Distinct().OrderBy(k => k.LocationId).ThenBy(k => k.ProductId).ToArray();
+        if (sorted.Length == 0) return;
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var locs = sorted.Select(k => k.LocationId).ToArray();
+        var prods = sorted.Select(k => k.ProductId).ToArray();
 
         await db.StockItems
-            .FromSqlInterpolated($"SELECT * FROM \"StockItems\" WHERE \"ProductId\" = ANY({ids}) ORDER BY \"ProductId\" FOR UPDATE")
+            .FromSqlInterpolated($"SELECT s.* FROM \"StockItems\" s JOIN unnest({locs}::uuid[], {prods}::uuid[]) AS k(loc, prod) ON s.\"StockLocationId\" = k.loc AND s.\"ProductId\" = k.prod WHERE s.\"CompanyId\" = {companyId} ORDER BY s.\"StockLocationId\", s.\"ProductId\" FOR UPDATE OF s")
             .ToListAsync(ct);
     }
 }

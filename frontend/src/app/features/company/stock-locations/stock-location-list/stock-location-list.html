@@ -1,0 +1,39 @@
+<div class="page-head">
+  <div>
+    <h1>Stock locations</h1>
+    <p>Every place stock can be held. Locations are created with branches, warehouses and vehicles.</p>
+  </div>
+</div>
+
+<div class="report-filters">
+  <label class="report-filter-field">
+    <span class="report-filter-label">Type</span>
+    <select class="report-filter-input" aria-label="Type filter" [value]="type()" (change)="setType($any($event.target).value)">
+      <option value="">All types</option>
+      @for (t of types; track t.value) {
+        <option [value]="t.value">{{ t.label }}</option>
+      }
+    </select>
+  </label>
+  <div class="report-filter-field">
+    <span class="report-filter-label">Branch</span>
+    <app-branch-select [value]="branchId()" (valueChange)="setBranch($event)" />
+  </div>
+  <label class="report-filter-field">
+    <span class="report-filter-label">Show</span>
+    <select class="report-filter-input" aria-label="Status filter" [value]="includeInactive() ? 'all' : 'active'"
+            (change)="setIncludeInactive($any($event.target).value === 'all')">
+      <option value="active">Active only</option>
+      <option value="all">Including inactive</option>
+    </select>
+  </label>
+</div>
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  emptyTitle="No stock locations"
+  emptyBody="No locations match these filters."
+  (retry)="load()"
+/>

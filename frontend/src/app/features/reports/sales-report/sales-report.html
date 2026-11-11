@@ -15,13 +15,16 @@
     <label class="report-filter-label">To</label>
     <input type="date" class="report-filter-input" [value]="dateTo()" (change)="onDateToChange($any($event.target).value)" />
   </div>
+  <app-scope-filters [showBranch]="showBranch()" [showLocation]="false" [branchId]="branchId()" (branchIdChange)="onBranchChange($event)" />
   @if (hasDateFilter()) {
     <button type="button" class="report-filter-clear" (click)="clearDates()">Clear dates</button>
   }
 </div>
 
+<app-load-error [message]="errorMessage()" />
+
 <ui-data-table
-  [cols]="cols"
+  [cols]="cols()"
   [rows]="rows()"
   [state]="state()"
   [showSearch]="true"

@@ -1,10 +1,14 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { UiDataTable } from '../../../shared/ui/data-table/data-table';
 import type { DataTableColumn, DataTableFilter, DataTableRow, DataTableState } from '../../../shared/ui/data-table/data-table.types';
+import { problemMessage, toProblem } from '../../../core/http/api-errors';
+import { LoadError } from '../../../shared/scope/load-error';
+import { ScopeFilters } from '../../../shared/scope/scope-filters';
+import { injectBranchColumnVisible, placeLabel } from '../../../shared/scope/list-scope';
 import { ReportsService } from '../reports.service';
 import type { PaymentMethod, SalesReportRow } from '../reports.models';
 
-const COLS: DataTableColumn[] = [
+const BASE_COLS: DataTableColumn[] = [
   { label: 'Invoice', align: 'left' },
   { label: 'Date', align: 'left' },
   { label: 'Customer', align: 'left' },
@@ -23,14 +27,17 @@ const PAGE_SIZE = 20;
 @Component({
   selector: 'app-sales-report',
   standalone: true,
-  imports: [UiDataTable],
+  imports: [UiDataTable, ScopeFilters, LoadError],
   templateUrl: './sales-report.html',
   styleUrl: '../report-list.scss',
 })
 export class SalesReport implements OnInit {
   private readonly reportsService = inject(ReportsService);
 
-  readonly cols = COLS;
+  readonly showBranch = injectBranchColumnVisible();
+  readonly cols = computed<DataTableColumn[]>(() => [...BASE_COLS, ...(this.showBranch() ? [{ label: 'Branch', align: 'left' as const }] : [])]);
+  readonly branchId = signal<string | null>(null);
+  readonly errorMessage = signal<string | null>(null);
   readonly search = signal('');
   readonly paymentMethod = signal<'All' | PaymentMethod>(ALL);
   readonly dateFrom = signal('');
@@ -75,6 +82,7 @@ export class SalesReport implements OnInit {
         { kind: 'text', text: INR(s.grandTotal), align: 'right', weight: '650' },
         { kind: 'text', text: INR(s.paidAmount), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(s.dueAmount), align: 'right', color: s.dueAmount > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)' },
+        ...(this.showBranch() ? [{ kind: 'text' as const, text: placeLabel(s.branchCode, s.branchName), color: 'var(--color-text-muted)' }] : []),
       ],
     })),
   );
@@ -114,6 +122,12 @@ export class SalesReport implements OnInit {
     this.load();
   }
 
+  onBranchChange(value: string | null): void {
+    this.branchId.set(value);
+    this.page.set(1);
+    this.load();
+  }
+
   onPageChange(page: number): void {
     this.page.set(page);
     this.load();
@@ -129,11 +143,13 @@ export class SalesReport implements OnInit {
 
   private load(): void {
     this.state.set('loading');
+    this.errorMessage.set(null);
     const paymentMethod = this.paymentMethod();
     this.reportsService
       .sales({
         search: this.search(),
         paymentMethod: paymentMethod === ALL ? undefined : paymentMethod,
+        branchId: this.branchId(),
         dateFrom: this.dateFrom() || undefined,
         dateTo: this.dateTo() || undefined,
         page: this.page(),
@@ -145,7 +161,10 @@ export class SalesReport implements OnInit {
           this.total.set(res.total);
           this.state.set('ready');
         },
-        error: () => this.state.set('error'),
+        error: (err) => {
+          this.errorMessage.set(problemMessage(toProblem(err)));
+          this.state.set('error');
+        },
       });
   }
 }

@@ -3,14 +3,19 @@ using Sellora.Domain.Entities;
 
 namespace Sellora.Api.Contracts;
 
+/// <summary>Phase 7: <c>RoleId</c>/<c>RoleName</c> = first Active company role by name (null/empty when none); <c>Roles</c> lists every Active assignment (company and branch).</summary>
+public record UserRoleSummaryDto(Guid Id, string Name, RoleScope ScopeType, Guid? BranchId);
+
 public record UserListItemDto(
     Guid Id, string FirstName, string LastName, string Username, string Email,
-    Guid RoleId, string RoleName, UserStatus Status, DateTimeOffset? LastLoginAt, DateTimeOffset CreatedAt
+    Guid? RoleId, string RoleName, UserStatus Status, DateTimeOffset? LastLoginAt, DateTimeOffset CreatedAt,
+    IReadOnlyList<UserRoleSummaryDto>? Roles = null
 );
 
 public record UserDetailDto(
     Guid Id, string FirstName, string LastName, string Username, string Email, string? PhoneNumber,
-    Guid RoleId, string RoleName, UserStatus Status, DateTimeOffset? LastLoginAt, DateTimeOffset CreatedAt
+    Guid? RoleId, string RoleName, UserStatus Status, DateTimeOffset? LastLoginAt, DateTimeOffset CreatedAt,
+    IReadOnlyList<UserRoleSummaryDto>? Roles = null
 );
 
 public record CreateUserRequest(
@@ -21,7 +26,12 @@ public record CreateUserRequest(
     [MaxLength(30)] string? PhoneNumber,
     [Required, MinLength(8)] string Password,
     [Required] string ConfirmPassword,
-    [Required] Guid? RoleId
+    [Required] Guid? RoleId,
+    // Optional initial access (Phase 5, D12). Omitted: AssignedBranches with one primary allocation at the creator's working
+    // branch (company-wide for the Administrator role). Supplying any of them needs Company.Users.ManageBranchAccess and a company-wide actor.
+    CompanyAccessScope? AccessScope = null,
+    Guid[]? BranchIds = null,
+    Guid? PrimaryBranchId = null
 );
 
 public record UpdateUserRequest(

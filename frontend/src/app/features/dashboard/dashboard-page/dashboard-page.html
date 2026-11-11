@@ -77,8 +77,8 @@
                 @for (item of d.lowStockItems; track item.productId) {
                   <tr [routerLink]="['/inventory/stock', item.productId]" class="dash-row-link">
                     <td class="strong">{{ item.name }}</td>
-                    <td class="num">{{ item.quantityOnHand }} {{ item.baseUnitLabel }}</td>
-                    <td class="num">{{ item.reorderLevel }} {{ item.baseUnitLabel }}</td>
+                    <td class="num">{{ item.quantityOnHand | quantity: item.baseDecimalPlaces }} {{ item.baseUnitLabel }}</td>
+                    <td class="num">{{ item.reorderLevel | quantity: item.baseDecimalPlaces }} {{ item.baseUnitLabel }}</td>
                     <td><ui-badge [text]="item.status === 'OutOfStock' ? 'Out of stock' : item.status" [tone]="item.status === 'Low' ? 'warn' : 'bad'" /></td>
                   </tr>
                 }

@@ -557,8 +557,10 @@ public class SalesUnitScenarioTests
 
         f.Db.ChangeTracker.Clear();
         var movements = await f.Db.StockMovements.AsNoTracking().Where(m => m.ReferenceId == sale.Id).ToListAsync();
-        var cancellation = Assert.Single(movements, m => m.Type == StockMovementType.SaleCancellation);
-        Assert.Equal(34m, cancellation.QuantityBaseUnits);
+        // Phase 6a-D3: one SaleCancellation per sales line (30 + 4 base pieces), same product total as before.
+        var cancellations = movements.Where(m => m.Type == StockMovementType.SaleCancellation).ToList();
+        Assert.Equal(2, cancellations.Count);
+        Assert.Equal(34m, cancellations.Sum(m => m.QuantityBaseUnits));
         Assert.Equal(-34m, movements.Where(m => m.Type == StockMovementType.Sale).Sum(m => m.QuantityBaseUnits)); // one Sale movement per line
         Assert.Equal(200m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
         Assert.Equal(200m, (await f.Db.PurchaseBatches.SingleAsync()).RemainingBaseQty);

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
@@ -23,7 +24,8 @@ public class FinancialTransactionsController(SelloraDbContext db) : ControllerBa
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var query = db.FinancialTransactions.AsQueryable();
+        // Phase 5 D7: visibility follows the source document / account (FinancialTransactionVisibility.VisibleTo); roots are filtered before projection.
+        var query = db.FinancialTransactions.VisibleTo(db);
         if (type is not null) query = query.Where(t => t.Type == type);
         if (direction is not null) query = query.Where(t => t.Direction == direction);
         if (status is not null) query = query.Where(t => t.Status == status);
@@ -34,8 +36,10 @@ public class FinancialTransactionsController(SelloraDbContext db) : ControllerBa
         {
             var s = search.Trim().ToLower();
             query = query.Where(t =>
-                (t.PurchasePayment != null && (t.PurchasePayment.PurchaseOrder.PurchaseNo.ToLower().Contains(s) || t.PurchasePayment.PurchaseOrder.Supplier.Name.ToLower().Contains(s)))
-                || (t.SalesPayment != null && (t.SalesPayment.SalesInvoice.InvoiceNo.ToLower().Contains(s) || t.SalesPayment.SalesInvoice.Customer.Name.ToLower().Contains(s)))
+                (t.PurchasePayment != null && (db.PurchaseOrders.Any(o => o.Id == t.PurchasePayment.PurchaseOrderId && o.PurchaseNo.ToLower().Contains(s))
+                    || db.Suppliers.Any(x => x.Id == t.PurchasePayment.PurchaseOrder.SupplierId && x.Name.ToLower().Contains(s))))
+                || (t.SalesPayment != null && (db.SalesInvoices.Any(i => i.Id == t.SalesPayment.SalesInvoiceId && i.InvoiceNo.ToLower().Contains(s))
+                    || db.Customers.Any(x => x.Id == t.SalesPayment.SalesInvoice.CustomerId && x.Name.ToLower().Contains(s))))
                 || (t.Expense != null && (t.Expense.ExpenseNo.ToLower().Contains(s) || t.Expense.Category.Name.ToLower().Contains(s))));
         }
 
@@ -49,8 +53,11 @@ public class FinancialTransactionsController(SelloraDbContext db) : ControllerBa
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(t => new FinancialTransactionDto(
                 t.Id, t.TransactionDate, t.Type, t.Direction, t.Status,
-                t.PurchasePayment != null ? t.PurchasePayment.PurchaseOrder.Supplier.Name
-                    : t.SalesPayment != null ? t.SalesPayment.SalesInvoice.Customer.Name
+                // Party names are looked up by id rather than through PurchaseOrder.Supplier / SalesInvoice.Customer:
+                // with the company query filter EF turns a second required hop after an optional navigation into a
+                // top-level INNER JOIN, which silently dropped every transaction without that payment kind.
+                t.PurchasePayment != null ? db.Suppliers.Where(x => x.Id == t.PurchasePayment.PurchaseOrder.SupplierId).Select(x => x.Name).FirstOrDefault() ?? ""
+                    : t.SalesPayment != null ? db.Customers.Where(x => x.Id == t.SalesPayment.SalesInvoice.CustomerId).Select(x => x.Name).FirstOrDefault() ?? ""
                     : t.Expense != null ? t.Expense.Category.Name
                     : t.Type == FinancialTransactionType.Transfer
                         ? db.FinancialTransactions.Where(o => o.TransferGroupId == t.TransferGroupId && o.Id != t.Id).Select(o => o.Account!.Name).FirstOrDefault() ?? ""
@@ -59,14 +66,14 @@ public class FinancialTransactionsController(SelloraDbContext db) : ControllerBa
                 t.PurchasePayment != null ? t.PurchasePayment.PurchaseOrderId
                     : t.SalesPayment != null ? t.SalesPayment.SalesInvoiceId
                     : t.ExpenseId,
-                t.PurchasePayment != null ? t.PurchasePayment.PurchaseOrder.PurchaseNo
-                    : t.SalesPayment != null ? t.SalesPayment.SalesInvoice.InvoiceNo
+                t.PurchasePayment != null ? db.PurchaseOrders.Where(o => o.Id == t.PurchasePayment.PurchaseOrderId).Select(o => o.PurchaseNo).FirstOrDefault()
+                    : t.SalesPayment != null ? db.SalesInvoices.Where(i => i.Id == t.SalesPayment.SalesInvoiceId).Select(i => i.InvoiceNo).FirstOrDefault()
                     : t.Expense != null ? t.Expense.ExpenseNo : null,
                 t.PaymentMethod, t.Amount, t.Currency.Code, t.ExchangeRateToBase, t.BaseAmount, t.CreatedAt,
                 t.AccountId, t.Account != null ? t.Account.Name : null, t.ReconciledAt != null, t.Notes))
             .ToListAsync(ct);
 
-        var baseCurrency = await db.BusinessSettings.Select(s => s.BaseCurrency).SingleAsync(ct);
+        var baseCurrency = await db.GetBaseCurrencyAsync(ct);
         return Ok(new FinancialTransactionListDto(items, total, page, pageSize, moneyIn, moneyOut, baseCurrency.Code, baseCurrency.Symbol));
     }
 }

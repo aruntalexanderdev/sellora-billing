@@ -7,20 +7,25 @@ using Microsoft.OpenApi;
 using Sellora.Api.Authorization;
 using Sellora.Api.ErrorHandling;
 using Sellora.Domain.Abstractions;
+using Sellora.Domain.Companies;
 using Sellora.Infrastructure;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Security;
+using Sellora.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-const string AngularDevCorsPolicy = "AngularDev";
+const string FrontendCorsPolicy = "Frontend";
 
 // Add services to the container.
 builder.Services.AddControllers()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-builder.Services.AddProblemDetails();
+// Every ProblemDetails (incl. MVC ValidationProblem 400s, which otherwise prefer Activity.Current?.Id) carries the request's
+// TraceIdentifier, which CorrelationIdMiddleware sets from the client's X-Correlation-Id (Phase 11 D6).
+builder.Services.AddProblemDetails(options =>
+    options.CustomizeProblemDetails = ctx => ctx.ProblemDetails.Extensions["traceId"] = ctx.HttpContext.TraceIdentifier);
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -63,20 +68,52 @@ builder.Services
 
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
-builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+// Handlers read the database / membership context per request, so they are scoped (permission evaluation is server-side, claims are ignored).
+builder.Services.AddScoped<IAuthorizationHandler, PlatformAdminHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, GovernanceAuthorizationHandler>();
+builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, PlatformAuthorizationResultHandler>();
+builder.Services.Configure<PlatformOptions>(builder.Configuration.GetSection(PlatformOptions.SectionName));
+builder.Services.AddScoped<IPlatformService, PlatformService>();
+
+// CORS (Phase 2 D10): origins come from configuration (Cors:AllowedOrigins; environments override with
+// Cors__AllowedOrigins__0..n). Fail closed: an empty list allows no cross-origin access. Bearer tokens travel in headers
+// and the refresh token in the body, so credentials (cookies) are not allowed. Custom headers (Idempotency-Key,
+// X-Branch-Id) trigger a preflight, which is cached for 10 minutes.
+var corsOrigins = (builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [])
+    .Select(o => o.Trim().TrimEnd('/'))
+    .Where(o => o.Length > 0)
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy(AngularDevCorsPolicy, policy =>
-        policy.WithOrigins("http://localhost:4200","https://wonderful-bay-04d447700.6.azurestaticapps.net")
-              .AllowAnyHeader()
+    options.AddPolicy(FrontendCorsPolicy, policy =>
+    {
+        if (corsOrigins.Length == 0) return;
+
+        policy.WithOrigins(corsOrigins)
+              .WithHeaders("Authorization", "Content-Type", "Idempotency-Key", "X-Branch-Id", "X-Correlation-Id")
+              .WithExposedHeaders("X-Correlation-Id")
               .AllowAnyMethod()
-              .AllowCredentials());
+              .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
+    });
 });
+
+builder.Services.AddScoped<IBranchService, BranchService>();
+builder.Services.AddScoped<IStockLocationUsage, StockLocationUsageService>();
+builder.Services.AddScoped<IWarehouseService, WarehouseService>();
+builder.Services.AddScoped<IVehicleService, VehicleService>();
 
 var app = builder.Build();
 
+if (corsOrigins.Length == 0)
+{
+    app.Logger.LogWarning("Cors:AllowedOrigins is empty; cross-origin browser requests are blocked.");
+}
+
 // Configure the HTTP request pipeline.
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
 
 // Startup migrations + idempotent seed data are gated by Database:ApplyMigrationsOnStartup (decision D10).
@@ -99,6 +136,10 @@ if (applyMigrationsOnStartup)
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<SelloraDbContext>();
     var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+    // Seed data always belongs to the default company (ADR-11).
+    scope.ServiceProvider.GetRequiredService<CompanyContext>().Set(DefaultTenant.CompanyId);
+    // Seeding must see every branch's documents (the "Branch" filter would otherwise make it blind): unrestricted scope.
+    scope.ServiceProvider.GetRequiredService<BranchContext>().Set(null, null);
     await db.Database.MigrateAsync();
     await DbSeeder.SeedAsync(db, hasher);
 }
@@ -127,11 +168,12 @@ if (app.Environment.IsDevelopment() || enableSwagger)
     });
 }
 
-app.UseCors(AngularDevCorsPolicy);
+app.UseCors(FrontendCorsPolicy);
 
 app.UseHttpsRedirection();
 
 app.UseAuthentication();
+app.UseMiddleware<CompanyContextMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
@@ -143,3 +185,6 @@ app.MapGet("/health", async (SelloraDbContext db) =>
 });
 
 app.Run();
+
+/// <summary>Exposes the entry point to WebApplicationFactory in integration tests.</summary>
+public partial class Program;

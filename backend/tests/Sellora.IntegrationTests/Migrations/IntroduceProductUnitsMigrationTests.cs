@@ -421,8 +421,8 @@ public class IntroduceProductUnitsMigrationTests(PostgresFixture postgres)
         // 0.5 g sachet on a kg base: factor 0.0005 is valid in numeric(28,10) but not representable in numeric(18,3).
         await ExecuteAsync(database, $"""
             INSERT INTO "ProductUnits" ("Id", "ProductId", "UnitId", "InnerProductUnitId", "InnerQuantity", "ConversionFactorToBase",
-              "IsBaseUnit", "Label", "IsActive", "IsPurchasable", "IsSellable", "IsDefaultPurchaseUnit", "IsDefaultSalesUnit", "SortOrder")
-            VALUES (gen_random_uuid(), '{PRice}', '{UG}', '{MRiceLoose}', 0.0005, 0.0005, false, 'Sachet', true, true, true, false, false, 9);
+              "IsBaseUnit", "Label", "IsActive", "IsPurchasable", "IsSellable", "IsDefaultPurchaseUnit", "IsDefaultSalesUnit", "SortOrder", "CompanyId")
+            VALUES (gen_random_uuid(), '{PRice}', '{UG}', '{MRiceLoose}', 0.0005, 0.0005, false, 'Sachet', true, true, true, false, false, 9, '{Sellora.IntegrationTests.TestData.CompanyMigrations.DefaultCompany}');
             """);
 
         await using (var db = database.CreateDbContext())
@@ -471,6 +471,9 @@ public class IntroduceProductUnitsMigrationTests(PostgresFixture postgres)
             Assert.Equal(db.Database.GetMigrations().Where(m => string.CompareOrdinal(m, IntroduceProductUnits) > 0),
                 await db.Database.GetPendingMigrationsAsync());
             Assert.False(db.Database.HasPendingModelChanges());
+            // Multi-company: the head model's CompanyId filters read columns added by later migrations, so bring the schema to head
+            // before the EF-model assertions below (the data assertions themselves are unchanged).
+            await db.Database.MigrateAsync();
             var rows = await db.ProductUnits.AsNoTracking().ToDictionaryAsync(u => u.Id);
             Assert.All(LegacyModes, m => Assert.Equal(m.Factor, rows[m.Id].ConversionFactorToBase));
         }

@@ -26,6 +26,6 @@ public class ExchangeRateConfiguration : IEntityTypeConfiguration<ExchangeRate>
         builder.HasOne(r => r.Currency).WithMany().HasForeignKey(r => r.CurrencyId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(r => r.CreatedByUser).WithMany().HasForeignKey(r => r.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasIndex(r => new { r.CurrencyId, r.EffectiveDate }).IsUnique();
+        builder.HasIndex(r => new { r.CompanyId, r.CurrencyId, r.EffectiveDate }, "IX_ExchangeRates_CompanyId_CurrencyId_EffectiveDate").IsUnique();
     }
 }

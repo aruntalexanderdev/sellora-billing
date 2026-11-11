@@ -51,12 +51,31 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     /// <summary>Builds a context the same way <c>Sellora.Infrastructure.DependencyInjection.AddInfrastructure</c>
     /// does (<c>UseNpgsql(connectionString)</c> with no further options).</summary>
-    public static SelloraDbContext CreateDbContext(string connectionString)
+    public static SelloraDbContext CreateDbContext(string connectionString, Guid? companyId = null, Sellora.Domain.Abstractions.IBranchContext? branch = null)
     {
         var options = new DbContextOptionsBuilder<SelloraDbContext>()
             .UseNpgsql(connectionString)
             .Options;
-        return new SelloraDbContext(options);
+        // Default company unless a test asks for another one; a context's company is fixed once set.
+        return new SelloraDbContext(options, Sellora.IntegrationTests.TestData.TestCompany.For(companyId ?? Sellora.Domain.Companies.DefaultTenant.CompanyId),
+            branch ?? Sellora.IntegrationTests.TestData.TestCompany.Branch);
+    }
+
+    /// <summary>Result of a psql run inside the container.</summary>
+    public sealed record PsqlResult(long ExitCode, string Stdout, string Stderr);
+
+    /// <summary>Runs a psql script (meta-commands such as \if and :'var' included) inside the container against <paramref name="databaseName"/>,
+    /// exactly as an operator would (<c>psql -v ON_ERROR_STOP=1 -v name=value -f script</c>); the host needs no psql client.</summary>
+    public async Task<PsqlResult> RunPsqlScriptAsync(string databaseName, string scriptText, IReadOnlyDictionary<string, string>? variables = null)
+    {
+        var container = _container ?? throw new InvalidOperationException("The PostgreSQL container has not been started.");
+        var path = $"/tmp/{Guid.NewGuid():N}.sql";
+        await container.CopyAsync(System.Text.Encoding.UTF8.GetBytes(scriptText), path);
+        var command = new List<string> { "psql", "-U", "postgres", "-d", databaseName, "-v", "ON_ERROR_STOP=1" };
+        foreach (var (name, value) in variables ?? new Dictionary<string, string>()) { command.Add("-v"); command.Add($"{name}={value}"); }
+        command.Add("-f"); command.Add(path);
+        var result = await container.ExecAsync(command);
+        return new PsqlResult(result.ExitCode ?? -1, result.Stdout, result.Stderr);
     }
 
     /// <summary>Context on the container's default database (not migrated; prefer <see cref="CreateDatabaseAsync"/>).</summary>
@@ -94,7 +113,7 @@ public sealed class TestDatabase(string name, string connectionString, string ad
     public string ConnectionString { get; } = connectionString;
 
     /// <summary>A new, independent context (own connection) on this database.</summary>
-    public SelloraDbContext CreateDbContext() => PostgresFixture.CreateDbContext(ConnectionString);
+    public SelloraDbContext CreateDbContext(Guid? companyId = null, Sellora.Domain.Abstractions.IBranchContext? branch = null) => PostgresFixture.CreateDbContext(ConnectionString, companyId, branch);
 
     /// <summary>Releases pooled connections to this database and drops it (forcing off any remaining sessions).</summary>
     public async ValueTask DisposeAsync()

@@ -23,7 +23,7 @@ public class BatchTraceabilityScenarioTests
 
     private static async Task<Fixture> SeedAsync()
     {
-        var db = new SelloraDbContext(new DbContextOptionsBuilder<SelloraDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var db = Sellora.Tests.TestData.TestCompany.NewDb(new DbContextOptionsBuilder<SelloraDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 
         var role = new Role { Id = Guid.NewGuid(), Name = "Administrator", IsSystem = true };
         var user = new User
@@ -43,7 +43,7 @@ public class BatchTraceabilityScenarioTests
         db.AddRange(role, user, kg, tax, inr, settings, supplier, customer, rice);
         await db.SaveChangesAsync();
 
-        return new Fixture(db, new PurchaseService(db, new ExchangeRateService(db)), ListPricedSales.For(db), new StockController(db),
+        return new Fixture(db, new PurchaseService(db, new ExchangeRateService(db)), ListPricedSales.For(db), new StockController(db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")),
             supplier, customer, rice, looseKg, user.Id);
     }
 

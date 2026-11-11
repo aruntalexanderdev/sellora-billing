@@ -15,7 +15,8 @@ public class FinancialAccountService(SelloraDbContext db) : IFinancialAccountSer
         {
             throw new DomainValidationException("Name", "Account name is required.");
         }
-        if (await db.FinancialAccounts.AnyAsync(a => a.Name.ToLower() == name.ToLower(), ct))
+        // Documented "Branch"-filter bypass (D7): the name unique index is company-wide, so accounts of other branches must count.
+        if (await db.FinancialAccounts.IgnoreQueryFilters([BranchQueryFilter.Name]).AnyAsync(a => a.Name.ToLower() == name.ToLower(), ct))
         {
             throw new DomainValidationException("Name", "An account with this name already exists.");
         }
@@ -25,12 +26,16 @@ public class FinancialAccountService(SelloraDbContext db) : IFinancialAccountSer
         }
         EnsureNotFuture(input.OpeningDate, "OpeningDate");
 
+        var branch = input.BranchId is { } branchId
+            ? await BranchRules.EnsureCanUseAsync(db, branchId, requireActive: true, "BranchId", ct)
+            : null;
+
         var (baseCurrencyId, basePrecision) = await BaseCurrencyAsync(ct);
         var opening = Math.Round(input.OpeningBalance, basePrecision, MidpointRounding.AwayFromZero);
 
         var account = new FinancialAccount
         {
-            Id = Guid.NewGuid(), Name = name, Kind = input.Kind, Reference = Clean(input.Reference), CreatedByUserId = userId,
+            Id = Guid.NewGuid(), Name = name, Kind = input.Kind, Reference = Clean(input.Reference), BranchId = branch?.Id, CreatedByUserId = userId,
         };
         db.FinancialAccounts.Add(account);
 
@@ -53,9 +58,19 @@ public class FinancialAccountService(SelloraDbContext db) : IFinancialAccountSer
         {
             throw new DomainValidationException("Name", "Account name is required.");
         }
-        if (await db.FinancialAccounts.AnyAsync(a => a.Id != accountId && a.Name.ToLower() == name.ToLower(), ct))
+        // Documented "Branch"-filter bypass (D7): the name unique index is company-wide, so accounts of other branches must count.
+        if (await db.FinancialAccounts.IgnoreQueryFilters([BranchQueryFilter.Name]).AnyAsync(a => a.Id != accountId && a.Name.ToLower() == name.ToLower(), ct))
         {
             throw new DomainValidationException("Name", "An account with this name already exists.");
+        }
+
+        if (input.BranchId != account.BranchId)
+        {
+            if (input.BranchId is { } newBranchId)
+            {
+                await BranchRules.EnsureCanUseAsync(db, newBranchId, requireActive: true, "BranchId", ct);
+            }
+            account.BranchId = input.BranchId;
         }
 
         account.Name = name;
@@ -153,8 +168,8 @@ public class FinancialAccountService(SelloraDbContext db) : IFinancialAccountSer
 
     private async Task<(Guid Id, int Precision)> BaseCurrencyAsync(CancellationToken ct)
     {
-        var settings = await db.BusinessSettings.Select(s => new { s.BaseCurrencyId, s.BaseCurrency.DecimalPrecision }).SingleAsync(ct);
-        return (settings.BaseCurrencyId, settings.DecimalPrecision);
+        var settings = await db.GetCurrentCompanySettingsAsync(ct);
+        return (settings.BaseCurrencyId, settings.BaseCurrencyDecimalPrecision);
     }
 
     private static void EnsureNotFuture(DateOnly date, string field)

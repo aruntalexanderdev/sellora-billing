@@ -3,19 +3,28 @@
     <div class="shell-backdrop" (click)="closeSidebar()"></div>
   }
 
-  <app-sidebar [navGroups]="navGroups()" [open]="sidebarOpen()" (closeRequested)="closeSidebar()" />
+  <app-sidebar [navGroups]="navGroups()" [companyName]="companyName()" [branchName]="branchName()" [open]="sidebarOpen()" (closeRequested)="closeSidebar()" />
 
   <div class="shell-content">
     <app-header
       [userName]="currentUser() ? currentUser()!.firstName + ' ' + currentUser()!.lastName : ''"
       [userRole]="currentUser()?.roleName ?? ''"
       [userInitials]="userInitials()"
+      [companies]="companies()"
+      [companyId]="companyId()"
+      [branches]="allowedBranches()"
+      [branchId]="workingBranchId()"
+      [canChooseAll]="canChooseAll()"
+      (branchChange)="switchBranch($event)"
+      (companyChange)="switchCompany($event)"
       (signOut)="signOut()"
       (menuToggle)="toggleSidebar()"
     />
 
     <main class="shell-main">
-      <router-outlet />
+      @for (key of contextKey(); track key) {
+        <router-outlet />
+      }
     </main>
   </div>
 </div>

@@ -1,0 +1,14 @@
+:host,
+app-branch-select,
+app-location-select {
+  display: contents;
+}
+
+:host ::ng-deep select {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  font-size: 13px;
+  background: #fff;
+  color: var(--color-text);
+}

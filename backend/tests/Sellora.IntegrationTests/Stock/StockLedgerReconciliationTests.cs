@@ -34,6 +34,7 @@ public class StockLedgerReconciliationTests(PostgresFixture postgres)
         Assert.Equal(50m - 35m + 7.5m - 2.25m + 1.5m, (await check.StockItems.SingleAsync()).QuantityOnHand);
         Assert.Equal(6, await check.StockMovements.CountAsync());
         await StockInvariants.AssertHoldAsync(check);
+        await StockInvariants.AssertAllAtDefaultStoreAsync(check);
     }
 
     /// <summary>Phase 3: stock put in and taken out in packs (10 kg bags) by adjustments, mixed with purchases, sales in bags
@@ -64,6 +65,7 @@ public class StockLedgerReconciliationTests(PostgresFixture postgres)
         await using var check = database.CreateDbContext();
         Assert.Equal(30m + 20m - 32.5m - 10m + 2.5m + 10m - 0.125m, (await check.StockItems.SingleAsync()).QuantityOnHand);
         await StockInvariants.AssertHoldAsync(check);
+        await StockInvariants.AssertAllAtDefaultStoreAsync(check);
         var adjustments = await check.StockAdjustments.AsNoTracking().OrderBy(a => a.AdjustmentNo).ToListAsync();
         Assert.Equal(new[] { "bag", "bag", "bag", "kg" }, adjustments.Select(a => a.UnitCode));
         Assert.All(adjustments, a => Assert.Equal(a.QuantityBaseUnits, a.EnteredQuantity * a.ConversionFactorToBase));
@@ -106,6 +108,7 @@ public class StockLedgerReconciliationTests(PostgresFixture postgres)
         await using var check = database.CreateDbContext();
         Assert.Equal(50m, (await check.StockItems.SingleAsync()).QuantityOnHand); // everything is back
         await StockInvariants.AssertHoldAsync(check);
+        await StockInvariants.AssertAllAtDefaultStoreAsync(check);
         var returns = await check.SalesReturnLines.AsNoTracking().OrderBy(r => r.SalesReturn.CreatedAt).ToListAsync();
         Assert.Equal(new[] { "kg", "bag", "kg" }, returns.Select(r => r.UnitCode));
         Assert.All(returns, r => Assert.Equal(r.BaseQty, r.Qty * r.ConversionFactorToBase));
@@ -116,6 +119,65 @@ public class StockLedgerReconciliationTests(PostgresFixture postgres)
         Assert.Equal(20m, await check.SalesInvoiceLineBatchConsumptions.Where(c => c.SalesInvoiceLineId == line.Id).SumAsync(c => c.ReturnedQtyBaseUnits));
         Assert.Equal(10m, await check.StockMovements.Where(m => m.Type == StockMovementType.SaleCancellation).SumAsync(m => m.QuantityBaseUnits));
         Assert.Empty(await check.StockMovements.Where(m => m.Type == StockMovementType.Sale && m.QuantityBaseUnits > 0).ToListAsync());
+    }
+
+    /// <summary>Phase 6a: a mixed run through every ledger writer on PostgreSQL — opening stock in bags, purchase, a purchase that is
+    /// cancelled (PurchaseCancellation), a sale in bags, a return in kg, a sale cancelled (one row per line), and a Damage decrease
+    /// spanning two batches (unit context on both rows, EnteredQuantity null). Σ movements = QOH = Σ batches, every row has its unit
+    /// context (the CHECKs ran on every insert), and the type/sign and entered-arithmetic rules hold.</summary>
+    [Fact]
+    public async Task StockInvariants_AfterPurchaseCancellationSaleCancellationAndSplitAdjustmentDecrease_ReturnNoRowsAndEveryRowHasUnitContext()
+    {
+        await using var database = await postgres.CreateDatabaseAsync();
+        StockScenario scenario;
+        await using (var db = database.CreateDbContext())
+        {
+            scenario = await StockScenario.SeedAsync(db);
+            await StockScenario.EnsureListPriceAsync(db, scenario.UserId, scenario.BagModeId, 600m);
+        }
+        await using (var db = database.CreateDbContext())
+            await new StockAdjustmentService(db).CreateAdjustmentAsync(
+                new CreateAdjustmentInput(scenario.ProductId, scenario.BagModeId, AdjustmentType.OpeningStock, AdjustmentDirection.Increase, 2m, 575m, null), scenario.UserId); // +20 kg
+        await using (var db = database.CreateDbContext()) await scenario.PurchaseBagsAsync(db, 3, 580);                                                                        // +30 kg
+        PurchaseOrder cancelled;
+        await using (var db = database.CreateDbContext()) cancelled = await scenario.PurchaseBagsAsync(db, 2, 600);                                                           // +20 kg
+        await using (var db = database.CreateDbContext()) await new PurchaseService(db, new ExchangeRateService(db)).CancelPurchaseAsync(cancelled.Id, scenario.UserId);      // -20 kg
+        SalesInvoice sale;
+        await using (var db = database.CreateDbContext())
+            sale = await new SalesService(db).CreateSaleAsync(new CreateSaleInput(scenario.CustomerId, StockScenario.SaleDate, PaymentMethod.Cash, 0,
+                [new SaleLineInput(scenario.ProductId, scenario.BagModeId, 1m, 600m, 0), new SaleLineInput(scenario.ProductId, scenario.LooseKgModeId, 3m, StockScenario.LooseKgPrice, 0)]), scenario.UserId); // -13 kg
+        await using (var db = database.CreateDbContext()) await scenario.ReturnAsync(db, sale.Id, sale.Lines.First(l => l.UnitCode == "kg").Id, 2m);                         // +2 kg
+        SalesInvoice second;
+        await using (var db = database.CreateDbContext())
+            second = await new SalesService(db).CreateSaleAsync(new CreateSaleInput(scenario.CustomerId, StockScenario.SaleDate, PaymentMethod.Cash, 0,
+                [new SaleLineInput(scenario.ProductId, scenario.BagModeId, 1m, 600m, 0), new SaleLineInput(scenario.ProductId, scenario.LooseKgModeId, 4m, StockScenario.LooseKgPrice, 0)]), scenario.UserId); // -14 kg
+        await using (var db = database.CreateDbContext()) await new SalesService(db).CancelSaleAsync(second.Id, scenario.UserId);                                            // +14 kg, two rows
+        await using (var db = database.CreateDbContext()) // 3 bags = 30 kg: 7 kg remain of the opening batch, the rest comes from the purchase batch
+            await new StockAdjustmentService(db).CreateAdjustmentAsync(
+                new CreateAdjustmentInput(scenario.ProductId, scenario.BagModeId, AdjustmentType.Damage, AdjustmentDirection.Decrease, 3m, null, null), scenario.UserId);       // -30 kg
+
+        await using var check = database.CreateDbContext();
+        Assert.Equal(20m + 30m + 20m - 20m - 13m + 2m - 14m + 14m - 30m, (await check.StockItems.SingleAsync()).QuantityOnHand);
+        await StockInvariants.AssertHoldAsync(check);
+        await StockInvariants.AssertAllAtDefaultStoreAsync(check);
+
+        var movements = await check.StockMovements.AsNoTracking().ToListAsync();
+        Assert.All(movements, m => Assert.NotNull(m.EnteredProductUnitId));
+        Assert.Equal(2, movements.Count(m => m.Type == StockMovementType.SaleCancellation));
+        Assert.Equal(-20m, movements.Single(m => m.Type == StockMovementType.PurchaseCancellation).QuantityBaseUnits);
+        Assert.DoesNotContain(movements, m => m.Type == StockMovementType.Purchase && m.QuantityBaseUnits < 0);
+        var split = movements.Where(m => m.ReasonCode == AdjustmentType.Damage).ToList();
+        Assert.True(split.Count >= 2);
+        Assert.All(split, m => Assert.Equal(((Guid?)scenario.BagModeId, "bag", (decimal?)10m, (decimal?)null), (m.EnteredProductUnitId, m.EnteredUnitCode, m.ConversionFactorSnapshot, m.EnteredQuantity)));
+        Assert.Equal(-30m, split.Sum(m => m.QuantityBaseUnits));
+        Assert.Empty(await StockInvariants.QueryIdsAsync(check, """
+            SELECT "Id" FROM "StockMovements" WHERE "EnteredQuantity" IS NOT NULL AND "EnteredQuantity" * "ConversionFactorSnapshot" <> abs("QuantityBaseUnits")
+            """));
+        Assert.Empty(await StockInvariants.QueryIdsAsync(check, """
+            SELECT "Id" FROM "StockMovements"
+            WHERE ("Type" IN ('Purchase', 'SaleReturn', 'SaleCancellation', 'OpeningStock') AND "QuantityBaseUnits" <= 0)
+               OR ("Type" IN ('Sale', 'PurchaseReturn', 'PurchaseCancellation') AND "QuantityBaseUnits" >= 0)
+            """));
     }
 
     /// <summary>The refusal message is built from decimals loaded from numeric(18,3)/numeric(28,10) columns, which carry

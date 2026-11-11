@@ -1,0 +1,58 @@
+<div class="page-head">
+  <div>
+    <h1>Stock transfers</h1>
+    <p>Move stock between stores, warehouses and vehicles. Dispatched goods are held in transit until received.</p>
+  </div>
+  @if (canCreate()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New transfer</ui-button>
+  }
+</div>
+
+<div class="report-filters">
+  <div class="report-filter-field">
+    <label class="report-filter-label">Direction</label>
+    <select class="report-filter-input" data-testid="direction-filter" [value]="direction()" (change)="onDirectionChange($any($event.target).value)">
+      <option value="">All transfers</option>
+      <option value="incoming">Incoming (to this branch)</option>
+      <option value="outgoing">Outgoing (from this branch)</option>
+    </select>
+  </div>
+  <div class="report-filter-field" data-testid="source-filter">
+    <label class="report-filter-label">Source</label>
+    <app-location-select purpose="filter" label="Source" allLabel="All sources" [value]="sourceLocationId()" (valueChange)="onSourceChange($event)" />
+  </div>
+  <div class="report-filter-field" data-testid="destination-filter">
+    <label class="report-filter-label">Destination</label>
+    <app-location-select purpose="filter" label="Destination" allLabel="All destinations" [value]="destinationLocationId()" (valueChange)="onDestinationChange($event)" />
+  </div>
+  <div class="report-filter-field">
+    <label class="report-filter-label">From</label>
+    <input type="date" class="report-filter-input" [value]="dateFrom()" (change)="onDateFromChange($any($event.target).value)" />
+  </div>
+  <div class="report-filter-field">
+    <label class="report-filter-label">To</label>
+    <input type="date" class="report-filter-input" [value]="dateTo()" (change)="onDateToChange($any($event.target).value)" />
+  </div>
+  @if (hasExtraFilter()) {
+    <button type="button" class="report-filter-clear" (click)="clearFilters()">Clear filters</button>
+  }
+</div>
+
+<app-load-error [message]="errorMessage()" />
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="false"
+  [filters]="filters()"
+  emptyTitle="No transfers match these filters"
+  emptyBody="Clear the filters, or create a new transfer."
+  [emptyAction]="canCreate() ? '+ New transfer' : null"
+  (emptyActionClick)="goToCreate()"
+  (retry)="retry()"
+  [footerText]="total() + ' transfer' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
+/>

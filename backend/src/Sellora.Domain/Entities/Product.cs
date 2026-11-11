@@ -1,7 +1,11 @@
+using Sellora.Domain.Abstractions;
+
 namespace Sellora.Domain.Entities;
 
-public class Product
+public class Product : ICompanyOwned
 {
+    public Guid CompanyId { get; set; }
+
     public Guid Id { get; set; }
     public required string Sku { get; set; }
     public required string Name { get; set; }
