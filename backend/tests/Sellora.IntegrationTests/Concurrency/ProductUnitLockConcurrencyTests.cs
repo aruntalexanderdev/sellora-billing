@@ -272,7 +272,7 @@ public class ProductUnitLockConcurrencyTests(PostgresFixture postgres)
             var supplier = await gate.Suppliers.AsNoTracking().SingleAsync(x => x.Id == seed.Scenario.SupplierId);
             gate.PurchaseOrders.Add(new PurchaseOrder
             {
-                Id = Guid.NewGuid(), BranchId = Sellora.Domain.Companies.DefaultTenant.BranchId, PurchaseNo = nextNo, SupplierId = supplier.Id, CurrencyId = supplier.CurrencyId,
+                Id = Guid.NewGuid(), BranchId = Sellora.Domain.Companies.DefaultTenant.BranchId, StockLocationId = Sellora.Domain.Companies.DefaultTenant.MainStoreLocationId, PurchaseNo = nextNo, SupplierId = supplier.Id, CurrencyId = supplier.CurrencyId,
                 PurchaseDate = StockScenario.PurchaseDate, PaymentMethod = PaymentMethod.Cash, CreatedByUserId = seed.Scenario.UserId,
             });
             await gate.SaveChangesAsync();
@@ -346,7 +346,7 @@ public class ProductUnitLockConcurrencyTests(PostgresFixture postgres)
             scenario = await StockScenario.SeedAsync(db);
             var gram = new Unit { Id = Guid.NewGuid(), Name = "Gram", ShortCode = "g", MeasurementCategory = MeasurementCategory.Weight, DecimalPlaces = 0, StandardFactor = 0.001m };
             db.Units.Add(gram);
-            db.StockItems.Add(new StockItem { ProductId = scenario.ProductId, QuantityOnHand = 0, AverageCost = 0 });
+            db.StockItems.Add(new StockItem { StockLocationId = Sellora.Domain.Companies.DefaultTenant.MainStoreLocationId, ProductId = scenario.ProductId, QuantityOnHand = 0, AverageCost = 0 });
             await db.SaveChangesAsync();
             (gramId, kgId, taxId) = (gram.Id, await db.Products.Where(p => p.Id == scenario.ProductId).Select(p => p.BaseUnitId).SingleAsync(),
                 await db.Products.Where(p => p.Id == scenario.ProductId).Select(p => p.TaxId).SingleAsync());

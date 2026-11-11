@@ -38,11 +38,14 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         // Product KEY SHARE first: a concurrent product-unit edit (FOR UPDATE) waits for this purchase to commit, so
         // the factor snapshotted below cannot change underneath it. Then the StockItems locks (fixed order, §5.4).
+        // Phase 8a: every purchase is received at the company's default store.
+        var locationId = await StockLocationDefaults.GetDefaultStoreIdAsync(db, ct);
         await StockLocks.LockProductsKeyShareAsync(db, input.Lines.Select(l => l.ProductId), ct);
+        await StockLocks.LockLocationsKeyShareAsync(db, [locationId], ct);
 
-        // Stock on hand and its average cost are read-modify-written below, so hold each product's lock to commit.
+        // Stock on hand and its average cost are read-modify-written below, so hold each (location, product) lock to commit.
         // The rows are created (QOH 0) first if this is a product's first stock-in, so the lock always has a row to hold.
-        var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, input.Lines.Select(l => l.ProductId), ct);
+        var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, input.Lines.Select(l => (locationId, l.ProductId)), ct);
 
         // The supplier's *current* currency becomes this purchase's own snapshot; the rate is resolved for
         // the purchase date and stored on the purchase so later changes to the rate master never touch it.
@@ -59,6 +62,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             Id = Guid.NewGuid(),
             PurchaseNo = purchaseNo,
             BranchId = branch.Id,
+            StockLocationId = locationId,
             SupplierId = supplier.Id,
             CurrencyId = supplier.CurrencyId,
             ExchangeRateToBase = rateToBase,
@@ -84,7 +88,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             discountTotal += line.Discount;
             originalGrandTotal += originalLineTotal;
 
-            ApplyPurchaseLineToStock(line, stockItems[line.ProductId], purchaseNo, input.PurchaseDate, supplierBatchNumber, createdByUserId);
+            ApplyPurchaseLineToStock(line, stockItems[(locationId, line.ProductId)], purchaseNo, input.PurchaseDate, supplierBatchNumber, createdByUserId);
         }
 
         purchase.Subtotal = subtotal;
@@ -396,8 +400,11 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         // Lock order: PurchaseOrders (above) -> Products KEY SHARE -> StockItems. The return reads the factor of a unit
         // that history may not yet reference, so a concurrent product-unit edit must wait until this commits.
         await StockLocks.LockProductsKeyShareAsync(db, purchaseLineProductIds, ct);
+        // Goods go back out of the location the purchase was received at.
+        var locationId = purchase.StockLocationId;
+        await StockLocks.LockLocationsKeyShareAsync(db, [locationId], ct);
         // Lock the stock rows before reading the batches, so the remaining quantities checked below are current.
-        await StockLocks.LockStockItemsAsync(db, purchaseLineProductIds, ct);
+        var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, purchaseLineProductIds.Select(id => (locationId, id)), ct);
         var lines = await db.PurchaseOrderLines.Include(l => l.Product).ThenInclude(p => p.BaseUnit).Include(l => l.Batch)
             .Where(l => l.PurchaseOrderId == purchase.Id).ToListAsync(ct);
         var priorReturns = await db.PurchaseReturnLines
@@ -410,6 +417,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             Id = Guid.NewGuid(),
             ReturnNo = await DocumentNumbers.NextNumberAsync(db, DocumentSeries.PurchaseReturn, returnBranch, ct),
             BranchId = returnBranch.Id,
+            StockLocationId = purchase.StockLocationId,
             PurchaseOrderId = purchase.Id,
             ReturnDate = input.ReturnDate,
             Reason = string.IsNullOrWhiteSpace(input.Reason) ? null : input.Reason.Trim(),
@@ -455,9 +463,10 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             {
                 throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(returnableBase)} {baseUnit.ShortCode} of {line.Product.Name} can still be returned.");
             }
-            if (baseQty > batch.RemainingBaseQty)
+            var inStock = await StockPosting.BalanceAsync(db, batch.Id, locationId, ct);
+            if (baseQty > inStock)
             {
-                throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(batch.RemainingBaseQty)} {baseUnit.ShortCode} of {line.Product.Name} from this purchase is still in stock to return.");
+                throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(inStock)} {baseUnit.ShortCode} of {line.Product.Name} from this purchase is still in stock to return.");
             }
 
             // Returning whatever is left takes the exact remainder, so per-line rounding can never leave a stray
@@ -490,25 +499,13 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             purchaseReturn.TaxTotal += tax;
 
             // Take the stock out of the batch and off the product's on-hand figures, valuing it at the batch cost.
-            batch.RemainingBaseQty -= baseQty;
-            var stockItem = await db.StockItems.SingleAsync(s => s.ProductId == line.ProductId, ct);
-            var qtyAfter = stockItem.QuantityOnHand - baseQty;
-            if (qtyAfter > 0)
-            {
-                var valueAfter = stockItem.QuantityOnHand * stockItem.AverageCost - baseQty * batch.UnitCost;
-                stockItem.AverageCost = StockCost.PerBaseUnit(Math.Max(0, valueAfter / qtyAfter));
-                stockItem.QuantityOnHand = qtyAfter;
-            }
-            else
-            {
-                stockItem.QuantityOnHand = 0;
-                stockItem.AverageCost = 0;
-            }
+            await StockPosting.IssueFromBatchAsync(db, stockItems[(locationId, line.ProductId)], batch, baseQty, ct);
 
             db.StockMovements.Add(MovementSnapshot.Apply(new StockMovement
             {
                 Id = Guid.NewGuid(),
                 ProductId = line.ProductId,
+                StockLocationId = locationId,
                 Type = StockMovementType.PurchaseReturn,
                 PurchaseBatchId = batch.Id,
                 QuantityBaseUnits = -baseQty,
@@ -562,7 +559,10 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         await using var transaction = await BeginAsync(ct);
         var locked = await LockPurchaseAsync(purchaseOrderId, ct) ?? throw new DomainValidationException("Id", "Purchase not found.");
         BranchRules.EnsureCanAccessDocument(db, locked.BranchId);
-        await StockLocks.LockStockItemsAsync(db, await db.PurchaseOrderLines.Where(l => l.PurchaseOrderId == purchaseOrderId).Select(l => l.ProductId).ToListAsync(ct), ct);
+        var locationId = locked.StockLocationId;
+        await StockLocks.LockLocationsKeyShareAsync(db, [locationId], ct);
+        var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db,
+            (await db.PurchaseOrderLines.Where(l => l.PurchaseOrderId == purchaseOrderId).Select(l => l.ProductId).ToListAsync(ct)).Select(id => (locationId, id)), ct);
 
         var purchase = await db.PurchaseOrders
             .Include(p => p.Lines).ThenInclude(l => l.Batch)
@@ -580,7 +580,8 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         foreach (var line in purchase.Lines)
         {
             var batch = line.Batch ?? throw new InvalidOperationException($"Purchase line {line.Id} has no batch.");
-            if (batch.RemainingBaseQty != batch.PurchasedBaseQty)
+            if (batch.RemainingBaseQty != batch.PurchasedBaseQty
+                || await StockPosting.BalanceAsync(db, batch.Id, locationId, ct) != batch.PurchasedBaseQty)
             {
                 throw new DomainValidationException("Status", "Cannot cancel — stock from this purchase has already been sold.");
             }
@@ -593,28 +594,13 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         foreach (var line in purchase.Lines)
         {
             var batch = line.Batch!;
-            var stockItem = await db.StockItems.SingleAsync(s => s.ProductId == line.ProductId, ct);
-
-            var qtyAfter = stockItem.QuantityOnHand - batch.PurchasedBaseQty;
-            if (qtyAfter > 0)
-            {
-                var totalValueBefore = stockItem.QuantityOnHand * stockItem.AverageCost;
-                var totalValueRemoved = batch.PurchasedBaseQty * batch.UnitCost;
-                stockItem.AverageCost = StockCost.PerBaseUnit(Math.Max(0, (totalValueBefore - totalValueRemoved) / qtyAfter));
-                stockItem.QuantityOnHand = qtyAfter;
-            }
-            else
-            {
-                stockItem.QuantityOnHand = 0;
-                stockItem.AverageCost = 0;
-            }
-
-            batch.RemainingBaseQty = 0;
+            await StockPosting.ReverseReceiptAsync(db, stockItems[(locationId, line.ProductId)], batch, ct);
 
             db.StockMovements.Add(MovementSnapshot.Apply(new StockMovement
             {
                 Id = Guid.NewGuid(),
                 ProductId = line.ProductId,
+                StockLocationId = locationId,
                 Type = StockMovementType.PurchaseCancellation,
                 PurchaseBatchId = batch.Id,
                 QuantityBaseUnits = -line.BaseQty,
@@ -752,7 +738,6 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             SupplierBatchNumber = supplierBatchNumber,
             ReceivedDate = receivedDate,
             PurchasedBaseQty = line.BaseQty,
-            RemainingBaseQty = line.BaseQty,
             UnitCost = line.UnitCost,
         };
         db.PurchaseBatches.Add(batch);
@@ -761,6 +746,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         {
             Id = Guid.NewGuid(),
             ProductId = line.ProductId,
+            StockLocationId = stockItem.StockLocationId,
             PurchaseBatchId = batch.Id,
             Type = StockMovementType.Purchase,
             QuantityBaseUnits = line.BaseQty,
@@ -770,10 +756,6 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             UserId = userId,
         }, line.ProductUnitId, line.UnitCode, line.ConversionFactorToBase, line.Qty));
 
-        var newQty = stockItem.QuantityOnHand + line.BaseQty;
-        stockItem.AverageCost = newQty > 0
-            ? StockCost.PerBaseUnit((stockItem.QuantityOnHand * stockItem.AverageCost + line.BaseQty * line.UnitCost) / newQty)
-            : 0;
-        stockItem.QuantityOnHand = newQty;
+        StockPosting.Receive(db, stockItem, batch, line.BaseQty, line.UnitCost);
     }
 }

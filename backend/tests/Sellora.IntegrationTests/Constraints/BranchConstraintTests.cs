@@ -41,24 +41,24 @@ public class BranchConstraintTests(PostgresFixture postgres)
     private static string Header(string table, string branch, string id) => table switch
     {
         "PurchaseOrders" => $"""
-            INSERT INTO "PurchaseOrders" ("Id", "CompanyId", "BranchId", "CreatedAt", "CreatedByUserId", "DiscountTotal", "GrandTotal", "OtherChargesTotal", "PaidAmount", "PaymentMethod", "PurchaseDate", "PurchaseNo", "Status", "Subtotal", "SupplierId", "TaxTotal")
-            VALUES ('{id}', '{DefaultCompany}', {branch}, now(), pg_temp.g(12), 0, 0, 0, 0, 'Cash', DATE '2026-09-01', 'PUR-' || right('{id}', 8), 'Completed', 0, pg_temp.g(14), 0)
+            INSERT INTO "PurchaseOrders" ("Id", "CompanyId", "BranchId", "CreatedAt", "CreatedByUserId", "DiscountTotal", "GrandTotal", "OtherChargesTotal", "PaidAmount", "PaymentMethod", "PurchaseDate", "PurchaseNo", "Status", "Subtotal", "SupplierId", "TaxTotal", "StockLocationId")
+            VALUES ('{id}', '{DefaultCompany}', {branch}, now(), pg_temp.g(12), 0, 0, 0, 0, 'Cash', DATE '2026-09-01', 'PUR-' || right('{id}', 8), 'Completed', 0, pg_temp.g(14), 0, '{DefaultStore}')
             """,
         "PurchaseReturns" => $"""
-            INSERT INTO "PurchaseReturns" ("Id", "CompanyId", "BranchId", "CreatedAt", "CreatedByUserId", "OriginalTotal", "PurchaseOrderId", "ReturnDate", "ReturnNo", "TaxTotal", "TaxableTotal", "Total")
-            VALUES ('{id}', '{DefaultCompany}', {branch}, now(), pg_temp.g(12), 0, '00000000-0000-0000-0000-0000000c0001', DATE '2026-09-03', 'PRT-' || right('{id}', 8), 0, 0, 0)
+            INSERT INTO "PurchaseReturns" ("Id", "CompanyId", "BranchId", "CreatedAt", "CreatedByUserId", "OriginalTotal", "PurchaseOrderId", "ReturnDate", "ReturnNo", "TaxTotal", "TaxableTotal", "Total", "StockLocationId")
+            VALUES ('{id}', '{DefaultCompany}', {branch}, now(), pg_temp.g(12), 0, '00000000-0000-0000-0000-0000000c0001', DATE '2026-09-03', 'PRT-' || right('{id}', 8), 0, 0, 0, '{DefaultStore}')
             """,
         "SalesInvoices" => $"""
-            INSERT INTO "SalesInvoices" ("Id", "CompanyId", "BranchId", "InvoiceNo", "CustomerId", "InvoiceDate", "PaymentMethod", "PaidAmount", "Subtotal", "TaxTotal", "DiscountTotal", "GrandTotal", "Status", "CreatedByUserId", "CreatedAt")
-            VALUES ('{id}', '{DefaultCompany}', {branch}, 'INV-' || right('{id}', 8), pg_temp.g(13), DATE '2026-09-04', 'Cash', 0, 0, 0, 0, 0, 'Completed', pg_temp.g(12), now())
+            INSERT INTO "SalesInvoices" ("Id", "CompanyId", "BranchId", "InvoiceNo", "CustomerId", "InvoiceDate", "PaymentMethod", "PaidAmount", "Subtotal", "TaxTotal", "DiscountTotal", "GrandTotal", "Status", "CreatedByUserId", "CreatedAt", "StockLocationId")
+            VALUES ('{id}', '{DefaultCompany}', {branch}, 'INV-' || right('{id}', 8), pg_temp.g(13), DATE '2026-09-04', 'Cash', 0, 0, 0, 0, 0, 'Completed', pg_temp.g(12), now(), '{DefaultStore}')
             """,
         "SalesReturns" => $"""
-            INSERT INTO "SalesReturns" ("Id", "CompanyId", "BranchId", "ReturnNo", "SalesInvoiceId", "ReturnDate", "TaxableTotal", "TaxTotal", "Total", "CreatedByUserId", "CreatedAt")
-            VALUES ('{id}', '{DefaultCompany}', {branch}, 'SRT-' || right('{id}', 8), '00000000-0000-0000-0000-0000000c0002', DATE '2026-09-07', 0, 0, 0, pg_temp.g(12), now())
+            INSERT INTO "SalesReturns" ("Id", "CompanyId", "BranchId", "ReturnNo", "SalesInvoiceId", "ReturnDate", "TaxableTotal", "TaxTotal", "Total", "CreatedByUserId", "CreatedAt", "StockLocationId")
+            VALUES ('{id}', '{DefaultCompany}', {branch}, 'SRT-' || right('{id}', 8), '00000000-0000-0000-0000-0000000c0002', DATE '2026-09-07', 0, 0, 0, pg_temp.g(12), now(), '{DefaultStore}')
             """,
         "StockAdjustments" => $"""
-            INSERT INTO "StockAdjustments" ("Id", "CompanyId", "BranchId", "AdjustmentNo", "AfterQty", "BeforeQty", "ConversionFactorToBase", "CreatedAt", "Direction", "EnteredQuantity", "ProductId", "ProductUnitId", "QuantityBaseUnits", "Type", "UnitCode", "UnitId", "UserId")
-            VALUES ('{id}', '{DefaultCompany}', {branch}, 'ADJ-' || right('{id}', 8), 1, 0, 1, now(), 'Increase', 1, pg_temp.g(20), pg_temp.g(30), 1, 'OpeningStock', 'pc', pg_temp.g(1), pg_temp.g(12))
+            INSERT INTO "StockAdjustments" ("Id", "CompanyId", "BranchId", "AdjustmentNo", "AfterQty", "BeforeQty", "ConversionFactorToBase", "CreatedAt", "Direction", "EnteredQuantity", "ProductId", "ProductUnitId", "QuantityBaseUnits", "Type", "UnitCode", "UnitId", "UserId", "StockLocationId")
+            VALUES ('{id}', '{DefaultCompany}', {branch}, 'ADJ-' || right('{id}', 8), 1, 0, 1, now(), 'Increase', 1, pg_temp.g(20), pg_temp.g(30), 1, 'OpeningStock', 'pc', pg_temp.g(1), pg_temp.g(12), '{DefaultStore}')
             """,
         "Expenses" => $"""
             INSERT INTO "Expenses" ("Id", "CompanyId", "BranchId", "ExpenseNo", "CategoryId", "ExpenseDate", "CurrencyId", "Amount", "ExchangeRateToBase", "BaseAmount", "PaymentMethod", "Status", "CreatedByUserId", "CreatedAt")

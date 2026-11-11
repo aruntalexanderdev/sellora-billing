@@ -118,7 +118,7 @@ public class StockAdjustmentConstraintTests(PostgresFixture postgres)
         {
             Id = Guid.NewGuid(), AdjustmentNo = "ADJ-9999", ProductId = seed.Rice.ProductId, Type = AdjustmentType.Loss, Direction = AdjustmentDirection.Decrease,
             EnteredQuantity = 1, ProductUnitId = penBox.Id, UnitId = penBox.UnitId, UnitCode = penBox.Unit.ShortCode, ConversionFactorToBase = 10,
-            QuantityBaseUnits = 10, UserId = seed.Rice.UserId,
+            QuantityBaseUnits = 10, UserId = seed.Rice.UserId, StockLocationId = Sellora.Domain.Companies.DefaultTenant.MainStoreLocationId,
         });
 
         var ex = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());

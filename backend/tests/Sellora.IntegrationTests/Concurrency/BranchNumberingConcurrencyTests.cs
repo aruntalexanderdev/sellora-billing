@@ -140,7 +140,7 @@ public class BranchNumberingConcurrencyTests(PostgresFixture postgres)
             // A legacy row already holding PUR-AAA-0001 makes the next insert collide after the number was taken.
             db.PurchaseOrders.Add(new PurchaseOrder
             {
-                Id = Guid.NewGuid(), BranchId = s.BranchA, PurchaseNo = "PUR-AAA-0001", SupplierId = s.Scenario.SupplierId,
+                Id = Guid.NewGuid(), BranchId = s.BranchA, StockLocationId = Sellora.Domain.Companies.DefaultTenant.MainStoreLocationId, PurchaseNo = "PUR-AAA-0001", SupplierId = s.Scenario.SupplierId,
                 CurrencyId = (await db.Currencies.SingleAsync(c => c.Code == "INR")).Id, PurchaseDate = StockScenario.PurchaseDate,
                 PaymentMethod = PaymentMethod.Cash, CreatedByUserId = s.Scenario.UserId,
             });

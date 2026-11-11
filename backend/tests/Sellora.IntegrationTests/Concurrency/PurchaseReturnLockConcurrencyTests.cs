@@ -80,7 +80,7 @@ public class PurchaseReturnLockConcurrencyTests(PostgresFixture postgres)
         {
             gate.PurchaseReturns.Add(new PurchaseReturn
             {
-                Id = Guid.NewGuid(), BranchId = Sellora.Domain.Companies.DefaultTenant.BranchId, ReturnNo = "PRT-0001", PurchaseOrderId = otherPurchaseId,
+                Id = Guid.NewGuid(), BranchId = Sellora.Domain.Companies.DefaultTenant.BranchId, StockLocationId = Sellora.Domain.Companies.DefaultTenant.MainStoreLocationId, ReturnNo = "PRT-0001", PurchaseOrderId = otherPurchaseId,
                 ReturnDate = new DateOnly(2026, 9, 2), CreatedByUserId = s.Pen.UserId,
             });
             await gate.SaveChangesAsync();

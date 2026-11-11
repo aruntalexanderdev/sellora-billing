@@ -15,6 +15,7 @@ namespace Sellora.Tests.Stock;
 /// </summary>
 public class BatchAllocatorTests
 {
+    private static readonly Guid Loc = Sellora.Domain.Companies.DefaultTenant.MainStoreLocationId;
     private static readonly DateTimeOffset T0 = new(2026, 9, 1, 8, 0, 0, TimeSpan.Zero);
 
     private sealed record Fixture(SelloraDbContext Db, Product Pen, Product Other);
@@ -39,6 +40,11 @@ public class BatchAllocatorTests
 
     private static async Task<List<PurchaseBatch>> AddAsync(Fixture f, params PurchaseBatch[] batches)
     {
+        foreach (var batch in batches)
+        {
+            batch.OriginStockLocationId = Loc;
+            f.Db.BatchLocationBalances.Add(new BatchLocationBalance { PurchaseBatchId = batch.Id, StockLocationId = Loc, ProductId = batch.ProductId, RemainingBaseQty = batch.RemainingBaseQty });
+        }
         f.Db.PurchaseBatches.AddRange(batches);
         await f.Db.SaveChangesAsync();
         return batches.ToList();
@@ -48,7 +54,7 @@ public class BatchAllocatorTests
         shortBy => { seen.Add(shortBy); return new DomainValidationException("Quantity", $"short by {shortBy}"); };
 
     private static Task<IReadOnlyList<BatchAllocator.Allocation>> ConsumeAsync(Fixture f, decimal qty, List<decimal>? seen = null) =>
-        BatchAllocator.ConsumeFifoAsync(f.Db, f.Pen.Id, qty, Shortage(seen ?? []), default);
+        BatchAllocator.ConsumeFifoAsync(f.Db, Loc, f.Pen.Id, qty, Shortage(seen ?? []), default);
 
     [Fact]
     public async Task ConsumeFifoAsync_BatchesInsertedOutOfOrder_DrawsByCreatedAtThenBatchSequence()

@@ -34,6 +34,7 @@ public class StockLedgerReconciliationTests(PostgresFixture postgres)
         Assert.Equal(50m - 35m + 7.5m - 2.25m + 1.5m, (await check.StockItems.SingleAsync()).QuantityOnHand);
         Assert.Equal(6, await check.StockMovements.CountAsync());
         await StockInvariants.AssertHoldAsync(check);
+        await StockInvariants.AssertAllAtDefaultStoreAsync(check);
     }
 
     /// <summary>Phase 3: stock put in and taken out in packs (10 kg bags) by adjustments, mixed with purchases, sales in bags
@@ -64,6 +65,7 @@ public class StockLedgerReconciliationTests(PostgresFixture postgres)
         await using var check = database.CreateDbContext();
         Assert.Equal(30m + 20m - 32.5m - 10m + 2.5m + 10m - 0.125m, (await check.StockItems.SingleAsync()).QuantityOnHand);
         await StockInvariants.AssertHoldAsync(check);
+        await StockInvariants.AssertAllAtDefaultStoreAsync(check);
         var adjustments = await check.StockAdjustments.AsNoTracking().OrderBy(a => a.AdjustmentNo).ToListAsync();
         Assert.Equal(new[] { "bag", "bag", "bag", "kg" }, adjustments.Select(a => a.UnitCode));
         Assert.All(adjustments, a => Assert.Equal(a.QuantityBaseUnits, a.EnteredQuantity * a.ConversionFactorToBase));
@@ -106,6 +108,7 @@ public class StockLedgerReconciliationTests(PostgresFixture postgres)
         await using var check = database.CreateDbContext();
         Assert.Equal(50m, (await check.StockItems.SingleAsync()).QuantityOnHand); // everything is back
         await StockInvariants.AssertHoldAsync(check);
+        await StockInvariants.AssertAllAtDefaultStoreAsync(check);
         var returns = await check.SalesReturnLines.AsNoTracking().OrderBy(r => r.SalesReturn.CreatedAt).ToListAsync();
         Assert.Equal(new[] { "kg", "bag", "kg" }, returns.Select(r => r.UnitCode));
         Assert.All(returns, r => Assert.Equal(r.BaseQty, r.Qty * r.ConversionFactorToBase));
@@ -156,6 +159,7 @@ public class StockLedgerReconciliationTests(PostgresFixture postgres)
         await using var check = database.CreateDbContext();
         Assert.Equal(20m + 30m + 20m - 20m - 13m + 2m - 14m + 14m - 30m, (await check.StockItems.SingleAsync()).QuantityOnHand);
         await StockInvariants.AssertHoldAsync(check);
+        await StockInvariants.AssertAllAtDefaultStoreAsync(check);
 
         var movements = await check.StockMovements.AsNoTracking().ToListAsync();
         Assert.All(movements, m => Assert.NotNull(m.EnteredProductUnitId));

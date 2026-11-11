@@ -30,7 +30,9 @@ public class CompanyStockLockTests(PostgresFixture postgres)
             await db.SaveChangesAsync();
         }
         await using var dbB = database.CreateDbContext(CompanyB);
-        dbB.Branches.Add(BranchBuilder.MainBranch(CompanyB));
+        var mainB = BranchBuilder.MainBranch(CompanyB);
+        dbB.Branches.Add(mainB);
+        dbB.StockLocations.Add(BranchBuilder.Store(mainB)); // Phase 8a: company B's stock posts at its default store
         var kg = await dbB.Units.SingleAsync(u => u.ShortCode == "kg");
         var tax = new Tax { Id = Guid.NewGuid(), Name = "GST 5%", RatePercent = 5m };
         var inr = await dbB.Currencies.SingleAsync(c => c.Code == "INR");

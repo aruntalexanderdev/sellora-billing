@@ -39,6 +39,11 @@ public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder
         builder.HasOne<Branch>().WithMany().HasForeignKey(p => new { p.CompanyId, p.BranchId })
             .HasPrincipalKey(b => new { b.CompanyId, b.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_PurchaseOrders_Branches_CompanyId_BranchId");
+        // Phase 8: the one location this document moves stock at. Same-company composite FK, navigation-less; FK index leads with CompanyId.
+        builder.HasOne<StockLocation>().WithMany().HasForeignKey(p => new { p.CompanyId, p.StockLocationId })
+            .HasPrincipalKey(l => new { l.CompanyId, l.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_PurchaseOrders_StockLocations_CompanyId_StockLocationId");
+        builder.HasIndex(p => new { p.CompanyId, p.StockLocationId }, "IX_PurchaseOrders_CompanyId_StockLocationId");
 
         builder.HasOne(p => p.Supplier).WithMany().HasForeignKey(p => p.SupplierId).OnDelete(DeleteBehavior.Restrict);
         // Same-company guarantee: the supplier belongs to the purchase's company.
@@ -101,6 +106,11 @@ public class PurchaseReturnConfiguration : IEntityTypeConfiguration<PurchaseRetu
         builder.HasOne<Branch>().WithMany().HasForeignKey(r => new { r.CompanyId, r.BranchId })
             .HasPrincipalKey(b => new { b.CompanyId, b.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_PurchaseReturns_Branches_CompanyId_BranchId");
+        // Phase 8: the one location this document moves stock at. Same-company composite FK, navigation-less; FK index leads with CompanyId.
+        builder.HasOne<StockLocation>().WithMany().HasForeignKey(r => new { r.CompanyId, r.StockLocationId })
+            .HasPrincipalKey(l => new { l.CompanyId, l.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_PurchaseReturns_StockLocations_CompanyId_StockLocationId");
+        builder.HasIndex(r => new { r.CompanyId, r.StockLocationId }, "IX_PurchaseReturns_CompanyId_StockLocationId");
         builder.HasIndex(r => new { r.PurchaseOrderId, r.CreatedAt });
 
         builder.HasOne(r => r.PurchaseOrder).WithMany(o => o.Returns).HasForeignKey(r => r.PurchaseOrderId).OnDelete(DeleteBehavior.Restrict);
@@ -209,6 +219,12 @@ public class PurchaseBatchConfiguration : IEntityTypeConfiguration<PurchaseBatch
         // Same-company guarantee: a batch and its product share the company.
         builder.HasOne<Product>().WithMany().HasForeignKey(b => new { b.CompanyId, b.ProductId })
             .HasPrincipalKey(p => new { p.CompanyId, p.Id }).OnDelete(DeleteBehavior.Restrict);
+
+        // Phase 8: receiving location. Explicit short name (the default would exceed 63 characters).
+        builder.HasOne<StockLocation>().WithMany().HasForeignKey(b => new { b.CompanyId, b.OriginStockLocationId })
+            .HasPrincipalKey(l => new { l.CompanyId, l.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_PurchaseBatches_StockLocations_Origin");
+        builder.HasIndex(b => new { b.CompanyId, b.OriginStockLocationId }, "IX_PurchaseBatches_CompanyId_OriginStockLocationId");
 
         builder.HasIndex(b => new { b.ProductId, b.CreatedAt });
         builder.HasIndex(b => b.BatchSequence).IsUnique();

@@ -22,6 +22,9 @@ public class PurchaseBatch : ICompanyOwned
     public Guid? StockAdjustmentId { get; set; }
     public StockAdjustment? StockAdjustment { get; set; }
 
+    /// <summary>The location the batch was received into (Phase 8). Where its stock sits now is <see cref="BatchLocationBalance"/>.</summary>
+    public Guid OriginStockLocationId { get; set; }
+
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = null!;
 

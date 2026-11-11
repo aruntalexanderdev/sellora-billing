@@ -28,6 +28,11 @@ public class StockAdjustmentConfiguration : IEntityTypeConfiguration<StockAdjust
         builder.HasOne<Branch>().WithMany().HasForeignKey(a => new { a.CompanyId, a.BranchId })
             .HasPrincipalKey(b => new { b.CompanyId, b.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_StockAdjustments_Branches_CompanyId_BranchId");
+        // Phase 8: the one location this document moves stock at. Same-company composite FK, navigation-less; FK index leads with CompanyId.
+        builder.HasOne<StockLocation>().WithMany().HasForeignKey(a => new { a.CompanyId, a.StockLocationId })
+            .HasPrincipalKey(l => new { l.CompanyId, l.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_StockAdjustments_StockLocations_CompanyId_StockLocationId");
+        builder.HasIndex(a => new { a.CompanyId, a.StockLocationId }, "IX_StockAdjustments_CompanyId_StockLocationId");
         builder.HasIndex(a => a.CreatedAt);
 
         builder.HasOne(a => a.Product).WithMany().HasForeignKey(a => a.ProductId).OnDelete(DeleteBehavior.Restrict);

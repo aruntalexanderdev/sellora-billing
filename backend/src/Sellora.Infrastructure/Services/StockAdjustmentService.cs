@@ -10,7 +10,7 @@ namespace Sellora.Infrastructure.Services;
 /// Posts stock adjustments entered in any active unit of the product. The entered quantity is converted to base units
 /// once, here, with the unit row's stored factor; the entered quantity, unit, unit code, factor and entered cost are
 /// snapshotted on the adjustment and never recomputed. Stock state (QOH, batches, movements) is base units only.
-/// Lock order: product KEY SHARE → StockItems upsert + FOR UPDATE → ADJ document number.
+/// Lock order: product KEY SHARE → location KEY SHARE → StockItems upsert + FOR UPDATE → ADJ document number.
 /// </summary>
 public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentService
 {
@@ -86,14 +86,18 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         var baseUnit = product.BaseUnit;
         StockQuantity.EnsureWithinBaseDecimals(input.Quantity, productUnit.Unit.ShortCode, baseQty, baseUnit, "Quantity");
 
-        // 7. StockItem: created at QOH 0 if this is the product's first stock, then held FOR UPDATE to commit.
-        var stockItem = (await StockLocks.EnsureAndLockStockItemsAsync(db, [product.Id], ct))[product.Id];
+        // 7. Working branch (header branch or default) and the stock location, resolved BEFORE any stock lock (Phase 8a:
+        // always the company's default store). Then the location KEY SHARE and the StockItem — created at QOH 0 if this
+        // is the product's first stock at the location — held FOR UPDATE to commit.
+        var branch = await BranchRules.ResolveWorkingBranchAsync(db, ct);
+        var locationId = await StockLocationDefaults.GetDefaultStoreIdAsync(db, ct);
+        await StockLocks.LockLocationsKeyShareAsync(db, [locationId], ct);
+        var stockItem = (await StockLocks.EnsureAndLockStockItemsAsync(db, [(locationId, product.Id)], ct))[(locationId, product.Id)];
 
         var user = await db.Users.SingleAsync(u => u.Id == userId, ct);
         var beforeQty = stockItem.QuantityOnHand;
 
-        // 8. Working branch (header branch or default) and the branch's ADJ document number.
-        var branch = await BranchRules.ResolveWorkingBranchAsync(db, ct);
+        // 8. The branch's ADJ document number.
         var adjustmentNo = await DocumentNumbers.NextNumberAsync(db, DocumentSeries.StockAdjustment, branch, ct);
 
         // 9. The adjustment with its unit snapshots.
@@ -102,6 +106,7 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
             Id = Guid.NewGuid(),
             AdjustmentNo = adjustmentNo,
             BranchId = branch.Id,
+            StockLocationId = locationId,
             ProductId = product.Id,
             Product = product,
             Type = input.Type,
@@ -131,9 +136,8 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
                     $"Cannot remove {StockQuantity.Format(input.Quantity)} {productUnit.Unit.ShortCode} ({StockQuantity.Format(baseQty)} {baseCode}) — only {StockQuantity.Format(beforeQty)} {baseCode} is in stock.");
             }
 
-            consumed = await BatchAllocator.ConsumeFifoAsync(db, product.Id, baseQty,
+            consumed = await StockPosting.IssueFifoAsync(db, stockItem, baseQty,
                 shortBy => new DomainValidationException("Quantity", $"Batch stock is short by {StockQuantity.Format(shortBy)} — cannot remove {StockQuantity.Format(baseQty)} {baseCode}."), ct);
-            stockItem.QuantityOnHand = beforeQty - baseQty;
         }
         else
         {
@@ -144,22 +148,17 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
             adjustment.UnitCost = unitCost;
 
             batchId = Guid.NewGuid();
-            db.PurchaseBatches.Add(new PurchaseBatch
+            var batch = new PurchaseBatch
             {
                 Id = batchId.Value,
                 StockAdjustmentId = adjustment.Id,
                 ProductId = product.Id,
                 ReceivedDate = DateOnly.FromDateTime(adjustment.CreatedAt.UtcDateTime),
                 PurchasedBaseQty = baseQty,
-                RemainingBaseQty = baseQty,
                 UnitCost = unitCost,
-            });
-
-            var newQty = beforeQty + baseQty;
-            stockItem.AverageCost = newQty > 0
-                ? StockCost.PerBaseUnit((beforeQty * stockItem.AverageCost + baseQty * unitCost) / newQty)
-                : 0;
-            stockItem.QuantityOnHand = newQty;
+            };
+            db.PurchaseBatches.Add(batch);
+            StockPosting.Receive(db, stockItem, batch, baseQty, unitCost);
         }
 
         // 12. Ledger rows, idempotency record, save, commit.
@@ -171,6 +170,7 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         {
             Id = Guid.NewGuid(),
             ProductId = product.Id,
+            StockLocationId = locationId,
             PurchaseBatchId = forBatchId,
             Type = input.Type == AdjustmentType.OpeningStock ? StockMovementType.OpeningStock : StockMovementType.Adjustment,
             QuantityBaseUnits = signedQty,

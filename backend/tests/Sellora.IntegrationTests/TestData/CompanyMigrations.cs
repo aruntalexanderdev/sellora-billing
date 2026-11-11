@@ -34,6 +34,8 @@ public static class CompanyMigrations
     public const string B7 = "20261110080545_AddPlatformAdminAndGovernance";
     // Phase 7 (scoped RBAC)
     public const string B8 = "20261110093408_AddScopedRoles";
+    // Phase 8a (stock location dimension)
+    public const string B9 = "20261110114731_AddStockLocationDimension";
     public const string DefaultStore = "0c0a1f00-0000-4000-8000-000000000003";
     public const string DefaultTransit = "0c0a1f00-0000-4000-8000-000000000004";
     public const string OtherTransitSql = $"md5('location:transit:' || '{OtherCompany}')::uuid";
@@ -193,6 +195,9 @@ INSERT INTO "SalesInvoices" ("Id", "InvoiceNo", "CustomerId", "InvoiceDate", "Pa
     /// <summary>Headers that must carry a BranchId after B2.</summary>
     public static readonly string[] BranchHeaders = ["PurchaseOrders", "PurchaseReturns", "SalesInvoices", "SalesReturns", "StockAdjustments"];
 
+    /// <summary>Tables carrying <c>StockLocationId</c> after B9 (Phase 8a); PurchaseBatches carries <c>OriginStockLocationId</c> instead.</summary>
+    public static readonly string[] StockLocationTables = ["StockItems", "StockMovements", "PurchaseOrders", "PurchaseReturns", "SalesInvoices", "SalesReturns", "StockAdjustments"];
+
     /// <summary>Optional-branch tables (NULL = company level).</summary>
     public static readonly string[] OptionalBranchTables = ["Expenses", "FinancialAccounts"];
 
@@ -224,7 +229,10 @@ INSERT INTO "SalesInvoices" ("Id", "InvoiceNo", "CustomerId", "InvoiceDate", "Pa
     {
         var sql = string.Concat(CompanyTables.Select(t => $"ALTER TABLE \"{t}\" ALTER COLUMN \"CompanyId\" SET DEFAULT '{DefaultCompany}';\n"))
                   // Phase 2: raw header INSERTs written before branches land on the default company's Main.
-                  + string.Concat(BranchHeaders.Select(t => $"ALTER TABLE \"{t}\" ALTER COLUMN \"BranchId\" SET DEFAULT '{DefaultBranch}';\n"));
+                  + string.Concat(BranchHeaders.Select(t => $"ALTER TABLE \"{t}\" ALTER COLUMN \"BranchId\" SET DEFAULT '{DefaultBranch}';\n"))
+                  // Phase 8a: raw stock rows / headers written before the location dimension land on the default company's Main store.
+                  + string.Concat(StockLocationTables.Select(t => $"ALTER TABLE \"{t}\" ALTER COLUMN \"StockLocationId\" SET DEFAULT '{DefaultStore}';\n"))
+                  + $"ALTER TABLE \"PurchaseBatches\" ALTER COLUMN \"OriginStockLocationId\" SET DEFAULT '{DefaultStore}';\n";
         await ExecuteAsync(database, sql);
     }
 

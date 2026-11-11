@@ -83,6 +83,38 @@ namespace Sellora.Infrastructure.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.BatchLocationBalance", b =>
+                {
+                    b.Property<Guid>("PurchaseBatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("StockLocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("RemainingBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.HasKey("PurchaseBatchId", "StockLocationId");
+
+                    b.HasIndex("CompanyId", "PurchaseBatchId");
+
+                    b.HasIndex(new[] { "CompanyId", "StockLocationId" }, "IX_BatchLocationBalances_CompanyId_StockLocationId");
+
+                    b.HasIndex(new[] { "StockLocationId", "ProductId" }, "IX_BatchLocationBalances_Location_Product")
+                        .HasFilter("\"RemainingBaseQty\" > 0");
+
+                    b.ToTable("BatchLocationBalances", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BatchLocationBalances_Remaining_NonNegative", "\"RemainingBaseQty\" >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.Branch", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1159,6 +1191,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid>("OriginStockLocationId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
@@ -1200,6 +1235,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("CompanyId", "ProductId");
 
                     b.HasIndex("ProductId", "CreatedAt");
+
+                    b.HasIndex(new[] { "CompanyId", "OriginStockLocationId" }, "IX_PurchaseBatches_CompanyId_OriginStockLocationId");
 
                     b.ToTable("PurchaseBatches", t =>
                         {
@@ -1283,6 +1320,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<Guid>("StockLocationId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("Subtotal")
                         .HasColumnType("numeric(18,2)");
 
@@ -1312,6 +1352,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex(new[] { "CompanyId", "PurchaseNo" }, "IX_PurchaseOrders_CompanyId_PurchaseNo")
                         .IsUnique();
+
+                    b.HasIndex(new[] { "CompanyId", "StockLocationId" }, "IX_PurchaseOrders_CompanyId_StockLocationId");
 
                     b.ToTable("PurchaseOrders");
                 });
@@ -1501,6 +1543,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
 
+                    b.Property<Guid>("StockLocationId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("TaxTotal")
                         .HasColumnType("numeric(18,2)");
 
@@ -1522,6 +1567,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex(new[] { "CompanyId", "ReturnNo" }, "IX_PurchaseReturns_CompanyId_ReturnNo")
                         .IsUnique();
+
+                    b.HasIndex(new[] { "CompanyId", "StockLocationId" }, "IX_PurchaseReturns_CompanyId_StockLocationId");
 
                     b.ToTable("PurchaseReturns", t =>
                         {
@@ -1784,6 +1831,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<Guid>("StockLocationId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("Subtotal")
                         .HasColumnType("numeric(18,2)");
 
@@ -1804,6 +1854,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex(new[] { "CompanyId", "InvoiceNo" }, "IX_SalesInvoices_CompanyId_InvoiceNo")
                         .IsUnique();
+
+                    b.HasIndex(new[] { "CompanyId", "StockLocationId" }, "IX_SalesInvoices_CompanyId_StockLocationId");
 
                     b.ToTable("SalesInvoices");
                 });
@@ -2034,6 +2086,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("SalesInvoiceId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("StockLocationId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("TaxTotal")
                         .HasColumnType("numeric(18,2)");
 
@@ -2055,6 +2110,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex(new[] { "CompanyId", "ReturnNo" }, "IX_SalesReturns_CompanyId_ReturnNo")
                         .IsUnique();
+
+                    b.HasIndex(new[] { "CompanyId", "StockLocationId" }, "IX_SalesReturns_CompanyId_StockLocationId");
 
                     b.ToTable("SalesReturns", t =>
                         {
@@ -2217,6 +2274,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
 
+                    b.Property<Guid>("StockLocationId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -2253,6 +2313,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex(new[] { "CompanyId", "BranchId", "CreatedAt" }, "IX_StockAdjustments_CompanyId_BranchId_CreatedAt");
 
+                    b.HasIndex(new[] { "CompanyId", "StockLocationId" }, "IX_StockAdjustments_CompanyId_StockLocationId");
+
                     b.ToTable("StockAdjustments", t =>
                         {
                             t.HasCheckConstraint("CK_StockAdjustments_BaseQty_Arithmetic", "\"EnteredQuantity\" * \"ConversionFactorToBase\" = \"QuantityBaseUnits\"");
@@ -2267,6 +2329,9 @@ namespace Sellora.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Sellora.Domain.Entities.StockItem", b =>
                 {
+                    b.Property<Guid>("StockLocationId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
@@ -2279,9 +2344,13 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("QuantityOnHand")
                         .HasColumnType("numeric(18,3)");
 
-                    b.HasKey("ProductId");
+                    b.HasKey("StockLocationId", "ProductId");
 
                     b.HasIndex("CompanyId", "ProductId");
+
+                    b.HasIndex(new[] { "CompanyId", "StockLocationId" }, "IX_StockItems_CompanyId_StockLocationId");
+
+                    b.HasIndex(new[] { "ProductId" }, "IX_StockItems_ProductId");
 
                     b.ToTable("StockItems");
                 });
@@ -2329,8 +2398,6 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
-
-                    b.HasAlternateKey("CompanyId", "Id");
 
                     b.HasIndex("CreatedByUserId");
 
@@ -2416,6 +2483,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<Guid>("StockLocationId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -2439,6 +2509,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("ProductId", "OccurredAt");
 
                     b.HasIndex("ReferenceType", "ReferenceId");
+
+                    b.HasIndex(new[] { "CompanyId", "StockLocationId" }, "IX_StockMovements_CompanyId_StockLocationId");
+
+                    b.HasIndex(new[] { "StockLocationId", "ProductId", "OccurredAt" }, "IX_StockMovements_StockLocationId_ProductId_OccurredAt");
 
                     b.ToTable("StockMovements", t =>
                         {
@@ -2999,6 +3073,38 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.BatchLocationBalance", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.PurchaseBatch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "PurchaseBatchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_BatchLocationBalances_PurchaseBatches");
+
+                    b.HasOne("Sellora.Domain.Entities.StockLocation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "StockLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_BatchLocationBalances_StockLocations");
+
+                    b.HasOne("Sellora.Domain.Entities.StockItem", null)
+                        .WithMany()
+                        .HasForeignKey("StockLocationId", "ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_BatchLocationBalances_StockItems");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.Branch", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.Company", null)
@@ -3444,6 +3550,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("Sellora.Domain.Entities.PurchaseBatch", "StockAdjustmentId")
                         .OnDelete(DeleteBehavior.Cascade);
 
+                    b.HasOne("Sellora.Domain.Entities.StockLocation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "OriginStockLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_PurchaseBatches_StockLocations_Origin");
+
                     b.HasOne("Sellora.Domain.Entities.Product", null)
                         .WithMany()
                         .HasForeignKey("CompanyId", "ProductId")
@@ -3496,6 +3610,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_PurchaseOrders_Branches_CompanyId_BranchId");
+
+                    b.HasOne("Sellora.Domain.Entities.StockLocation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "StockLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_PurchaseOrders_StockLocations_CompanyId_StockLocationId");
 
                     b.HasOne("Sellora.Domain.Entities.Supplier", null)
                         .WithMany()
@@ -3622,6 +3744,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.StockLocation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "StockLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_PurchaseReturns_StockLocations_CompanyId_StockLocationId");
 
                     b.Navigation("CreatedByUser");
 
@@ -3773,6 +3903,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.StockLocation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "StockLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_SalesInvoices_StockLocations_CompanyId_StockLocationId");
+
                     b.Navigation("CreatedByUser");
 
                     b.Navigation("Customer");
@@ -3909,6 +4047,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.StockLocation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "StockLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_SalesReturns_StockLocations_CompanyId_StockLocationId");
+
                     b.Navigation("CreatedByUser");
 
                     b.Navigation("SalesInvoice");
@@ -4018,6 +4164,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.StockLocation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "StockLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockAdjustments_StockLocations_CompanyId_StockLocationId");
+
                     b.HasOne("Sellora.Domain.Entities.ProductUnit", "ProductUnit")
                         .WithMany()
                         .HasForeignKey("ProductId", "ProductUnitId")
@@ -4043,8 +4197,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.HasOne("Sellora.Domain.Entities.Product", "Product")
-                        .WithOne()
-                        .HasForeignKey("Sellora.Domain.Entities.StockItem", "ProductId")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -4054,6 +4208,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.StockLocation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "StockLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockItems_StockLocations_CompanyId_StockLocationId");
 
                     b.Navigation("Product");
                 });
@@ -4121,6 +4283,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("CompanyId", "PurchaseBatchId")
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.StockLocation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "StockLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockMovements_StockLocations_CompanyId_StockLocationId");
 
                     b.HasOne("Sellora.Domain.Entities.ProductUnit", "EnteredProductUnit")
                         .WithMany()

@@ -72,6 +72,7 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
     public DbSet<PurchaseBatch> PurchaseBatches => Set<PurchaseBatch>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
     public DbSet<StockItem> StockItems => Set<StockItem>();
+    public DbSet<BatchLocationBalance> BatchLocationBalances => Set<BatchLocationBalance>();
     public DbSet<StockAdjustment> StockAdjustments => Set<StockAdjustment>();
     public DbSet<SellingPrice> SellingPrices => Set<SellingPrice>();
 

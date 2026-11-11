@@ -12,6 +12,9 @@ public class StockMovement : ICompanyOwned
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = null!;
 
+    /// <summary>The location whose stock this signed row changes (Phase 8; one row per location). Legacy rows map to the default store.</summary>
+    public Guid StockLocationId { get; set; }
+
     public StockMovementType Type { get; set; }
 
     /// <summary>Signed change in base units — positive for increases, negative for decreases.</summary>

@@ -67,13 +67,13 @@ public class CompanyQueryFilterTests
     }
 
     [Fact]
-    public void Model_CompanyOwnedTypes_AreTheThirtyOneDesignedTypes()
+    public void Model_CompanyOwnedTypes_AreTheThirtyTwoDesignedTypes()
     {
         using var db = NewDb(TestCompany.Context);
         var owned = ModelTypes(db).Select(t => t.ClrType).Where(t => typeof(ICompanyOwned).IsAssignableFrom(t)).Select(t => t.Name).Order().ToArray();
         string[] expected =
         [
-            "AuditEvent", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
+            "AuditEvent", "BatchLocationBalance", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
             "FinancialTransaction", "GovernanceMemberPermission", "IdempotencyKey", "Product", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
             "Role", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "Supplier", "Tax", "UserBranchAssignment", "UserRoleAssignment", "Vehicle", "Warehouse",
         ];
