@@ -13,7 +13,7 @@ namespace Sellora.Infrastructure.Services;
 /// segments (see <see cref="DocumentNumberFormat"/>); every rule that protects that lives here, under a <c>FOR UPDATE</c> lock on
 /// the company row that the settings PUT shares, so two concurrent edits cannot both pass validation.
 /// </summary>
-public sealed partial class BranchService(SelloraDbContext db) : IBranchService
+public sealed partial class BranchService(SelloraDbContext db, IStockLocationUsage usage) : IBranchService
 {
     public async Task<Branch> CreateAsync(CreateBranchInput input, Guid userId, CancellationToken ct = default)
     {
@@ -181,11 +181,16 @@ public sealed partial class BranchService(SelloraDbContext db) : IBranchService
                 }
             }
 
+            var store = await RequireStoreAsync(companyId, branch.Id, ct);
+            if (!isActive && (await usage.GetAsync(store.Id, ct)).InUse)
+            {
+                throw new DomainValidationException("IsActive", "This branch's store still holds stock or has open transfers. Transfer, sell or adjust the stock out first.");
+            }
+
             branch.IsActive = isActive;
             branch.UpdatedAt = DateTimeOffset.UtcNow;
             branch.UpdatedByUserId = userId;
 
-            var store = await RequireStoreAsync(companyId, branch.Id, ct);
             if (store.IsActive != isActive)
             {
                 store.IsActive = isActive;

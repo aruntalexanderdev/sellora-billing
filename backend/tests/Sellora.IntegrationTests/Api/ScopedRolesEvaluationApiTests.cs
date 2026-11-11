@@ -147,9 +147,12 @@ public class ScopedRolesEvaluationApiTests(PostgresFixture postgres)
 
     // ---- in-code checks (price override, dashboard) ----
 
-    private static Task<HttpResponseMessage> SaleAtPriceAsync(BranchApiWorld w, HttpClient client, Guid? branch, decimal price, bool overridePrice) =>
-        w.SendAsync(HttpMethod.Post, "/api/v1/sales", new CreateSaleRequest(w.CustomerId, Today, PaymentMethod.Cash, 0m,
+    private static async Task<HttpResponseMessage> SaleAtPriceAsync(BranchApiWorld w, HttpClient client, Guid? branch, decimal price, bool overridePrice)
+    {
+        await w.EnsureBranchStockAsync(branch, 1m); // 8b: a branch sells from its own store
+        return await w.SendAsync(HttpMethod.Post, "/api/v1/sales", new CreateSaleRequest(w.CustomerId, Today, PaymentMethod.Cash, 0m,
             [new CreateSaleLineRequest(w.ProductId, w.ProductUnitId, 1m, price, 0, overridePrice)], null), branch, client);
+    }
 
     [Fact]
     public async Task PriceOverride_NeedsTheEffectiveCode_CompanyWide_OrAtTheWorkingBranch()

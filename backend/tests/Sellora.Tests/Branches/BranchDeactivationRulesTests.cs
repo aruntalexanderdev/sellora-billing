@@ -25,7 +25,7 @@ public class BranchDeactivationRulesTests
         await using var db = w.Db();
         await new WarehouseService(db, new FakeStockLocationUsage()).CreateAsync(new("BW1", "Back store", w.Blr), w.UserId);
 
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db).SetStatusAsync(w.Blr, false, w.UserId));
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId));
 
         Assert.Equal("IsActive", ex.Field);
         await using var check = w.Db();
@@ -40,7 +40,7 @@ public class BranchDeactivationRulesTests
         await using var db = w.Db();
         await new VehicleService(db, new FakeStockLocationUsage()).CreateAsync(new("V1", "Van", VehicleType.Van, w.Blr), w.UserId);
 
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db).SetStatusAsync(w.Blr, false, w.UserId));
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId));
 
         Assert.Equal("IsActive", ex.Field);
         Assert.True((await db.Branches.SingleAsync(b => b.Id == w.Blr)).IsActive);
@@ -57,7 +57,7 @@ public class BranchDeactivationRulesTests
         await new WarehouseService(db, usage).SetStatusAsync(warehouse.Id, false, w.UserId);
         await new VehicleService(db, usage).SetStatusAsync(vehicle.Id, false, w.UserId);
 
-        var branch = await new BranchService(db).SetStatusAsync(w.Blr, false, w.UserId);
+        var branch = await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId);
 
         Assert.False(branch!.IsActive);
         Assert.False((await db.StockLocations.SingleAsync(l => l.BranchId == w.Blr && l.LocationType == StockLocationType.BranchStore)).IsActive);
@@ -71,7 +71,7 @@ public class BranchDeactivationRulesTests
         var vehicle = await new VehicleService(db, new FakeStockLocationUsage()).CreateAsync(new("V1", "Van", VehicleType.Van, w.Blr), w.UserId);
         await new VehicleService(db, new FakeStockLocationUsage()).UpdateAsync(vehicle.Id, new("Van", VehicleType.Van, w.Main), w.UserId);
 
-        Assert.False((await new BranchService(db).SetStatusAsync(w.Blr, false, w.UserId))!.IsActive);
+        Assert.False((await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId))!.IsActive);
         Assert.Equal(w.Main, vehicle.AssignedBranchId);
     }
 
@@ -89,7 +89,7 @@ public class BranchDeactivationRulesTests
         await new WarehouseService(db, usage).CreateAsync(new("OW1", "Other wh", other.Id), w.UserId);
         await new VehicleService(db, usage).CreateAsync(new("V1", "Van", VehicleType.Van, other.Id), w.UserId);
 
-        var branch = await new BranchService(db).SetStatusAsync(w.Blr, false, w.UserId);
+        var branch = await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId);
 
         Assert.False(branch!.IsActive);
     }
@@ -99,9 +99,9 @@ public class BranchDeactivationRulesTests
     {
         var w = await WorldAsync();
         await using var db = w.Db();
-        await new BranchService(db).SetStatusAsync(w.Blr, false, w.UserId);
+        await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId);
 
-        var branch = await new BranchService(db).SetStatusAsync(w.Blr, true, w.UserId);
+        var branch = await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, true, w.UserId);
 
         Assert.True(branch!.IsActive);
     }
@@ -118,7 +118,7 @@ public class BranchDeactivationRulesTests
         else await new VehicleService(db, usage).CreateAsync(new(existing, "A van", VehicleType.Van, null), w.UserId);
         var branches = await db.Branches.CountAsync();
 
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db).CreateAsync(
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db, new StockLocationUsageService(db)).CreateAsync(
             new CreateBranchInput(branchCode, "New branch", null, null, null, null, null, null, null), w.UserId));
 
         Assert.Equal("Code", ex.Field);

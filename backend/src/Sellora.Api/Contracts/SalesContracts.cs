@@ -12,13 +12,15 @@ public record SaleBarcodeMatchDto(SaleCatalogProductDto Product, Guid ProductUni
 
 public record SaleCatalogProductDto(
     Guid ProductId, string Sku, string Name, string? Category, string BaseUnitLabel,
-    decimal QuantityOnHand, decimal TaxRatePercent, IReadOnlyList<SaleCatalogUnitDto> Units
+    decimal QuantityOnHand, decimal TaxRatePercent, IReadOnlyList<SaleCatalogUnitDto> Units,
+    Guid? StockLocationId = null
 );
 
 public record SalesInvoiceListItemDto(
     Guid Id, string InvoiceNo, string CustomerName, DateOnly InvoiceDate,
     decimal GrandTotal, decimal PaidAmount, decimal DueAmount, PaymentStatus PaymentStatus, SalesStatus Status,
-    Guid BranchId, string? BranchCode, string? BranchName
+    Guid BranchId, string? BranchCode, string? BranchName,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );
 
 /// <summary>How much of one purchase batch a sale line drew, at the batch's cost — the sale → batch → purchase trail.</summary>
@@ -60,7 +62,8 @@ public record SalesInvoiceDetailDto(
     decimal ReturnedAmount, decimal NetTotal, decimal RefundableAmount,
     IReadOnlyList<SalesReturnSummaryDto> Returns,
     Guid BranchId, string? BranchCode, string? BranchName,
-    string? SellerGstin
+    string? SellerGstin,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );
 
 public record CreateSaleLineRequest(
@@ -78,7 +81,8 @@ public record CreateSaleRequest(
     PaymentMethod PaymentMethod,
     [Range(0, 999999999)] decimal PaidAmount,
     [MinLength(1), MaxLength(200)] CreateSaleLineRequest[] Lines,
-    Guid? AccountId = null
+    Guid? AccountId = null,
+    Guid? StockLocationId = null
 );
 
 public record AddSalePaymentRequest(
@@ -119,7 +123,8 @@ public record ReversePaymentRequest([MaxLength(200)] string? Reason = null);
 public record SalesReturnListItemDto(
     Guid Id, string ReturnNo, DateOnly ReturnDate, Guid SalesInvoiceId, string InvoiceNo, string CustomerName,
     decimal Total, decimal RefundedAmount,
-    Guid BranchId, string? BranchCode, string? BranchName
+    Guid BranchId, string? BranchCode, string? BranchName,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );
 
 public record SalesReturnLineDto(
@@ -132,5 +137,6 @@ public record SalesReturnDetailDto(
     string? Reason, decimal TaxableTotal, decimal TaxTotal, decimal Total, decimal RefundedAmount,
     string CreatedByName, DateTimeOffset CreatedAt,
     IReadOnlyList<SalesReturnLineDto> Lines, IReadOnlyList<SalesPaymentDto> Refunds,
-    Guid BranchId, string? BranchCode, string? BranchName
+    Guid BranchId, string? BranchCode, string? BranchName,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );

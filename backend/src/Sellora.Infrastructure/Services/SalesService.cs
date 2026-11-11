@@ -7,8 +7,15 @@ using Sellora.Infrastructure.Data;
 
 namespace Sellora.Infrastructure.Services;
 
-public class SalesService(SelloraDbContext db) : ISalesService
+public class SalesService(SelloraDbContext db, IEffectivePermissionService? permissions = null) : ISalesService
 {
+    public async Task<Guid> ResolveSellingLocationAsync(Guid? stockLocationId, CancellationToken ct = default)
+    {
+        var branch = await BranchRules.ResolveWorkingBranchAsync(db, ct);
+        var companyLevel = await StockLocationRules.HasCompanyLevelAsync(permissions, "Sales.Create", ct);
+        return await StockLocationRules.ResolveAsync(db, PostingKind.Sale, stockLocationId, branch.Id, companyLevel, ct);
+    }
+
     public async Task<SalesInvoice> CreateSaleAsync(CreateSaleInput input, Guid createdByUserId, CancellationToken ct = default)
     {
         if (input.Lines.Count == 0)
@@ -36,8 +43,10 @@ public class SalesService(SelloraDbContext db) : ISalesService
 
         var invoiceNo = await DocumentNumbers.NextNumberAsync(db, DocumentSeries.Invoice, branch, ct);
 
-        // Phase 8a: every sale issues from the company's default store.
-        var locationId = await StockLocationDefaults.GetDefaultStoreIdAsync(db, ct);
+        // Phase 8b: issued from the requested location (a store or vehicle that can sell), else the working branch's store.
+        // A central vehicle needs Sales.Create company-wide. Re-read and re-checked under the location lock below.
+        var companyLevel = await StockLocationRules.HasCompanyLevelAsync(permissions, "Sales.Create", ct);
+        var locationId = await StockLocationRules.ResolveAsync(db, PostingKind.Sale, input.StockLocationId, branch.Id, companyLevel, ct);
 
         var invoice = new SalesInvoice
         {
@@ -77,6 +86,7 @@ public class SalesService(SelloraDbContext db) : ISalesService
         // Hold each product's stock lock from here to commit, so the availability check and the FIFO batch
         // consumption below see the same, current quantities.
         await StockLocks.LockLocationsKeyShareAsync(db, [locationId], ct);
+        await StockLocationRules.ResolveAsync(db, PostingKind.Sale, locationId, branch.Id, companyLevel, ct);
         var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, requestedBaseQtyByProduct.Keys.Select(id => (locationId, id)), ct);
 
         foreach (var (productId, requestedBaseQty) in requestedBaseQtyByProduct)

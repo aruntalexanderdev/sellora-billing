@@ -14,11 +14,13 @@ namespace Sellora.Tests.TestData;
 /// puts the price the test asks for onto the unit's open list price, and sells as a user holding Sales.PriceOverride
 /// (so discounts are allowed). Pricing rules themselves are tested against the real <see cref="SalesService"/>.
 /// </summary>
-public sealed class ListPricedSales(SelloraDbContext db) : ISalesService
+public sealed class ListPricedSales(SelloraDbContext db, IEffectivePermissionService? permissions = null) : ISalesService
 {
-    private readonly SalesService inner = new(db);
+    private readonly SalesService inner = new(db, permissions);
 
-    public static ISalesService For(SelloraDbContext db) => new ListPricedSales(db);
+    public static ISalesService For(SelloraDbContext db, IEffectivePermissionService? permissions = null) => new ListPricedSales(db, permissions);
+
+    public Task<Guid> ResolveSellingLocationAsync(Guid? stockLocationId, CancellationToken ct = default) => inner.ResolveSellingLocationAsync(stockLocationId, ct);
 
     public async Task<SalesInvoice> CreateSaleAsync(CreateSaleInput input, Guid createdByUserId, CancellationToken ct = default)
     {

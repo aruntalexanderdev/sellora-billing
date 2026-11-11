@@ -36,7 +36,7 @@ public class BranchNumberingReviewFixTests
     {
         var w = await BranchWorld.CreateAsync();
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
         await service.UpdateAsync(w.Blr, Edit("Bengaluru", "INV-KAR"), w.UserId);
         var kar = await service.CreateAsync(New("KAR", "KRR"), w.UserId);
 
@@ -48,7 +48,7 @@ public class BranchNumberingReviewFixTests
     {
         var w = await BranchWorld.CreateAsync(companyPrefix: "ABCDEFGHIJ");
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
         var kar = await service.CreateAsync(New("KAR", "KRR"), w.UserId);
 
         Assert.Equal("InvoicePrefix", await FieldOfAsync(() => service.UpdateAsync(kar.Id, Edit("KAR branch"), w.UserId)));
@@ -59,11 +59,11 @@ public class BranchNumberingReviewFixTests
     public async Task UpdateAsync_ClearingPrefixIntoDerivedShapeAlreadyUsedByAnotherBranch_IsRejected()
     {
         var w = await BranchWorld.CreateAsync();
-        var kar = await new BranchService(w.Db()).CreateAsync(New("KAR", "KRR"), w.UserId);
+        var kar = await new BranchService(w.Db(), new StockLocationUsageService(w.Db())).CreateAsync(New("KAR", "KRR"), w.UserId);
         await SetInvoiceNoAsync(w, w.Main, "INV-KAR-0001");
         await using var db = w.Db();
 
-        Assert.Equal("InvoicePrefix", await FieldOfAsync(() => new BranchService(db).UpdateAsync(kar.Id, Edit("KAR branch"), w.UserId)));
+        Assert.Equal("InvoicePrefix", await FieldOfAsync(() => new BranchService(db, new StockLocationUsageService(db)).UpdateAsync(kar.Id, Edit("KAR branch"), w.UserId)));
     }
 
     [Theory]
@@ -76,7 +76,7 @@ public class BranchNumberingReviewFixTests
         var w = await BranchWorld.CreateAsync();
         await SetInvoiceNoAsync(w, atBlr ? w.Blr : w.Main, invoiceNo);
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
 
         var rejected = invoiceNo == "X-0001" || (invoiceNo == "X-BLR-0001" && !atBlr);
         if (rejected)
@@ -96,7 +96,7 @@ public class BranchNumberingReviewFixTests
         await SetInvoiceNoAsync(w, w.Main, "X-0001");
         await using var db = w.Db();
 
-        await new BranchService(db).EnsureCompanyInvoicePrefixAllowedAsync("X");
+        await new BranchService(db, new StockLocationUsageService(db)).EnsureCompanyInvoicePrefixAllowedAsync("X");
     }
 
     [Fact]
@@ -106,17 +106,17 @@ public class BranchNumberingReviewFixTests
         await SetInvoiceNoAsync(w, w.Blr, "A-B-0001"); // a branch numbering "A-B" is not the default shape of prefix "A"
         await using var db = w.Db();
 
-        await new BranchService(db).EnsureCompanyInvoicePrefixAllowedAsync("A");
+        await new BranchService(db, new StockLocationUsageService(db)).EnsureCompanyInvoicePrefixAllowedAsync("A");
     }
 
     [Fact]
     public async Task UpdateAsync_OwnPrefixCollidesOnlyWithDigitSuffixedNumbers()
     {
         var w = await BranchWorld.CreateAsync();
-        await new BranchService(w.Db()).CreateAsync(New("KAR", "KRR"), w.UserId);
+        await new BranchService(w.Db(), new StockLocationUsageService(w.Db())).CreateAsync(New("KAR", "KRR"), w.UserId);
         await SetInvoiceNoAsync(w, w.Main, "A-B-0001");
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
 
         var ok = await service.UpdateAsync(w.Blr, Edit("Bengaluru", "A"), w.UserId);
         Assert.Equal("A", ok!.InvoicePrefix);
@@ -131,7 +131,7 @@ public class BranchNumberingReviewFixTests
         await using var db = w.Db();
         db.Companies.Add(new Sellora.Domain.Entities.Company { Id = Sellora.Domain.Companies.DefaultTenant.CompanyId, Code = "DEF", Name = "Sellora Mart" });
         await db.SaveChangesAsync();
-        var controller = new SettingsController(db, new BranchService(db));
+        var controller = new SettingsController(db, new BranchService(db, new StockLocationUsageService(db)));
 
         UpdateBusinessSettingsRequest Request(string prefix) =>
             new("Sellora Mart 2", null, null, null, null, null, null, prefix, w.CurrencyId);

@@ -9,9 +9,9 @@ public class PermissionScopeCatalogueTests
     [
         "Sales.View", "Sales.Create", "Sales.PriceOverride", "Sales.Edit", "Sales.Receive", "Sales.Return", "Sales.Refund", "Sales.Cancel",
         "Purchase.View", "Purchase.Create", "Purchase.Edit", "Purchase.Pay", "Purchase.Return", "Purchase.Refund", "Purchase.Cancel",
-        "Inventory.Adjust", "StockLocations.View",
+        "Inventory.Adjust", "StockLocations.View", "Inventory.View",
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
-        "Reports.Sales", "Reports.Purchase",
+        "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",
         "Branch.Roles.View", "Branch.Roles.Manage", "Branch.Users.AssignRoles",
     ];
 
@@ -21,6 +21,15 @@ public class PermissionScopeCatalogueTests
         var actual = PermissionCatalog.All.Where(p => p.Scope == PermissionScope.CompanyOrBranch).Select(p => p.Code).Order().ToArray();
 
         Assert.Equal(ExpectedBranchEligible.Order(), actual);
+    }
+
+    [Theory]
+    [InlineData("Inventory.View")]
+    [InlineData("Reports.Stock")]
+    [InlineData("Reports.Movement")]
+    public void Phase8StockReadCodes_AreBranchEligible(string code)
+    {
+        Assert.Equal(PermissionScope.CompanyOrBranch, PermissionCatalog.ScopeOf(code));
     }
 
     [Fact]
@@ -46,8 +55,11 @@ public class PermissionScopeCatalogueTests
     [InlineData("Masters.")]
     [InlineData("Company.")]
     [InlineData("Cash.")]
-    [InlineData("Inventory.View")]
+    [InlineData("Inventory.Create")]
+    [InlineData("Inventory.Edit")]
+    [InlineData("Inventory.Price")]
     [InlineData("Reports.Profit")]
+    [InlineData("Reports.Accounts")]
     public void AdministrationMastersAndStockCodes_AreNeverBranchEligible(string prefix)
     {
         Assert.All(PermissionCatalog.All.Where(p => p.Code.StartsWith(prefix, StringComparison.Ordinal)), p => Assert.Equal(PermissionScope.CompanyOnly, p.Scope));

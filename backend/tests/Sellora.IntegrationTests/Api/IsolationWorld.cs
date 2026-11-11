@@ -165,7 +165,7 @@ public sealed class IsolationWorld
         var rate = await db.ExchangeRates.OrderBy(r => r.EffectiveDate).FirstAsync();
         var batch = await db.PurchaseBatches.FirstAsync();
         // Phase 4: one company warehouse and one vehicle per company, with the SAME code / number / name in both (scoped uniques).
-        var usage = new StockLocationUsageService();
+        var usage = new StockLocationUsageService(db);
         var warehouse = await new WarehouseService(db, usage).CreateAsync(new CreateWarehouseInput("ISO-WH", "Isolation warehouse", null), userId);
         var vehicle = await new VehicleService(db, usage).CreateAsync(new CreateVehicleInput("ISO-1", "Isolation van", VehicleType.Van, null), userId);
         // Phase 7: the company's Administrator role and assignment (roles are company-owned), and a plain member to address in role-assignment writes.

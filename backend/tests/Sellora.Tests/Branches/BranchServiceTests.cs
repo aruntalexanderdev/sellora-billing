@@ -28,7 +28,7 @@ public class BranchServiceTests
         var w = await BranchWorld.CreateAsync();
         await using var db = w.Db();
 
-        var branch = await new BranchService(db).CreateAsync(New(" kar ", "  Karur  ") with { Gstin = " 33AAAAA0000A1Z5 ", City = "Karur" }, w.UserId);
+        var branch = await new BranchService(db, new StockLocationUsageService(db)).CreateAsync(New(" kar ", "  Karur  ") with { Gstin = " 33AAAAA0000A1Z5 ", City = "Karur" }, w.UserId);
 
         Assert.Equal(("KAR", "Karur", "33AAAAA0000A1Z5"), (branch.Code, branch.Name, branch.Gstin));
         Assert.Equal((TestCompany.DefaultId, false, true, w.UserId), (branch.CompanyId, branch.IsDefault, branch.IsActive, branch.CreatedByUserId));
@@ -46,7 +46,7 @@ public class BranchServiceTests
         var w = await BranchWorld.CreateAsync();
         await using var db = w.Db();
 
-        Assert.Equal("Code", await FieldOfAsync(() => new BranchService(db).CreateAsync(New(code), w.UserId)));
+        Assert.Equal("Code", await FieldOfAsync(() => new BranchService(db, new StockLocationUsageService(db)).CreateAsync(New(code), w.UserId)));
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public class BranchServiceTests
     {
         var w = await BranchWorld.CreateAsync();
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
 
         Assert.Equal("Code", await FieldOfAsync(() => service.CreateAsync(New("blr", "Another"), w.UserId)));
         Assert.Equal("Code", await FieldOfAsync(() => service.CreateAsync(New("main", "Another"), w.UserId)));
@@ -70,7 +70,7 @@ public class BranchServiceTests
         {
             other.BusinessSettings.Add(new BusinessSettings { Id = Guid.NewGuid(), BusinessName = "B", InvoicePrefix = "INV", BaseCurrencyId = w.CurrencyId });
             await other.SaveChangesAsync();
-            var created = await new BranchService(other).CreateAsync(New("BLR", "Bengaluru"), w.UserId);
+            var created = await new BranchService(other, new StockLocationUsageService(other)).CreateAsync(New("BLR", "Bengaluru"), w.UserId);
             Assert.Equal(TestCompany.OtherId, created.CompanyId);
         }
 
@@ -84,7 +84,7 @@ public class BranchServiceTests
         var w = await BranchWorld.CreateAsync();
         await using var db = w.Db();
 
-        var updated = await new BranchService(db).UpdateAsync(w.Blr, Edit("Bangalore East", gstin: "29BBBBB1111B1Z5"), w.UserId);
+        var updated = await new BranchService(db, new StockLocationUsageService(db)).UpdateAsync(w.Blr, Edit("Bangalore East", gstin: "29BBBBB1111B1Z5"), w.UserId);
 
         Assert.NotNull(updated);
         Assert.Equal(("BLR", "Bangalore East", false, "29BBBBB1111B1Z5"), (updated!.Code, updated.Name, updated.IsDefault, updated.Gstin));
@@ -97,7 +97,7 @@ public class BranchServiceTests
     {
         var w = await BranchWorld.CreateAsync();
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
 
         Assert.Null(await service.UpdateAsync(Guid.NewGuid(), Edit("X"), w.UserId));
         Assert.Equal("Name", await FieldOfAsync(() => service.UpdateAsync(w.Blr, Edit("main"), w.UserId)));
@@ -108,7 +108,7 @@ public class BranchServiceTests
     {
         var w = await BranchWorld.CreateAsync();
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
 
         Assert.Equal("IsActive", await FieldOfAsync(() => service.SetStatusAsync(w.Main, false, w.UserId)));
         var off = await service.SetStatusAsync(w.Blr, false, w.UserId);
@@ -125,7 +125,7 @@ public class BranchServiceTests
         var w = await BranchWorld.CreateAsync();
         await using var db = w.Db();
 
-        Assert.Equal("InvoicePrefix", await FieldOfAsync(() => new BranchService(db).UpdateAsync(w.Main, Edit("Main", "HQ"), w.UserId)));
+        Assert.Equal("InvoicePrefix", await FieldOfAsync(() => new BranchService(db, new StockLocationUsageService(db)).UpdateAsync(w.Main, Edit("Main", "HQ"), w.UserId)));
     }
 
     [Theory]
@@ -140,7 +140,7 @@ public class BranchServiceTests
         var w = await BranchWorld.CreateAsync();
         await using var db = w.Db();
 
-        Assert.True("InvoicePrefix" == await FieldOfAsync(() => new BranchService(db).UpdateAsync(w.Blr, Edit("Bengaluru", prefix), w.UserId)), why);
+        Assert.True("InvoicePrefix" == await FieldOfAsync(() => new BranchService(db, new StockLocationUsageService(db)).UpdateAsync(w.Blr, Edit("Bengaluru", prefix), w.UserId)), why);
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class BranchServiceTests
     {
         var w = await BranchWorld.CreateAsync();
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
         await service.CreateAsync(New("KAR", "Karur", "KRR"), w.UserId);
         await service.CreateAsync(New("HYD", "Hyderabad"), w.UserId); // derives INV-HYD
 
@@ -163,7 +163,7 @@ public class BranchServiceTests
     {
         var w = await BranchWorld.CreateAsync();
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
         await service.UpdateAsync(w.Blr, Edit("Bengaluru", "INV-KAR"), w.UserId);
 
         Assert.Equal("Code", await FieldOfAsync(() => service.CreateAsync(New("KAR"), w.UserId)));
@@ -175,7 +175,7 @@ public class BranchServiceTests
         var w = await BranchWorld.CreateAsync();
         await using (var seed = w.Db())
         {
-            await new BranchService(seed).CreateAsync(New("KAR", "Karur"), w.UserId);
+            await new BranchService(seed, new StockLocationUsageService(seed)).CreateAsync(New("KAR", "Karur"), w.UserId);
             var sale = await w.SaleAsync(null);
             sale = await seed.SalesInvoices.SingleAsync(s => s.Id == sale.Id);
             sale.InvoiceNo = "XYZ-0001"; // a legacy number at Main that looks like prefix XYZ
@@ -183,7 +183,7 @@ public class BranchServiceTests
         }
         await using var db = w.Db();
 
-        Assert.Equal("InvoicePrefix", await FieldOfAsync(() => new BranchService(db).UpdateAsync(w.Blr, Edit("Bengaluru", "XYZ"), w.UserId)));
+        Assert.Equal("InvoicePrefix", await FieldOfAsync(() => new BranchService(db, new StockLocationUsageService(db)).UpdateAsync(w.Blr, Edit("Bengaluru", "XYZ"), w.UserId)));
     }
 
     [Fact]
@@ -191,7 +191,7 @@ public class BranchServiceTests
     {
         var w = await BranchWorld.CreateAsync(companyPrefix: "ABCDEFGHIJ"); // ABCDEFGHIJ-BLR + "-" + 5 digits = 20
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
 
         Assert.Equal("Code", await FieldOfAsync(() => service.CreateAsync(New("KAR"), w.UserId)));
         var withPrefix = await service.CreateAsync(New("KAR", "Karur", "KRR"), w.UserId);
@@ -203,7 +203,7 @@ public class BranchServiceTests
     {
         var w = await BranchWorld.CreateAsync();
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
         await service.UpdateAsync(w.Blr, Edit("Bengaluru", "BGL"), w.UserId);
         await service.CreateAsync(New("KAR", "Karur"), w.UserId);
 

@@ -45,11 +45,13 @@ public class SalesReturnsController(SelloraDbContext db, ISalesService salesServ
             .Select(r => new SalesReturnListItemDto(
                 r.Id, r.ReturnNo, r.ReturnDate, r.SalesInvoiceId, r.SalesInvoice.InvoiceNo, r.SalesInvoice.Customer.Name, r.Total,
                 db.SalesPayments.Where(p => p.SalesReturnId == r.Id && p.Kind == PaymentEntryKind.Refund).Sum(p => (decimal?)p.Amount) ?? 0m,
-                r.BranchId, null, null))
+                r.BranchId, null, null, r.StockLocationId))
             .ToListAsync(ct);
 
         var labels = await BranchLabels.LoadAsync(db, ct);
         items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
+        var locLabels = await StockLocationLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { StockLocationCode = locLabels.Code(i.StockLocationId!.Value), StockLocationName = locLabels.Name(i.StockLocationId!.Value) }).ToList();
 
         return Ok(new PagedResult<SalesReturnListItemDto>(items, total, page, pageSize));
     }
@@ -71,6 +73,7 @@ public class SalesReturnsController(SelloraDbContext db, ISalesService salesServ
             .Where(p => p.SalesReturnId == id && p.Kind == PaymentEntryKind.Refund).OrderBy(p => p.CreatedAt).ToListAsync(ct);
         var noReversed = new HashSet<Guid>();
         var labels = await BranchLabels.LoadAsync(db, ct);
+        var locLabels = await StockLocationLabels.LoadAsync(db, ct);
 
         return Ok(new SalesReturnDetailDto(
             r.Id, r.ReturnNo, r.ReturnDate, r.SalesInvoiceId, r.SalesInvoice.InvoiceNo, r.SalesInvoice.Customer.Name,
@@ -80,7 +83,8 @@ public class SalesReturnsController(SelloraDbContext db, ISalesService salesServ
                 l.Id, l.Product.Name, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name, l.UnitCode, l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Product.BaseUnit.DecimalPlaces,
                 l.TaxableValue, l.TaxAmount, l.LineTotal)).ToList(),
             refunds.Select(p => SalesController.ToPaymentDto(p, noReversed)).ToList(),
-            r.BranchId, labels.Code(r.BranchId), labels.Name(r.BranchId)));
+            r.BranchId, labels.Code(r.BranchId), labels.Name(r.BranchId),
+            r.StockLocationId, locLabels.Code(r.StockLocationId), locLabels.Name(r.StockLocationId)));
     }
 
     [HttpPost]

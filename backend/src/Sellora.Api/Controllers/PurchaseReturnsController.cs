@@ -47,11 +47,13 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
                 r.Id, r.ReturnNo, r.ReturnDate, r.PurchaseOrderId, r.PurchaseOrder.PurchaseNo, r.PurchaseOrder.Supplier.Name,
                 r.Total, r.OriginalTotal, r.PurchaseOrder.Currency.Code,
                 db.PurchasePayments.Where(p => p.PurchaseReturnId == r.Id && p.Kind == PaymentEntryKind.Refund).Sum(p => (decimal?)p.Amount) ?? 0m,
-                r.BranchId, null, null))
+                r.BranchId, null, null, r.StockLocationId))
             .ToListAsync(ct);
 
         var labels = await BranchLabels.LoadAsync(db, ct);
         items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
+        var locLabels = await StockLocationLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { StockLocationCode = locLabels.Code(i.StockLocationId!.Value), StockLocationName = locLabels.Name(i.StockLocationId!.Value) }).ToList();
 
         return Ok(new PagedResult<PurchaseReturnListItemDto>(items, total, page, pageSize));
     }
@@ -75,6 +77,7 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
         var baseCurrency = await db.GetBaseCurrencyAsync(ct);
         var currency = r.PurchaseOrder.Currency;
         var labels = await BranchLabels.LoadAsync(db, ct);
+        var locLabels = await StockLocationLabels.LoadAsync(db, ct);
 
         return Ok(new PurchaseReturnDetailDto(
             r.Id, r.ReturnNo, r.ReturnDate, r.PurchaseOrderId, r.PurchaseOrder.PurchaseNo, r.PurchaseOrder.Supplier.Name,
@@ -87,7 +90,8 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
                 l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Product.BaseUnit.DecimalPlaces,
                 l.TaxableValue, l.TaxAmount, l.LineTotal)).ToList(),
             refunds.Select(p => PurchasesController.ToPaymentDto(p, new HashSet<Guid>())).ToList(),
-            r.BranchId, labels.Code(r.BranchId), labels.Name(r.BranchId)));
+            r.BranchId, labels.Code(r.BranchId), labels.Name(r.BranchId),
+            r.StockLocationId, locLabels.Code(r.StockLocationId), locLabels.Name(r.StockLocationId)));
     }
 
     [HttpPost]

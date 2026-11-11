@@ -9,6 +9,10 @@ public interface ISalesService
     /// <summary>Creates and immediately completes a sale: consumes purchase batches FIFO for real COGS,
     /// writes stock movements, and decrements each product's StockItem, all as one transaction. Throws
     /// <see cref="DomainValidationException"/> for business-rule violations, including insufficient stock.</summary>
+    /// <summary>The stock location a sale by the caller would be issued from (Phase 8b D3): the requested one if the caller may sell
+    /// from it, else the working branch's store. Throws <see cref="DomainValidationException"/> on <c>stockLocationId</c> otherwise.</summary>
+    Task<Guid> ResolveSellingLocationAsync(Guid? stockLocationId, CancellationToken ct = default);
+
     Task<SalesInvoice> CreateSaleAsync(CreateSaleInput input, Guid createdByUserId, CancellationToken ct = default);
 
     /// <summary>Appends a payment to the invoice's ledger against its outstanding due. Runs under a row lock so

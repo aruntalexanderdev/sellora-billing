@@ -468,6 +468,7 @@ public class ScopedRolesApiTests(PostgresFixture postgres)
 
         var atB1 = await w.SaleAsync(b1);
         var atB2 = await Send(w, HttpMethod.Post, "/api/v1/sales", new CreateSaleRequest(w.CustomerId, Today, PaymentMethod.Cash, 0m, [new CreateSaleLineRequest(w.ProductId, w.ProductUnitId, 1m, 20m, 0)], null), user.Client, b2);
+        await w.EnsureBranchStockAsync(b1, 1m); // the sale above emptied B1's store (8b: a branch sells from its own store)
         var atB1AsUser = await Send(w, HttpMethod.Post, "/api/v1/sales", new CreateSaleRequest(w.CustomerId, Today, PaymentMethod.Cash, 0m, [new CreateSaleLineRequest(w.ProductId, w.ProductUnitId, 1m, 20m, 0)], null), user.Client, b1);
 
         Assert.True(atB1.IsSuccessStatusCode);

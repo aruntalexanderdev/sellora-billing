@@ -82,6 +82,7 @@ public class PurchaseReturnUnitsEndpointTests
         var batch = await f.Db.PurchaseBatches.SingleAsync();
         batch.RemainingBaseQty = 25m; // 175 pc sold
         (await f.Db.StockItems.SingleAsync()).QuantityOnHand = 25m;
+        (await f.Db.BatchLocationBalances.SingleAsync()).RemainingBaseQty = 25m; // 8b: returnable is read from the balance at the purchase's location
         await f.Db.SaveChangesAsync();
         f.Db.ChangeTracker.Clear();
 

@@ -73,6 +73,21 @@ public sealed class BranchWorld
         return world;
     }
 
+    /// <summary>The branch's own store location id.</summary>
+    public async Task<Guid> StoreOfAsync(Guid branchId)
+    {
+        await using var db = Db();
+        return await db.StockLocations.Where(l => l.BranchId == branchId && l.LocationType == Sellora.Domain.Inventory.StockLocationType.BranchStore).Select(l => l.Id).SingleAsync();
+    }
+
+    /// <summary>8b: a branch sells from its OWN store. Hand-seeds <paramref name="qty"/> kg there (no document, so numbering is unchanged).</summary>
+    public async Task SeedBranchStockAsync(Guid branchId, decimal qty)
+    {
+        var store = await StoreOfAsync(branchId);
+        await using var db = Db();
+        await StockSeed.AddAsync(db, store, ProductId, qty, 10m, UserId);
+    }
+
     public Task<PurchaseOrder> PurchaseAsync(Guid? branch, decimal paid = 0, Guid? account = null)
     {
         var db = Db(branch);
@@ -82,6 +97,13 @@ public sealed class BranchWorld
 
     public async Task<SalesInvoice> SaleAsync(Guid? branch, decimal paid = 0, Guid? account = null)
     {
+        if (branch is { } b && b != Main)
+        {
+            // Exactly the 2 kg the sale takes (unless the test already stocked the store), so the store is empty again afterwards.
+            await using var probe = Db();
+            var store = await StoreOfAsync(b);
+            if (!await probe.StockItems.AnyAsync(i => i.StockLocationId == store && i.QuantityOnHand >= 2m)) await SeedBranchStockAsync(b, 2m);
+        }
         var db = Db(branch);
         return await ListPricedSales.For(db).CreateSaleAsync(
             new Sellora.Domain.Sales.CreateSaleInput(CustomerId, Day, PaymentMethod.Cash, paid, [new Sellora.Domain.Sales.SaleLineInput(ProductId, ProductUnitId, 2m, 20m, 0)], account), UserId);

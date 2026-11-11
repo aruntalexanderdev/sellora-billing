@@ -7,18 +7,25 @@ using Sellora.Domain.Stock;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
 using Sellora.Tests.Branches;
+using Sellora.Tests.TestData;
 
 namespace Sellora.Tests.Stock;
 
 /// <summary>
-/// Phase 8a behaviour identity (owner O1 = A, design D2/D5): every stock-changing document posts at the company's default store - also a
-/// document of a non-default branch - and stamps its header, movements, batches and StockItem with that store's id. After every
+/// Phase 8a/8b (design D2/D3/D5): a document posts at the working branch's own store (8a posted everything at the default store) and stamps its header, movements, batches and StockItem with that store's id. After every
 /// writer: Σ balances per batch = batch remaining, StockItem QOH = Σ movements = Σ balances per (location, product), one location only.
 /// </summary>
 public class StockLocationStampingTests
 {
     private static readonly Guid Store = DefaultTenant.MainStoreLocationId;
 
+    private static async Task<Guid> BlrStoreAsync(BranchWorld w)
+    {
+        await using var db = w.Db();
+        return await db.StockLocations.Where(l => l.BranchId == w.Blr && l.LocationType == Sellora.Domain.Inventory.StockLocationType.BranchStore).Select(l => l.Id).SingleAsync();
+    }
+
+    /// <summary>Per-(location, product) reconciliation and dual-write after a writer: QOH = Σ movements = Σ balances; Σ balances per batch = batch remaining.</summary>
     private static async Task AssertEngineStateAsync(BranchWorld w)
     {
         await using var db = w.Db();
@@ -27,24 +34,23 @@ public class StockLocationStampingTests
         var items = await db.StockItems.AsNoTracking().ToListAsync();
         var moves = await db.StockMovements.AsNoTracking().ToListAsync();
 
-        Assert.All(batches, b => Assert.Equal(Store, b.OriginStockLocationId));
-        Assert.All(balances, b => Assert.Equal(Store, b.StockLocationId));
-        Assert.All(items, i => Assert.Equal(Store, i.StockLocationId));
-        Assert.All(moves, m => Assert.Equal(Store, m.StockLocationId));
         foreach (var batch in batches)
         {
             Assert.Equal(batch.RemainingBaseQty, balances.Where(b => b.PurchaseBatchId == batch.Id).Sum(b => b.RemainingBaseQty));
         }
         foreach (var item in items)
         {
-            Assert.Equal(item.QuantityOnHand, moves.Where(m => m.ProductId == item.ProductId).Sum(m => m.QuantityBaseUnits));
-            Assert.Equal(item.QuantityOnHand, balances.Where(b => b.ProductId == item.ProductId).Sum(b => b.RemainingBaseQty));
+            Assert.Equal(item.QuantityOnHand, moves.Where(m => m.ProductId == item.ProductId && m.StockLocationId == item.StockLocationId).Sum(m => m.QuantityBaseUnits));
+            Assert.Equal(item.QuantityOnHand, balances.Where(b => b.ProductId == item.ProductId && b.StockLocationId == item.StockLocationId).Sum(b => b.RemainingBaseQty));
         }
-        Assert.All(await db.PurchaseOrders.AsNoTracking().ToListAsync(), x => Assert.Equal(Store, x.StockLocationId));
-        Assert.All(await db.PurchaseReturns.AsNoTracking().ToListAsync(), x => Assert.Equal(Store, x.StockLocationId));
-        Assert.All(await db.SalesInvoices.AsNoTracking().ToListAsync(), x => Assert.Equal(Store, x.StockLocationId));
-        Assert.All(await db.SalesReturns.AsNoTracking().ToListAsync(), x => Assert.Equal(Store, x.StockLocationId));
-        Assert.All(await db.StockAdjustments.AsNoTracking().ToListAsync(), x => Assert.Equal(Store, x.StockLocationId));
+        Assert.All(moves, m => Assert.Contains(items, i => i.StockLocationId == m.StockLocationId && i.ProductId == m.ProductId));
+        Assert.All(balances, bal => Assert.Equal(batches.Single(b => b.Id == bal.PurchaseBatchId).ProductId, bal.ProductId));
+    }
+
+    private static async Task<decimal> QohAsync(BranchWorld w, Guid location)
+    {
+        await using var db = w.Db();
+        return await db.StockItems.Where(i => i.StockLocationId == location).Select(i => i.QuantityOnHand).SingleAsync();
     }
 
     [Fact]
@@ -56,42 +62,49 @@ public class StockLocationStampingTests
 
         Assert.Equal(Store, purchase.StockLocationId);
         await AssertEngineStateAsync(w);
+        Assert.Equal(110m, await QohAsync(w, Store));
         await using var db = w.Db();
-        Assert.Equal(110m, (await db.StockItems.SingleAsync()).QuantityOnHand);
-        Assert.Equal(2, await db.BatchLocationBalances.CountAsync());
+        Assert.Equal(2, await db.BatchLocationBalances.CountAsync(b => b.StockLocationId == Store));
     }
 
+    // 8b CHANGED: a non-default branch now posts at ITS OWN store (8a: default store). Expectation updated per design D3.
     [Fact]
-    public async Task CreatePurchase_AtNonDefaultBranch_StillPostsAtTheDefaultStoreAndKeepsItsBranch()
+    public async Task CreatePurchase_AtNonDefaultBranch_PostsAtTheBranchStoreAndKeepsItsBranch()
     {
         var w = await BranchWorld.CreateAsync();
+        await w.SeedBranchStockAsync(w.Blr, 100m);
+        var blrStore = await BlrStoreAsync(w);
 
         var purchase = await w.PurchaseAsync(w.Blr);
 
-        Assert.Equal((w.Blr, Store), (purchase.BranchId, purchase.StockLocationId));
+        Assert.Equal((w.Blr, blrStore), (purchase.BranchId, purchase.StockLocationId));
         await AssertEngineStateAsync(w);
-        await using var db = w.Db();
-        Assert.Single(await db.StockItems.ToListAsync()); // no StockItem at BLR's own store
+        Assert.Equal((100m, 110m), (await QohAsync(w, Store), await QohAsync(w, blrStore)));
     }
 
     [Fact]
-    public async Task CreateSale_AtNonDefaultBranch_DrawsTheDefaultStoreAndStampsInvoiceAndMovements()
+    public async Task CreateSale_AtNonDefaultBranch_DrawsTheBranchStoreAndStampsInvoiceAndMovements()
     {
         var w = await BranchWorld.CreateAsync();
+        await w.SeedBranchStockAsync(w.Blr, 100m);
+        var blrStore = await BlrStoreAsync(w);
 
         var sale = await w.SaleAsync(w.Blr);
 
-        Assert.Equal((w.Blr, Store), (sale.BranchId, sale.StockLocationId));
+        Assert.Equal((w.Blr, blrStore), (sale.BranchId, sale.StockLocationId));
         await AssertEngineStateAsync(w);
+        Assert.Equal((100m, 98m), (await QohAsync(w, Store), await QohAsync(w, blrStore)));
         await using var db = w.Db();
-        Assert.Equal(98m, (await db.StockItems.SingleAsync()).QuantityOnHand);
-        Assert.Equal(98m, (await db.BatchLocationBalances.SingleAsync()).RemainingBaseQty);
+        Assert.Equal(98m, (await db.BatchLocationBalances.Where(b => b.StockLocationId == blrStore).ToListAsync()).Sum(b => b.RemainingBaseQty));
+        Assert.Contains(await db.StockMovements.ToListAsync(), m => m.Type == StockMovementType.Sale && m.StockLocationId == blrStore);
     }
 
     [Fact]
-    public async Task CreateSaleReturn_OfANonDefaultBranchSale_RestoresIntoTheConsumedBatchAndStampsTheReturn()
+    public async Task CreateSaleReturn_OfANonDefaultBranchSale_RestoresIntoTheBranchStoreAndStampsTheReturn()
     {
         var w = await BranchWorld.CreateAsync();
+        await w.SeedBranchStockAsync(w.Blr, 100m);
+        var blrStore = await BlrStoreAsync(w);
         var sale = await w.SaleAsync(w.Blr);
         SalesReturn ret;
         await using (var db = w.Db())
@@ -99,29 +112,32 @@ public class StockLocationStampingTests
             ret = await ListPricedSales(db).CreateReturnAsync(new CreateSaleReturnInput(sale.Id, BranchWorld.Day, null, [new SaleReturnLineInput(sale.Lines.Single().Id, null, 1m)]), w.UserId);
         }
 
-        Assert.Equal(Store, ret.StockLocationId);
+        Assert.Equal(blrStore, ret.StockLocationId);
         await AssertEngineStateAsync(w);
-        await using var check = w.Db();
-        Assert.Equal(99m, (await check.BatchLocationBalances.SingleAsync()).RemainingBaseQty);
+        Assert.Equal((100m, 99m), (await QohAsync(w, Store), await QohAsync(w, blrStore)));
     }
 
     [Fact]
-    public async Task CancelSale_RestoresBalancesAndPostsSaleCancellationAtTheDefaultStore()
+    public async Task CancelSale_AtNonDefaultBranch_RestoresBranchStoreAndPostsSaleCancellationThere()
     {
         var w = await BranchWorld.CreateAsync();
+        await w.SeedBranchStockAsync(w.Blr, 100m);
+        var blrStore = await BlrStoreAsync(w);
         var sale = await w.SaleAsync(w.Blr);
         await using (var db = w.Db()) await ListPricedSales(db).CancelSaleAsync(sale.Id, w.UserId);
 
         await AssertEngineStateAsync(w);
+        Assert.Equal((100m, 100m), (await QohAsync(w, Store), await QohAsync(w, blrStore)));
         await using var check = w.Db();
-        Assert.Equal(100m, (await check.BatchLocationBalances.SingleAsync()).RemainingBaseQty);
-        Assert.Contains(await check.StockMovements.ToListAsync(), m => m.Type == StockMovementType.SaleCancellation && m.StockLocationId == Store);
+        Assert.Contains(await check.StockMovements.ToListAsync(), m => m.Type == StockMovementType.SaleCancellation && m.StockLocationId == blrStore);
     }
 
     [Fact]
-    public async Task CreatePurchaseReturn_AndCancelPurchase_PostAtTheDefaultStoreAndKeepBalancesInStep()
+    public async Task CreatePurchaseReturn_AndCancelPurchase_AtNonDefaultBranch_PostAtTheBranchStoreAndKeepBalancesInStep()
     {
         var w = await BranchWorld.CreateAsync();
+        await w.SeedBranchStockAsync(w.Blr, 100m);
+        var blrStore = await BlrStoreAsync(w);
         var purchase = await w.PurchaseAsync(w.Blr);
         PurchaseReturn ret;
         await using (var db = w.Db())
@@ -129,39 +145,40 @@ public class StockLocationStampingTests
             ret = await new PurchaseService(db, new ExchangeRateService(db)).CreateReturnAsync(
                 new CreatePurchaseReturnInput(purchase.Id, BranchWorld.Day, null, [new PurchaseReturnLineInput(purchase.Lines.Single().Id, null, 4m)]), w.UserId);
         }
-        Assert.Equal(Store, ret.StockLocationId);
+        Assert.Equal(blrStore, ret.StockLocationId);
         await AssertEngineStateAsync(w);
 
         var untouched = await w.PurchaseAsync(w.Blr);
         await using (var db = w.Db()) await new PurchaseService(db, new ExchangeRateService(db)).CancelPurchaseAsync(untouched.Id, w.UserId);
 
         await AssertEngineStateAsync(w);
+        Assert.Equal((100m, 106m), (await QohAsync(w, Store), await QohAsync(w, blrStore))); // 100 + 10 - 4 + 10 - 10 at BLR
         await using var check = w.Db();
-        Assert.Equal(106m, (await check.StockItems.SingleAsync()).QuantityOnHand); // 100 + 10 - 4 + 10 - 10
-        Assert.Contains(await check.BatchLocationBalances.ToListAsync(), b => b.RemainingBaseQty == 0m); // the cancelled batch keeps its zero row
+        Assert.Contains(await check.BatchLocationBalances.ToListAsync(), b => b.RemainingBaseQty == 0m && b.StockLocationId == blrStore); // the cancelled batch keeps its zero row
     }
 
     [Fact]
-    public async Task CreateAdjustment_AtNonDefaultBranch_IncreaseAndDecreasePostAtTheDefaultStore()
+    public async Task CreateAdjustment_AtNonDefaultBranch_IncreaseAndDecreasePostAtTheBranchStore()
     {
         var w = await BranchWorld.CreateAsync();
+        await w.SeedBranchStockAsync(w.Blr, 100m);
+        var blrStore = await BlrStoreAsync(w);
         StockAdjustment up, down;
         await using (var db = w.Db(w.Blr))
         {
-            up = await new StockAdjustmentService(db).CreateAdjustmentAsync(
+            up = await new StockAdjustmentService(db, new FakeEffectivePermissions()).CreateAdjustmentAsync(
                 new CreateAdjustmentInput(w.ProductId, w.ProductUnitId, AdjustmentType.Correction, AdjustmentDirection.Increase, 5m, 12m, "x"), w.UserId);
         }
         await using (var db = w.Db(w.Blr))
         {
-            down = await new StockAdjustmentService(db).CreateAdjustmentAsync(
+            down = await new StockAdjustmentService(db, new FakeEffectivePermissions()).CreateAdjustmentAsync(
                 new CreateAdjustmentInput(w.ProductId, w.ProductUnitId, AdjustmentType.Damage, AdjustmentDirection.Decrease, 103m, null, "x"), w.UserId);
         }
 
-        Assert.Equal((w.Blr, Store), (up.BranchId, up.StockLocationId));
-        Assert.Equal((Store, 105m, 2m), (down.StockLocationId, down.BeforeQty, down.AfterQty));
+        Assert.Equal((w.Blr, blrStore), (up.BranchId, up.StockLocationId));
+        Assert.Equal((blrStore, 105m, 2m), (down.StockLocationId, down.BeforeQty, down.AfterQty));
         await AssertEngineStateAsync(w);
-        await using var check = w.Db();
-        Assert.Equal(2m, (await check.StockItems.SingleAsync()).QuantityOnHand);
+        Assert.Equal((100m, 2m), (await QohAsync(w, Store), await QohAsync(w, blrStore)));
     }
 
     [Fact]

@@ -12,7 +12,7 @@ namespace Sellora.Infrastructure.Services;
 /// snapshotted on the adjustment and never recomputed. Stock state (QOH, batches, movements) is base units only.
 /// Lock order: product KEY SHARE → location KEY SHARE → StockItems upsert + FOR UPDATE → ADJ document number.
 /// </summary>
-public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentService
+public class StockAdjustmentService(SelloraDbContext db, IEffectivePermissionService? permissions = null) : IStockAdjustmentService
 {
     private static readonly Dictionary<AdjustmentType, AdjustmentDirection?> RequiredDirection = new()
     {
@@ -86,12 +86,14 @@ public class StockAdjustmentService(SelloraDbContext db) : IStockAdjustmentServi
         var baseUnit = product.BaseUnit;
         StockQuantity.EnsureWithinBaseDecimals(input.Quantity, productUnit.Unit.ShortCode, baseQty, baseUnit, "Quantity");
 
-        // 7. Working branch (header branch or default) and the stock location, resolved BEFORE any stock lock (Phase 8a:
-        // always the company's default store). Then the location KEY SHARE and the StockItem — created at QOH 0 if this
+        // 7. Working branch (header branch or default) and the stock location, resolved BEFORE any stock lock (Phase 8b:
+        // requested location or the working branch's store). Then the location KEY SHARE and the StockItem — created at QOH 0 if this
         // is the product's first stock at the location — held FOR UPDATE to commit.
         var branch = await BranchRules.ResolveWorkingBranchAsync(db, ct);
-        var locationId = await StockLocationDefaults.GetDefaultStoreIdAsync(db, ct);
+        var companyLevel = await StockLocationRules.HasCompanyLevelAsync(permissions, "Inventory.Adjust", ct);
+        var locationId = await StockLocationRules.ResolveAsync(db, PostingKind.Adjustment, input.StockLocationId, branch.Id, companyLevel, ct);
         await StockLocks.LockLocationsKeyShareAsync(db, [locationId], ct);
+        await StockLocationRules.ResolveAsync(db, PostingKind.Adjustment, locationId, branch.Id, companyLevel, ct);
         var stockItem = (await StockLocks.EnsureAndLockStockItemsAsync(db, [(locationId, product.Id)], ct))[(locationId, product.Id)];
 
         var user = await db.Users.SingleAsync(u => u.Id == userId, ct);

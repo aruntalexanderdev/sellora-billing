@@ -32,7 +32,7 @@ public class BranchStoreTests
         var w = await WorldWithStoresAsync();
         await using var db = w.Db();
 
-        var branch = await new BranchService(db).CreateAsync(New(" kar ", "Karur"), w.UserId);
+        var branch = await new BranchService(db, new StockLocationUsageService(db)).CreateAsync(New(" kar ", "Karur"), w.UserId);
 
         var store = await StoreOfAsync(db, branch.Id);
         Assert.Equal(("KAR", "Karur", true, TestCompany.DefaultId), (store.Code, store.Name, store.IsActive, store.CompanyId));
@@ -45,7 +45,7 @@ public class BranchStoreTests
     {
         var w = await WorldWithStoresAsync();
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
         var stores = await db.StockLocations.CountAsync();
 
         await Assert.ThrowsAsync<DomainValidationException>(() => service.CreateAsync(New("BLR", "Another"), w.UserId));
@@ -63,7 +63,7 @@ public class BranchStoreTests
         await db.SaveChangesAsync();
         var branches = await db.Branches.CountAsync();
 
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db).CreateAsync(New("van1", "Van branch"), w.UserId));
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db, new StockLocationUsageService(db)).CreateAsync(New("van1", "Van branch"), w.UserId));
 
         Assert.Equal("Code", ex.Field);
         Assert.Equal(branches, await db.Branches.CountAsync());
@@ -81,7 +81,7 @@ public class BranchStoreTests
         }
         await using var db = w.Db();
 
-        var branch = await new BranchService(db).CreateAsync(New("KAR"), w.UserId);
+        var branch = await new BranchService(db, new StockLocationUsageService(db)).CreateAsync(New("KAR"), w.UserId);
 
         Assert.Equal("KAR", (await StoreOfAsync(db, branch.Id)).Code);
     }
@@ -92,7 +92,7 @@ public class BranchStoreTests
         var w = await WorldWithStoresAsync();
         await using var db = w.Db();
 
-        await new BranchService(db).UpdateAsync(w.Blr, Edit("Bangalore East"), w.UserId);
+        await new BranchService(db, new StockLocationUsageService(db)).UpdateAsync(w.Blr, Edit("Bangalore East"), w.UserId);
 
         var store = await StoreOfAsync(db, w.Blr);
         Assert.Equal(("BLR", "Bangalore East"), (store.Code, store.Name));
@@ -103,7 +103,7 @@ public class BranchStoreTests
     {
         var w = await WorldWithStoresAsync();
         await using var db = w.Db();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
 
         await service.SetStatusAsync(w.Blr, false, w.UserId);
         Assert.False((await StoreOfAsync(db, w.Blr)).IsActive);
@@ -117,7 +117,7 @@ public class BranchStoreTests
         var w = await WorldWithStoresAsync();
         await using var db = w.Db();
 
-        await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db).SetStatusAsync(w.Main, false, w.UserId));
+        await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Main, false, w.UserId));
 
         var store = await StoreOfAsync(db, w.Main);
         Assert.True(store.IsActive);
@@ -131,7 +131,7 @@ public class BranchStoreTests
         await using var db = w.Db();
         db.StockLocations.RemoveRange(db.StockLocations.Where(l => l.BranchId == w.Blr));
         await db.SaveChangesAsync();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
 
         var update = await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateAsync(w.Blr, Edit("Renamed"), w.UserId));
         var status = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SetStatusAsync(w.Blr, false, w.UserId));
@@ -156,7 +156,7 @@ public class BranchStoreTests
         }
         await using var db = w.Db();
 
-        await new BranchService(db).UpdateAsync(w.Blr, Edit("Bangalore East"), w.UserId);
+        await new BranchService(db, new StockLocationUsageService(db)).UpdateAsync(w.Blr, Edit("Bangalore East"), w.UserId);
 
         await using var check = new SelloraDbContext(w.Options, TestCompany.For(TestCompany.OtherId), BranchContext.Unrestricted());
         Assert.Equal("Main", (await StoreOfAsync(check, otherBranch.Id)).Name);

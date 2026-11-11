@@ -9,18 +9,18 @@ namespace Sellora.IntegrationTests.TestData;
 /// </summary>
 public static class StockInvariants
 {
-    /// <summary>Products whose QuantityOnHand differs from the sum of their stock movements.</summary>
+    /// <summary>Products whose QuantityOnHand (summed over their locations: one row each before Phase 8, one per location after) differs from the sum of their stock movements.</summary>
     public const string QohVsLedgerSql = """
-        SELECT s."ProductId" FROM "StockItems" s
+        SELECT s."ProductId" FROM (SELECT "ProductId", SUM("QuantityOnHand") q FROM "StockItems" GROUP BY 1) s
         LEFT JOIN (SELECT "ProductId", SUM("QuantityBaseUnits") q FROM "StockMovements" GROUP BY 1) m USING ("ProductId")
-        WHERE s."QuantityOnHand" <> COALESCE(m.q, 0)
+        WHERE s.q <> COALESCE(m.q, 0)
         """;
 
-    /// <summary>Products whose QuantityOnHand differs from the sum of their batches' remaining quantity.</summary>
+    /// <summary>Products whose QuantityOnHand (summed over their locations) differs from the sum of their batches' remaining quantity.</summary>
     public const string QohVsBatchesSql = """
-        SELECT s."ProductId" FROM "StockItems" s
+        SELECT s."ProductId" FROM (SELECT "ProductId", SUM("QuantityOnHand") q FROM "StockItems" GROUP BY 1) s
         LEFT JOIN (SELECT "ProductId", SUM("RemainingBaseQty") q FROM "PurchaseBatches" GROUP BY 1) b USING ("ProductId")
-        WHERE s."QuantityOnHand" <> COALESCE(b.q, 0)
+        WHERE s.q <> COALESCE(b.q, 0)
         """;
 
     /// <summary>Sales invoice lines whose BaseQty is not Qty × ConversionFactorToBase.</summary>

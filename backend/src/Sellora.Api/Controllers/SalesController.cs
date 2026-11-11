@@ -2,10 +2,12 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Api.Validation;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Inventory;
 using Sellora.Domain.Payments;
 using Sellora.Domain.Sales;
 using Sellora.Domain.Auth;
@@ -22,8 +24,12 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
     /// user can bill without needing Inventory permissions.</summary>
     [HttpGet("catalog")]
     [Authorize(Policy = "Sales.Create")]
-    public async Task<ActionResult<IReadOnlyList<SaleCatalogProductDto>>> Catalog([FromQuery] string? search, CancellationToken ct)
+    public async Task<ActionResult<IReadOnlyList<SaleCatalogProductDto>>> Catalog([FromQuery] string? search, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
     {
+        // Phase 8: availability is read at the selling location (requested, else the working branch's store).
+        var location = await ResolveCatalogLocationAsync(stockLocationId, ct);
+        if (location.Denied is { } denied) return denied;
+
         var query = CatalogQuery();
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -34,7 +40,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
                 || p.Units.Any(u => u.IsActive && u.IsSellable && u.Barcode == term));
         }
 
-        return Ok(await BuildCatalogItemsAsync(query.OrderBy(p => p.Name).Take(50), ct));
+        return Ok(await BuildCatalogItemsAsync(query.OrderBy(p => p.Name).Take(50), location.LocationId, ct));
     }
 
     /// <summary>Exact barcode match on an active, sellable product unit. Lives under Sales (not Products) so a
@@ -42,8 +48,11 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
     /// An unpriced unit is returned with a null price; the POS refuses it.</summary>
     [HttpGet("catalog/by-barcode/{code}")]
     [Authorize(Policy = "Sales.Create")]
-    public async Task<ActionResult<SaleBarcodeMatchDto>> CatalogByBarcode(string code, CancellationToken ct)
+    public async Task<ActionResult<SaleBarcodeMatchDto>> CatalogByBarcode(string code, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
     {
+        var location = await ResolveCatalogLocationAsync(stockLocationId, ct);
+        if (location.Denied is { } denied) return denied;
+
         var term = code.Trim();
         var unit = string.IsNullOrEmpty(term) ? null : await db.ProductUnits.AsNoTracking()
             .Where(u => u.Barcode == term && u.IsActive && u.IsSellable && u.Product.IsActive)
@@ -54,7 +63,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             return Problem(statusCode: 404, title: $"No sellable item has barcode {term}.");
         }
 
-        var item = (await BuildCatalogItemsAsync(CatalogQuery().Where(p => p.Id == unit.ProductId), ct)).Single();
+        var item = (await BuildCatalogItemsAsync(CatalogQuery().Where(p => p.Id == unit.ProductId), location.LocationId, ct)).Single();
         return Ok(new SaleBarcodeMatchDto(item, unit.Id));
     }
 
@@ -62,15 +71,18 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
         db.Products.AsNoTracking().Where(p => p.IsActive)
             .Include(p => p.BaseUnit).Include(p => p.Tax).Include(p => p.Units.Where(u => u.IsActive && u.IsSellable).OrderBy(u => u.SortOrder)).ThenInclude(u => u.Unit);
 
-    private async Task<List<SaleCatalogProductDto>> BuildCatalogItemsAsync(IQueryable<Product> query, CancellationToken ct)
+    private async Task<List<SaleCatalogProductDto>> BuildCatalogItemsAsync(IQueryable<Product> query, Guid? locationId, CancellationToken ct)
     {
         var products = await query.ToListAsync(ct);
         var productIds = products.Select(p => p.Id).ToList();
         var unitIds = products.SelectMany(p => p.Units).Select(u => u.Id).ToList();
 
-        var qtyByProduct = await db.StockItems
-            .Where(s => productIds.Contains(s.ProductId))
-            .ToDictionaryAsync(s => s.ProductId, s => s.QuantityOnHand, ct);
+        // One row per (location, product): the key is unique within the single selling location. No location = nothing available.
+        var qtyByProduct = locationId is not { } loc
+            ? new Dictionary<Guid, decimal>()
+            : await db.StockItems
+                .Where(s => s.StockLocationId == loc && productIds.Contains(s.ProductId))
+                .ToDictionaryAsync(s => s.ProductId, s => s.QuantityOnHand, ct);
 
         var priceByUnit = await db.SellingPrices
             .Where(p => unitIds.Contains(p.ProductUnitId) && p.EffectiveTo == null)
@@ -82,8 +94,44 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             p.Units.OrderBy(u => u.SortOrder).Select(u => new SaleCatalogUnitDto(
                 u.Id, u.UnitId, u.Unit.ShortCode, u.Label ?? u.Unit.Name,
                 u.ConversionFactorToBase, u.Unit.DecimalPlaces, u.IsBaseUnit, u.IsDefaultSalesUnit,
-                priceByUnit.TryGetValue(u.Id, out var price) ? price : null, u.Barcode)).ToList()
+                priceByUnit.TryGetValue(u.Id, out var price) ? price : null, u.Barcode)).ToList(),
+            locationId
         )).ToList();
+    }
+
+    /// <summary>Selling location for catalog availability: the requested one (must be visible by branch access, else 403 branch_access_denied),
+    /// otherwise the active BranchStore of the working branch (requested/primary/default). Null when none exists.</summary>
+    private async Task<(Guid? LocationId, ObjectResult? Denied)> ResolveCatalogLocationAsync(Guid? requested, CancellationToken ct)
+    {
+        if (requested is not null)
+        {
+            // Only a location the caller could sell from (same rules as POST /sales: own branch store or vehicle, a central vehicle
+            // with Sales.Create company-wide; active, CanSell). Anything else is one 403, so the catalog never reveals other stock.
+            try
+            {
+                return (await salesService.ResolveSellingLocationAsync(requested, ct), null);
+            }
+            catch (DomainValidationException)
+            {
+                return (null, Problem(
+                    statusCode: StatusCodes.Status403Forbidden,
+                    title: "You do not have access to this stock location.",
+                    extensions: new Dictionary<string, object?> { ["code"] = CompanyContextMiddleware.BranchAccessDeniedCode }));
+            }
+        }
+
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var working = db.BranchContext.RequestedBranchId ?? db.BranchContext.PrimaryBranchId;
+        if (working is null)
+        {
+            working = await db.Branches.AsNoTracking().Where(b => b.CompanyId == companyId && b.IsDefault).Select(b => (Guid?)b.Id).FirstOrDefaultAsync(ct);
+        }
+        if (working is not { } branchId) return (null, null);
+
+        var store = await db.StockLocations.AsNoTracking()
+            .Where(l => l.CompanyId == companyId && l.BranchId == branchId && l.LocationType == StockLocationType.BranchStore && l.IsActive)
+            .Select(l => (Guid?)l.Id).FirstOrDefaultAsync(ct);
+        return (store, null);
     }
 
     [HttpGet]
@@ -129,11 +177,13 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
                 i.Status == SalesStatus.Cancelled || i.GrandTotal - i.ReturnedAmount - i.PaidAmount < 0 ? 0 : i.GrandTotal - i.ReturnedAmount - i.PaidAmount,
                 i.GrandTotal - i.ReturnedAmount <= 0 || i.PaidAmount >= i.GrandTotal - i.ReturnedAmount ? PaymentStatus.Paid
                     : i.PaidAmount <= 0 ? PaymentStatus.Due : PaymentStatus.PartiallyPaid,
-                i.Status, i.BranchId, null, null))
+                i.Status, i.BranchId, null, null, i.StockLocationId))
             .ToListAsync(ct);
 
         var labels = await BranchLabels.LoadAsync(db, ct);
         items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
+        var locLabels = await StockLocationLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { StockLocationCode = locLabels.Code(i.StockLocationId!.Value), StockLocationName = locLabels.Name(i.StockLocationId!.Value) }).ToList();
 
         return Ok(new PagedResult<SalesInvoiceListItemDto>(items, total, page, pageSize));
     }
@@ -159,6 +209,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
 
         // Seller GSTIN = the branch's own GSTIN, else the company's (current value; a snapshot on the invoice is Phase 10).
         var labels = await BranchLabels.LoadAsync(db, ct);
+        var locLabels = await StockLocationLabels.LoadAsync(db, ct);
         var branchGstin = await db.Branches.AsNoTracking()
             .Where(b => b.CompanyId == invoice.CompanyId && b.Id == invoice.BranchId).Select(b => b.Gstin).SingleOrDefaultAsync(ct);
         var sellerGstin = branchGstin ?? await db.GetCompanyGstinAsync(ct);
@@ -177,7 +228,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             })
             .ToListAsync(ct))
             .ToDictionary(b => b.Id, b => new BatchSource(b.IsPurchase ? "Purchase" : "Adjustment", b.RefNo, b.PurchaseOrderId));
-        return Ok(ToDetail(invoice, batchSources) with { BranchCode = labels.Code(invoice.BranchId), BranchName = labels.Name(invoice.BranchId), SellerGstin = sellerGstin });
+        return Ok(ToDetail(invoice, batchSources) with { BranchCode = labels.Code(invoice.BranchId), BranchName = labels.Name(invoice.BranchId), StockLocationId = invoice.StockLocationId, StockLocationCode = locLabels.Code(invoice.StockLocationId), StockLocationName = locLabels.Name(invoice.StockLocationId), SellerGstin = sellerGstin });
     }
 
     [HttpPost]
@@ -190,7 +241,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
         var input = new CreateSaleInput(
             request.CustomerId!.Value, request.InvoiceDate, request.PaymentMethod, request.PaidAmount,
             request.Lines.Select(l => new SaleLineInput(l.ProductId!.Value, l.ProductUnitId!.Value, l.Qty, l.UnitPrice, l.Discount, l.OverridePrice)).ToList(),
-            request.AccountId, key, await CanOverridePriceAsync(ct));
+            request.AccountId, key, await CanOverridePriceAsync(ct), request.StockLocationId);
 
         try
         {

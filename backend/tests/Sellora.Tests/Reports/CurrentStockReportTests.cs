@@ -49,7 +49,7 @@ public class CurrentStockReportTests
 
     private static async Task<CurrentStockReportRowDto> RowAsync(Fixture f)
     {
-        var result = await new ReportsController(f.Db).CurrentStock(null, null, null, ct: default);
+        var result = await new ReportsController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).CurrentStock(null, null, null, ct: default);
         var page = (PagedResult<CurrentStockReportRowDto>)Assert.IsType<OkObjectResult>(result.Result).Value!;
         return Assert.Single(page.Items);
     }

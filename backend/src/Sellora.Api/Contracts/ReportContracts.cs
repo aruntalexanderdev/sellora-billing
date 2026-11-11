@@ -6,14 +6,16 @@ namespace Sellora.Api.Contracts;
 public record CurrentStockReportRowDto(
     Guid ProductId, string Sku, string Name, string? Category, string BaseUnitLabel,
     decimal QuantityOnHand, decimal AverageCost, decimal StockValue,
-    decimal? SellingPricePerBaseUnit, decimal? SellingValue, StockStatus Status
+    decimal? SellingPricePerBaseUnit, decimal? SellingValue, StockStatus Status,
+    IReadOnlyList<StockLocationBalanceDto>? Locations = null
 );
 
 public record StockMovementReportRowDto(
     Guid Id, DateTimeOffset OccurredAt, string ProductName, string Sku, string BaseUnitLabel,
     StockMovementType Type, decimal QuantityBaseUnits, string ReferenceType, string ReferenceNo, string UserName,
     AdjustmentType? ReasonCode, decimal? EnteredQuantity, Guid? EnteredProductUnitId, string? EnteredUnitCode,
-    decimal? ConversionFactorSnapshot, int? EnteredDecimalPlaces, int BaseDecimalPlaces
+    decimal? ConversionFactorSnapshot, int? EnteredDecimalPlaces, int BaseDecimalPlaces,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );
 
 public record PurchaseReportRowDto(

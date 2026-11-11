@@ -304,12 +304,12 @@ public class WarehouseServiceTests
         await using var db = w.Db();
         var wh = await Service(db).CreateAsync(new("W1", "One", w.Blr), w.UserId);
         await Service(db).SetStatusAsync(wh.Id, false, w.UserId);
-        await new BranchService(db).SetStatusAsync(w.Blr, false, w.UserId);
+        await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId);
 
         var ex = await Assert.ThrowsAsync<DomainValidationException>(() => Service(db).SetStatusAsync(wh.Id, true, w.UserId));
         Assert.Equal("IsActive", ex.Field);
 
-        await new BranchService(db).SetStatusAsync(w.Blr, true, w.UserId);
+        await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, true, w.UserId);
         await Service(db).SetStatusAsync(wh.Id, true, w.UserId);
         Assert.True((await LocationOfAsync(db, wh)).IsActive);
     }

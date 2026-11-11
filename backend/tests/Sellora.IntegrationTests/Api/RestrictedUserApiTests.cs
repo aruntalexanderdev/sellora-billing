@@ -231,6 +231,7 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         var r = await RestrictedUserWorld.GetWorldAsync(postgres); var w = r.World;
         var (x, xCode) = await w.NewBranchAsync(); var (z, zCode) = await w.NewBranchAsync();
         var user = await r.CreateAsync("ru", r.StaffRoleId, CompanyAccessScope.AssignedBranches, [x, z], primary: z);
+        await w.EnsureBranchStockAsync(x, 1m); // 8b: x sells from its own store
 
         var headerless = await JsonAsync(await SendAsAsync(r, user, HttpMethod.Post, "/api/v1/purchases",
             new CreatePurchaseRequest(w.SupplierId, Today, null, null, PaymentMethod.Cash, 0m, [new CreatePurchaseLineRequest(w.ProductId, w.ProductUnitId, 1m, 5m, 0, 0)], null)));
@@ -482,7 +483,11 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
     {
         var r = await RestrictedUserWorld.GetWorldAsync(postgres); var w = r.World;
         var (x, _) = await w.NewBranchAsync(); var (y, _) = await w.NewBranchAsync();
-        var purchaseY = await JsonAsync(await w.PurchaseAsync(y, qty: 4000m)); // newest batch is at y; the sale at x consumes the oldest batches (other branches)
+        // 8b: a branch sells from its OWN store, so a batch of another branch's purchase can only sit at x's store after a transfer (Phase 9).
+        // Simulate that state: receive at x (header x), then re-tag the purchase order as y's (the batch stays at x's store).
+        var purchaseY = await JsonAsync(await w.PurchaseAsync(x, qty: 4000m));
+        // TODO(Phase 9): replace this re-tag with a real inter-branch transfer once transfers exist; until then a branch sale can only draw a batch received at its own location.
+        await ExecuteAsync(w.Host.Database, $"""UPDATE "PurchaseOrders" SET "BranchId" = '{y}' WHERE "Id" = '{IdOf(purchaseY)}'""");
         var user = await r.CreateAtAsync(x);
 
         var sale = await RestrictedUserWorld.JsonOkAsync(await SendAsAsync(r, user, HttpMethod.Post, "/api/v1/sales",

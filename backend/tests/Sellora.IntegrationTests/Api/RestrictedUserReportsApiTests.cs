@@ -102,6 +102,7 @@ public class RestrictedUserReportsApiTests(PostgresFixture postgres)
         var r = await RestrictedUserWorld.GetWorldAsync(postgres); var w = r.World;
         var (x, _) = await w.NewBranchAsync(); var (y, _) = await w.NewBranchAsync();
         var user = await r.CreateAtAsync(x);
+        await w.EnsureBranchStockAsync(x, 1m); // 8b: x sells from its own store
         var key = "replay-" + Guid.NewGuid().ToString("N");
         var body = new CreateSaleRequest(w.CustomerId, Today, PaymentMethod.Cash, 0m, [new CreateSaleLineRequest(w.ProductId, w.ProductUnitId, 1m, 20m, 0)]);
 

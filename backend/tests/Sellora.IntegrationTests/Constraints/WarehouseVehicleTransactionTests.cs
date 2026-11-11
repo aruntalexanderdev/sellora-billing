@@ -54,9 +54,9 @@ public class WarehouseVehicleTransactionTests(PostgresFixture postgres)
         await using var database = await postgres.CreateDatabaseAsync();
         await SeedUserAsync(database);
         await using var db = database.CreateDbContext();
-        var branch = await new BranchService(db).CreateAsync(new CreateBranchInput("BLR", "Bengaluru", null, null, null, null, null, null, null), UserId);
-        var warehouses = new WarehouseService(db, new StockLocationUsageService());
-        var vehicles = new VehicleService(db, new StockLocationUsageService());
+        var branch = await new BranchService(db, new StockLocationUsageService(db)).CreateAsync(new CreateBranchInput("BLR", "Bengaluru", null, null, null, null, null, null, null), UserId);
+        var warehouses = new WarehouseService(db, new StockLocationUsageService(db));
+        var vehicles = new VehicleService(db, new StockLocationUsageService(db));
 
         var company = await warehouses.CreateAsync(new("CW1", "Central", null), UserId);
         var branchWh = await warehouses.CreateAsync(new("BW1", "Bengaluru back", branch.Id), UserId);
@@ -96,8 +96,8 @@ public class WarehouseVehicleTransactionTests(PostgresFixture postgres)
         await using var database = await postgres.CreateDatabaseAsync();
         await SeedUserAsync(database);
         await using var db = database.CreateDbContext();
-        var warehouses = new WarehouseService(db, new StockLocationUsageService());
-        var vehicles = new VehicleService(db, new StockLocationUsageService());
+        var warehouses = new WarehouseService(db, new StockLocationUsageService(db));
+        var vehicles = new VehicleService(db, new StockLocationUsageService(db));
         await warehouses.CreateAsync(new("CW1", "Central", null), UserId);
         var locations = await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "StockLocations" """);
 
@@ -119,9 +119,9 @@ public class WarehouseVehicleTransactionTests(PostgresFixture postgres)
         await using var database = await postgres.CreateDatabaseAsync();
         await SeedUserAsync(database);
         await using var db = database.CreateDbContext();
-        var branch = await new BranchService(db).CreateAsync(new CreateBranchInput("BLR", "Bengaluru", null, null, null, null, null, null, null), UserId);
-        var warehouse = await new WarehouseService(db, new StockLocationUsageService()).CreateAsync(new("CW1", "Central", null), UserId);
-        var van = await new VehicleService(db, new StockLocationUsageService()).CreateAsync(new("V1", "Van", VehicleType.Van, null), UserId);
+        var branch = await new BranchService(db, new StockLocationUsageService(db)).CreateAsync(new CreateBranchInput("BLR", "Bengaluru", null, null, null, null, null, null, null), UserId);
+        var warehouse = await new WarehouseService(db, new StockLocationUsageService(db)).CreateAsync(new("CW1", "Central", null), UserId);
+        var van = await new VehicleService(db, new StockLocationUsageService(db)).CreateAsync(new("V1", "Van", VehicleType.Van, null), UserId);
 
         var whEx = await Assert.ThrowsAsync<DomainValidationException>(() => new WarehouseService(db, new InUse()).SetStatusAsync(warehouse.Id, false, UserId));
         var vEx = await Assert.ThrowsAsync<DomainValidationException>(() => new VehicleService(db, new InUse()).SetStatusAsync(van.Id, false, UserId));
@@ -131,7 +131,7 @@ public class WarehouseVehicleTransactionTests(PostgresFixture postgres)
         Assert.Equal(0L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "StockLocations" WHERE "LocationType" IN ('CompanyWarehouse','Vehicle') AND NOT "IsActive" """));
         Assert.Equal(0L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Vehicles" WHERE "AssignedBranchId" IS NOT NULL"""));
         // The transaction was rolled back: a later write on the same context still works.
-        await new VehicleService(db, new StockLocationUsageService()).UpdateAsync(van.Id, new("Van", VehicleType.Van, branch.Id), UserId);
+        await new VehicleService(db, new StockLocationUsageService(db)).UpdateAsync(van.Id, new("Van", VehicleType.Van, branch.Id), UserId);
         await AssertVBlockAsync(database);
     }
 
@@ -141,12 +141,12 @@ public class WarehouseVehicleTransactionTests(PostgresFixture postgres)
         await using var database = await postgres.CreateDatabaseAsync();
         await SeedUserAsync(database);
         await using var db = database.CreateDbContext();
-        var branches = new BranchService(db);
+        var branches = new BranchService(db, new StockLocationUsageService(db));
         var branch = await branches.CreateAsync(new CreateBranchInput("BLR", "Bengaluru", null, null, null, null, null, null, null), UserId);
-        var warehouse = await new WarehouseService(db, new StockLocationUsageService()).CreateAsync(new("BW1", "Back", branch.Id), UserId);
+        var warehouse = await new WarehouseService(db, new StockLocationUsageService(db)).CreateAsync(new("BW1", "Back", branch.Id), UserId);
 
         await Assert.ThrowsAsync<DomainValidationException>(() => branches.SetStatusAsync(branch.Id, false, UserId));
-        await new WarehouseService(db, new StockLocationUsageService()).SetStatusAsync(warehouse.Id, false, UserId);
+        await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouse.Id, false, UserId);
         await branches.SetStatusAsync(branch.Id, false, UserId);
 
         Assert.Equal(0L, await ScalarAsync<long>(database, $"""SELECT COUNT(*) FROM "Branches" WHERE "Id" = '{branch.Id}' AND "IsActive" """));

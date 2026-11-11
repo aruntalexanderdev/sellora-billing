@@ -82,7 +82,10 @@ public class DashboardController(SelloraDbContext db, IEffectivePermissionServic
 
         if (canViewInventory)
         {
-            currentStockValue = await db.StockItems.SumAsync(s => s.QuantityOnHand * s.AverageCost, ct);
+            // Phase 8: only locations visible under Inventory.View (branch access + permitted branches + company-level locations).
+            var visibility = await StockVisibility.LoadAsync(db, effectivePermissions, "Inventory.View", ct);
+            var scope = visibility.Scope(null);
+            currentStockValue = await db.StockItems.Where(s => scope.Contains(s.StockLocationId)).SumAsync(s => s.QuantityOnHand * s.AverageCost, ct);
 
             var candidates = await db.Products.Where(p => p.IsActive)
                 .Select(p => new
@@ -91,7 +94,8 @@ public class DashboardController(SelloraDbContext db, IEffectivePermissionServic
                     p.Name,
                     p.ReorderLevel,
                     BaseUnitLabel = p.BaseUnit.ShortCode,
-                    QuantityOnHand = db.StockItems.Where(s => s.ProductId == p.Id).Select(s => s.QuantityOnHand).FirstOrDefault(),
+                    // Summed over the visible locations; compared with the product-level ReorderLevel (per-location reorder levels are a later phase).
+                    QuantityOnHand = db.StockItems.Where(s => s.ProductId == p.Id && scope.Contains(s.StockLocationId)).Sum(s => s.QuantityOnHand),
                 })
                 .Where(p => p.QuantityOnHand < p.ReorderLevel)
                 .ToListAsync(ct);

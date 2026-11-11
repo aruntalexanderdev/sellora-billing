@@ -115,3 +115,24 @@ Status: **8a delivered — review "Approve" (no Blocker/Major).** Verify: 1309 u
 - Fix the reads that assume one stock row per product — `StockController.cs:88` and `SalesController.cs:71` would throw; Dashboard, Reports, Pricing and `StockController.cs:29-30` would silently show one location — together with 8b posting (never release 8b posting without them).
 - V2 row-count comparison relies on a transaction-local setting from the guard; keep guard and V-block in one transaction.
 - Returns/cancels may create a zero-quantity stock row where the old code threw (harmless).
+
+## 8b delivery record (2026-11-11)
+
+Status: **8b delivered — review "Approve with fixes", fixes applied.** Verify: 1360 unit / 958 PostgreSQL integration / 192 Vitest, 0 warnings. Release: **together with Phase 9** (O1 = A); do not deploy 8b alone.
+
+**Delivered**
+- Posting: `StockLocationRules` resolver (D3) runs before locks and again after the location KEY SHARE lock (active re-check). Sale needs CanSell, purchase CanReceivePurchase, adjustment any non-Transit location. A branch-owned location must be the working branch's own. A vehicle assigned to the working branch is allowed; **another branch's vehicle is always refused**; a central vehicle or company warehouse needs the code company-wide (O2). No permission service = not held (fail closed). Optional `stockLocationId` on POST sales / purchases / stock-adjustments; returns and cancels post at the original location.
+- `StockLocationUsageService` real (D7): HasStock = any StockItems row at the location with QOH ≠ 0, after FOR UPDATE on the location. Wired into warehouse/vehicle admin and `BranchService` store deactivation.
+- `PermissionCatalog` (D8/O3): Inventory.View, Reports.Stock, Reports.Movement are now CompanyOrBranch.
+- Reads (D6): `StockVisibility` = locations of accessible branches narrowed by the code's permitted branches, plus company-level locations. A vehicle counts as its assigned branch's location; only central vehicles and company warehouses are company-level. A hidden explicit `stockLocationId` is 403 `branch_access_denied`. Overview / current stock / dashboard sum per product over visible locations; stock detail has `locations[]` and per-location batch balances; pricing uses the weighted average; purchase returnable quantity is the balance at the purchase's location.
+- POS catalog: default = working branch store; an explicit `stockLocationId` is accepted only where the caller could sell (same resolver as POST /sales), else 403 — the catalog cannot be used to read stock elsewhere.
+- §6 DTOs: list and detail of sales, purchases, adjustments, sales returns, purchase returns carry `stockLocationId/Code/Name` (`StockLocationLabels`).
+
+**Deviation:** `CompanyLocks` now takes the company row `FOR NO KEY UPDATE` (was FOR UPDATE). Admin writers still serialise against each other; the lock no longer conflicts with the KEY SHARE that every insert's CompanyId FK takes. This removes a deadlock between location admin (company row → location FOR UPDATE) and an in-flight posting (location KEY SHARE → company FK). Nothing deletes or re-keys a company row.
+
+**Known limitations (accepted for 8b, revisit later)**
+- Dashboard low-stock compares the visible-scope quantity with the product-level ReorderLevel; a branch-only reader may see low-stock for stock held elsewhere. Per-location reorder levels are a later item.
+- `RestrictedUserApiTests.BatchLabels_*` simulates a cross-branch batch by re-tagging a PO; replace with a real transfer in Phase 9.
+- Stock detail lists a batch if it originated in scope or holds a balance in scope (ready for Phase 9 transfers).
+
+**Phase 11 carry-over:** location selector on POS / purchase / adjustment; location filter + column on stock overview, detail, current stock, stock movement and document lists; per-location table on stock detail; `stockLocationId` field-error mapping; the three new document DTO fields.

@@ -47,7 +47,7 @@ public class StockMovementEnrichmentEndpointsTests
         await AdjustAsync(f, f.Pc, AdjustmentType.Damage, AdjustmentDirection.Decrease, 5m);
         f.Db.StockMovements.Add(new StockMovement
         {
-            Id = Guid.NewGuid(), ProductId = f.Pen.Id, Type = StockMovementType.Purchase, QuantityBaseUnits = 1m, ReferenceType = "PurchaseOrder",
+            Id = Guid.NewGuid(), ProductId = f.Pen.Id, StockLocationId = Sellora.Domain.Companies.DefaultTenant.MainStoreLocationId, Type = StockMovementType.Purchase, QuantityBaseUnits = 1m, ReferenceType = "PurchaseOrder",
             ReferenceId = Guid.NewGuid(), ReferenceNo = "PO-LEGACY", UserId = f.User.Id, OccurredAt = DateTimeOffset.UtcNow.AddYears(-1),
         });
         await f.Db.SaveChangesAsync();
@@ -62,7 +62,7 @@ public class StockMovementEnrichmentEndpointsTests
     {
         var f = await SeedHistoryAsync();
 
-        var detail = Ok(await new StockController(f.Db).Detail(f.Pen.Id, default));
+        var detail = Ok(await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).Detail(f.Pen.Id, default));
 
         var opening = Assert.Single(detail.Movements, m => m.Type == StockMovementType.OpeningStock);
         Assert.Equal((AdjustmentType?)AdjustmentType.OpeningStock, opening.ReasonCode);
@@ -77,7 +77,7 @@ public class StockMovementEnrichmentEndpointsTests
     {
         var f = await SeedHistoryAsync();
 
-        var legacy = Assert.Single(Ok(await new StockController(f.Db).Detail(f.Pen.Id, default)).Movements, m => m.ReferenceNo == "PO-LEGACY");
+        var legacy = Assert.Single(Ok(await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).Detail(f.Pen.Id, default)).Movements, m => m.ReferenceNo == "PO-LEGACY");
 
         Assert.Null(legacy.ReasonCode);
         Assert.Null(legacy.EnteredQuantity);
@@ -92,7 +92,7 @@ public class StockMovementEnrichmentEndpointsTests
     {
         var f = await SeedHistoryAsync();
 
-        var movements = Ok(await new StockController(f.Db).Detail(f.Pen.Id, default)).Movements;
+        var movements = Ok(await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).Detail(f.Pen.Id, default)).Movements;
 
         Assert.All(movements, m => Assert.Equal(m.Type is StockMovementType.Adjustment or StockMovementType.OpeningStock, m.ReasonCode is not null));
     }
@@ -101,7 +101,7 @@ public class StockMovementEnrichmentEndpointsTests
     public async Task Detail_SerialisedWithApiJsonOptions_UsesCamelCaseNamesAndStringEnums()
     {
         var f = await SeedHistoryAsync();
-        var detail = Ok(await new StockController(f.Db).Detail(f.Pen.Id, default));
+        var detail = Ok(await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).Detail(f.Pen.Id, default));
 
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(detail, Api));
         var row = doc.RootElement.GetProperty("movements").EnumerateArray().Single(m => m.GetProperty("type").GetString() == "OpeningStock");
@@ -122,7 +122,7 @@ public class StockMovementEnrichmentEndpointsTests
     {
         var f = await SeedHistoryAsync();
 
-        var page = Ok(await new ReportsController(f.Db).StockMovement(null, null, null, null, 1, 20, default));
+        var page = Ok(await new ReportsController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).StockMovement(null, null, null, null, 1, 20, default));
 
         Assert.Equal(3, page.Total);
         var opening = Assert.Single(page.Items, r => r.Type == StockMovementType.OpeningStock);
@@ -146,7 +146,7 @@ public class StockMovementEnrichmentEndpointsTests
     {
         var f = await SeedHistoryAsync();
 
-        var page = Ok(await new ReportsController(f.Db).StockMovement(null, type, null, null, 1, 20, default));
+        var page = Ok(await new ReportsController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).StockMovement(null, type, null, null, 1, 20, default));
 
         Assert.Equal(expected, page.Total);
         Assert.All(page.Items, r => Assert.Equal(type, r.Type));
@@ -158,12 +158,12 @@ public class StockMovementEnrichmentEndpointsTests
         var f = await SeedAsync();
         f.Db.StockMovements.Add(new StockMovement
         {
-            Id = Guid.NewGuid(), ProductId = f.Pen.Id, Type = StockMovementType.PurchaseCancellation, QuantityBaseUnits = -30m, ReferenceType = "PurchaseOrder",
+            Id = Guid.NewGuid(), ProductId = f.Pen.Id, StockLocationId = Sellora.Domain.Companies.DefaultTenant.MainStoreLocationId, Type = StockMovementType.PurchaseCancellation, QuantityBaseUnits = -30m, ReferenceType = "PurchaseOrder",
             ReferenceId = Guid.NewGuid(), ReferenceNo = "PO-1", UserId = f.User.Id, EnteredQuantity = 3m, EnteredProductUnitId = f.Box.Id, EnteredUnitCode = "box", ConversionFactorSnapshot = 10m,
         });
         await f.Db.SaveChangesAsync();
 
-        var row = Assert.Single(Ok(await new ReportsController(f.Db).StockMovement(null, StockMovementType.PurchaseCancellation, null, null, 1, 20, default)).Items);
+        var row = Assert.Single(Ok(await new ReportsController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).StockMovement(null, StockMovementType.PurchaseCancellation, null, null, 1, 20, default)).Items);
 
         Assert.Equal((-30m, 3m, "box"), (row.QuantityBaseUnits, row.EnteredQuantity, row.EnteredUnitCode));
         Assert.Null(row.ReasonCode);

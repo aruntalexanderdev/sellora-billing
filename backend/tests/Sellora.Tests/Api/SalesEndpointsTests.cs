@@ -190,6 +190,7 @@ public class SalesEndpointsTests
             throw new DomainValidationException("Lines", "captured");
         }
 
+        public Task<Guid> ResolveSellingLocationAsync(Guid? stockLocationId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<SalesInvoice?> AddPaymentAsync(Guid salesInvoiceId, AddSalePaymentInput input, Guid receivedByUserId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<SalesReturn> CreateReturnAsync(CreateSaleReturnInput input, Guid userId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<SalesInvoice?> AddRefundAsync(Guid salesInvoiceId, AddSaleRefundInput input, Guid userId, CancellationToken ct = default) => throw new NotSupportedException();

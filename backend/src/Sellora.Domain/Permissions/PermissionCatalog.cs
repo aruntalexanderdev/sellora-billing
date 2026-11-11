@@ -10,16 +10,16 @@ namespace Sellora.Domain.Permissions;
 public static class PermissionCatalog
 {
     /// <summary>
-    /// Codes a branch-scoped role may hold (Phase 7, D5, owner Q2: conservative; stock views/reports stay company-only until Phase 8).
+    /// Codes a branch-scoped role may hold (Phase 7, D5, owner Q2; Phase 8 O3 adds Inventory.View, Reports.Stock, Reports.Movement; Inventory.Create/Edit/Price and financial reports stay company-only).
     /// Single source of the scope metadata: <see cref="PermissionDefinition.Scope"/> of <see cref="All"/> is derived from it.
     /// </summary>
     private static readonly HashSet<string> BranchEligibleCodes = new(StringComparer.Ordinal)
     {
         "Sales.View", "Sales.Create", "Sales.PriceOverride", "Sales.Edit", "Sales.Receive", "Sales.Return", "Sales.Refund", "Sales.Cancel",
         "Purchase.View", "Purchase.Create", "Purchase.Edit", "Purchase.Pay", "Purchase.Return", "Purchase.Refund", "Purchase.Cancel",
-        "Inventory.Adjust", "StockLocations.View",
+        "Inventory.Adjust", "StockLocations.View", "Inventory.View",
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
-        "Reports.Sales", "Reports.Purchase",
+        "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",
         BranchRolesView, BranchRolesManage, BranchUsersAssignRoles,
     };
 

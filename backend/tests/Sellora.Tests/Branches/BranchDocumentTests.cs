@@ -57,7 +57,7 @@ public class BranchDocumentTests
         var blr = await w.SaleAsync(w.Blr);
         await using (var db = w.Db())
         {
-            await new BranchService(db).UpdateAsync(w.Blr, new Sellora.Domain.Companies.UpdateBranchInput("Bengaluru", null, null, null, null, null, null, "KAR"), w.UserId);
+            await new BranchService(db, new StockLocationUsageService(db)).UpdateAsync(w.Blr, new Sellora.Domain.Companies.UpdateBranchInput("Bengaluru", null, null, null, null, null, null, "KAR"), w.UserId);
         }
         var own = await w.SaleAsync(w.Blr);
 
@@ -100,13 +100,13 @@ public class BranchDocumentTests
     public async Task CreateDocument_InactiveInUnknownOrInaccessibleBranch_IsRefusedOnBranchId()
     {
         var w = await BranchWorld.CreateAsync();
-        await using (var db = w.Db()) await new BranchService(db).SetStatusAsync(w.Blr, false, w.UserId);
+        await using (var db = w.Db()) await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId);
 
         Assert.Equal("branchId", await FieldAsync(() => w.PurchaseAsync(w.Blr)));
         Assert.Equal("branchId", await FieldAsync(() => w.SaleAsync(w.Blr)));
         Assert.Equal("branchId", await FieldAsync(() => w.PurchaseAsync(Guid.NewGuid())));
         // Active but outside the caller's allowed set.
-        await using (var db = w.Db()) await new BranchService(db).SetStatusAsync(w.Blr, true, w.UserId);
+        await using (var db = w.Db()) await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, true, w.UserId);
         var restricted = w.Db(w.Blr, new HashSet<Guid> { w.Main }, unrestricted: false);
         var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new PurchaseService(restricted, new ExchangeRateService(restricted)).CreatePurchaseAsync(
             new CreatePurchaseInput(w.SupplierId, BranchWorld.Day, null, null, PaymentMethod.Cash, 0, [new PurchaseLineInput(w.ProductId, w.ProductUnitId, 1m, 1m, 0, 0)]), w.UserId));
@@ -119,7 +119,7 @@ public class BranchDocumentTests
     {
         var w = await BranchWorld.CreateAsync();
         var sale = await w.SaleAsync(w.Blr);
-        await using (var db = w.Db()) await new BranchService(db).SetStatusAsync(w.Blr, false, w.UserId);
+        await using (var db = w.Db()) await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId);
         await using var pay = w.Db();
 
         var updated = await ListPricedSales.For(pay).AddPaymentAsync(sale.Id, new AddSalePaymentInput(sale.GrandTotal, PaymentMethod.Cash, sale.GrandTotal), w.UserId);
@@ -188,7 +188,7 @@ public class BranchDocumentTests
     {
         var w = await BranchWorld.CreateAsync();
         var sale = await w.SaleAsync(w.Blr);
-        await using (var db = w.Db()) await new BranchService(db).SetStatusAsync(w.Blr, false, w.UserId);
+        await using (var db = w.Db()) await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId);
         await using var returns = w.Db();
 
         Assert.Equal("branchId", await FieldAsync(() => ListPricedSales.For(returns).CreateReturnAsync(
@@ -249,7 +249,7 @@ public class BranchDocumentTests
     public async Task CreateAccountAndExpense_TaggedWithAnInactiveOrUnknownBranch_IsRefusedOnBranchId()
     {
         var w = await BranchWorld.CreateAsync();
-        await using (var db = w.Db()) await new BranchService(db).SetStatusAsync(w.Blr, false, w.UserId);
+        await using (var db = w.Db()) await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId);
 
         Assert.Equal("BranchId", await FieldAsync(() => AccountAsync(w, "x", w.Blr)));
         Assert.Equal("BranchId", await FieldAsync(() => AccountAsync(w, "y", Guid.NewGuid())));

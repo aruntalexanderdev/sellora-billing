@@ -7,7 +7,7 @@ using Sellora.Infrastructure.Data;
 
 namespace Sellora.Infrastructure.Services;
 
-public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeRateService) : IPurchaseService
+public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeRateService, IEffectivePermissionService? permissions = null) : IPurchaseService
 {
     public async Task<PurchaseOrder> CreatePurchaseAsync(CreatePurchaseInput input, Guid createdByUserId, CancellationToken ct = default)
     {
@@ -38,10 +38,13 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         // Product KEY SHARE first: a concurrent product-unit edit (FOR UPDATE) waits for this purchase to commit, so
         // the factor snapshotted below cannot change underneath it. Then the StockItems locks (fixed order, §5.4).
-        // Phase 8a: every purchase is received at the company's default store.
-        var locationId = await StockLocationDefaults.GetDefaultStoreIdAsync(db, ct);
+        // Phase 8b: received at the requested location, else the working branch's store (company-level locations need
+        // Purchase.Create company-wide). Resolved before the locks, then re-read and re-checked under the location lock.
+        var companyLevel = await StockLocationRules.HasCompanyLevelAsync(permissions, "Purchase.Create", ct);
+        var locationId = await StockLocationRules.ResolveAsync(db, PostingKind.Purchase, input.StockLocationId, branch.Id, companyLevel, ct);
         await StockLocks.LockProductsKeyShareAsync(db, input.Lines.Select(l => l.ProductId), ct);
         await StockLocks.LockLocationsKeyShareAsync(db, [locationId], ct);
+        await StockLocationRules.ResolveAsync(db, PostingKind.Purchase, locationId, branch.Id, companyLevel, ct);
 
         // Stock on hand and its average cost are read-modify-written below, so hold each (location, product) lock to commit.
         // The rows are created (QOH 0) first if this is a product's first stock-in, so the lock always has a row to hold.

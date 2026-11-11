@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Entities;
 using Sellora.IntegrationTests.Infrastructure;
+using Sellora.IntegrationTests.TestData;
 
 namespace Sellora.IntegrationTests.Api;
 
@@ -98,9 +99,22 @@ public sealed class BranchApiWorld
         SendAsync(HttpMethod.Post, "/api/v1/purchases", new CreatePurchaseRequest(SupplierId, Today, null, null, PaymentMethod.Cash, paid,
             [new CreatePurchaseLineRequest(ProductId, ProductUnitId, qty, 5m, 0, 0)], account), branch);
 
-    public Task<HttpResponseMessage> SaleAsync(Guid? branch, decimal qty = 1m, decimal paid = 0m, Guid? account = null) =>
-        SendAsync(HttpMethod.Post, "/api/v1/sales", new CreateSaleRequest(CustomerId, Today, PaymentMethod.Cash, paid,
+    /// <summary>8b: a branch sells from its OWN store. Hand-seeds exactly <paramref name="qty"/> there when it holds less (no document, so numbering is unchanged; the store is empty again after the sale).</summary>
+    public async Task EnsureBranchStockAsync(Guid? branch, decimal qty)
+    {
+        if (branch is not { } id || id == MainId) return;
+        await using var db = Host.Database.CreateDbContext(CompanyId);
+        var store = await StockSeed.StoreOfAsync(db, id);
+        var have = await db.StockItems.Where(s => s.StockLocationId == store && s.ProductId == ProductId).Select(s => s.QuantityOnHand).SingleOrDefaultAsync();
+        if (have < qty) await StockSeed.AddAsync(db, store, ProductId, qty - have, 5m, AdminId);
+    }
+
+    public async Task<HttpResponseMessage> SaleAsync(Guid? branch, decimal qty = 1m, decimal paid = 0m, Guid? account = null)
+    {
+        await EnsureBranchStockAsync(branch, qty);
+        return await SendAsync(HttpMethod.Post, "/api/v1/sales", new CreateSaleRequest(CustomerId, Today, PaymentMethod.Cash, paid,
             [new CreateSaleLineRequest(ProductId, ProductUnitId, qty, 20m, 0)], account), branch);
+    }
 
     public Task<HttpResponseMessage> AdjustmentAsync(Guid? branch) =>
         SendAsync(HttpMethod.Post, "/api/v1/stock-adjustments", new CreateStockAdjustmentRequest(ProductId, ProductUnitId, AdjustmentType.Correction, AdjustmentDirection.Increase, 1m, 5m, "branch test"), branch);

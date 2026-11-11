@@ -31,6 +31,7 @@ public class BranchNumberingConcurrencyTests(PostgresFixture postgres)
             var branchA = BranchBuilder.Extra("AAA", "Branch A");
             var branchB = BranchBuilder.Extra("BBB", "Branch B");
             db.Branches.AddRange(branchA, branchB);
+            db.StockLocations.AddRange(BranchBuilder.Store(branchA), BranchBuilder.Store(branchB)); // every branch owns its store (production invariant; 8b posts there)
             await db.SaveChangesAsync();
             (a, b) = (branchA.Id, branchB.Id);
         }
@@ -159,7 +160,11 @@ public class BranchNumberingConcurrencyTests(PostgresFixture postgres)
     {
         var s = await SeedAsync();
         await using var _ = s.Database;
-        await using (var db = s.Database.CreateDbContext()) await s.Scenario.PurchaseBagsAsync(db, 50m);
+        await using (var db = s.Database.CreateDbContext())
+        {
+            // 8b: each branch sells from its own store: 3 kg at each.
+            foreach (var branch in new[] { s.BranchA, s.BranchB }) await StockSeed.AddAsync(db, await StockSeed.StoreOfAsync(db, branch), s.Scenario.ProductId, 3m, 5m, s.Scenario.UserId);
+        }
 
         var numbers = await Task.WhenAll(Enumerable.Range(0, 6).Select(async i =>
         {
@@ -207,10 +212,10 @@ public class BranchNumberingConcurrencyTests(PostgresFixture postgres)
         var s = await SeedAsync();
         await using var _ = s.Database;
 
-        await using var race = await LockRace.BeginAsync(s.Database, LockRace.LockRow("Companies", "Id", DefaultTenant.CompanyId));
-        var writer = await race.StartAsync("create", db => new BranchService(db).CreateAsync(
+        await using var race = await LockRace.BeginAsync(s.Database, LockRace.LockRow("Companies", "Id", DefaultTenant.CompanyId, "FOR NO KEY UPDATE")); // another company-row writer (CompanyLocks)
+        var writer = await race.StartAsync("create", db => new BranchService(db, new StockLocationUsageService(db)).CreateAsync(
             new CreateBranchInput("CCC", "Branch C", null, null, null, null, null, null, null), s.Scenario.UserId));
-        await race.WaitBlockedAsync(writer, """%FROM "Companies"%FOR UPDATE%""");
+        await race.WaitBlockedAsync(writer, """%FROM "Companies"%FOR NO KEY UPDATE%""");
 
         var outcomes = await race.ReleaseAsync();
 
@@ -225,9 +230,9 @@ public class BranchNumberingConcurrencyTests(PostgresFixture postgres)
         var s = await SeedAsync();
         await using var _ = s.Database;
 
-        await using var race = await LockRace.BeginAsync(s.Database, LockRace.LockRow("Companies", "Id", DefaultTenant.CompanyId));
-        var writer = await race.StartAsync("settings", db => new BranchService(db).EnsureCompanyInvoicePrefixAllowedAsync("SAL"));
-        await race.WaitBlockedAsync(writer, """%FROM "Companies"%FOR UPDATE%""");
+        await using var race = await LockRace.BeginAsync(s.Database, LockRace.LockRow("Companies", "Id", DefaultTenant.CompanyId, "FOR NO KEY UPDATE")); // another company-row writer (CompanyLocks)
+        var writer = await race.StartAsync("settings", db => new BranchService(db, new StockLocationUsageService(db)).EnsureCompanyInvoicePrefixAllowedAsync("SAL"));
+        await race.WaitBlockedAsync(writer, """%FROM "Companies"%FOR NO KEY UPDATE%""");
 
         var outcomes = await race.ReleaseAsync();
 

@@ -7,7 +7,8 @@ public record PurchaseListItemDto(
     Guid Id, string PurchaseNo, string SupplierName, DateOnly PurchaseDate,
     decimal GrandTotal, PaymentStatus PaymentStatus, PurchaseStatus Status,
     string CurrencyCode, decimal OriginalGrandTotal,
-    Guid BranchId, string? BranchCode, string? BranchName
+    Guid BranchId, string? BranchCode, string? BranchName,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );
 
 public record PurchaseLineDto(
@@ -47,7 +48,8 @@ public record PurchaseDetailDto(
     IReadOnlyList<PurchasePaymentDto> Payments,
     decimal ReturnedAmount, decimal OriginalReturnedAmount, decimal NetTotal, decimal OriginalNetTotal,
     decimal OriginalRefundableAmount, IReadOnlyList<PurchaseReturnSummaryDto> Returns,
-    Guid BranchId, string? BranchCode, string? BranchName
+    Guid BranchId, string? BranchCode, string? BranchName,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );
 
 public record CreatePurchaseLineRequest(
@@ -68,7 +70,8 @@ public record CreatePurchaseRequest(
     PaymentMethod PaymentMethod,
     [Range(0, 999999999)] decimal PaidAmount,
     [MinLength(1), MaxLength(200)] CreatePurchaseLineRequest[] Lines,
-    Guid? AccountId = null
+    Guid? AccountId = null,
+    Guid? StockLocationId = null
 );
 
 public record UpdatePurchaseHeaderRequest(
@@ -113,7 +116,8 @@ public record AddPurchaseRefundRequest(
 public record PurchaseReturnListItemDto(
     Guid Id, string ReturnNo, DateOnly ReturnDate, Guid PurchaseOrderId, string PurchaseNo, string SupplierName,
     decimal Total, decimal OriginalTotal, string CurrencyCode, decimal RefundedAmount,
-    Guid BranchId, string? BranchCode, string? BranchName
+    Guid BranchId, string? BranchCode, string? BranchName,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );
 
 public record PurchaseReturnLineDto(
@@ -129,5 +133,6 @@ public record PurchaseReturnDetailDto(
     string BaseCurrencyCode, string BaseCurrencySymbol, int BaseCurrencyDecimalPrecision,
     string CreatedByName, DateTimeOffset CreatedAt,
     IReadOnlyList<PurchaseReturnLineDto> Lines, IReadOnlyList<PurchasePaymentDto> Refunds,
-    Guid BranchId, string? BranchCode, string? BranchName
+    Guid BranchId, string? BranchCode, string? BranchName,
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
 );

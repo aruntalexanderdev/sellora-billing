@@ -37,9 +37,14 @@ public class PricingController(SelloraDbContext db, IPricingService pricingServi
             .Where(p => unitIds.Contains(p.ProductUnitId) && p.EffectiveTo == null)
             .ToDictionaryAsync(p => p.ProductUnitId, p => p.Price, ct);
 
-        var avgCosts = await db.StockItems
+        // Phase 8: company weighted average over the per-location rows: sum(qty x avg) / sum(qty); with nothing on hand, the highest stored average.
+        var stockRows = await db.StockItems
             .Where(s => productIds.Contains(s.ProductId))
-            .ToDictionaryAsync(s => s.ProductId, s => s.AverageCost, ct);
+            .Select(s => new { s.ProductId, s.QuantityOnHand, s.AverageCost })
+            .ToListAsync(ct);
+        var avgCosts = stockRows.GroupBy(s => s.ProductId).ToDictionary(
+            g => g.Key,
+            g => StockVisibility.WeightedAverage(g.Sum(s => s.QuantityOnHand), g.Sum(s => s.QuantityOnHand * s.AverageCost), g.Max(s => s.AverageCost)));
 
         // D2: a per-base-unit anchor price per product — the base row's price, otherwise the smallest-factor priced
         // row's price divided by its factor. Used only as a hint; nothing is priced automatically.

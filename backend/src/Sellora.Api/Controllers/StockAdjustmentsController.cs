@@ -60,11 +60,13 @@ public class StockAdjustmentsController(IStockAdjustmentService adjustmentServic
                 a.Type, a.Direction, a.EnteredQuantity, a.UnitCode, a.Unit.DecimalPlaces,
                 a.QuantityBaseUnits, a.Product.BaseUnit.ShortCode, a.Product.BaseUnit.DecimalPlaces, a.EnteredUnitCost, a.UnitCost,
                 a.BeforeQty, a.AfterQty, a.User.FirstName + " " + a.User.LastName,
-                a.BranchId, null, null))
+                a.BranchId, null, null, a.StockLocationId))
             .ToListAsync(ct);
 
         var labels = await BranchLabels.LoadAsync(db, ct);
         items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
+        var locLabels = await StockLocationLabels.LoadAsync(db, ct);
+        items = items.Select(i => i with { StockLocationCode = locLabels.Code(i.StockLocationId!.Value), StockLocationName = locLabels.Name(i.StockLocationId!.Value) }).ToList();
 
         return Ok(new PagedResult<StockAdjustmentListItemDto>(items, total, page, pageSize));
     }
@@ -86,7 +88,7 @@ public class StockAdjustmentsController(IStockAdjustmentService adjustmentServic
 
         var input = new CreateAdjustmentInput(
             request.ProductId!.Value, request.ProductUnitId!.Value, request.Type, request.Direction,
-            request.Quantity, request.UnitCost, string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim(), key);
+            request.Quantity, request.UnitCost, string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim(), key, request.StockLocationId);
 
         try
         {
@@ -118,11 +120,12 @@ public class StockAdjustmentsController(IStockAdjustmentService adjustmentServic
                 BaseUnitCode = x.Product.BaseUnit.ShortCode, BaseDecimalPlaces = x.Product.BaseUnit.DecimalPlaces,
                 x.EnteredUnitCost, x.UnitCost, x.Reason, x.BeforeQty, x.AfterQty,
                 UserName = x.User.FirstName + " " + x.User.LastName,
-                x.BranchId,
+                x.BranchId, x.StockLocationId,
             })
             .SingleOrDefaultAsync(ct);
         if (a is null) return null;
         var labels = await BranchLabels.LoadAsync(db, ct);
+        var locLabels = await StockLocationLabels.LoadAsync(db, ct);
 
         var batchRows = await db.StockMovements.AsNoTracking()
             .Where(m => m.ReferenceType == "StockAdjustment" && m.ReferenceId == id && m.PurchaseBatchId != null)
@@ -138,6 +141,7 @@ public class StockAdjustmentsController(IStockAdjustmentService adjustmentServic
             a.Type, a.Direction, a.EnteredQuantity, a.ProductUnitId, a.UnitCode, a.UnitDisplayName,
             a.ConversionFactorToBase, a.EnteredDecimalPlaces, a.QuantityBaseUnits, a.BaseUnitCode, a.BaseDecimalPlaces,
             a.EnteredUnitCost, a.UnitCost, a.Reason, a.BeforeQty, a.AfterQty, a.UserName, batches,
-            a.BranchId, labels.Code(a.BranchId), labels.Name(a.BranchId));
+            a.BranchId, labels.Code(a.BranchId), labels.Name(a.BranchId),
+            a.StockLocationId, locLabels.Code(a.StockLocationId), locLabels.Name(a.StockLocationId));
     }
 }

@@ -30,7 +30,7 @@ public class BranchStoreTransactionTests(PostgresFixture postgres)
         await SeedUserAsync(database);
         await using var db = database.CreateDbContext();
 
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db).CreateAsync(New("VAN1", "Van branch"), UserId));
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db, new StockLocationUsageService(db)).CreateAsync(New("VAN1", "Van branch"), UserId));
 
         Assert.Equal("Code", ex.Field);
         Assert.Equal(1L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Branches" """));
@@ -43,7 +43,7 @@ public class BranchStoreTransactionTests(PostgresFixture postgres)
         await using var database = await postgres.CreateDatabaseAsync();
         await SeedUserAsync(database);
         await using var db = database.CreateDbContext();
-        var service = new BranchService(db);
+        var service = new BranchService(db, new StockLocationUsageService(db));
 
         var branch = await service.CreateAsync(New("KAR", "Karur"), UserId);
         await service.UpdateAsync(branch.Id, new UpdateBranchInput("Karur East", null, null, null, null, null, null, null), UserId);
