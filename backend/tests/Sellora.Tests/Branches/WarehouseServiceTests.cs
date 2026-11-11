@@ -246,7 +246,7 @@ public class WarehouseServiceTests
         await using var db = w.Db();
 
         Assert.Null(await Service(db).UpdateAsync(Guid.NewGuid(), new("X"), w.UserId));
-        Assert.Null(await Service(db).SetStatusAsync(Guid.NewGuid(), false, w.UserId));
+        Assert.Null(await Service(db).SetStatusAsync(Guid.NewGuid(), false, "test", w.UserId));
     }
 
     [Fact]
@@ -256,10 +256,10 @@ public class WarehouseServiceTests
         await using var db = w.Db();
         var wh = await Service(db).CreateAsync(new("W1", "One", null), w.UserId);
 
-        await Service(db).SetStatusAsync(wh.Id, false, w.UserId);
+        await Service(db).SetStatusAsync(wh.Id, false, "test", w.UserId);
         Assert.False((await LocationOfAsync(db, wh)).IsActive);
 
-        await Service(db).SetStatusAsync(wh.Id, true, w.UserId);
+        await Service(db).SetStatusAsync(wh.Id, true, "test", w.UserId);
         Assert.True((await LocationOfAsync(db, wh)).IsActive);
     }
 
@@ -272,7 +272,7 @@ public class WarehouseServiceTests
         var wh = await Service(db, usage).CreateAsync(new("W1", "One", null), w.UserId);
         usage.InUse.Add(wh.StockLocationId);
 
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => Service(db, usage).SetStatusAsync(wh.Id, false, w.UserId));
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => Service(db, usage).SetStatusAsync(wh.Id, false, "test", w.UserId));
 
         Assert.Equal("IsActive", ex.Field);
         await using var check = w.Db();
@@ -287,11 +287,11 @@ public class WarehouseServiceTests
         await using var db = w.Db();
         var usage = new FakeStockLocationUsage();
         var wh = await Service(db, usage).CreateAsync(new("W1", "One", null), w.UserId);
-        await Service(db, usage).SetStatusAsync(wh.Id, false, w.UserId);
+        await Service(db, usage).SetStatusAsync(wh.Id, false, "test", w.UserId);
         usage.Everything = true;
         usage.Asked.Clear();
 
-        await Service(db, usage).SetStatusAsync(wh.Id, true, w.UserId);
+        await Service(db, usage).SetStatusAsync(wh.Id, true, "test", w.UserId);
 
         Assert.Empty(usage.Asked);
         Assert.True((await LocationOfAsync(db, wh)).IsActive);
@@ -303,14 +303,14 @@ public class WarehouseServiceTests
         var w = await WorldAsync();
         await using var db = w.Db();
         var wh = await Service(db).CreateAsync(new("W1", "One", w.Blr), w.UserId);
-        await Service(db).SetStatusAsync(wh.Id, false, w.UserId);
-        await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId);
+        await Service(db).SetStatusAsync(wh.Id, false, "test", w.UserId);
+        await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, "test", w.UserId);
 
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => Service(db).SetStatusAsync(wh.Id, true, w.UserId));
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => Service(db).SetStatusAsync(wh.Id, true, "test", w.UserId));
         Assert.Equal("IsActive", ex.Field);
 
-        await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, true, w.UserId);
-        await Service(db).SetStatusAsync(wh.Id, true, w.UserId);
+        await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, true, "test", w.UserId);
+        await Service(db).SetStatusAsync(wh.Id, true, "test", w.UserId);
         Assert.True((await LocationOfAsync(db, wh)).IsActive);
     }
 
@@ -321,10 +321,10 @@ public class WarehouseServiceTests
         await using var db = w.Db();
         var usage = new FakeStockLocationUsage();
         var wh = await Service(db, usage).CreateAsync(new("W1", "One", null), w.UserId);
-        await Service(db, usage).SetStatusAsync(wh.Id, false, w.UserId);
+        await Service(db, usage).SetStatusAsync(wh.Id, false, "test", w.UserId);
         usage.Everything = true;
 
-        var again = await Service(db, usage).SetStatusAsync(wh.Id, false, w.UserId);
+        var again = await Service(db, usage).SetStatusAsync(wh.Id, false, "test", w.UserId);
 
         Assert.NotNull(again);
     }

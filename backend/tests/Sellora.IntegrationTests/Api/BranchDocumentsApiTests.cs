@@ -81,7 +81,7 @@ public class BranchDocumentsApiTests(PostgresFixture postgres)
     {
         var w = await GetAsync(postgres);
         var (branch, _) = await w.NewBranchAsync();
-        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branch}/status", new SetActiveRequest(false));
+        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branch}/status", new SetStatusRequest(false, "test"));
 
         var responses = new[] { await w.PurchaseAsync(branch), await w.SaleAsync(branch), await w.AdjustmentAsync(branch) };
 
@@ -98,7 +98,7 @@ public class BranchDocumentsApiTests(PostgresFixture postgres)
         var w = await GetAsync(postgres);
         var (branch, _) = await w.NewBranchAsync();
         var sale = await JsonAsync(await w.SaleAsync(branch));
-        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branch}/status", new SetActiveRequest(false));
+        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branch}/status", new SetStatusRequest(false, "test"));
         var due = sale.GetProperty("dueAmount").GetDecimal();
 
         var pay = await w.SendAsync(HttpMethod.Post, $"/api/v1/sales/{sale.GetProperty("id").GetGuid()}/payments", new AddSalePaymentRequest(due, PaymentMethod.Cash, due));
@@ -238,7 +238,7 @@ public class BranchDocumentsApiTests(PostgresFixture postgres)
     {
         var w = await GetAsync(postgres);
         var (x, _) = await w.NewBranchAsync();
-        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{x}/status", new SetActiveRequest(false));
+        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{x}/status", new SetStatusRequest(false, "test"));
 
         var unknown = await w.SendAsync(HttpMethod.Post, "/api/v1/financial-accounts", new CreateFinancialAccountRequest("Ghost", FinancialAccountKind.Cash, null, 0m, null, Guid.NewGuid()));
         var inactive = await w.SendAsync(HttpMethod.Post, "/api/v1/financial-accounts", new CreateFinancialAccountRequest("Closed", FinancialAccountKind.Cash, null, 0m, null, x));

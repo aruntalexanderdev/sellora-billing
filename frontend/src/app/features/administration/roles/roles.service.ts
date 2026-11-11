@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import type { CreateRoleRequest, RoleDetail, RoleListItem, UpdateRoleRequest } from './roles.models';
+import type { BranchMember, CreateRoleRequest, RoleDetail, RoleListFilter, RoleListItem, UpdateRoleRequest } from './roles.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/roles`;
 
@@ -10,8 +10,17 @@ const BASE_URL = `${environment.apiBaseUrl}/roles`;
 export class RolesService {
   private readonly http = inject(HttpClient);
 
-  list(): Observable<RoleListItem[]> {
-    return this.http.get<RoleListItem[]>(BASE_URL);
+  /** Company roles by default; `scope=Branch` (optionally with `branchId`) lists branch roles the caller can see. */
+  list(filter: RoleListFilter = {}): Observable<RoleListItem[]> {
+    const params: Record<string, string> = {};
+    if (filter.scope) params['scope'] = filter.scope;
+    if (filter.branchId) params['branchId'] = filter.branchId;
+    return this.http.get<RoleListItem[]>(BASE_URL, { params });
+  }
+
+  /** Members allocated to a branch (for branch administrators picking who to assign). */
+  branchMembers(branchId: string): Observable<BranchMember[]> {
+    return this.http.get<BranchMember[]>(`${environment.apiBaseUrl}/branches/${branchId}/members`);
   }
 
   get(id: string): Observable<RoleDetail> {

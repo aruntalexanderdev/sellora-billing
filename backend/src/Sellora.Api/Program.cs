@@ -22,7 +22,10 @@ builder.Services.AddControllers()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-builder.Services.AddProblemDetails();
+// Every ProblemDetails (incl. MVC ValidationProblem 400s, which otherwise prefer Activity.Current?.Id) carries the request's
+// TraceIdentifier, which CorrelationIdMiddleware sets from the client's X-Correlation-Id (Phase 11 D6).
+builder.Services.AddProblemDetails(options =>
+    options.CustomizeProblemDetails = ctx => ctx.ProblemDetails.Extensions["traceId"] = ctx.HttpContext.TraceIdentifier);
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -90,7 +93,8 @@ builder.Services.AddCors(options =>
         if (corsOrigins.Length == 0) return;
 
         policy.WithOrigins(corsOrigins)
-              .WithHeaders("Authorization", "Content-Type", "Idempotency-Key", "X-Branch-Id")
+              .WithHeaders("Authorization", "Content-Type", "Idempotency-Key", "X-Branch-Id", "X-Correlation-Id")
+              .WithExposedHeaders("X-Correlation-Id")
               .AllowAnyMethod()
               .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
     });
@@ -109,6 +113,7 @@ if (corsOrigins.Length == 0)
 }
 
 // Configure the HTTP request pipeline.
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
 
 // Startup migrations + idempotent seed data are gated by Database:ApplyMigrationsOnStartup (decision D10).

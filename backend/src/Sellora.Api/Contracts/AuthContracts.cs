@@ -58,7 +58,8 @@ public record MeResponse(
     AllowedBranchDto[] AllowedBranches,
     CompanyOptionDto[] Companies,
     GovernanceHintDto? Governance,
-    AuthRoleDto[]? Roles = null
+    AuthRoleDto[]? Roles = null,
+    string[]? PermissionsAnyBranch = null
 ) : UserSummaryDto(Id, FirstName, LastName, Username, Email, RoleName, Permissions, CompanyId, CompanyName, AccessScope, PrimaryBranchId, AllowedBranches, Roles);
 
 public record SwitchCompanyRequest(

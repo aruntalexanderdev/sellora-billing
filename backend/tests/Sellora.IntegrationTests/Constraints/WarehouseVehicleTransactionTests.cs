@@ -63,8 +63,8 @@ public class WarehouseVehicleTransactionTests(PostgresFixture postgres)
         var van = await vehicles.CreateAsync(new("tn 01 ab 1", "Van one", VehicleType.Van, branch.Id), UserId);
         await warehouses.UpdateAsync(branchWh.Id, new("Bengaluru rear"), UserId);
         await vehicles.UpdateAsync(van.Id, new("Van uno", VehicleType.Truck, null), UserId);
-        await warehouses.SetStatusAsync(company.Id, false, UserId);
-        await vehicles.SetStatusAsync(van.Id, false, UserId);
+        await warehouses.SetStatusAsync(company.Id, false, "test", UserId);
+        await vehicles.SetStatusAsync(van.Id, false, "test", UserId);
 
         await AssertVBlockAsync(database);
         Assert.Equal(1L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "StockLocations" WHERE "Code" = 'TN-01-AB-1' AND "Name" = 'Van uno' AND NOT "IsActive" AND "BranchId" IS NULL"""));
@@ -123,8 +123,8 @@ public class WarehouseVehicleTransactionTests(PostgresFixture postgres)
         var warehouse = await new WarehouseService(db, new StockLocationUsageService(db)).CreateAsync(new("CW1", "Central", null), UserId);
         var van = await new VehicleService(db, new StockLocationUsageService(db)).CreateAsync(new("V1", "Van", VehicleType.Van, null), UserId);
 
-        var whEx = await Assert.ThrowsAsync<DomainValidationException>(() => new WarehouseService(db, new InUse()).SetStatusAsync(warehouse.Id, false, UserId));
-        var vEx = await Assert.ThrowsAsync<DomainValidationException>(() => new VehicleService(db, new InUse()).SetStatusAsync(van.Id, false, UserId));
+        var whEx = await Assert.ThrowsAsync<DomainValidationException>(() => new WarehouseService(db, new InUse()).SetStatusAsync(warehouse.Id, false, "test", UserId));
+        var vEx = await Assert.ThrowsAsync<DomainValidationException>(() => new VehicleService(db, new InUse()).SetStatusAsync(van.Id, false, "test", UserId));
         var reEx = await Assert.ThrowsAsync<DomainValidationException>(() => new VehicleService(db, new InUse()).UpdateAsync(van.Id, new("Van", VehicleType.Van, branch.Id), UserId));
 
         Assert.Equal(("IsActive", "IsActive", "AssignedBranchId"), (whEx.Field, vEx.Field, reEx.Field));
@@ -145,9 +145,9 @@ public class WarehouseVehicleTransactionTests(PostgresFixture postgres)
         var branch = await branches.CreateAsync(new CreateBranchInput("BLR", "Bengaluru", null, null, null, null, null, null, null), UserId);
         var warehouse = await new WarehouseService(db, new StockLocationUsageService(db)).CreateAsync(new("BW1", "Back", branch.Id), UserId);
 
-        await Assert.ThrowsAsync<DomainValidationException>(() => branches.SetStatusAsync(branch.Id, false, UserId));
-        await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouse.Id, false, UserId);
-        await branches.SetStatusAsync(branch.Id, false, UserId);
+        await Assert.ThrowsAsync<DomainValidationException>(() => branches.SetStatusAsync(branch.Id, false, "test", UserId));
+        await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouse.Id, false, "test", UserId);
+        await branches.SetStatusAsync(branch.Id, false, "test", UserId);
 
         Assert.Equal(0L, await ScalarAsync<long>(database, $"""SELECT COUNT(*) FROM "Branches" WHERE "Id" = '{branch.Id}' AND "IsActive" """));
     }

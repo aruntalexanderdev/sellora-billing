@@ -156,7 +156,7 @@ public class ReportsController(SelloraDbContext db, IEffectivePermissionService 
                 m.ReasonCode, m.EnteredQuantity, m.EnteredProductUnitId, m.EnteredUnitCode, m.ConversionFactorSnapshot,
                 m.EnteredProductUnit != null ? m.EnteredProductUnit.Unit.DecimalPlaces : (int?)null,
                 m.Product.BaseUnit.DecimalPlaces,
-                m.StockLocationId, null, null))
+                m.StockLocationId, null, null, m.ReferenceId))
             .ToListAsync(ct);
         items = items.Select(r => r with { StockLocationCode = visibility.Code(r.StockLocationId!.Value), StockLocationName = visibility.Name(r.StockLocationId!.Value) }).ToList();
 

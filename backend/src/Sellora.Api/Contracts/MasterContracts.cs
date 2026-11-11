@@ -42,3 +42,6 @@ public record UpdateBusinessSettingsRequest(
 );
 
 public record SetActiveRequest(bool IsActive);
+
+/// <summary>Status change of a branch / warehouse / vehicle (Phase 11a D14). <c>Reason</c> is required (trimmed, 1-500 chars); validated by the service so the 400 names field <c>reason</c>.</summary>
+public record SetStatusRequest(bool IsActive, string? Reason);

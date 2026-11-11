@@ -168,12 +168,12 @@ public class StockTransferReadsTests
 
         await using (var db = w.Db())
         {
-            await Assert.ThrowsAsync<DomainValidationException>(() => new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, w.W.UserId));
+            await Assert.ThrowsAsync<DomainValidationException>(() => new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, "test", w.W.UserId));
         }
         await using (var db = w.Db()) await new StockTransferService(db, TransferWorld.Everything()).CancelAsync(t.Id, "no", w.W.UserId);
         await using (var db = w.Db())
         {
-            await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, w.W.UserId);
+            await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, "test", w.W.UserId);
         }
         await using var check = w.Db();
         Assert.False((await check.StockLocations.SingleAsync(l => l.Id == w.L.BlrWarehouse)).IsActive);
@@ -189,7 +189,7 @@ public class StockTransferReadsTests
 
         await using (var db = w.Db())
         {
-            await Assert.ThrowsAsync<DomainValidationException>(() => new VehicleService(db, new StockLocationUsageService(db)).SetStatusAsync(vanId, false, w.W.UserId));
+            await Assert.ThrowsAsync<DomainValidationException>(() => new VehicleService(db, new StockLocationUsageService(db)).SetStatusAsync(vanId, false, "test", w.W.UserId));
         }
         await using (var db = w.Db())
         {
@@ -210,20 +210,20 @@ public class StockTransferReadsTests
             warehouseId = await db.Warehouses.Where(x => x.StockLocationId == w.L.BlrWarehouse).Select(x => x.Id).SingleAsync();
             vanId = await db.Vehicles.Where(v => v.StockLocationId == w.L.BlrVan).Select(v => v.Id).SingleAsync();
             var usage = new StockLocationUsageService(db);
-            await new WarehouseService(db, usage).SetStatusAsync(warehouseId, false, w.W.UserId);
-            await new VehicleService(db, usage).SetStatusAsync(vanId, false, w.W.UserId);
+            await new WarehouseService(db, usage).SetStatusAsync(warehouseId, false, "test", w.W.UserId);
+            await new VehicleService(db, usage).SetStatusAsync(vanId, false, "test", w.W.UserId);
         }
         var t = await w.CreateTransferAsync(w.L.MainStore, w.L.BlrStore, [w.Pen(w.Box, 1m)]);
 
         await using (var db = w.Db())
         {
-            var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.W.UserId));
+            var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, "test", w.W.UserId));
             Assert.Equal("IsActive", ex.Field);
         }
         await using (var db = w.Db()) await new StockTransferService(db, TransferWorld.Everything()).CancelAsync(t.Id, "no", w.W.UserId);
         await using (var db = w.Db())
         {
-            await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.W.UserId);
+            await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, "test", w.W.UserId);
         }
     }
 

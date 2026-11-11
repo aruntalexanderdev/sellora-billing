@@ -93,8 +93,9 @@ public sealed partial class WarehouseService(SelloraDbContext db, IStockLocation
         return warehouse;
     }
 
-    public async Task<Warehouse?> SetStatusAsync(Guid warehouseId, bool isActive, Guid userId, CancellationToken ct = default)
+    public async Task<Warehouse?> SetStatusAsync(Guid warehouseId, bool isActive, string? reason, Guid userId, CancellationToken ct = default)
     {
+        var note = AuditLog.RequireReason(reason);
         await using var transaction = await StockLocks.BeginAsync(db, ct);
         var companyId = await CompanyLocks.LockCurrentCompanyAsync(db, ct);
 
@@ -118,6 +119,7 @@ public sealed partial class WarehouseService(SelloraDbContext db, IStockLocation
             }
 
             var now = DateTimeOffset.UtcNow;
+            AuditLog.Append(db, userId, null, AuditActions.WarehouseStatusChanged, AuditTargets.Warehouse, warehouse.Id, note, new { isActive = location.IsActive }, new { isActive });
             location.IsActive = isActive;
             location.UpdatedAt = now;
             location.UpdatedByUserId = userId;

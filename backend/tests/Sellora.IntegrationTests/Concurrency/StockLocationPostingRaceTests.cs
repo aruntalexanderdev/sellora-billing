@@ -188,13 +188,13 @@ public class StockLocationPostingRaceTests(PostgresFixture postgres)
             switch (kind)
             {
                 case "warehouse deactivation":
-                    await new WarehouseService(db, usage).SetStatusAsync(await db.Warehouses.Where(w => w.StockLocationId == target).Select(w => w.Id).SingleAsync(), false, l.S.UserId); break;
+                    await new WarehouseService(db, usage).SetStatusAsync(await db.Warehouses.Where(w => w.StockLocationId == target).Select(w => w.Id).SingleAsync(), false, "test", l.S.UserId); break;
                 case "vehicle deactivation":
-                    await new VehicleService(db, usage).SetStatusAsync(await db.Vehicles.Where(v => v.StockLocationId == target).Select(v => v.Id).SingleAsync(), false, l.S.UserId); break;
+                    await new VehicleService(db, usage).SetStatusAsync(await db.Vehicles.Where(v => v.StockLocationId == target).Select(v => v.Id).SingleAsync(), false, "test", l.S.UserId); break;
                 case "vehicle reassignment":
                     await new VehicleService(db, usage).UpdateAsync(await db.Vehicles.Where(v => v.StockLocationId == target).Select(v => v.Id).SingleAsync(), new UpdateVehicleInput("Van one", VehicleType.Van, null), l.S.UserId); break;
                 default:
-                    await new BranchService(db, usage).SetStatusAsync(l.Blr, false, l.S.UserId); break;
+                    await new BranchService(db, usage).SetStatusAsync(l.Blr, false, "test", l.S.UserId); break;
             }
         });
         // It waits behind the posting on the location row (usage check FOR UPDATE vs the posting's KEY SHARE).
@@ -218,7 +218,7 @@ public class StockLocationPostingRaceTests(PostgresFixture postgres)
         // A posting that has locked its location (KEY SHARE) but not written anything yet: the usage check's FOR UPDATE on the location must wait on exactly that.
         await using var race = await LockRace.BeginAsync(database, LockRace.LockRow("StockLocations", "Id", l.BlrWarehouse, "FOR KEY SHARE"));
         var admin = await race.StartAsync("deactivate warehouse", async db =>
-            await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(await db.Warehouses.Where(w => w.StockLocationId == l.BlrWarehouse).Select(w => w.Id).SingleAsync(), false, l.S.UserId));
+            await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(await db.Warehouses.Where(w => w.StockLocationId == l.BlrWarehouse).Select(w => w.Id).SingleAsync(), false, "test", l.S.UserId));
         await race.WaitBlockedAsync(admin, StockLocationsPattern, "FOR UPDATE on the location must wait for the KEY SHARE of an in-flight posting.");
 
         Assert.All(await race.ReleaseAsync(commit: true), o => Assert.Null(o));
@@ -237,7 +237,7 @@ public class StockLocationPostingRaceTests(PostgresFixture postgres)
 
         await using var admin = l.Db();
         var warehouse = await admin.Warehouses.SingleAsync(w => w.StockLocationId == l.BlrWarehouse);
-        await new WarehouseService(admin, new StockLocationUsageService(admin)).SetStatusAsync(warehouse.Id, false, l.S.UserId);
+        await new WarehouseService(admin, new StockLocationUsageService(admin)).SetStatusAsync(warehouse.Id, false, "test", l.S.UserId);
 
         await using var check = l.Db();
         Assert.False((await check.StockLocations.SingleAsync(x => x.Id == l.BlrWarehouse)).IsActive);
@@ -308,7 +308,7 @@ public class StockLocationPostingRaceTests(PostgresFixture postgres)
                 try
                 {
                     await using var db = l.Db();
-                    await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, l.S.UserId);
+                    await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, "test", l.S.UserId);
                     return (Exception?)null;
                 }
                 catch (Exception ex) { return ex; }

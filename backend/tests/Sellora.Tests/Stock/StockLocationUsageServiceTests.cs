@@ -30,8 +30,8 @@ public class StockLocationUsageServiceTests
     {
         await using var db = lw.W.Db();
         var usage = new StockLocationUsageService(db);
-        await new WarehouseService(db, usage).SetStatusAsync(warehouseId, false, lw.W.UserId);
-        await new VehicleService(db, usage).SetStatusAsync(vanId, false, lw.W.UserId);
+        await new WarehouseService(db, usage).SetStatusAsync(warehouseId, false, "test", lw.W.UserId);
+        await new VehicleService(db, usage).SetStatusAsync(vanId, false, "test", lw.W.UserId);
     }
 
     private static async Task SetQtyAsync(LocationWorld lw, Guid location, decimal qty)
@@ -64,12 +64,12 @@ public class StockLocationUsageServiceTests
 
         await using (var db = lw.W.Db())
         {
-            await Assert.ThrowsAsync<DomainValidationException>(() => new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, lw.W.UserId));
+            await Assert.ThrowsAsync<DomainValidationException>(() => new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, "test", lw.W.UserId));
         }
         await SetQtyAsync(lw, lw.BlrWarehouse, 0m); // the zero-quantity row stays and must not block
         await using (var db = lw.W.Db())
         {
-            await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, lw.W.UserId);
+            await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, "test", lw.W.UserId);
         }
         await using var check = lw.W.Db();
         Assert.False((await check.StockLocations.SingleAsync(l => l.Id == lw.BlrWarehouse)).IsActive);
@@ -83,7 +83,7 @@ public class StockLocationUsageServiceTests
 
         await using (var db = lw.W.Db())
         {
-            await Assert.ThrowsAsync<DomainValidationException>(() => new VehicleService(db, new StockLocationUsageService(db)).SetStatusAsync(vanId, false, lw.W.UserId));
+            await Assert.ThrowsAsync<DomainValidationException>(() => new VehicleService(db, new StockLocationUsageService(db)).SetStatusAsync(vanId, false, "test", lw.W.UserId));
         }
         await using (var db = lw.W.Db())
         {
@@ -113,7 +113,7 @@ public class StockLocationUsageServiceTests
 
         await using (var db = lw.W.Db())
         {
-            var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(lw.W.Blr, false, lw.W.UserId));
+            var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(lw.W.Blr, false, "test", lw.W.UserId));
             Assert.Equal("IsActive", ex.Field);
         }
         Assert.True((await new BranchServiceProbe(lw).IsActiveAsync()));
@@ -121,7 +121,7 @@ public class StockLocationUsageServiceTests
         await lw.SellAsync(lw.W.Blr, lw.BlrStore, 4m);
         await using (var db = lw.W.Db())
         {
-            await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(lw.W.Blr, false, lw.W.UserId);
+            await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(lw.W.Blr, false, "test", lw.W.UserId);
         }
         Assert.False(await new BranchServiceProbe(lw).IsActiveAsync());
     }
@@ -134,7 +134,7 @@ public class StockLocationUsageServiceTests
         await StockAsync(lw, lw.CompanyWarehouse, 9m);
 
         await using var db = lw.W.Db();
-        await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(lw.W.Blr, false, lw.W.UserId);
+        await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(lw.W.Blr, false, "test", lw.W.UserId);
     }
 
     private sealed class BranchServiceProbe(LocationWorld lw)

@@ -105,9 +105,9 @@ public class BranchStoreTests
         await using var db = w.Db();
         var service = new BranchService(db, new StockLocationUsageService(db));
 
-        await service.SetStatusAsync(w.Blr, false, w.UserId);
+        await service.SetStatusAsync(w.Blr, false, "test", w.UserId);
         Assert.False((await StoreOfAsync(db, w.Blr)).IsActive);
-        await service.SetStatusAsync(w.Blr, true, w.UserId);
+        await service.SetStatusAsync(w.Blr, true, "test", w.UserId);
         Assert.True((await StoreOfAsync(db, w.Blr)).IsActive);
     }
 
@@ -117,7 +117,7 @@ public class BranchStoreTests
         var w = await WorldWithStoresAsync();
         await using var db = w.Db();
 
-        await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Main, false, w.UserId));
+        await Assert.ThrowsAsync<DomainValidationException>(() => new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Main, false, "test", w.UserId));
 
         var store = await StoreOfAsync(db, w.Main);
         Assert.True(store.IsActive);
@@ -134,7 +134,7 @@ public class BranchStoreTests
         var service = new BranchService(db, new StockLocationUsageService(db));
 
         var update = await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateAsync(w.Blr, Edit("Renamed"), w.UserId));
-        var status = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SetStatusAsync(w.Blr, false, w.UserId));
+        var status = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SetStatusAsync(w.Blr, false, "test", w.UserId));
 
         Assert.Contains("has no store location", update.Message);
         Assert.Contains("has no store location", status.Message);

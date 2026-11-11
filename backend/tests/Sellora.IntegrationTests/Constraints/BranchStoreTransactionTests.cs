@@ -47,7 +47,7 @@ public class BranchStoreTransactionTests(PostgresFixture postgres)
 
         var branch = await service.CreateAsync(New("KAR", "Karur"), UserId);
         await service.UpdateAsync(branch.Id, new UpdateBranchInput("Karur East", null, null, null, null, null, null, null), UserId);
-        await service.SetStatusAsync(branch.Id, false, UserId);
+        await service.SetStatusAsync(branch.Id, false, "test", UserId);
 
         Assert.Equal(1L, await ScalarAsync<long>(database,
             $"""SELECT COUNT(*) FROM "StockLocations" WHERE "BranchId" = '{branch.Id}' AND "LocationType" = 'BranchStore' AND "Code" = 'KAR' AND "Name" = 'Karur East' AND NOT "IsActive" """));

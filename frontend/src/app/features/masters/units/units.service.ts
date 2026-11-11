@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import type { UnitItem, UpsertUnitRequest } from './units.models';
+import type { UnitItem } from './units.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/units`;
 
@@ -16,14 +16,6 @@ export class UnitsService {
 
   get(id: string): Observable<UnitItem> {
     return this.http.get<UnitItem>(`${BASE_URL}/${id}`);
-  }
-
-  create(request: UpsertUnitRequest): Observable<UnitItem> {
-    return this.http.post<UnitItem>(BASE_URL, request);
-  }
-
-  update(id: string, request: UpsertUnitRequest): Observable<UnitItem> {
-    return this.http.put<UnitItem>(`${BASE_URL}/${id}`, request);
   }
 
   setActive(id: string, isActive: boolean): Observable<void> {

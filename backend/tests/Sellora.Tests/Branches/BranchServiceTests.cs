@@ -110,12 +110,12 @@ public class BranchServiceTests
         await using var db = w.Db();
         var service = new BranchService(db, new StockLocationUsageService(db));
 
-        Assert.Equal("IsActive", await FieldOfAsync(() => service.SetStatusAsync(w.Main, false, w.UserId)));
-        var off = await service.SetStatusAsync(w.Blr, false, w.UserId);
+        Assert.Equal("IsActive", await FieldOfAsync(() => service.SetStatusAsync(w.Main, false, "test", w.UserId)));
+        var off = await service.SetStatusAsync(w.Blr, false, "test", w.UserId);
         Assert.False(off!.IsActive);
-        var on = await service.SetStatusAsync(w.Blr, true, w.UserId);
+        var on = await service.SetStatusAsync(w.Blr, true, "test", w.UserId);
         Assert.True(on!.IsActive);
-        Assert.Null(await service.SetStatusAsync(Guid.NewGuid(), false, w.UserId));
+        Assert.Null(await service.SetStatusAsync(Guid.NewGuid(), false, "test", w.UserId));
         Assert.True((await db.Branches.SingleAsync(b => b.Id == w.Main)).IsActive);
     }
 

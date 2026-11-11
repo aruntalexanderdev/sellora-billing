@@ -3,7 +3,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/auth/auth.service';
-import type { ApiProblem } from '../../../core/auth/auth.models';
+import { LOGIN_REASON_MESSAGES, problemMessage, toProblem } from '../../../core/http/api-errors';
 
 @Component({
   selector: 'app-login',
@@ -24,7 +24,9 @@ export class Login {
   });
 
   readonly loading = signal(false);
-  readonly errorMessage = signal<string | null>(null);
+  readonly errorMessage = signal<string | null>(
+    LOGIN_REASON_MESSAGES[this.route.snapshot.queryParamMap.get('reason') ?? ''] ?? null,
+  );
 
   submit(): void {
     if (this.form.invalid) {
@@ -43,10 +45,8 @@ export class Login {
       },
       error: (err: HttpErrorResponse) => {
         this.loading.set(false);
-        const problem = err.error as ApiProblem | undefined;
-        this.errorMessage.set(
-          problem?.title ?? 'Could not reach the server. Check your connection and try again.',
-        );
+        // account_disabled / no_branch_access / no_company_access / invalid_credentials map to readable messages.
+        this.errorMessage.set(problemMessage(toProblem(err)));
       },
     });
   }

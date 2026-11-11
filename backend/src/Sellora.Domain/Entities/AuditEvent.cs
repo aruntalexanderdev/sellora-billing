@@ -67,6 +67,11 @@ public static class AuditActions
     public const string StockTransferDispatched = "stock_transfer.dispatched";
     public const string StockTransferReceived = "stock_transfer.received";
     public const string StockTransferResolved = "stock_transfer.resolved";
+
+    // Phase 11a: location status changes (reason required).
+    public const string BranchStatusChanged = "branch.status_changed";
+    public const string WarehouseStatusChanged = "warehouse.status_changed";
+    public const string VehicleStatusChanged = "vehicle.status_changed";
 }
 
 /// <summary>Values of <see cref="AuditEvent.TargetType"/>.</summary>
@@ -77,4 +82,7 @@ public static class AuditTargets
     public const string GovernanceMember = "CompanyGovernanceMember";
     public const string RoleAssignment = "UserRoleAssignment";
     public const string StockTransfer = "StockTransfer";
+    public const string Branch = "Branch";
+    public const string Warehouse = "Warehouse";
+    public const string Vehicle = "Vehicle";
 }

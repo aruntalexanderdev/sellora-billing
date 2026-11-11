@@ -8,6 +8,23 @@
   }
 </div>
 
+<div class="filters">
+  <select class="field-input" aria-label="Role scope" [value]="scope()" (change)="setScope($any($event.target).value)">
+    @if (canViewCompany()) {
+      <option value="Company">Company roles</option>
+    }
+    <option value="Branch">Branch roles</option>
+  </select>
+  @if (scope() === 'Branch') {
+    <select class="field-input" aria-label="Branch" [value]="branchId()" (change)="setBranch($any($event.target).value)">
+      <option value="">All branches</option>
+      @for (b of branches(); track b.id) {
+        <option [value]="b.id">{{ b.name }} ({{ b.code }})</option>
+      }
+    </select>
+  }
+</div>
+
 <ui-data-table
   [cols]="cols"
   [rows]="rows()"

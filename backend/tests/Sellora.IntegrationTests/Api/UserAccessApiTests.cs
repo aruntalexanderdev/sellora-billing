@@ -117,7 +117,7 @@ public class UserAccessApiTests(PostgresFixture postgres)
     {
         var r = await GetWorldAsync(postgres); var w = r.World;
         var (x, _) = await w.NewBranchAsync(); var (dead, _) = await w.NewBranchAsync();
-        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{dead}/status", new SetActiveRequest(false));
+        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{dead}/status", new SetStatusRequest(false, "test"));
         var user = await r.CreateAtAsync(x);
 
         await AssertFieldAsync(await r.AccessAsync(HttpMethod.Post, user.Id, "/assignments", new AddAssignmentRequest(dead, false, "x")), "branchId");
@@ -566,8 +566,8 @@ public class UserAccessApiTests(PostgresFixture postgres)
         var (x, _) = await w.NewBranchAsync(); var (y, _) = await w.NewBranchAsync();
         var user = await r.CreateAsync("ru", r.StaffRoleId, CompanyAccessScope.AssignedBranches, [x, y], x);
 
-        var blocked = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{x}/status", new SetActiveRequest(false));
-        var secondary = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{y}/status", new SetActiveRequest(false));
+        var blocked = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{x}/status", new SetStatusRequest(false, "test"));
+        var secondary = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{y}/status", new SetStatusRequest(false, "test"));
 
         await AssertFieldAsync(blocked, "isActive");
         Assert.True(secondary.IsSuccessStatusCode, "a non-primary allocation does not block deactivation");
@@ -580,10 +580,10 @@ public class UserAccessApiTests(PostgresFixture postgres)
         var r = await GetWorldAsync(postgres); var w = r.World;
         var (x, _) = await w.NewBranchAsync(); var (y, _) = await w.NewBranchAsync();
         var user = await r.CreateAsync("ru", r.StaffRoleId, CompanyAccessScope.AssignedBranches, [x, y], x);
-        Assert.Equal(HttpStatusCode.BadRequest, (await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{x}/status", new SetActiveRequest(false))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{x}/status", new SetStatusRequest(false, "test"))).StatusCode);
 
         await RestrictedUserWorld.JsonOkAsync(await r.AccessAsync(HttpMethod.Post, user.Id, "/primary", new SetPrimaryBranchRequest(y, "move")));
-        var ok = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{x}/status", new SetActiveRequest(false));
+        var ok = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{x}/status", new SetStatusRequest(false, "test"));
 
         Assert.True(ok.IsSuccessStatusCode, await ok.Content.ReadAsStringAsync());
     }
@@ -596,7 +596,7 @@ public class UserAccessApiTests(PostgresFixture postgres)
         var user = await r.CreateAtAsync(x);
         await RestrictedUserWorld.JsonOkAsync(await r.AccessAsync(HttpMethod.Post, user.Id, "/status", new SetMembershipStatusRequest(MembershipStatus.Suspended, "away", null, null, null)));
 
-        var response = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{x}/status", new SetActiveRequest(false));
+        var response = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{x}/status", new SetStatusRequest(false, "test"));
 
         Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
     }

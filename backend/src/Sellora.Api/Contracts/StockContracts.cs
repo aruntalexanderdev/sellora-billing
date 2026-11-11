@@ -15,7 +15,8 @@ public record StockMovementDto(
     Guid? PurchaseBatchId, string? InternalBatchNo,
     AdjustmentType? ReasonCode, decimal? EnteredQuantity, Guid? EnteredProductUnitId, string? EnteredUnitCode,
     decimal? ConversionFactorSnapshot, int? EnteredDecimalPlaces, int BaseDecimalPlaces,
-    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null,
+    Guid? ReferenceId = null
 );
 
 public record StockBatchDto(

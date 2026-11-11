@@ -98,8 +98,9 @@ public sealed partial class VehicleService(SelloraDbContext db, IStockLocationUs
         return vehicle;
     }
 
-    public async Task<Vehicle?> SetStatusAsync(Guid vehicleId, bool isActive, Guid userId, CancellationToken ct = default)
+    public async Task<Vehicle?> SetStatusAsync(Guid vehicleId, bool isActive, string? reason, Guid userId, CancellationToken ct = default)
     {
+        var note = AuditLog.RequireReason(reason);
         await using var transaction = await StockLocks.BeginAsync(db, ct);
         var companyId = await CompanyLocks.LockCurrentCompanyAsync(db, ct);
 
@@ -125,6 +126,7 @@ public sealed partial class VehicleService(SelloraDbContext db, IStockLocationUs
             }
 
             var now = DateTimeOffset.UtcNow;
+            AuditLog.Append(db, userId, null, AuditActions.VehicleStatusChanged, AuditTargets.Vehicle, vehicle.Id, note, new { isActive = vehicle.IsActive }, new { isActive });
             vehicle.IsActive = isActive;
             vehicle.UpdatedAt = now;
             vehicle.UpdatedByUserId = userId;

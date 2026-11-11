@@ -18,7 +18,7 @@ public class BranchStatusAccessVersionTests
             await w.Db.SaveChangesAsync();
             w.Db.ChangeTracker.Clear();
         }
-        await new BranchService(w.Db, new StockLocationUsageService(w.Db)).SetStatusAsync(branch.Id, active, Guid.NewGuid());
+        await new BranchService(w.Db, new StockLocationUsageService(w.Db)).SetStatusAsync(branch.Id, active, "test", Guid.NewGuid());
     }
 
     [Fact]

@@ -1,0 +1,19 @@
+<div class="nb-wrap">
+  <div class="nb-card">
+    <div class="nb-icon">!</div>
+    <div class="nb-title">You have not been assigned to a branch</div>
+    <div class="nb-body">
+      @if (user(); as u) {
+        <strong>{{ u.firstName }} {{ u.lastName }}</strong>, your account
+        @if (u.companyName) {
+          in <strong>{{ u.companyName }}</strong>
+        }
+        has no branch allocation yet.
+      } @else {
+        Your account has no branch allocation yet.
+      }
+      Ask a company administrator to allocate you to a branch, then sign in again.
+    </div>
+    <ui-button variant="primary" (onClick)="signOut()">Sign out</ui-button>
+  </div>
+</div>

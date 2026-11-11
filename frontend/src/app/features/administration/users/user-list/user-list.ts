@@ -58,6 +58,7 @@ export class UserList implements OnInit {
         {
           kind: 'actions',
           actions: [
+            { label: 'Access & roles', onClick: () => this.router.navigate(['/administration/users', u.id, 'access']) },
             ...(this.canEdit() ? [{ label: 'Edit', onClick: () => this.router.navigate(['/administration/users', u.id, 'edit']) }] : []),
             ...(this.canResetPassword() ? [{ label: 'Reset password', onClick: () => this.resetPassword(u) }] : []),
             ...(this.canDisable()

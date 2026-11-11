@@ -99,11 +99,11 @@ public class BranchesController(SelloraDbContext db, IBranchService branchServic
 
     [HttpPost("{id:guid}/status")]
     [Authorize(Policy = "Company.Branches.Disable")]
-    public async Task<ActionResult<BranchDto>> SetStatus(Guid id, SetActiveRequest request, CancellationToken ct)
+    public async Task<ActionResult<BranchDto>> SetStatus(Guid id, SetStatusRequest request, CancellationToken ct)
     {
         try
         {
-            var branch = await branchService.SetStatusAsync(id, request.IsActive, CurrentUserId(), ct);
+            var branch = await branchService.SetStatusAsync(id, request.IsActive, request.Reason, CurrentUserId(), ct);
             if (branch is null) return NotFound();
 
             return Ok(ToDto(branch, (await db.GetCurrentCompanySettingsAsync(ct)).InvoicePrefix));

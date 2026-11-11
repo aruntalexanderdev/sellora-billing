@@ -78,7 +78,7 @@ public class BranchHeaderApiTests(PostgresFixture postgres)
     {
         var w = await GetAsync(postgres);
         var (inactive, _) = await w.NewBranchAsync();
-        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{inactive}/status", new SetActiveRequest(false));
+        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{inactive}/status", new SetStatusRequest(false, "test"));
         var unknown = Guid.NewGuid();
 
         var unknownResponse = await w.SendAsync(HttpMethod.Get, "/api/v1/sales", branch: unknown);

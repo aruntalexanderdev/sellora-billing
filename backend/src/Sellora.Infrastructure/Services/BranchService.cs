@@ -144,8 +144,9 @@ public sealed partial class BranchService(SelloraDbContext db, IStockLocationUsa
         return branch;
     }
 
-    public async Task<Branch?> SetStatusAsync(Guid branchId, bool isActive, Guid userId, CancellationToken ct = default)
+    public async Task<Branch?> SetStatusAsync(Guid branchId, bool isActive, string? reason, Guid userId, CancellationToken ct = default)
     {
+        var note = AuditLog.RequireReason(reason);
         // Company lock: serialises this check with warehouse/vehicle creation and assignment (Phase 4 D5/D10).
         await using var transaction = await StockLocks.BeginAsync(db, ct);
         var companyId = await LockCompanyAsync(ct);
@@ -187,6 +188,7 @@ public sealed partial class BranchService(SelloraDbContext db, IStockLocationUsa
                 throw new DomainValidationException("IsActive", "This branch's store still holds stock or has open transfers. Transfer, sell or adjust the stock out first.");
             }
 
+            var wasActive = branch.IsActive;
             branch.IsActive = isActive;
             branch.UpdatedAt = DateTimeOffset.UtcNow;
             branch.UpdatedByUserId = userId;
@@ -203,6 +205,7 @@ public sealed partial class BranchService(SelloraDbContext db, IStockLocationUsa
             var holderIds = await db.UserRoleAssignments
                 .Where(a => a.CompanyId == companyId && a.ScopeType == RoleScope.Branch && a.BranchId == branchId && a.Status == AssignmentStatus.Active)
                 .Select(a => a.UserCompanyMembershipId).Distinct().ToListAsync(ct);
+            AuditLog.Append(db, userId, null, AuditActions.BranchStatusChanged, AuditTargets.Branch, branch.Id, note, new { isActive = wasActive }, new { isActive });
             if (holderIds.Count > 0)
             {
                 var holders = await db.UserCompanyMemberships.Where(m => m.CompanyId == companyId && holderIds.Contains(m.Id)).ToListAsync(ct);

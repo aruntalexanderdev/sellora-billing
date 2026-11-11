@@ -1,13 +1,19 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { AuthService } from '../../../../core/auth/auth.service';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { RolesService } from '../roles.service';
 import { PermissionsService } from '../../permissions/permissions.service';
 import type { PermissionCatalogEntry } from '../../permissions/permissions.models';
-import type { ApiProblem } from '../../../../core/auth/auth.models';
+import { applyProblem, toProblem } from '../../../../core/http/api-errors';
+import type { AccessibleBranch } from '../../../../shared/branches/branch-select';
+import { UserAccessService } from '../../users/user-access/user-access.service';
+import { buildCreateRoleRequest, buildUpdateRoleRequest, eligibleCatalog, pruneSelection } from '../roles.logic';
+import type { RoleScope } from '../roles.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 
 interface FeatureGroup {
@@ -38,6 +44,12 @@ export class RoleForm implements OnInit, HasUnsavedChanges {
   private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly accessService = inject(UserAccessService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(AuthService);
+
+  /** Branch.Roles.Manage without Roles.Create: only Branch-scope roles may be created. */
+  readonly branchOnly = !this.auth.hasPermission('Roles.Create');
 
   readonly roleId = this.route.snapshot.paramMap.get('id');
   readonly isEdit = computed(() => this.roleId !== null && this.roleId !== 'new');
@@ -45,7 +57,14 @@ export class RoleForm implements OnInit, HasUnsavedChanges {
   readonly form = this.fb.nonNullable.group({
     name: ['', Validators.required],
     description: [''],
+    // Scope is chosen on create and read-only on edit (the controls are disabled; the update request never carries them).
+    scopeType: ['Company' as RoleScope],
+    branchId: [''],
   });
+
+  readonly scope = signal<RoleScope>('Company');
+  readonly branches = signal<AccessibleBranch[]>([]);
+  readonly branchLabel = signal<string | null>(null);
 
   readonly catalog = signal<PermissionCatalogEntry[]>([]);
   readonly selected = signal<Set<string>>(new Set());
@@ -55,9 +74,12 @@ export class RoleForm implements OnInit, HasUnsavedChanges {
   readonly saving = signal(false);
   readonly serverError = signal<string | null>(null);
 
+  /** Branch roles may only pick branch-eligible codes. */
+  readonly visibleCatalog = computed(() => eligibleCatalog(this.catalog(), this.scope()));
+
   readonly moduleSections = computed<ModuleSection[]>(() => {
     const byModule = new Map<string, Map<string, PermissionCatalogEntry[]>>();
-    for (const entry of this.catalog()) {
+    for (const entry of this.visibleCatalog()) {
       const byFeature = byModule.get(entry.module) ?? new Map<string, PermissionCatalogEntry[]>();
       const list = byFeature.get(featureOf(entry)) ?? [];
       list.push(entry);
@@ -70,7 +92,7 @@ export class RoleForm implements OnInit, HasUnsavedChanges {
     }));
   });
 
-  readonly totalCount = computed(() => this.catalog().length);
+  readonly totalCount = computed(() => this.visibleCatalog().length);
   readonly selectedCount = computed(() => this.selected().size);
 
   hasUnsavedChanges(): boolean {
@@ -82,10 +104,30 @@ export class RoleForm implements OnInit, HasUnsavedChanges {
   ngOnInit(): void {
     this.permissionsService.list().subscribe({ next: (list) => this.catalog.set(list) });
 
+    if (!this.isEdit()) {
+      if (this.branchOnly) {
+        this.form.controls.scopeType.setValue('Branch');
+        this.form.controls.scopeType.disable();
+        this.form.controls.branchId.setValidators([Validators.required]);
+        this.scope.set('Branch');
+      }
+      this.accessService.branches().subscribe({ next: (b) => this.branches.set(b), error: () => this.branches.set([]) });
+      this.form.controls.scopeType.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((scope) => {
+        this.scope.set(scope);
+        this.form.controls.branchId.setValidators(scope === 'Branch' ? [Validators.required] : []);
+        this.form.controls.branchId.updateValueAndValidity();
+        this.selected.set(pruneSelection(this.selected(), this.catalog(), scope));
+      });
+    }
+
     if (this.isEdit()) {
+      this.form.controls.scopeType.disable();
+      this.form.controls.branchId.disable();
       this.rolesService.get(this.roleId!).subscribe({
         next: (role) => {
-          this.form.patchValue({ name: role.name, description: role.description ?? '' });
+          this.scope.set(role.scopeType ?? 'Company');
+          this.form.patchValue({ name: role.name, description: role.description ?? '', scopeType: role.scopeType ?? 'Company', branchId: role.branchId ?? '' });
+          this.branchLabel.set(role.branchName);
           const set = new Set(role.permissionCodes);
           this.selected.set(set);
           this.initialSelected = new Set(set);
@@ -128,9 +170,10 @@ export class RoleForm implements OnInit, HasUnsavedChanges {
 
     this.saving.set(true);
     const v = this.form.getRawValue();
-    const request = { name: v.name, description: v.description || null, permissionCodes: Array.from(this.selected()) };
-
-    const request$ = this.isEdit() ? this.rolesService.update(this.roleId!, request) : this.rolesService.create(request);
+    const codes = this.selected();
+    const request$ = this.isEdit()
+      ? this.rolesService.update(this.roleId!, buildUpdateRoleRequest(v, codes))
+      : this.rolesService.create(buildCreateRoleRequest(v, codes));
 
     request$.subscribe({
       next: () => {
@@ -141,19 +184,8 @@ export class RoleForm implements OnInit, HasUnsavedChanges {
       },
       error: (err: HttpErrorResponse) => {
         this.saving.set(false);
-        const problem = err.error as ApiProblem | undefined;
-        if (problem?.errors) {
-          let matched = false;
-          for (const [field, messages] of Object.entries(problem.errors)) {
-            const control = this.form.get(field.charAt(0).toLowerCase() + field.slice(1));
-            if (control) {
-              control.setErrors({ server: messages[0] });
-              matched = true;
-            }
-          }
-          if (matched) return;
-        }
-        this.serverError.set(problem?.title ?? Object.values(problem?.errors ?? {})[0]?.[0] ?? 'Something went wrong.');
+        // Server field errors (name, scopeType, branchId, permissionCodes) land on the controls; the rest in the banner.
+        this.serverError.set(applyProblem(this.form, toProblem(err)));
       },
     });
   }

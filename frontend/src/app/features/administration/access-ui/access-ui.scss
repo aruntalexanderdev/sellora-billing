@@ -1,0 +1,117 @@
+@use '../../../shared/styles/page-head';
+@use '../../../shared/styles/form-fields';
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+.card h2 {
+  font-size: 15px;
+  font-weight: 650;
+  margin: 0 0 12px;
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.card-head h2 {
+  margin: 0;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.muted {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 16px;
+}
+.tab {
+  padding: 9px 14px;
+  border: 0;
+  background: none;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.tab.on {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+.panel {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-subtle);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.panel h3 {
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+.panel .field-label {
+  margin-top: 10px;
+}
+.panel .actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  margin: 6px 0;
+}
+.check input {
+  width: auto;
+}
+.server-error {
+  padding: 11px 13px;
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
+  border-radius: 8px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--color-danger-text);
+}
+.event {
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 10px 0;
+  font-size: 13px;
+}
+.event pre {
+  margin: 6px 0 0;
+  padding: 8px;
+  background: var(--color-surface-subtle);
+  border-radius: 6px;
+  font-size: 12px;
+  overflow: auto;
+}
+.filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.filters .field-input {
+  width: auto;
+  min-width: 180px;
+}

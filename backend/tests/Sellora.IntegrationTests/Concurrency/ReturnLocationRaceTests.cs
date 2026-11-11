@@ -146,7 +146,7 @@ public class ReturnLocationRaceTests(PostgresFixture postgres)
                 {
                     await using var db = t.Db();
                     var service = new VehicleService(db, new StockLocationUsageService(db));
-                    if (deactivate) await service.SetStatusAsync(vehicleId, false, t.UserId);
+                    if (deactivate) await service.SetStatusAsync(vehicleId, false, "test", t.UserId);
                     else await service.UpdateAsync(vehicleId, new Sellora.Domain.Inventory.UpdateVehicleInput("Van", Sellora.Domain.Inventory.VehicleType.Van, t.Blr), t.UserId);
                 });
 

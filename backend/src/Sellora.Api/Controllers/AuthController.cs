@@ -128,6 +128,13 @@ public class AuthController(IAuthService authService, SelloraDbContext db, IEffe
         var set = await effectivePermissions.GetCurrentAsync(ct);
         var working = db.BranchContext.RequestedBranchId ?? primaryId ?? branchRows.Where(b => b.IsDefault).Select(b => (Guid?)b.Id).FirstOrDefault();
         var permissions = set.CodesAtBranch(working).OrderBy(c => c, StringComparer.Ordinal).ToArray();
+        // D13 UI hint (authorization unchanged): company-level codes plus codes held via branch roles at any active branch this membership may access.
+        var anyBranch = new HashSet<string>(set.CodesAtBranch(null), StringComparer.Ordinal);
+        foreach (var b in allowedBranches)
+        {
+            anyBranch.UnionWith(set.CodesAtBranch(b.Id));
+        }
+        var permissionsAnyBranch = anyBranch.OrderBy(c => c, StringComparer.Ordinal).ToArray();
         var membershipId = HttpContext.RequestServices.GetRequiredService<IMembershipContext>().RequireMembershipId();
         var roleRows = await (
             from a in db.UserRoleAssignments
@@ -157,6 +164,6 @@ public class AuthController(IAuthService authService, SelloraDbContext db, IEffe
 
         return Ok(new MeResponse(summary.Id, summary.FirstName, summary.LastName, summary.Username, summary.Email,
             summary.RoleName, summary.Permissions, summary.CompanyId, summary.CompanyName,
-            scope, primaryId, allowedBranches, companies, governance, summary.Roles));
+            scope, primaryId, allowedBranches, companies, governance, summary.Roles, permissionsAnyBranch));
     }
 }

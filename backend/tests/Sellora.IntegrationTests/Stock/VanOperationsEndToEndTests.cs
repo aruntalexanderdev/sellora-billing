@@ -164,7 +164,7 @@ public class VanOperationsEndToEndTests(PostgresFixture postgres)
         await t.AssertAllAsync("setup");
 
         // V is empty (everything sold): it can be deactivated, as an operator would when the van is retired.
-        await using (var db = t.Db()) await new VehicleService(db, new StockLocationUsageService(db)).SetStatusAsync(vehicleId, false, t.UserId);
+        await using (var db = t.Db()) await new VehicleService(db, new StockLocationUsageService(db)).SetStatusAsync(vehicleId, false, "test", t.UserId);
 
         var ret = await t.ReturnPiecesAsync(t.Main, returned, 4m);
 

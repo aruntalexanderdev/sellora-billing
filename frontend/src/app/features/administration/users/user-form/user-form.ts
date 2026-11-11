@@ -61,7 +61,7 @@ export class UserForm implements OnInit, HasUnsavedChanges {
             username: u.username,
             email: u.email,
             phoneNumber: u.phoneNumber ?? '',
-            roleId: u.roleId,
+            roleId: u.roleId ?? '',
           }),
       });
     } else {

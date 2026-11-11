@@ -1,0 +1,64 @@
+<div class="page-head">
+  <div>
+    <h1>Vehicles</h1>
+    <p>Delivery and van-sales vehicles. Each vehicle is a stock location, assigned to a branch or kept central.</p>
+  </div>
+  @if (canCreate()) {
+    <ui-button variant="primary" (onClick)="goToCreate()">+ New vehicle</ui-button>
+  }
+</div>
+
+<div class="report-filters">
+  <label class="report-filter-field">
+    <span class="report-filter-label">Type</span>
+    <select class="report-filter-input" aria-label="Type filter" [value]="vehicleType()" (change)="setType($any($event.target).value)">
+      <option value="">All types</option>
+      @for (t of vehicleTypes; track t) {
+        <option [value]="t">{{ t }}</option>
+      }
+    </select>
+  </label>
+  <div class="report-filter-field">
+    <span class="report-filter-label">Assigned branch</span>
+    <app-branch-select [value]="branchId()" (valueChange)="setBranch($event)" />
+  </div>
+  <label class="report-filter-field">
+    <span class="report-filter-label">Central only</span>
+    <input type="checkbox" aria-label="Central vehicles only" [checked]="unassigned()" (change)="setUnassigned($any($event.target).checked)" />
+  </label>
+  <label class="report-filter-field">
+    <span class="report-filter-label">Show</span>
+    <select class="report-filter-input" aria-label="Status filter" [value]="includeInactive() ? 'all' : 'active'"
+            (change)="setIncludeInactive($any($event.target).value === 'all')">
+      <option value="active">Active only</option>
+      <option value="all">Including inactive</option>
+    </select>
+  </label>
+</div>
+
+@if (notice()) {
+  <div class="server-error" role="alert" data-testid="notice">{{ notice() }}
+    <button type="button" class="dismiss" (click)="notice.set(null)">Dismiss</button>
+  </div>
+}
+
+@if (statusTarget()) {
+  <app-reason-prompt
+    [title]="statusPromptTitle()"
+    [confirmLabel]="statusTarget()!.isActive ? 'Deactivate' : 'Activate'"
+    [destructive]="statusTarget()!.isActive"
+    [busy]="statusBusy()"
+    [error]="statusError()"
+    (confirmed)="confirmStatus($event)"
+    (cancelled)="cancelStatus()"
+  />
+}
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  emptyTitle="No vehicles"
+  emptyBody="No vehicles match these filters."
+  (retry)="load()"
+/>

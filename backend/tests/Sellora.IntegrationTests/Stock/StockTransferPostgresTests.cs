@@ -243,24 +243,24 @@ public class StockTransferPostgresTests(PostgresFixture postgres)
             await using var db = t.Db();
             return await Assert.ThrowsAsync<DomainValidationException>(() => act(db));
         }
-        await Refused(db => new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, t.UserId));
+        await Refused(db => new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, "test", t.UserId));
         await Refused(db => new VehicleService(db, new StockLocationUsageService(db)).UpdateAsync(vanId, new UpdateVehicleInput("Van one", VehicleType.Van, t.Main), t.UserId));
-        await Refused(db => new VehicleService(db, new StockLocationUsageService(db)).SetStatusAsync(vanId, false, t.UserId));
+        await Refused(db => new VehicleService(db, new StockLocationUsageService(db)).SetStatusAsync(vanId, false, "test", t.UserId));
         await using (var db = t.Db())
         {
             // The branch store rule: first clear the branch's warehouse and van so the STORE is what blocks (nothing else holds BLR back).
             await new StockTransferService(db, TransferScenario.All).CancelAsync(toWarehouse.Id, "x", t.UserId);
             await new StockTransferService(db, TransferScenario.All).CancelAsync(toVan.Id, "x", t.UserId);
             var usage = new StockLocationUsageService(db);
-            await new WarehouseService(db, usage).SetStatusAsync(warehouseId, false, t.UserId);
-            await new VehicleService(db, usage).SetStatusAsync(vanId, false, t.UserId);
+            await new WarehouseService(db, usage).SetStatusAsync(warehouseId, false, "test", t.UserId);
+            await new VehicleService(db, usage).SetStatusAsync(vanId, false, "test", t.UserId);
         }
-        var branchRefusal = await Refused(db => new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(t.Blr, false, t.UserId));
+        var branchRefusal = await Refused(db => new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(t.Blr, false, "test", t.UserId));
         Assert.Equal("IsActive", branchRefusal.Field);
 
         // Once the last open transfer is cancelled, the branch can be deactivated.
         await using (var db = t.Db()) await new StockTransferService(db, TransferScenario.All).CancelAsync(toStore.Id, "x", t.UserId);
-        await using (var db = t.Db()) await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(t.Blr, false, t.UserId);
+        await using (var db = t.Db()) await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(t.Blr, false, "test", t.UserId);
         await using var check = t.Db();
         Assert.False((await check.Branches.SingleAsync(b => b.Id == t.Blr)).IsActive);
     }

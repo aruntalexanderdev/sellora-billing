@@ -30,6 +30,19 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
         Assert.Contains(field.ToLowerInvariant(), await ErrorFieldsAsync(response));
     }
 
+    [Fact]
+    public async Task SetStatus_WarehouseAndVehicle_WithoutReason_Returns400OnReason()
+    {
+        var w = await GetAsync(postgres);
+        var wh = await w.NewWarehouseAsync();
+        var vehicle = await w.NewVehicleAsync();
+
+        await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(wh)}/status", new { isActive = false }), "reason");
+        await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(wh)}/status", new { isActive = false, reason = " " }), "reason");
+        await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(vehicle)}/status", new { isActive = false }), "reason");
+        await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(vehicle)}/status", new { isActive = false, reason = new string('x', 501) }), "reason");
+    }
+
     // ---- warehouses ----------------------------------------------------------------------------------------------------------
 
     [Fact]
@@ -84,7 +97,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
     {
         var w = await GetAsync(postgres);
         var (inactive, _) = await w.NewBranchAsync();
-        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{inactive}/status", new SetActiveRequest(false));
+        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{inactive}/status", new SetStatusRequest(false, "test"));
         var taken = (await w.NewWarehouseAsync()).GetProperty("name").GetString()!;
 
         await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, Wh, new CreateWarehouseRequest("MAIN", "Name " + w.NextCode(), null)), "code");
@@ -137,7 +150,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
         var w = await GetAsync(postgres);
         var wh = await w.NewWarehouseAsync();
 
-        var off = await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(wh)}/status", new SetActiveRequest(false));
+        var off = await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(wh)}/status", new SetStatusRequest(false, "test"));
 
         Assert.False((await JsonAsync(off)).GetProperty("isActive").GetBoolean());
         Assert.DoesNotContain(await ListAsync(w, Wh), x => IdOf(x) == IdOf(wh));
@@ -145,7 +158,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.OK, (await w.SendAsync(HttpMethod.Get, $"{Wh}/{IdOf(wh)}")).StatusCode);
         var locations = await ListAsync(w, "/api/v1/stock-locations?includeInactive=true");
         Assert.False(locations.Single(l => l.GetProperty("id").GetGuid() == wh.GetProperty("stockLocationId").GetGuid()).GetProperty("isActive").GetBoolean());
-        var on = await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(wh)}/status", new SetActiveRequest(true));
+        var on = await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(wh)}/status", new SetStatusRequest(true, "test"));
         Assert.True((await JsonAsync(on)).GetProperty("isActive").GetBoolean());
     }
 
@@ -187,7 +200,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
 
         Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Get, $"{Wh}/{id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Put, $"{Wh}/{id}", new UpdateWarehouseRequest("X"))).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Post, $"{Wh}/{id}/status", new SetActiveRequest(false))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Post, $"{Wh}/{id}/status", new SetStatusRequest(false, "test"))).StatusCode);
     }
 
     [Fact]
@@ -239,7 +252,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
     {
         var w = await GetAsync(postgres);
         var v = await w.NewVehicleAsync();
-        await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(v)}/status", new SetActiveRequest(false));
+        await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(v)}/status", new SetStatusRequest(false, "test"));
 
         await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, Veh, new CreateVehicleRequest(Str(v, "vehicleNumber"), "again", "Van", null)), "vehiclenumber");
     }
@@ -275,7 +288,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
         var assignedVan = await w.NewVehicleAsync(branch, w.NextCode("VA"), "Van");
         var free = await w.NewVehicleAsync(null, w.NextCode("VC"), "Motorcycle");
         var off = await w.NewVehicleAsync(branch, w.NextCode("VD"));
-        await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(off)}/status", new SetActiveRequest(false));
+        await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(off)}/status", new SetStatusRequest(false, "test"));
 
         var assigned = await ListAsync(w, $"{Veh}?assignedBranchId={branch}");
         Assert.Equal(new[] { IdOf(assignedVan), IdOf(assignedTruck) }, assigned.Select(IdOf)); // by number: VA.. before VB..
@@ -293,13 +306,13 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
         var w = await GetAsync(postgres);
         var v = await w.NewVehicleAsync();
 
-        var off = await JsonAsync(await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(v)}/status", new SetActiveRequest(false)));
+        var off = await JsonAsync(await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(v)}/status", new SetStatusRequest(false, "test")));
 
         Assert.False(off.GetProperty("isActive").GetBoolean());
         Assert.DoesNotContain(await ListAsync(w, Veh), x => IdOf(x) == IdOf(v));
         var loc = (await ListAsync(w, "/api/v1/stock-locations?type=Vehicle&includeInactive=true")).Single(l => l.GetProperty("id").GetGuid() == v.GetProperty("stockLocationId").GetGuid());
         Assert.False(loc.GetProperty("isActive").GetBoolean());
-        var on = await JsonAsync(await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(v)}/status", new SetActiveRequest(true)));
+        var on = await JsonAsync(await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(v)}/status", new SetStatusRequest(true, "test")));
         Assert.True(on.GetProperty("isActive").GetBoolean());
     }
 
@@ -311,7 +324,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
 
         Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Get, $"{Veh}/{id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Put, $"{Veh}/{id}", new UpdateVehicleRequest("n", "Van", null))).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Post, $"{Veh}/{id}/status", new SetActiveRequest(false))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Post, $"{Veh}/{id}/status", new SetStatusRequest(false, "test"))).StatusCode);
     }
 
     // ---- branch deactivation (O-1) -------------------------------------------------------------------------------------------
@@ -323,17 +336,17 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
         var (branch, _) = await w.NewBranchAsync();
         var wh = await w.NewWarehouseAsync(branch);
 
-        var blocked = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branch}/status", new SetActiveRequest(false));
+        var blocked = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branch}/status", new SetStatusRequest(false, "test"));
         await AssertBadRequestOnAsync(blocked, "isactive");
-        await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(wh)}/status", new SetActiveRequest(false));
-        var ok = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branch}/status", new SetActiveRequest(false));
+        await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(wh)}/status", new SetStatusRequest(false, "test"));
+        var ok = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branch}/status", new SetStatusRequest(false, "test"));
 
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
         // The inactive branch cannot be reused: neither a new warehouse nor a new assignment.
         await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, Wh, new CreateWarehouseRequest(w.NextCode(), "N " + w.NextCode(), branch)), "branchid");
         await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, Veh, new CreateVehicleRequest(w.NextCode("V"), "n", "Van", branch)), "assignedbranchid");
         // ...and the warehouse cannot be reactivated until the branch is.
-        await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(wh)}/status", new SetActiveRequest(true)), "isactive");
+        await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(wh)}/status", new SetStatusRequest(true, "test")), "isactive");
     }
 
     [Fact]
@@ -346,11 +359,11 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
         var v2 = await w.NewVehicleAsync(branch);
         var status = $"/api/v1/branches/{branch}/status";
 
-        await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, status, new SetActiveRequest(false)), "isactive");
+        await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, status, new SetStatusRequest(false, "test")), "isactive");
         await w.SendAsync(HttpMethod.Put, $"{Veh}/{IdOf(v1)}", new UpdateVehicleRequest("n", "Van", other)); // reassigned away
-        await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, status, new SetActiveRequest(false)), "isactive");
-        await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(v2)}/status", new SetActiveRequest(false)); // inactive vehicles do not block
-        var ok = await w.SendAsync(HttpMethod.Post, status, new SetActiveRequest(false));
+        await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Post, status, new SetStatusRequest(false, "test")), "isactive");
+        await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(v2)}/status", new SetStatusRequest(false, "test")); // inactive vehicles do not block
+        var ok = await w.SendAsync(HttpMethod.Post, status, new SetStatusRequest(false, "test"));
 
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
     }
@@ -362,7 +375,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
         var (branch, _) = await w.NewBranchAsync();
         await w.NewWarehouseAsync(); // a company warehouse is unrelated to the branch
 
-        Assert.Equal(HttpStatusCode.OK, (await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branch}/status", new SetActiveRequest(false))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branch}/status", new SetStatusRequest(false, "test"))).StatusCode);
     }
 
     // ---- branch visibility (restricted member: no branch accessible until Phase 5) -----------------------------------------------
@@ -396,7 +409,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
 
         Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Get, $"{Wh}/{IdOf(branchWh)}", client: w.Restricted)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Put, $"{Wh}/{IdOf(branchWh)}", new UpdateWarehouseRequest("Hijack"), w.Restricted)).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(branchWh)}/status", new SetActiveRequest(false), w.Restricted)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(branchWh)}/status", new SetStatusRequest(false, "test"), w.Restricted)).StatusCode);
         var after = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"{Wh}/{IdOf(branchWh)}"));
         Assert.Equal((Str(branchWh, "name"), true), (Str(after, "name"), after.GetProperty("isActive").GetBoolean()));
     }
@@ -461,7 +474,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
             "GET" => await w.SendAsync(HttpMethod.Get, Wh, client: client),
             "POST" => await w.SendAsync(HttpMethod.Post, Wh, new CreateWarehouseRequest(w.NextCode(), "N " + w.NextCode(), null), client),
             "PUT" => await w.SendAsync(HttpMethod.Put, $"{Wh}/{IdOf(wh)}", new UpdateWarehouseRequest("Edited " + w.NextCode()), client),
-            _ => await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(wh)}/status", new SetActiveRequest(true), client),
+            _ => await w.SendAsync(HttpMethod.Post, $"{Wh}/{IdOf(wh)}/status", new SetStatusRequest(true, "test"), client),
         };
 
         Assert.Equal(expected, response.StatusCode);
@@ -490,7 +503,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
             "GET" => await w.SendAsync(HttpMethod.Get, Veh, client: client),
             "POST" => await w.SendAsync(HttpMethod.Post, Veh, new CreateVehicleRequest(w.NextCode("V"), "n", "Van", null), client),
             "PUT" => await w.SendAsync(HttpMethod.Put, $"{Veh}/{IdOf(v)}", new UpdateVehicleRequest("Edited " + w.NextCode(), "Van", null), client),
-            _ => await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(v)}/status", new SetActiveRequest(true), client),
+            _ => await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(v)}/status", new SetStatusRequest(true, "test"), client),
         };
 
         Assert.Equal(expected, response.StatusCode);

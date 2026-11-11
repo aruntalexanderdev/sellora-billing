@@ -64,7 +64,7 @@ public class BranchScopeTests
     public async Task WorkingBranch_InactivePrimary_IsRefusedWith400BranchId()
     {
         var w = await BranchWorld.CreateAsync();
-        await using (var db = w.Db()) await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, w.UserId);
+        await using (var db = w.Db()) await new BranchService(db, new StockLocationUsageService(db)).SetStatusAsync(w.Blr, false, "test", w.UserId);
         var ex = await Assert.ThrowsAsync<DomainValidationException>(() => PurchaseBranchAsync(w, null, Set(w.Blr), primary: w.Blr));
         Assert.Equal("branchId", ex.Field);
     }

@@ -109,7 +109,7 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
             .OrderByDescending(m => m.OccurredAt)
             .Select(m => new
             {
-                m.Id, m.OccurredAt, m.Type, m.QuantityBaseUnits, m.StockLocationId, m.ReferenceType, m.ReferenceNo,
+                m.Id, m.OccurredAt, m.Type, m.QuantityBaseUnits, m.StockLocationId, m.ReferenceId, m.ReferenceType, m.ReferenceNo,
                 UserName = m.User.FirstName + " " + m.User.LastName, m.Notes,
                 m.PurchaseBatchId, BatchSequence = m.PurchaseBatch != null ? m.PurchaseBatch.BatchSequence : (long?)null,
                 m.ReasonCode, m.EnteredQuantity, m.EnteredProductUnitId, m.EnteredUnitCode, m.ConversionFactorSnapshot,
@@ -120,7 +120,7 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
             m.Id, m.OccurredAt, m.Type, m.QuantityBaseUnits, m.ReferenceType, m.ReferenceNo, m.UserName, m.Notes,
             m.PurchaseBatchId, m.BatchSequence is { } seq ? PurchaseBatch.FormatInternalBatchNo(seq) : null,
             m.ReasonCode, m.EnteredQuantity, m.EnteredProductUnitId, m.EnteredUnitCode, m.ConversionFactorSnapshot, m.EnteredDecimalPlaces, product.BaseUnit.DecimalPlaces,
-            m.StockLocationId, visibility.Code(m.StockLocationId), visibility.Name(m.StockLocationId))).ToList();
+            m.StockLocationId, visibility.Code(m.StockLocationId), visibility.Name(m.StockLocationId), m.ReferenceId)).ToList();
 
         // Documented "Branch"-filter bypass (D7): the batch's source reference (PO / adjustment number) is company-internal
         // traceability; a batch bought at another branch must not turn into a null/"Adjustment" label for a restricted user.

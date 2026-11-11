@@ -99,13 +99,13 @@ public class WarehousesController(SelloraDbContext db, IWarehouseService warehou
 
     [HttpPost("{id:guid}/status")]
     [Authorize(Policy = "Company.Warehouses.Disable")]
-    public async Task<ActionResult<WarehouseDto>> SetStatus(Guid id, SetActiveRequest request, CancellationToken ct)
+    public async Task<ActionResult<WarehouseDto>> SetStatus(Guid id, SetStatusRequest request, CancellationToken ct)
     {
         if (!await IsVisibleAsync(id, ct)) return NotFound();
 
         try
         {
-            var warehouse = await warehouseService.SetStatusAsync(id, request.IsActive, CurrentUserId(), ct);
+            var warehouse = await warehouseService.SetStatusAsync(id, request.IsActive, request.Reason, CurrentUserId(), ct);
             return warehouse is null ? NotFound() : Ok(await LoadDtoAsync(id, ct));
         }
         catch (DomainValidationException ex)

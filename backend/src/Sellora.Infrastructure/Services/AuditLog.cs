@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
 
@@ -9,6 +10,15 @@ namespace Sellora.Infrastructure.Services;
 internal static class AuditLog
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    /// <summary>Phase 11a D14: a status change must carry a reason; trimmed, 1-500 chars (<c>reason</c> field).</summary>
+    public static string RequireReason(string? reason)
+    {
+        var note = reason?.Trim();
+        if (string.IsNullOrEmpty(note)) throw new DomainValidationException("reason", "A reason is required.");
+        if (note.Length > 500) throw new DomainValidationException("reason", "The reason must be at most 500 characters.");
+        return note;
+    }
 
     /// <summary>For services that know only the acting user and the request's correlation id (no membership flags needed).</summary>
     public static void Append(

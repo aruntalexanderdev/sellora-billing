@@ -372,7 +372,7 @@ public class StockTransferRaceTests(PostgresFixture postgres)
 
         var outcomes = await ParallelAsync(
             async () => await t.DispatchAsRequestedAsync(transfer.Id, t.Blr),
-            async () => { await using var db = t.Db(); await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, t.UserId); });
+            async () => { await using var db = t.Db(); await new WarehouseService(db, new StockLocationUsageService(db)).SetStatusAsync(warehouseId, false, "test", t.UserId); });
 
         AssertNoDeadlock(outcomes);
         Assert.Null(outcomes[0]);

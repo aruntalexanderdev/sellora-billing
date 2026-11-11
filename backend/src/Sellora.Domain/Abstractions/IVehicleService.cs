@@ -10,5 +10,5 @@ public interface IVehicleService
 {
     Task<Vehicle> CreateAsync(CreateVehicleInput input, Guid userId, CancellationToken ct = default);
     Task<Vehicle?> UpdateAsync(Guid vehicleId, UpdateVehicleInput input, Guid userId, CancellationToken ct = default);
-    Task<Vehicle?> SetStatusAsync(Guid vehicleId, bool isActive, Guid userId, CancellationToken ct = default);
+    Task<Vehicle?> SetStatusAsync(Guid vehicleId, bool isActive, string? reason, Guid userId, CancellationToken ct = default);
 }

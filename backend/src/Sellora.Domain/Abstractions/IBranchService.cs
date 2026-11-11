@@ -15,8 +15,8 @@ public interface IBranchService
     /// <summary>Edits a branch. Returns null if it does not exist in the company. The code cannot change.</summary>
     Task<Branch?> UpdateAsync(Guid branchId, UpdateBranchInput input, Guid userId, CancellationToken ct = default);
 
-    /// <summary>Activates or deactivates a branch. The default branch cannot be deactivated (<c>IsActive</c>). Returns null if not found.</summary>
-    Task<Branch?> SetStatusAsync(Guid branchId, bool isActive, Guid userId, CancellationToken ct = default);
+    /// <summary>Activates or deactivates a branch. The default branch cannot be deactivated (<c>IsActive</c>). Requires a reason (1-500 chars, field <c>reason</c>), recorded in the audit event. Returns null if not found.</summary>
+    Task<Branch?> SetStatusAsync(Guid branchId, bool isActive, string? reason, Guid userId, CancellationToken ct = default);
 
     /// <summary>Settings PUT hook: locks the company row and rejects (<c>InvoicePrefix</c>) a company prefix equal to a branch's own
     /// prefix or that would make a branch number exceed 16 characters. Call inside the transaction that saves the settings.</summary>

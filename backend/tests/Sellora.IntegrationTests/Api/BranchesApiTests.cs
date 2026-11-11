@@ -108,7 +108,7 @@ public class BranchesApiTests(PostgresFixture postgres)
 
         Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Put, $"/api/v1/branches/{Guid.NewGuid()}", new UpdateBranchRequest("X", null, null, null, null, null, null, null))).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Get, $"/api/v1/branches/{Guid.NewGuid()}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{Guid.NewGuid()}/status", new SetActiveRequest(false))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{Guid.NewGuid()}/status", new SetStatusRequest(false, "test"))).StatusCode);
     }
 
     [Fact]
@@ -143,20 +143,36 @@ public class BranchesApiTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task SetStatus_MissingBlankOrOverlongReason_Returns400OnReason_AndChangesNothing()
+    {
+        var w = await GetAsync(postgres);
+        var (id, _) = await w.NewBranchAsync();
+        var url = $"/api/v1/branches/{id}/status";
+
+        foreach (var body in new object[] { new { isActive = false }, new { isActive = false, reason = "   " }, new { isActive = false, reason = new string('x', 501) } })
+        {
+            var response = await w.SendAsync(HttpMethod.Post, url, body);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Contains("reason", await ErrorFieldsAsync(response));
+        }
+        Assert.True((await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/branches/{id}"))).GetProperty("isActive").GetBoolean());
+    }
+
+    [Fact]
     public async Task SetStatus_DefaultBranchCannotBeDeactivated_OthersToggleAndListHonoursIncludeInactive()
     {
         var w = await GetAsync(postgres);
         var (id, _) = await w.NewBranchAsync();
 
-        var def = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{w.MainId}/status", new SetActiveRequest(false));
-        var off = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{id}/status", new SetActiveRequest(false));
+        var def = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{w.MainId}/status", new SetStatusRequest(false, "test"));
+        var off = await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{id}/status", new SetStatusRequest(false, "test"));
 
         Assert.Equal(HttpStatusCode.BadRequest, def.StatusCode);
         Assert.Contains("isactive", await ErrorFieldsAsync(def));
         Assert.False((await JsonAsync(off)).GetProperty("isActive").GetBoolean());
         Assert.DoesNotContain((await w.Admin.GetFromJsonAsync<List<BranchDto>>("/api/v1/branches", ApiHost.Json))!, b => b.Id == id);
         Assert.Contains((await w.Admin.GetFromJsonAsync<List<BranchDto>>("/api/v1/branches?includeInactive=true", ApiHost.Json))!, b => b.Id == id && !b.IsActive);
-        Assert.True((await JsonAsync(await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{id}/status", new SetActiveRequest(true)))).GetProperty("isActive").GetBoolean());
+        Assert.True((await JsonAsync(await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{id}/status", new SetStatusRequest(true, "test")))).GetProperty("isActive").GetBoolean());
     }
 
     [Fact]
@@ -165,7 +181,7 @@ public class BranchesApiTests(PostgresFixture postgres)
         var w = await GetAsync(postgres);
         var (active, _) = await w.NewBranchAsync();
         var (inactive, _) = await w.NewBranchAsync();
-        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{inactive}/status", new SetActiveRequest(false));
+        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{inactive}/status", new SetStatusRequest(false, "test"));
 
         var list = (await w.Admin.GetFromJsonAsync<List<AccessibleBranchDto>>("/api/v1/branches/accessible", ApiHost.Json))!;
 
@@ -192,7 +208,7 @@ public class BranchesApiTests(PostgresFixture postgres)
             (await w.SendAsync(HttpMethod.Get, $"/api/v1/branches/{id}", client: nobody)).StatusCode,
             (await w.SendAsync(HttpMethod.Post, "/api/v1/branches", Req("NOPE1"), client: nobody)).StatusCode,
             (await w.SendAsync(HttpMethod.Put, $"/api/v1/branches/{id}", new UpdateBranchRequest("X", null, null, null, null, null, null, null), client: nobody)).StatusCode,
-            (await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{id}/status", new SetActiveRequest(false), client: nobody)).StatusCode,
+            (await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{id}/status", new SetStatusRequest(false, "test"), client: nobody)).StatusCode,
         };
 
         Assert.All(statuses, s => Assert.Equal(HttpStatusCode.Forbidden, s));
@@ -221,7 +237,7 @@ public class BranchesApiTests(PostgresFixture postgres)
             "GET" => await w.SendAsync(HttpMethod.Get, "/api/v1/branches", client: client),
             "POST" => await w.SendAsync(HttpMethod.Post, "/api/v1/branches", Req(code), client: client),
             "PUT" => await w.SendAsync(HttpMethod.Put, $"/api/v1/branches/{id}", new UpdateBranchRequest("Edited by perm", null, null, null, null, null, null, null), client: client),
-            _ => await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{id}/status", new SetActiveRequest(true), client: client),
+            _ => await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{id}/status", new SetStatusRequest(true, "test"), client: client),
         };
 
         Assert.Equal(expected, response.StatusCode);

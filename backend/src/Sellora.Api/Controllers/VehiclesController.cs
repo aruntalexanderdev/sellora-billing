@@ -107,11 +107,11 @@ public class VehiclesController(SelloraDbContext db, IVehicleService vehicleServ
 
     [HttpPost("{id:guid}/status")]
     [Authorize(Policy = "Company.Vehicles.Disable")]
-    public async Task<ActionResult<VehicleDto>> SetStatus(Guid id, SetActiveRequest request, CancellationToken ct)
+    public async Task<ActionResult<VehicleDto>> SetStatus(Guid id, SetStatusRequest request, CancellationToken ct)
     {
         try
         {
-            var vehicle = await vehicleService.SetStatusAsync(id, request.IsActive, CurrentUserId(), ct);
+            var vehicle = await vehicleService.SetStatusAsync(id, request.IsActive, request.Reason, CurrentUserId(), ct);
             return vehicle is null ? NotFound() : Ok(await LoadDtoAsync(id, ct));
         }
         catch (DomainValidationException ex)

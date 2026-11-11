@@ -15,7 +15,8 @@ public record StockMovementReportRowDto(
     StockMovementType Type, decimal QuantityBaseUnits, string ReferenceType, string ReferenceNo, string UserName,
     AdjustmentType? ReasonCode, decimal? EnteredQuantity, Guid? EnteredProductUnitId, string? EnteredUnitCode,
     decimal? ConversionFactorSnapshot, int? EnteredDecimalPlaces, int BaseDecimalPlaces,
-    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null,
+    Guid? ReferenceId = null
 );
 
 public record PurchaseReportRowDto(

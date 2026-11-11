@@ -10,5 +10,5 @@ public interface IWarehouseService
 {
     Task<Warehouse> CreateAsync(CreateWarehouseInput input, Guid userId, CancellationToken ct = default);
     Task<Warehouse?> UpdateAsync(Guid warehouseId, UpdateWarehouseInput input, Guid userId, CancellationToken ct = default);
-    Task<Warehouse?> SetStatusAsync(Guid warehouseId, bool isActive, Guid userId, CancellationToken ct = default);
+    Task<Warehouse?> SetStatusAsync(Guid warehouseId, bool isActive, string? reason, Guid userId, CancellationToken ct = default);
 }

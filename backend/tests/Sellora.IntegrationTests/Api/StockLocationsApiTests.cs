@@ -61,13 +61,13 @@ public class StockLocationsApiTests(PostgresFixture postgres)
         var w = await GetAsync(postgres);
         var (branchId, code) = await w.NewBranchAsync();
         Assert.True((await w.SendAsync(HttpMethod.Put, $"/api/v1/branches/{branchId}", new UpdateBranchRequest("Renamed " + code, null, null, null, null, null, null, null))).IsSuccessStatusCode);
-        Assert.True((await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branchId}/status", new SetActiveRequest(false))).IsSuccessStatusCode);
+        Assert.True((await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branchId}/status", new SetStatusRequest(false, "test"))).IsSuccessStatusCode);
 
         Assert.DoesNotContain(await ListAsync(w), l => l.TryGetProperty("branchId", out var b) && b.ValueKind == JsonValueKind.String && b.GetGuid() == branchId);
         var inactive = For(await ListAsync(w, "?includeInactive=true"), branchId);
         Assert.Equal(("Renamed " + code, code, false), (inactive.GetProperty("name").GetString(), inactive.GetProperty("code").GetString(), inactive.GetProperty("isActive").GetBoolean()));
 
-        Assert.True((await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branchId}/status", new SetActiveRequest(true))).IsSuccessStatusCode);
+        Assert.True((await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branchId}/status", new SetStatusRequest(true, "test"))).IsSuccessStatusCode);
         Assert.True(For(await ListAsync(w), branchId).GetProperty("isActive").GetBoolean());
     }
 
@@ -124,7 +124,7 @@ public class StockLocationsApiTests(PostgresFixture postgres)
     {
         var w = await GetAsync(postgres);
         var (branchId, _) = await w.NewBranchAsync();
-        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branchId}/status", new SetActiveRequest(false));
+        await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branchId}/status", new SetStatusRequest(false, "test"));
 
         var list = await ListAsync(w, $"?branchId={branchId}&includeInactive=true");
 

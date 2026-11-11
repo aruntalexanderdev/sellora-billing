@@ -22,7 +22,7 @@ public class StockAdjustmentsController(IStockAdjustmentService adjustmentServic
         [FromQuery] string? search, [FromQuery] Guid? productId,
         [FromQuery] AdjustmentType? type, [FromQuery] AdjustmentDirection? direction,
         [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -38,6 +38,7 @@ public class StockAdjustmentsController(IStockAdjustmentService adjustmentServic
             query = query.Where(a => a.AdjustmentNo.ToLower().Contains(s) || a.Product.Name.ToLower().Contains(s) || a.Product.Sku.ToLower().Contains(s));
         }
         if (productId is not null) query = query.Where(a => a.ProductId == productId);
+        if (stockLocationId is not null) query = query.Where(a => a.StockLocationId == stockLocationId);
         if (type is not null) query = query.Where(a => a.Type == type);
         if (direction is not null) query = query.Where(a => a.Direction == direction);
         if (dateFrom is not null)

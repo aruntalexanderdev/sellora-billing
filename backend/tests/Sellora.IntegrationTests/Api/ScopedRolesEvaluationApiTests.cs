@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Permissions;
 using Sellora.IntegrationTests.Infrastructure;
 using static Sellora.IntegrationTests.Api.BranchApiWorld;
 
@@ -102,6 +103,48 @@ public class ScopedRolesEvaluationApiTests(PostgresFixture postgres)
 
         Assert.Equal(["Purchase.View", "Sales.View"], me.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()!).Order().ToArray());
         Assert.Equal(2, me.GetProperty("roles").GetArrayLength());
+    }
+
+    private static string[] Codes(System.Text.Json.JsonElement me, string property) =>
+        me.GetProperty(property).EnumerateArray().Select(p => p.GetString()!).Order().ToArray();
+
+    [Fact]
+    public async Task Me_PermissionsAnyBranch_CompanyWideMember_EqualsTheCompanyCodes()
+    {
+        var w = await WorldAsync();
+        var user = await UserAsync(w, await RoleAsync(w, N("Buyer"), ["Purchase.View"]));
+
+        var me = await JsonAsync(await user.Client.GetAsync("/api/v1/auth/me"));
+
+        Assert.Equal(["Purchase.View"], Codes(me, "permissionsAnyBranch"));
+        Assert.Equal(["Purchase.View"], Codes(me, "permissions"));
+    }
+
+    [Fact]
+    public async Task Me_PermissionsAnyBranch_IncludesBranchRoleCodesAtANonPrimaryBranch_ButPermissionsDoesNot()
+    {
+        var w = await WorldAsync();
+        var (b1, _) = await w.NewBranchAsync();
+        var (b2, _) = await w.NewBranchAsync();
+        var user = await UserAsync(w, await RoleAsync(w, N("Buyer"), ["Purchase.View"]), [b1, b2], b1);
+        await AssignAsync(w, user.Id, await RoleAsync(w, N("B2Sales"), ["Sales.View"], RoleScope.Branch, b2));
+
+        var me = await JsonAsync(await user.Client.GetAsync("/api/v1/auth/me"));
+
+        Assert.Equal(["Purchase.View"], Codes(me, "permissions"));
+        Assert.Equal(["Purchase.View", "Sales.View"], Codes(me, "permissionsAnyBranch"));
+    }
+
+    [Fact]
+    public async Task Me_PermissionsAnyBranch_Administrator_IsTheWholeCatalogue()
+    {
+        var w = await WorldAsync();
+        var administrator = (await JsonAsync(await w.SendAsync(HttpMethod.Get, "/api/v1/roles"))).EnumerateArray().Single(r => r.GetProperty("isSystem").GetBoolean()).GetProperty("id").GetGuid();
+        var admin = await UserAsync(w, administrator);
+
+        var me = await JsonAsync(await admin.Client.GetAsync("/api/v1/auth/me"));
+
+        Assert.Equal(PermissionCatalog.All.Select(p => p.Code).Order().ToArray(), Codes(me, "permissionsAnyBranch"));
     }
 
     // ---- T8: handler lifetime ----

@@ -80,7 +80,7 @@ public class VehicleServiceTests
         var w = await WorldAsync();
         await using var db = w.Db();
         var first = await Service(db).CreateAsync(new("TN 01", "One", VehicleType.Van, null), w.UserId);
-        await Service(db).SetStatusAsync(first.Id, false, w.UserId);
+        await Service(db).SetStatusAsync(first.Id, false, "test", w.UserId);
 
         var ex = await Assert.ThrowsAsync<DomainValidationException>(() => Service(db).CreateAsync(new("tn-01", "Two", VehicleType.Van, null), w.UserId));
 
@@ -294,11 +294,11 @@ public class VehicleServiceTests
         await using var db = w.Db();
         var v = await Service(db).CreateAsync(new("V1", "n", VehicleType.Van, null), w.UserId);
 
-        await Service(db).SetStatusAsync(v.Id, false, w.UserId);
+        await Service(db).SetStatusAsync(v.Id, false, "test", w.UserId);
         Assert.False(v.IsActive);
         Assert.False((await LocationOfAsync(db, v)).IsActive);
 
-        await Service(db).SetStatusAsync(v.Id, true, w.UserId);
+        await Service(db).SetStatusAsync(v.Id, true, "test", w.UserId);
         Assert.True((await LocationOfAsync(db, v)).IsActive);
     }
 
@@ -311,11 +311,11 @@ public class VehicleServiceTests
         db.Branches.Add(branch);
         await db.SaveChangesAsync();
         var v = await Service(db).CreateAsync(new("V1", "n", VehicleType.Van, branch.Id), w.UserId);
-        await Service(db).SetStatusAsync(v.Id, false, w.UserId);
+        await Service(db).SetStatusAsync(v.Id, false, "test", w.UserId);
         branch.IsActive = false; // the branch is deactivated after its vehicle (O-1 only counts active vehicles)
         await db.SaveChangesAsync();
 
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => Service(db).SetStatusAsync(v.Id, true, w.UserId));
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => Service(db).SetStatusAsync(v.Id, true, "test", w.UserId));
 
         Assert.Equal("IsActive", ex.Field);
         await using var check = w.Db();
@@ -332,7 +332,7 @@ public class VehicleServiceTests
         var v = await Service(db, usage).CreateAsync(new("V1", "n", VehicleType.Van, null), w.UserId);
         usage.InUse.Add(v.StockLocationId);
 
-        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => Service(db, usage).SetStatusAsync(v.Id, false, w.UserId));
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => Service(db, usage).SetStatusAsync(v.Id, false, "test", w.UserId));
 
         Assert.Equal("IsActive", ex.Field);
         await using var check = w.Db();
@@ -347,6 +347,6 @@ public class VehicleServiceTests
         await using var db = w.Db();
 
         Assert.Null(await Service(db).UpdateAsync(Guid.NewGuid(), new("n", VehicleType.Van, null), w.UserId));
-        Assert.Null(await Service(db).SetStatusAsync(Guid.NewGuid(), false, w.UserId));
+        Assert.Null(await Service(db).SetStatusAsync(Guid.NewGuid(), false, "test", w.UserId));
     }
 }

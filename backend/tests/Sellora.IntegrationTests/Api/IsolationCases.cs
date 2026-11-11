@@ -108,11 +108,11 @@ public static class IsolationCases
         new("BranchesController.Update", "other company's branch", Put, (own, other) =>
             ($"/api/v1/branches/{other.BranchId}", new UpdateBranchRequest("Hijacked", null, null, null, null, null, null, null))),
         new("BranchesController.SetStatus", "other company's branch", Post, (own, other) =>
-            ($"/api/v1/branches/{other.BranchId}/status", new SetActiveRequest(false))),
+            ($"/api/v1/branches/{other.BranchId}/status", new SetStatusRequest(false, "test"))),
         new("WarehousesController.Update", "other company's warehouse", Put, (own, other) =>
             ($"/api/v1/warehouses/{other.WarehouseId}", new UpdateWarehouseRequest("Hijacked"))),
         new("WarehousesController.SetStatus", "other company's warehouse", Post, (own, other) =>
-            ($"/api/v1/warehouses/{other.WarehouseId}/status", new SetActiveRequest(false))),
+            ($"/api/v1/warehouses/{other.WarehouseId}/status", new SetStatusRequest(false, "test"))),
         new("WarehousesController.Create", "other company's branch", Post, (own, other) =>
             ("/api/v1/warehouses", new CreateWarehouseRequest("ISO-X", "Cross branch", other.BranchId))),
         new("VehiclesController.Update", "other company's vehicle", Put, (own, other) =>
@@ -120,7 +120,7 @@ public static class IsolationCases
         new("VehiclesController.Update", "own vehicle assigned to other company's branch", Put, (own, other) =>
             ($"/api/v1/vehicles/{own.VehicleId}", new UpdateVehicleRequest("Isolation van", "Van", other.BranchId))),
         new("VehiclesController.SetStatus", "other company's vehicle", Post, (own, other) =>
-            ($"/api/v1/vehicles/{other.VehicleId}/status", new SetActiveRequest(false))),
+            ($"/api/v1/vehicles/{other.VehicleId}/status", new SetStatusRequest(false, "test"))),
         new("VehiclesController.Create", "other company's branch", Post, (own, other) =>
             ("/api/v1/vehicles", new CreateVehicleRequest("ISO-X", "Cross branch", "Van", other.BranchId))),
         new("ProductsController.Create", "other company's tax", Post, (own, other) =>
