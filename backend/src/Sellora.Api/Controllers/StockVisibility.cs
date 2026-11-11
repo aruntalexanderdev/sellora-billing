@@ -4,6 +4,7 @@ using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Inventory;
 using Sellora.Infrastructure.Data;
 
 namespace Sellora.Api.Controllers;
@@ -55,7 +56,14 @@ internal sealed class StockVisibility
             .Select(v => new { v.StockLocationId, v.AssignedBranchId })
             .ToDictionaryAsync(v => v.StockLocationId, v => v.AssignedBranchId, ct);
 
+        // Phase 9 (D7): the company Transit location holds goods in flight between branches. It is visible only to a company-level
+        // reader of the permission; branch-scoped readers (and the permission-less POS catalog) never get it in their sums and see the
+        // in-transit quantity on the transfer document instead.
+        // Company-wide membership as well: an AssignedBranches member with a company-scope role must not see other branches' goods in flight.
+        var companyLevel = permissionCode is not null && permitted is null && db.BranchContext.AllowedBranchIds is null;
+
         var visible = rows
+            .Where(l => companyLevel || l.LocationType != StockLocationType.Transit)
             .Select(l => new { l.Id, l.Code, l.Name, l.LocationType, Owner = l.BranchId ?? vehicleOwner.GetValueOrDefault(l.Id) })
             .Where(l => l.Owner is not { } b || (db.BranchContext.CanAccess(b) && (permitted is null || permitted.Contains(b))))
             .ToDictionary(l => l.Id, l => new StockLocationLabel(l.Code, l.Name, l.LocationType.ToString()));

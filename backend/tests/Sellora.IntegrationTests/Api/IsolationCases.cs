@@ -268,5 +268,10 @@ public static class IsolationCases
         // (read, events and a write against a foreign-company user); assignments carry their own company id and composite FKs (AddUserBranchAssignmentsMigrationTests constraint test).
         "UserAccessController.Get", "UserAccessController.Events", "UserAccessController.SetScope", "UserAccessController.AddAssignment",
         "UserAccessController.EndAssignment", "UserAccessController.SetPrimary", "UserAccessController.Reassign", "UserAccessController.SetStatus",
+        // Phase 9: stock transfers - StockTransferApiTests.OtherCompanysIds_Are404OrRefused_AndNothingChanges (list / detail of the other company, every write on its
+        // transfer is a 404, create naming its locations / products / units is a 400 on the field, row counts unchanged) on the same two-company IsolationWorld.
+        "StockTransfersController.List", "StockTransfersController.Get", "StockTransfersController.Create", "StockTransfersController.Update", "StockTransfersController.Submit",
+        "StockTransfersController.Approve", "StockTransfersController.Reject", "StockTransfersController.Cancel", "StockTransfersController.Dispatch",
+        "StockTransfersController.Receive", "StockTransfersController.Resolve",
     ];
 }

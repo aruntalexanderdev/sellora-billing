@@ -30,6 +30,12 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         return await RestrictedUserWorld.JsonOkAsync(response);
     }
 
+    private static async Task<Guid> StoreOfAsync(BranchApiWorld w, Guid branch)
+    {
+        await using var db = w.Host.Database.CreateDbContext(w.CompanyId);
+        return await Sellora.IntegrationTests.TestData.StockSeed.StoreOfAsync(db, branch);
+    }
+
     private static Task<HttpResponseMessage> SendAsAsync(RestrictedUserWorld r, RestrictedUser user, HttpMethod method, string route, object? body = null, Guid? header = null) =>
         r.World.SendAsync(method, route, body, branch: header, client: user.Client);
 
@@ -483,11 +489,21 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
     {
         var r = await RestrictedUserWorld.GetWorldAsync(postgres); var w = r.World;
         var (x, _) = await w.NewBranchAsync(); var (y, _) = await w.NewBranchAsync();
-        // 8b: a branch sells from its OWN store, so a batch of another branch's purchase can only sit at x's store after a transfer (Phase 9).
-        // Simulate that state: receive at x (header x), then re-tag the purchase order as y's (the batch stays at x's store).
-        var purchaseY = await JsonAsync(await w.PurchaseAsync(x, qty: 4000m));
-        // TODO(Phase 9): replace this re-tag with a real inter-branch transfer once transfers exist; until then a branch sale can only draw a batch received at its own location.
-        await ExecuteAsync(w.Host.Database, $"""UPDATE "PurchaseOrders" SET "BranchId" = '{y}' WHERE "Id" = '{IdOf(purchaseY)}'""");
+        // 8b: a branch sells from its OWN store, so a batch of another branch's purchase can only sit at x's store after a transfer (Phase 9):
+        // purchase at y's store, then a real transfer y -> x (create, approve, dispatch at y; receive at x).
+        var purchaseY = await JsonAsync(await w.PurchaseAsync(y, qty: 4000m));
+        var yStore = await StoreOfAsync(w, y); var xStore = await StoreOfAsync(w, x);
+        var transfer = await RestrictedUserWorld.JsonOkAsync(await w.SendAsync(HttpMethod.Post, "/api/v1/stock-transfers",
+            new CreateStockTransferRequest(yStore, xStore, "batch label test", true, [new StockTransferLineRequest(w.ProductId, w.ProductUnitId, 4000m)]), branch: y));
+        var transferId = IdOf(transfer);
+        var approved = await RestrictedUserWorld.JsonOkAsync(await w.SendAsync(HttpMethod.Post, $"/api/v1/stock-transfers/{transferId}/approve", branch: y));
+        var lineId = approved.GetProperty("lines")[0].GetProperty("id").GetGuid();
+        var dispatched = await RestrictedUserWorld.JsonOkAsync(await w.SendAsync(HttpMethod.Post, $"/api/v1/stock-transfers/{transferId}/dispatch",
+            new DispatchStockTransferRequest([new DispatchStockTransferLineRequest(lineId, w.ProductUnitId, 4000m)]), branch: y));
+        Assert.Equal("Dispatched", dispatched.GetProperty("status").GetString());
+        var received = await RestrictedUserWorld.JsonOkAsync(await w.SendAsync(HttpMethod.Post, $"/api/v1/stock-transfers/{transferId}/receipts",
+            new ReceiveStockTransferRequest(null, [new ReceiveStockTransferLineRequest(lineId, w.ProductUnitId, 4000m, 0m)]), branch: x));
+        Assert.Equal("Completed", received.GetProperty("transfer").GetProperty("status").GetString());
         var user = await r.CreateAtAsync(x);
 
         var sale = await RestrictedUserWorld.JsonOkAsync(await SendAsAsync(r, user, HttpMethod.Post, "/api/v1/sales",

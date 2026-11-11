@@ -59,7 +59,7 @@ public class StockMovementConfiguration : IEntityTypeConfiguration<StockMovement
             t.HasCheckConstraint("CK_StockMovements_ReasonCode",
                 "(\"Type\" NOT IN ('Adjustment', 'OpeningStock') OR \"ReasonCode\" IS NOT NULL) AND (\"Type\" <> 'OpeningStock' OR \"ReasonCode\" = 'OpeningStock') AND (\"Type\" <> 'Adjustment' OR \"ReasonCode\" <> 'OpeningStock')");
             t.HasCheckConstraint("CK_StockMovements_Type_Sign",
-                "(\"Type\" NOT IN ('Purchase', 'SaleReturn', 'SaleCancellation', 'OpeningStock') OR \"QuantityBaseUnits\" > 0) AND (\"Type\" NOT IN ('Sale', 'PurchaseReturn', 'PurchaseCancellation') OR \"QuantityBaseUnits\" < 0)");
+                "(\"Type\" NOT IN ('Purchase', 'SaleReturn', 'SaleCancellation', 'OpeningStock', 'TransferIn') OR \"QuantityBaseUnits\" > 0) AND (\"Type\" NOT IN ('Sale', 'PurchaseReturn', 'PurchaseCancellation', 'TransferOut') OR \"QuantityBaseUnits\" < 0)");
         });
     }
 }

@@ -15,6 +15,7 @@ internal static class DocumentSeries
     public const string SalesReturn = "SRT";
     public const string StockAdjustment = "ADJ";
     public const string Expense = "EXP";
+    public const string Transfer = "TRF";
 }
 
 /// <summary>
@@ -164,6 +165,7 @@ internal static partial class DocumentNumbers
             DocumentSeries.Invoice => await db.SalesInvoices.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(x => x.BranchId == branchId).Select(x => x.InvoiceNo).ToListAsync(ct),
             DocumentSeries.SalesReturn => await db.SalesReturns.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(x => x.BranchId == branchId).Select(x => x.ReturnNo).ToListAsync(ct),
             DocumentSeries.StockAdjustment => await db.StockAdjustments.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(x => x.BranchId == branchId).Select(x => x.AdjustmentNo).ToListAsync(ct),
+            DocumentSeries.Transfer => await db.StockTransfers.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(x => x.BranchId == branchId).Select(x => x.TransferNo).ToListAsync(ct),
             DocumentSeries.Expense => await db.Expenses.IgnoreQueryFilters([BranchQueryFilter.Name]).Select(x => x.ExpenseNo).ToListAsync(ct),
             _ => [],
         };

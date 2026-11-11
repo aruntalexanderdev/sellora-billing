@@ -36,6 +36,8 @@ public static class CompanyMigrations
     public const string B8 = "20261110093408_AddScopedRoles";
     // Phase 8a (stock location dimension)
     public const string B9 = "20261110114731_AddStockLocationDimension";
+    /// <summary>Phase 9 WP1: the stock transfers tables, the TransferIn / TransferOut sign check and the seven StockTransfers.* permissions.</summary>
+    public const string B10 = "20261111040145_AddStockTransfers";
     public const string DefaultStore = "0c0a1f00-0000-4000-8000-000000000003";
     public const string DefaultTransit = "0c0a1f00-0000-4000-8000-000000000004";
     public const string OtherTransitSql = $"md5('location:transit:' || '{OtherCompany}')::uuid";

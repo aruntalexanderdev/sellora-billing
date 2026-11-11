@@ -67,7 +67,7 @@ public class CompanyQueryFilterTests
     }
 
     [Fact]
-    public void Model_CompanyOwnedTypes_AreTheThirtyTwoDesignedTypes()
+    public void Model_CompanyOwnedTypes_AreTheThirtySevenDesignedTypes()
     {
         using var db = NewDb(TestCompany.Context);
         var owned = ModelTypes(db).Select(t => t.ClrType).Where(t => typeof(ICompanyOwned).IsAssignableFrom(t)).Select(t => t.Name).Order().ToArray();
@@ -75,7 +75,7 @@ public class CompanyQueryFilterTests
         [
             "AuditEvent", "BatchLocationBalance", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
             "FinancialTransaction", "GovernanceMemberPermission", "IdempotencyKey", "Product", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
-            "Role", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "Supplier", "Tax", "UserBranchAssignment", "UserRoleAssignment", "Vehicle", "Warehouse",
+            "Role", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "StockTransfer", "StockTransferLine", "StockTransferLineBatch", "StockTransferReceipt", "StockTransferReceiptLine", "Supplier", "Tax", "UserBranchAssignment", "UserRoleAssignment", "Vehicle", "Warehouse",
         ];
         Assert.Equal(expected, owned);
     }
@@ -85,7 +85,8 @@ public class CompanyQueryFilterTests
     {
         // Phase 2 T1: BranchScoped(required | optional | none). Branch itself is CompanyOwned (asserted by the classification tests above).
         using var db = NewDb(TestCompany.Context);
-        string[] required = ["PurchaseOrder", "PurchaseReturn", "SalesInvoice", "SalesReturn", "StockAdjustment"];
+        // Phase 9: StockTransfer.BranchId is the creating branch (mandatory); its Source/DestinationBranchId are differently named snapshots.
+        string[] required = ["PurchaseOrder", "PurchaseReturn", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockTransfer"];
         string[] optional = ["Expense", "FinancialAccount"];
         // DocumentSequence.BranchId is nullable too: NULL = company-level series (EXP); it is a counter scope, not a document tag.
         string[] counterScope = ["DocumentSequence"];
@@ -132,7 +133,7 @@ public class CompanyQueryFilterTests
     {
         // Phase 5 T2: the named "Branch" filter narrows the five documents (mandatory BranchId) and Expenses/FinancialAccounts (NULL stays visible).
         using var db = NewDb(TestCompany.Context);
-        string[] expected = ["Expense", "FinancialAccount", "PurchaseOrder", "PurchaseReturn", "SalesInvoice", "SalesReturn", "StockAdjustment"];
+        string[] expected = ["Expense", "FinancialAccount", "PurchaseOrder", "PurchaseReturn", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockTransfer"];
         var actual = ModelTypes(db)
             .Where(t => t.GetDeclaredQueryFilters().Any(f => f.Key == BranchQueryFilter.Name))
             .Select(t => t.ClrType.Name).Order().ToArray();

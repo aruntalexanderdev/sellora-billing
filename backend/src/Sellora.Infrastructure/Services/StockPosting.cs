@@ -27,11 +27,7 @@ public static class StockPosting
             RemainingBaseQty = qty,
         });
 
-        var newQty = item.QuantityOnHand + qty;
-        item.AverageCost = newQty > 0
-            ? StockCost.PerBaseUnit((item.QuantityOnHand * item.AverageCost + qty * unitCost) / newQty)
-            : 0;
-        item.QuantityOnHand = newQty;
+        AddValue(item, qty, unitCost);
     }
 
     /// <summary>FIFO issue at the item's location (sale, adjustment decrease). Returns the batches drawn; average cost unchanged.
@@ -77,6 +73,52 @@ public static class StockPosting
         item.QuantityOnHand += qty;
     }
 
+    /// <summary>Phase 9 transfer of one named batch between two locations (dispatch, receipt, return to source): the batch's
+    /// balance moves from <paramref name="from"/> to <paramref name="to"/>; <see cref="PurchaseBatch.RemainingBaseQty"/> (the
+    /// all-location total) is unchanged. The source loses value at the batch cost; the target takes it in at the same cost
+    /// (moving average), so company value is conserved. The caller holds both StockItems locks.</summary>
+    public static async Task MoveBatchAsync(SelloraDbContext db, StockItem from, StockItem to, PurchaseBatch batch, decimal qty, CancellationToken ct)
+    {
+        var source = await FindBalanceAsync(db, batch.Id, from.StockLocationId, ct)
+            ?? throw new InvalidOperationException($"Batch {batch.Id} has no balance at location {from.StockLocationId}.");
+        if (source.RemainingBaseQty < qty)
+        {
+            throw new InvalidOperationException($"Batch {batch.Id} holds {source.RemainingBaseQty} at location {from.StockLocationId}, cannot move {qty}.");
+        }
+
+        var target = await FindBalanceAsync(db, batch.Id, to.StockLocationId, ct);
+        if (target is null)
+        {
+            target = new BatchLocationBalance
+            {
+                PurchaseBatchId = batch.Id,
+                StockLocationId = to.StockLocationId,
+                ProductId = to.ProductId,
+                RemainingBaseQty = 0,
+            };
+            db.BatchLocationBalances.Add(target);
+        }
+
+        source.RemainingBaseQty -= qty;
+        target.RemainingBaseQty += qty;
+        RemoveValue(from, qty, batch.UnitCost);
+        AddValue(to, qty, batch.UnitCost);
+    }
+
+    /// <summary>FIFO transfer from <paramref name="from"/> to <paramref name="to"/> (dispatch): plans over the source's balances
+    /// (see <see cref="BatchAllocator.PlanFifoAsync"/>), then moves each drawn batch with <see cref="MoveBatchAsync"/>.</summary>
+    public static async Task<IReadOnlyList<BatchAllocator.Allocation>> MoveFifoAsync(
+        SelloraDbContext db, StockItem from, StockItem to, decimal qty,
+        Func<decimal, Sellora.Domain.Abstractions.DomainValidationException> shortageError, CancellationToken ct)
+    {
+        var plan = await BatchAllocator.PlanFifoAsync(db, from.StockLocationId, from.ProductId, qty, shortageError, ct);
+        foreach (var draw in plan)
+        {
+            await MoveBatchAsync(db, from, to, draw.Allocation.Batch, draw.Allocation.QtyBaseUnits, ct);
+        }
+        return plan.Select(p => p.Allocation).ToList();
+    }
+
     /// <summary>Purchase cancellation: the whole untouched batch leaves the item's location. The caller has checked that the
     /// balance and the batch total both equal PurchasedBaseQty.</summary>
     public static async Task ReverseReceiptAsync(SelloraDbContext db, StockItem item, PurchaseBatch batch, CancellationToken ct)
@@ -95,6 +137,16 @@ public static class StockPosting
     private static async Task<BatchLocationBalance?> FindBalanceAsync(SelloraDbContext db, Guid batchId, Guid locationId, CancellationToken ct) =>
         db.BatchLocationBalances.Local.FirstOrDefault(b => b.PurchaseBatchId == batchId && b.StockLocationId == locationId)
         ?? await db.BatchLocationBalances.SingleOrDefaultAsync(b => b.PurchaseBatchId == batchId && b.StockLocationId == locationId, ct);
+
+    // Quantity arrives at a known cost: moving-average cost.
+    private static void AddValue(StockItem item, decimal qty, decimal unitCost)
+    {
+        var newQty = item.QuantityOnHand + qty;
+        item.AverageCost = newQty > 0
+            ? StockCost.PerBaseUnit((item.QuantityOnHand * item.AverageCost + qty * unitCost) / newQty)
+            : 0;
+        item.QuantityOnHand = newQty;
+    }
 
     // Quantity leaves at a known cost: the average is re-derived from the remaining value (never below zero).
     private static void RemoveValue(StockItem item, decimal qty, decimal unitCost)

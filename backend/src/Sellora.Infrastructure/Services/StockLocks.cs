@@ -93,6 +93,10 @@ internal static class Idempotency
     public const string Purchase = "purchase";
     public const string Sale = "sale";
     public const string StockAdjustment = "stock-adjustment";
+    public const string StockTransfer = "stock-transfer";
+    public const string StockTransferDispatch = "stock-transfer-dispatch";
+    public const string StockTransferReceipt = "stock-transfer-receipt";
+    public const string StockTransferResolve = "stock-transfer-resolve";
 
     /// <summary>The document an earlier request with this key created, or null if the key is new. Concurrent
     /// requests with the same key queue on an advisory lock, so the second one sees the first's committed record
@@ -157,6 +161,22 @@ internal static class StockLocks
         await db.Database
             .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Products\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = {productId} FOR UPDATE")
             .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Exclusive FOR UPDATE lock on one transfer header (Phase 9 D6): serialises every state change, dispatch, receipt and
+    /// resolution of the transfer. Taken right after the idempotency lock and never after a stock lock. Returns false when the
+    /// company has no such transfer. The caller then loads the entity (which applies the Branch filter). Callers must be inside a transaction.
+    /// </summary>
+    public static async Task<bool> LockTransferAsync(SelloraDbContext db, Guid transferId, CancellationToken ct)
+    {
+        if (!db.Database.IsRelational()) return true;
+
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var rows = await db.Database
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"StockTransfers\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = {transferId} FOR UPDATE")
+            .ToListAsync(ct);
+        return rows.Count > 0;
     }
 
     /// <summary>

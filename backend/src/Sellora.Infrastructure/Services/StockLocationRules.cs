@@ -55,11 +55,34 @@ internal static class StockLocationRules
                 : "Purchases cannot be received into this type of location.");
         }
 
+        await EnsureFitsAsync(db, location, workingBranchId, companyLevelPermission, ct);
+        return location.Id;
+    }
+
+    /// <summary>Branch fit of an already loaded, active location for a working branch (arch 13.2): a branch-owned location must
+    /// be the working branch's own; a vehicle assigned to the working branch is that branch's to use, one assigned to another
+    /// branch never fits (no company-level grant opens it, D3); any other company-level location needs
+    /// <paramref name="companyLevelPermission"/>. Throws on <see cref="Field"/>. Shared by the resolver and the transfer service.</summary>
+    public static async Task EnsureFitsAsync(
+        SelloraDbContext db, StockLocation location, Guid workingBranchId, bool companyLevelPermission, CancellationToken ct)
+    {
+        if (await FitFailureAsync(db, location, workingBranchId, companyLevelPermission, ct) is { } failure) throw failure;
+    }
+
+    /// <summary>Same rules as <see cref="EnsureFitsAsync"/>, as a yes/no (the transfer service tests source OR destination).</summary>
+    public static async Task<bool> FitsAsync(
+        SelloraDbContext db, StockLocation location, Guid workingBranchId, bool companyLevelPermission, CancellationToken ct) =>
+        await FitFailureAsync(db, location, workingBranchId, companyLevelPermission, ct) is null;
+
+    private static async Task<DomainValidationException?> FitFailureAsync(
+        SelloraDbContext db, StockLocation location, Guid workingBranchId, bool companyLevelPermission, CancellationToken ct)
+    {
+        var companyId = db.CompanyContext.RequireCompanyId();
+
         // Branch fit: a branch-owned location must be the working branch's own (arch 13.2: no picking another branch's location).
         if (location.BranchId is { } owner)
         {
-            if (owner != workingBranchId || !db.BranchContext.CanAccess(owner)) throw Invalid();
-            return location.Id;
+            return owner != workingBranchId || !db.BranchContext.CanAccess(owner) ? Invalid() : null;
         }
 
         // Company-level location. A vehicle assigned to the working branch is that branch's to use; a central vehicle or a
@@ -70,17 +93,15 @@ internal static class StockLocationRules
                 .Where(v => v.CompanyId == companyId && v.StockLocationId == location.Id)
                 .Select(v => new { v.AssignedBranchId, v.IsActive })
                 .SingleOrDefaultAsync(ct);
-            if (assigned is null || !assigned.IsActive) throw Invalid();
-            if (assigned.AssignedBranchId == workingBranchId) return location.Id;
+            if (assigned is null || !assigned.IsActive) return Invalid();
+            if (assigned.AssignedBranchId == workingBranchId) return null;
             // Another branch's vehicle is that branch's location (arch 13.2): no company-level grant opens it (D3).
-            if (assigned.AssignedBranchId is not null) throw Invalid();
+            if (assigned.AssignedBranchId is not null) return Invalid();
         }
 
-        if (!companyLevelPermission)
-        {
-            throw new DomainValidationException(Field, "This location is company-level; you need the permission company-wide to use it.");
-        }
-        return location.Id;
+        return companyLevelPermission
+            ? null
+            : new DomainValidationException(Field, "This location is company-level; you need the permission company-wide to use it.");
     }
 
     /// <summary>True when <paramref name="code"/> is held company-wide. Without a permission service the permission is

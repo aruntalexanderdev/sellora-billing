@@ -56,6 +56,17 @@ public static class AuditActions
     public const string RoleAssignmentMigrated = "role_assignment.migrated";
     public const string RoleAssignmentCreated = "role_assignment.created";
     public const string RoleAssignmentEnded = "role_assignment.ended";
+
+    // Phase 9: stock transfers.
+    public const string StockTransferCreated = "stock_transfer.created";
+    public const string StockTransferUpdated = "stock_transfer.updated";
+    public const string StockTransferSubmitted = "stock_transfer.submitted";
+    public const string StockTransferApproved = "stock_transfer.approved";
+    public const string StockTransferRejected = "stock_transfer.rejected";
+    public const string StockTransferCancelled = "stock_transfer.cancelled";
+    public const string StockTransferDispatched = "stock_transfer.dispatched";
+    public const string StockTransferReceived = "stock_transfer.received";
+    public const string StockTransferResolved = "stock_transfer.resolved";
 }
 
 /// <summary>Values of <see cref="AuditEvent.TargetType"/>.</summary>
@@ -65,4 +76,5 @@ public static class AuditTargets
     public const string BranchAssignment = "UserBranchAssignment";
     public const string GovernanceMember = "CompanyGovernanceMember";
     public const string RoleAssignment = "UserRoleAssignment";
+    public const string StockTransfer = "StockTransfer";
 }

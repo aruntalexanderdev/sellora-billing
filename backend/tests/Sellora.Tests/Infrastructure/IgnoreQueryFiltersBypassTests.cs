@@ -11,7 +11,7 @@ public class IgnoreQueryFiltersBypassTests
     // Phase 5 (D7): company-integrity reads that must see every branch. They bypass ONLY the "Branch" filter (Company stays on).
     private static readonly string[] BranchBypass =
     [
-        "DocumentNumbers.cs", "ProductUnitUsage.cs", "FinancialAccountService.cs", "BranchService.cs", "StockController.cs", "SalesController.cs", "ExpenseService.cs",
+        "DocumentNumbers.cs", "ProductUnitUsage.cs", "FinancialAccountService.cs", "BranchService.cs", "StockLocationUsageService.cs", "StockController.cs", "SalesController.cs", "ExpenseService.cs",
     ];
 
     // Phase 5: auth/middleware read assignments/branches before a company context exists; they bypass "Company" with explicit CompanyId predicates.

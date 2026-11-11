@@ -10,4 +10,6 @@ public enum StockMovementType
     SaleCancellation,
     PurchaseCancellation,
     OpeningStock,
+    TransferOut,
+    TransferIn,
 }

@@ -10,6 +10,12 @@ internal static class AuditLog
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>For services that know only the acting user and the request's correlation id (no membership flags needed).</summary>
+    public static void Append(
+        SelloraDbContext db, Guid userId, string? correlationId, string action, string targetType, Guid targetId,
+        string? reason, object? before, object? after) =>
+        Append(db, new Domain.Abstractions.AccessActor(userId, false, false, correlationId), action, targetType, targetId, null, reason, before, after);
+
     public static void Append(
         SelloraDbContext db, Domain.Abstractions.AccessActor actor, string action, string targetType, Guid targetId,
         Guid? subjectUserId, string? reason, object? before, object? after)

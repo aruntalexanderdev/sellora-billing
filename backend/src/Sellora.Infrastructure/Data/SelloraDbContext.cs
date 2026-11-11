@@ -74,6 +74,11 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
     public DbSet<StockItem> StockItems => Set<StockItem>();
     public DbSet<BatchLocationBalance> BatchLocationBalances => Set<BatchLocationBalance>();
     public DbSet<StockAdjustment> StockAdjustments => Set<StockAdjustment>();
+    public DbSet<StockTransfer> StockTransfers => Set<StockTransfer>();
+    public DbSet<StockTransferLine> StockTransferLines => Set<StockTransferLine>();
+    public DbSet<StockTransferLineBatch> StockTransferLineBatches => Set<StockTransferLineBatch>();
+    public DbSet<StockTransferReceipt> StockTransferReceipts => Set<StockTransferReceipt>();
+    public DbSet<StockTransferReceiptLine> StockTransferReceiptLines => Set<StockTransferReceiptLine>();
     public DbSet<SellingPrice> SellingPrices => Set<SellingPrice>();
 
     public DbSet<SalesInvoice> SalesInvoices => Set<SalesInvoice>();
@@ -98,6 +103,10 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
         modelBuilder.Entity<SalesInvoice>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
         modelBuilder.Entity<SalesReturn>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
         modelBuilder.Entity<StockAdjustment>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
+        // Phase 9 (D7): a transfer is visible at its creating branch and at either endpoint's effective branch. Children (lines, batches, receipts) are not filtered here.
+        modelBuilder.Entity<StockTransfer>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId)
+            || (e.SourceBranchId != null && CurrentAllowedBranchIds.Contains(e.SourceBranchId.Value))
+            || (e.DestinationBranchId != null && CurrentAllowedBranchIds.Contains(e.DestinationBranchId.Value)));
         modelBuilder.Entity<Expense>().HasQueryFilter(BranchQueryFilter.Name, e => e.BranchId == null || CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId.Value));
         modelBuilder.Entity<FinancialAccount>().HasQueryFilter(BranchQueryFilter.Name, e => e.BranchId == null || CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId.Value));
     }

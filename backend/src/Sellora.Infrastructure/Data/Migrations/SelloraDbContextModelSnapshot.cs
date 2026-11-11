@@ -2528,9 +2528,440 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_StockMovements_ReasonCode", "(\"Type\" NOT IN ('Adjustment', 'OpeningStock') OR \"ReasonCode\" IS NOT NULL) AND (\"Type\" <> 'OpeningStock' OR \"ReasonCode\" = 'OpeningStock') AND (\"Type\" <> 'Adjustment' OR \"ReasonCode\" <> 'OpeningStock')");
 
-                            t.HasCheckConstraint("CK_StockMovements_Type_Sign", "(\"Type\" NOT IN ('Purchase', 'SaleReturn', 'SaleCancellation', 'OpeningStock') OR \"QuantityBaseUnits\" > 0) AND (\"Type\" NOT IN ('Sale', 'PurchaseReturn', 'PurchaseCancellation') OR \"QuantityBaseUnits\" < 0)");
+                            t.HasCheckConstraint("CK_StockMovements_Type_Sign", "(\"Type\" NOT IN ('Purchase', 'SaleReturn', 'SaleCancellation', 'OpeningStock', 'TransferIn') OR \"QuantityBaseUnits\" > 0) AND (\"Type\" NOT IN ('Sale', 'PurchaseReturn', 'PurchaseCancellation', 'TransferOut') OR \"QuantityBaseUnits\" < 0)");
 
                             t.HasCheckConstraint("CK_StockMovements_UnitCode_NotEmpty", "\"EnteredUnitCode\" IS NULL OR char_length(\"EnteredUnitCode\") > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransfer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ApprovedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTimeOffset?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CancelledByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CompletedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("DestinationBranchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DestinationLocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DispatchedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DispatchedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTimeOffset?>("RejectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RejectedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<Guid?>("SourceBranchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SourceLocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("SubmittedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TransferNo")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("TransitLocationId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovedByUserId");
+
+                    b.HasIndex("CancelledByUserId");
+
+                    b.HasIndex("CompletedByUserId");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("DispatchedByUserId");
+
+                    b.HasIndex("RejectedByUserId");
+
+                    b.HasIndex("SubmittedByUserId");
+
+                    b.HasIndex("CompanyId", "TransitLocationId");
+
+                    b.HasIndex(new[] { "CompanyId", "BranchId", "CreatedAt" }, "IX_StockTransfers_CompanyId_BranchId_CreatedAt");
+
+                    b.HasIndex(new[] { "CompanyId", "DestinationBranchId" }, "IX_StockTransfers_CompanyId_DestinationBranchId")
+                        .HasFilter("\"DestinationBranchId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "CompanyId", "SourceBranchId" }, "IX_StockTransfers_CompanyId_SourceBranchId")
+                        .HasFilter("\"SourceBranchId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "CompanyId", "Status" }, "IX_StockTransfers_CompanyId_Status");
+
+                    b.HasIndex(new[] { "CompanyId", "TransferNo" }, "IX_StockTransfers_CompanyId_TransferNo")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "CompanyId", "DestinationLocationId" }, "IX_StockTransfers_Destination_Open")
+                        .HasFilter("\"Status\" NOT IN ('Completed', 'Cancelled', 'Rejected')");
+
+                    b.HasIndex(new[] { "CompanyId", "SourceLocationId" }, "IX_StockTransfers_Source_Open")
+                        .HasFilter("\"Status\" NOT IN ('Completed', 'Cancelled', 'Rejected')");
+
+                    b.ToTable("StockTransfers", t =>
+                        {
+                            t.HasCheckConstraint("CK_StockTransfers_Actors_Paired", "(\"SubmittedAt\" IS NULL) = (\"SubmittedByUserId\" IS NULL) AND (\"ApprovedAt\" IS NULL) = (\"ApprovedByUserId\" IS NULL) AND (\"RejectedAt\" IS NULL) = (\"RejectedByUserId\" IS NULL) AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL) AND (\"CompletedAt\" IS NULL) = (\"CompletedByUserId\" IS NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_StockTransfers_Endpoints_Differ", "\"SourceLocationId\" <> \"DestinationLocationId\"");
+
+                            t.HasCheckConstraint("CK_StockTransfers_Endpoints_NotTransit", "\"SourceLocationId\" <> \"TransitLocationId\" AND \"DestinationLocationId\" <> \"TransitLocationId\"");
+
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Approval", "(\"Status\" NOT IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed') OR \"ApprovedAt\" IS NOT NULL) AND (\"Status\" IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled') OR \"ApprovedAt\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Cancellation", "(\"Status\" = 'Cancelled') = (\"CancelledAt\" IS NOT NULL) AND (\"Status\" <> 'Cancelled' OR char_length(\"CancellationReason\") > 0)");
+
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Completion", "(\"Status\" = 'Completed') = (\"CompletedAt\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Dispatch", "(\"Status\" IN ('Dispatched', 'PartiallyReceived', 'Completed')) = (\"DispatchedAt\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Rejection", "(\"Status\" = 'Rejected') = (\"RejectedAt\" IS NOT NULL) AND (\"Status\" <> 'Rejected' OR char_length(\"RejectionReason\") > 0)");
+
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Stamps", "(\"Status\" = 'Draft') = (\"SubmittedAt\" IS NULL) OR \"Status\" = 'Cancelled'");
+
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Valid", "\"Status\" IN ('Draft', 'Requested', 'Approved', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled')");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransferLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ConversionFactorToBase")
+                        .HasColumnType("numeric(28,10)");
+
+                    b.Property<decimal>("DamagedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal?>("DispatchFactor")
+                        .HasColumnType("numeric(28,10)");
+
+                    b.Property<Guid?>("DispatchProductUnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DispatchUnitCode")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid?>("DispatchUnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("DispatchedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal?>("DispatchedQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<int>("LineNo")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductUnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ReceivedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("RequestedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("RequestedQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("ReturnedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<Guid>("TransferId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UnitCode")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid>("UnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("WrittenOffBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DispatchUnitId");
+
+                    b.HasIndex("UnitId");
+
+                    b.HasIndex("CompanyId", "ProductId");
+
+                    b.HasIndex(new[] { "CompanyId", "TransferId", "LineNo" }, "IX_StockTransferLines_CompanyId_TransferId_LineNo")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "ProductId", "DispatchProductUnitId" }, "IX_StockTransferLines_ProductId_DispatchProductUnitId")
+                        .HasFilter("\"DispatchProductUnitId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "ProductId", "ProductUnitId" }, "IX_StockTransferLines_ProductId_ProductUnitId");
+
+                    b.ToTable("StockTransferLines", t =>
+                        {
+                            t.HasCheckConstraint("CK_StockTransferLines_Counters_Max", "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" <= \"DispatchedBaseQty\"");
+
+                            t.HasCheckConstraint("CK_StockTransferLines_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
+
+                            t.HasCheckConstraint("CK_StockTransferLines_Dispatch_AllOrNone", "(\"DispatchProductUnitId\" IS NULL) = (\"DispatchUnitId\" IS NULL) AND (\"DispatchProductUnitId\" IS NULL) = (\"DispatchUnitCode\" IS NULL) AND (\"DispatchProductUnitId\" IS NULL) = (\"DispatchFactor\" IS NULL) AND (\"DispatchProductUnitId\" IS NULL) = (\"DispatchedQty\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_StockTransferLines_Dispatch_Arithmetic", "\"DispatchedQty\" IS NULL OR (\"DispatchedQty\" >= 0 AND \"DispatchFactor\" > 0 AND \"DispatchedQty\" * \"DispatchFactor\" = \"DispatchedBaseQty\")");
+
+                            t.HasCheckConstraint("CK_StockTransferLines_Dispatch_Required", "\"DispatchProductUnitId\" IS NOT NULL OR (\"DispatchedBaseQty\" = 0 AND \"ReceivedBaseQty\" = 0 AND \"DamagedBaseQty\" = 0 AND \"WrittenOffBaseQty\" = 0 AND \"ReturnedBaseQty\" = 0)");
+
+                            t.HasCheckConstraint("CK_StockTransferLines_Dispatched_Max", "\"DispatchedBaseQty\" >= 0 AND \"DispatchedBaseQty\" <= \"RequestedBaseQty\"");
+
+                            t.HasCheckConstraint("CK_StockTransferLines_LineNo_Positive", "\"LineNo\" > 0");
+
+                            t.HasCheckConstraint("CK_StockTransferLines_Requested_Arithmetic", "\"RequestedQty\" * \"ConversionFactorToBase\" = \"RequestedBaseQty\"");
+
+                            t.HasCheckConstraint("CK_StockTransferLines_Requested_Positive", "\"RequestedQty\" > 0 AND \"ConversionFactorToBase\" > 0 AND \"RequestedBaseQty\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransferLineBatch", b =>
+                {
+                    b.Property<Guid>("LineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PurchaseBatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("DamagedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("DispatchedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("ReceivedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("ReturnedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<decimal>("WrittenOffBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.HasKey("LineId", "PurchaseBatchId");
+
+                    b.HasIndex("CompanyId", "PurchaseBatchId");
+
+                    b.HasIndex(new[] { "CompanyId", "LineId" }, "IX_StockTransferLineBatches_CompanyId_LineId");
+
+                    b.HasIndex(new[] { "PurchaseBatchId" }, "IX_StockTransferLineBatches_PurchaseBatchId");
+
+                    b.ToTable("StockTransferLineBatches", t =>
+                        {
+                            t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_Max", "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" <= \"DispatchedBaseQty\"");
+
+                            t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
+
+                            t.HasCheckConstraint("CK_StockTransferLineBatches_Dispatched_Positive", "\"DispatchedBaseQty\" > 0 AND \"UnitCost\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransferReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TransferId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id");
+
+                    b.HasAlternateKey("CompanyId", "Id", "Kind")
+                        .HasName("AK_StockTransferReceipts_CompanyId_Id_Kind");
+
+                    b.HasIndex("ByUserId");
+
+                    b.HasIndex(new[] { "CompanyId", "TransferId", "Sequence" }, "IX_StockTransferReceipts_CompanyId_TransferId_Sequence")
+                        .IsUnique();
+
+                    b.ToTable("StockTransferReceipts", t =>
+                        {
+                            t.HasCheckConstraint("CK_StockTransferReceipts_Kind_Valid", "\"Kind\" IN ('Receipt', 'Resolution')");
+
+                            t.HasCheckConstraint("CK_StockTransferReceipts_Sequence_Positive", "\"Sequence\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransferReceiptLine", b =>
+                {
+                    b.Property<Guid>("ReceiptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TransferLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("AcceptedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("AcceptedQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ConversionFactorToBase")
+                        .HasColumnType("numeric(28,10)");
+
+                    b.Property<decimal>("DamagedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal>("DamagedQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductUnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ReturnedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<string>("UnitCode")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid>("UnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("WrittenOffBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.HasKey("ReceiptId", "TransferLineId");
+
+                    b.HasIndex("UnitId");
+
+                    b.HasIndex("CompanyId", "ProductId");
+
+                    b.HasIndex("CompanyId", "ReceiptId", "Kind");
+
+                    b.HasIndex(new[] { "CompanyId", "TransferLineId" }, "IX_StockTransferReceiptLines_CompanyId_TransferLineId");
+
+                    b.HasIndex(new[] { "ProductId", "ProductUnitId" }, "IX_StockTransferReceiptLines_ProductId_ProductUnitId");
+
+                    b.ToTable("StockTransferReceiptLines", t =>
+                        {
+                            t.HasCheckConstraint("CK_StockTransferReceiptLines_Arithmetic", "\"AcceptedQty\" * \"ConversionFactorToBase\" = \"AcceptedBaseQty\" AND \"DamagedQty\" * \"ConversionFactorToBase\" = \"DamagedBaseQty\"");
+
+                            t.HasCheckConstraint("CK_StockTransferReceiptLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
+
+                            t.HasCheckConstraint("CK_StockTransferReceiptLines_Kind_Quantities", "(\"Kind\" = 'Receipt' AND \"WrittenOffBaseQty\" = 0 AND \"ReturnedBaseQty\" = 0 AND \"AcceptedBaseQty\" + \"DamagedBaseQty\" > 0) OR (\"Kind\" = 'Resolution' AND \"AcceptedBaseQty\" = 0 AND \"DamagedBaseQty\" = 0 AND \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" > 0)");
+
+                            t.HasCheckConstraint("CK_StockTransferReceiptLines_Quantities_NonNegative", "\"AcceptedQty\" >= 0 AND \"AcceptedBaseQty\" >= 0 AND \"DamagedQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
                         });
                 });
 
@@ -4307,6 +4738,254 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransfer", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockTransfers_Users_ApprovedBy");
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CancelledByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockTransfers_Users_CancelledBy");
+
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CompletedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockTransfers_Users_CompletedBy");
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransfers_Users_CreatedBy");
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("DispatchedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockTransfers_Users_DispatchedBy");
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("RejectedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockTransfers_Users_RejectedBy");
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("SubmittedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockTransfers_Users_SubmittedBy");
+
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "BranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransfers_Branches_BranchId");
+
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DestinationBranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockTransfers_Branches_DestinationBranchId");
+
+                    b.HasOne("Sellora.Domain.Entities.StockLocation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DestinationLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransfers_StockLocations_Destination");
+
+                    b.HasOne("Sellora.Domain.Entities.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "SourceBranchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockTransfers_Branches_SourceBranchId");
+
+                    b.HasOne("Sellora.Domain.Entities.StockLocation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "SourceLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransfers_StockLocations_Source");
+
+                    b.HasOne("Sellora.Domain.Entities.StockLocation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "TransitLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransfers_StockLocations_Transit");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransferLine", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Unit", null)
+                        .WithMany()
+                        .HasForeignKey("DispatchUnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockTransferLines_Units_Dispatch");
+
+                    b.HasOne("Sellora.Domain.Entities.Unit", null)
+                        .WithMany()
+                        .HasForeignKey("UnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferLines_Units_Request");
+
+                    b.HasOne("Sellora.Domain.Entities.Product", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ProductId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferLines_Products");
+
+                    b.HasOne("Sellora.Domain.Entities.StockTransfer", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("CompanyId", "TransferId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferLines_StockTransfers");
+
+                    b.HasOne("Sellora.Domain.Entities.ProductUnit", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId", "DispatchProductUnitId")
+                        .HasPrincipalKey("ProductId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockTransferLines_ProductUnits_Dispatch");
+
+                    b.HasOne("Sellora.Domain.Entities.ProductUnit", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId", "ProductUnitId")
+                        .HasPrincipalKey("ProductId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferLines_ProductUnits_Request");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransferLineBatch", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.StockTransferLine", null)
+                        .WithMany("Batches")
+                        .HasForeignKey("CompanyId", "LineId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferLineBatches_Lines");
+
+                    b.HasOne("Sellora.Domain.Entities.PurchaseBatch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "PurchaseBatchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferLineBatches_PurchaseBatches");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransferReceipt", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferReceipts_Users_By");
+
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.StockTransfer", null)
+                        .WithMany("Receipts")
+                        .HasForeignKey("CompanyId", "TransferId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferReceipts_StockTransfers");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransferReceiptLine", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Unit", null)
+                        .WithMany()
+                        .HasForeignKey("UnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferReceiptLines_Units");
+
+                    b.HasOne("Sellora.Domain.Entities.Product", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ProductId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferReceiptLines_Products");
+
+                    b.HasOne("Sellora.Domain.Entities.StockTransferLine", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "TransferLineId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferReceiptLines_Lines");
+
+                    b.HasOne("Sellora.Domain.Entities.ProductUnit", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId", "ProductUnitId")
+                        .HasPrincipalKey("ProductId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferReceiptLines_ProductUnits");
+
+                    b.HasOne("Sellora.Domain.Entities.StockTransferReceipt", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("CompanyId", "ReceiptId", "Kind")
+                        .HasPrincipalKey("CompanyId", "Id", "Kind")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockTransferReceiptLines_Receipts");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.Supplier", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.Company", null)
@@ -4579,6 +5258,23 @@ namespace Sellora.Infrastructure.Data.Migrations
             modelBuilder.Entity("Sellora.Domain.Entities.StockAdjustment", b =>
                 {
                     b.Navigation("Batch");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransfer", b =>
+                {
+                    b.Navigation("Lines");
+
+                    b.Navigation("Receipts");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransferLine", b =>
+                {
+                    b.Navigation("Batches");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.StockTransferReceipt", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.User", b =>
