@@ -4,7 +4,7 @@ import type { DataTableColumn, DataTableFilter, DataTableRow, DataTableState } f
 import { problemMessage, toProblem } from '../../../core/http/api-errors';
 import { LoadError } from '../../../shared/scope/load-error';
 import { ScopeFilters } from '../../../shared/scope/scope-filters';
-import { formatQuantity } from '../../../shared/units/unit-conversion';
+import { formatBreakdown, formatQuantity } from '../../../shared/units/unit-conversion';
 import { AuthService } from '../../../core/auth/auth.service';
 import { ReportsService } from '../reports.service';
 import type { CurrentStockReportRow, StockStatus } from '../reports.models';
@@ -60,7 +60,7 @@ export class CurrentStockReport implements OnInit {
       cells: [
         { kind: 'text', text: r.name, sub: r.sku, weight: '600' },
         { kind: 'text', text: r.baseUnitLabel, color: 'var(--color-text-muted)' },
-        { kind: 'text', text: formatQuantity(r.quantityOnHand, 0), align: 'right', weight: '600' },
+        { kind: 'text', text: formatQuantity(r.quantityOnHand, r.baseDecimalPlaces), sub: formatBreakdown(r.quantityOnHand, r.breakdownUnits, r.baseDecimalPlaces, r.baseUnitLabel) ?? undefined, align: 'right', weight: '600' },
         { kind: 'text', text: INR(r.averageCost), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(r.stockValue), align: 'right', weight: '650' },
         { kind: 'text', text: r.sellingValue === null ? '—' : INR(r.sellingValue), align: 'right', color: 'var(--color-text-muted)' },

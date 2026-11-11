@@ -16,7 +16,7 @@ const loc = (id: string, name: string): StockLocation => ({
 });
 
 const item = (o: Partial<StockOverviewItem> = {}): StockOverviewItem => ({
-  productId: 'p', sku: 'PEN', name: 'Pen', category: null, baseUnitLabel: 'pc', quantityOnHand: 12.5, averageCost: 1, stockValue: 12.5,
+  productId: 'p', sku: 'PEN', name: 'Pen', category: null, baseUnitLabel: 'pc', baseDecimalPlaces: 0, quantityOnHand: 12.5, averageCost: 1, stockValue: 12.5,
   status: 'Normal', ...o,
 });
 

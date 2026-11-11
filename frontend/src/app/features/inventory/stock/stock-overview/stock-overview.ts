@@ -1,7 +1,7 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LocationSelect } from '../../../../shared/locations/location-select';
-import { formatQuantity } from '../../../../shared/units/unit-conversion';
+import { formatBreakdown, formatQuantity } from '../../../../shared/units/unit-conversion';
 import { UiDataTable } from '../../../../shared/ui/data-table/data-table';
 import type { DataTableColumn, DataTableRow, DataTableState } from '../../../../shared/ui/data-table/data-table.types';
 import { AuthService } from '../../../../core/auth/auth.service';
@@ -64,7 +64,7 @@ export class StockOverview implements OnInit {
         { kind: 'link', text: p.name, onClick: () => this.router.navigate(['/inventory/stock', p.productId]) },
         { kind: 'text', text: p.baseUnitLabel, color: 'var(--color-text-muted)' },
         { kind: 'text', text: locationText(p), color: 'var(--color-text-muted)' },
-        { kind: 'text', text: formatQuantity(p.quantityOnHand, 0), align: 'right', weight: '600' },
+        { kind: 'text', text: formatQuantity(p.quantityOnHand, p.baseDecimalPlaces), sub: formatBreakdown(p.quantityOnHand, p.breakdownUnits, p.baseDecimalPlaces, p.baseUnitLabel) ?? undefined, align: 'right', weight: '600' },
         { kind: 'text', text: INR(p.averageCost), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(p.stockValue), align: 'right', weight: '650' },
         {

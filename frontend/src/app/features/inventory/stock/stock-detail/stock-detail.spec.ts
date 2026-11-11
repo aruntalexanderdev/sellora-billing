@@ -15,7 +15,7 @@ const mv = (o: Partial<StockMovement>): StockMovement => ({
 describe('StockDetail movements', () => {
   it('renders type label, tone and entered quantity next to base quantity', () => {
     const detail: Detail = {
-      productId: 'p', sku: 'PEN', name: 'Pen', category: null, baseUnitLabel: 'pc', taxLabel: 'GST', quantityOnHand: 17,
+      productId: 'p', sku: 'PEN', name: 'Pen', category: null, baseUnitLabel: 'pc', baseDecimalPlaces: 0, taxLabel: 'GST', quantityOnHand: 17,
       averageCost: 1, stockValue: 17, reorderLevel: 0, status: 'Normal', batches: [],
       movements: [
         mv({ id: 'a', type: 'Purchase', enteredQuantity: 2, enteredUnitCode: 'BOX', conversionFactorSnapshot: 10, enteredDecimalPlaces: 0 }),
@@ -41,7 +41,7 @@ describe('StockDetail movements', () => {
 
 describe('StockDetail locations', () => {
   const baseDetail: Detail = {
-    productId: 'p', sku: 'PEN', name: 'Pen', category: null, baseUnitLabel: 'pc', taxLabel: 'GST', quantityOnHand: 30,
+    productId: 'p', sku: 'PEN', name: 'Pen', category: null, baseUnitLabel: 'pc', baseDecimalPlaces: 0, taxLabel: 'GST', quantityOnHand: 30,
     averageCost: 1, stockValue: 30, reorderLevel: 0, status: 'Normal', movements: [], batches: [],
     locations: [
       { locationId: 'l1', code: 'MAIN', name: 'Main Store', type: 'BranchStore', qty: 25, avgCost: 1, value: 25 },

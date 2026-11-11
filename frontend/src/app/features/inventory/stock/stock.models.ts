@@ -1,4 +1,5 @@
 export type StockStatus = 'Normal' | 'Low' | 'OutOfStock';
+import type { BreakdownUnit } from '../../../shared/units/unit.models';
 import type { StockLocationType } from '../../../shared/locations/locations.models';
 import type { StockMovementType, StockReasonCode } from '../../../shared/units/stock-movement';
 
@@ -29,6 +30,8 @@ export interface StockOverviewItem {
   name: string;
   category: string | null;
   baseUnitLabel: string;
+  baseDecimalPlaces: number;
+  breakdownUnits?: BreakdownUnit[];
   quantityOnHand: number;
   averageCost: number;
   stockValue: number;
@@ -99,6 +102,8 @@ export interface StockDetail {
   name: string;
   category: string | null;
   baseUnitLabel: string;
+  baseDecimalPlaces: number;
+  breakdownUnits?: BreakdownUnit[];
   taxLabel: string;
   quantityOnHand: number;
   averageCost: number;

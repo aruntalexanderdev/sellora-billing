@@ -9,6 +9,7 @@
  * Every multiplication/division result is passed through {@link round10} to strip binary
  * floating-point noise (e.g. 0.1 * 3 = 0.30000000000000004).
  */
+import type { BreakdownUnit } from './unit.models';
 import type { MeasurementCategory } from '../../features/masters/units/units.models';
 
 /** Smallest stored factor allowed (R6). */
@@ -235,7 +236,8 @@ export function equivalenceChain(rows: readonly ChainNode[], key: string): strin
   return parts.join(' = ');
 }
 
-export interface BreakdownUnit {
+/** Input of the pure `breakdown()` helper (not the API `BreakdownUnit` DTO). */
+export interface BreakdownFactor {
   key: string;
   factor: number;
 }
@@ -255,7 +257,7 @@ export interface Breakdown {
  * Greedy nominal breakdown of a base quantity, largest factor first
  * (122 pc over FCtn 100 / HCtn 50 / Box 10 / pc 1 → 1 FCtn, 2 Box, 2 pc). Zero parts are omitted.
  */
-export function breakdown(baseQty: number, units: readonly BreakdownUnit[]): Breakdown {
+export function breakdown(baseQty: number, units: readonly BreakdownFactor[]): Breakdown {
   const sorted = [...units].filter((u) => u.factor > 0).sort((a, b) => b.factor - a.factor);
   const parts: BreakdownPart[] = [];
   let remaining = round10(baseQty);
@@ -299,4 +301,30 @@ export function formatQuantity(value: number, decimalPlaces: number | null | und
 /** Cost per base unit given a cost per entered unit with `factor` base units (money; not rounded here). */
 export function costPerBaseUnit(costPerEnteredUnit: number, factor: number): number {
   return convert(costPerEnteredUnit, 1, factor);
+}
+
+/**
+ * Packaging breakdown text for a base quantity ("1 Full Carton, 2 Box, 2 Piece"), or null when there is
+ * nothing useful to show (qty <= 0, no units, or base-only product). A remainder no unit can express
+ * (e.g. 0.5 kg with no gram unit) is folded into the base part with `formatQuantity(rem, baseDp)`.
+ */
+export function formatBreakdown(
+  baseQty: number,
+  units: readonly BreakdownUnit[] | null | undefined,
+  baseDp: number,
+  baseLabel?: string,
+): string | null {
+  if (!Number.isFinite(baseQty) || baseQty <= 0 || !units || !units.some((u) => !u.isBaseUnit)) return null;
+  const baseUnit = units.find((u) => u.isBaseUnit);
+  const labelOf = new Map(units.map((u) => [u.productUnitId, u.label]));
+  const result = breakdown(
+    baseQty,
+    units.filter((u) => !u.isBaseUnit).map((u) => ({ key: u.productUnitId, factor: u.factor })),
+  );
+  const texts = result.parts.map((p) => `${formatQuantity(p.quantity, 0)} ${labelOf.get(p.key) ?? ''}`.trim());
+  if (result.remainder > 0) {
+    const label = baseUnit?.label ?? baseLabel ?? '';
+    texts.push(`${formatQuantity(result.remainder, baseDp)} ${label}`.trim());
+  }
+  return texts.length > 0 ? texts.join(', ') : null;
 }

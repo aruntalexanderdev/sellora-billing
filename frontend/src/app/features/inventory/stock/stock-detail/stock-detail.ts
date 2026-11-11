@@ -7,7 +7,8 @@ import { AuthService } from '../../../../core/auth/auth.service';
 import { StockService } from '../stock.service';
 import type { BatchConsumption, BatchStatus, StockBatch, StockDetail as StockDetailModel, StockMovement } from '../stock.models';
 
-import { formatQuantity } from '../../../../shared/units/unit-conversion';
+import { QuantityPipe } from '../../../../shared/units/quantity.pipe';
+import { formatBreakdown, formatQuantity } from '../../../../shared/units/unit-conversion';
 import { enteredLabel, movementTone, movementTypeLabel } from '../../../../shared/units/stock-movement';
 
 const INR = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -15,7 +16,7 @@ const INR = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDi
 @Component({
   selector: 'app-stock-detail',
   standalone: true,
-  imports: [RouterLink, UiBadge, UiButton, DatePipe],
+  imports: [RouterLink, UiBadge, UiButton, DatePipe, QuantityPipe],
   templateUrl: './stock-detail.html',
   styleUrl: './stock-detail.scss',
 })
@@ -32,9 +33,9 @@ export class StockDetail implements OnInit {
   readonly formatQuantity = formatQuantity;
   readonly detail = signal<StockDetailModel | null>(null);
   readonly loading = signal(true);
-  /** Base unit decimals from the movement snapshot; formatQuantity widens up to 3 dp when the value needs it. */
-  qtyDp(d: StockDetailModel): number {
-    return d.movements.find((m) => m.baseDecimalPlaces != null)?.baseDecimalPlaces ?? 0;
+  /** Packaging breakdown text for a base quantity of this product, or null (base-only / zero). */
+  breakdownText(d: StockDetailModel, qty: number): string | null {
+    return formatBreakdown(qty, d.breakdownUnits, d.baseDecimalPlaces, d.baseUnitLabel);
   }
 
   readonly transferRoute = (id: string) => ['/inventory/stock-transfers', id];

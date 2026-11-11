@@ -1,5 +1,6 @@
 import type { BranchFields, LocationFields } from '../../shared/scope/scope.models';
 export type StockStatus = 'Normal' | 'Low' | 'OutOfStock';
+import type { BreakdownUnit } from '../../shared/units/unit.models';
 import type { StockMovementType, StockReasonCode } from '../../shared/units/stock-movement';
 
 export type { StockMovementType, StockReasonCode };
@@ -13,6 +14,8 @@ export interface CurrentStockReportRow {
   name: string;
   category: string | null;
   baseUnitLabel: string;
+  baseDecimalPlaces: number;
+  breakdownUnits?: BreakdownUnit[];
   quantityOnHand: number;
   averageCost: number;
   stockValue: number;
