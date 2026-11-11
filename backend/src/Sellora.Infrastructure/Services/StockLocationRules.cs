@@ -59,6 +59,87 @@ internal static class StockLocationRules
         return location.Id;
     }
 
+    private const string RestockInactive = "The sale's stock location is inactive. Reactivate the location first.";
+    private const string RestockReassigned = "The sale's vehicle has been reassigned to another branch. Reassign it back first, or record a sales return instead.";
+
+    /// <summary>Phase 10 D1: where a sales return (or cancellation) puts goods back. The invoice location when it is active and
+    /// still the invoice branch's (branch-owned location of that branch, a vehicle currently assigned to it, or a central
+    /// vehicle). Otherwise a return from a vehicle falls back to the invoice branch's active store; any other case, and every
+    /// cancellation (exact undo), fails with 400 on <see cref="Field"/>. Re-read on every call, so calling it again after the
+    /// location KEY SHARE lock sees a deactivation or reassignment that committed in between.</summary>
+    public static async Task<Guid> ResolveRestockAsync(SelloraDbContext db, SalesInvoice invoice, bool forCancel, CancellationToken ct)
+    {
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var location = await db.StockLocations.AsNoTracking().SingleOrDefaultAsync(l => l.CompanyId == companyId && l.Id == invoice.StockLocationId, ct);
+        if (location is not null && location.IsActive && await BelongsToBranchAsync(db, location, invoice.BranchId, ct)) return location.Id;
+
+        if (!forCancel && location is { LocationType: StockLocationType.Vehicle })
+        {
+            var store = await db.StockLocations.AsNoTracking().SingleOrDefaultAsync(
+                l => l.CompanyId == companyId && l.BranchId == invoice.BranchId && l.LocationType == StockLocationType.BranchStore && l.IsActive, ct);
+            if (store is not null) return store.Id;
+        }
+        throw new DomainValidationException(Field, location is { IsActive: true } ? RestockReassigned : RestockInactive);
+    }
+
+    /// <summary>The locations <see cref="ResolveRestockAsync"/> may pick (ignoring active flags), so the caller can lock them
+    /// all in id order before the re-check.</summary>
+    public static async Task<IReadOnlyList<Guid>> RestockCandidatesAsync(SelloraDbContext db, SalesInvoice invoice, bool forCancel, CancellationToken ct)
+    {
+        var ids = new List<Guid> { invoice.StockLocationId };
+        if (forCancel) return ids;
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var store = await db.StockLocations.AsNoTracking()
+            .Where(l => l.CompanyId == companyId && l.BranchId == invoice.BranchId && l.LocationType == StockLocationType.BranchStore)
+            .Select(l => (Guid?)l.Id).SingleOrDefaultAsync(ct);
+        if (store is { } s) ids.Add(s);
+        return ids;
+    }
+
+    private static async Task<bool> BelongsToBranchAsync(SelloraDbContext db, StockLocation location, Guid branchId, CancellationToken ct)
+    {
+        if (location.BranchId is { } owner) return owner == branchId;
+        if (location.LocationType != StockLocationType.Vehicle) return false;
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var vehicle = await db.Vehicles.AsNoTracking().Where(v => v.CompanyId == companyId && v.StockLocationId == location.Id)
+            .Select(v => new { v.AssignedBranchId, v.IsActive }).SingleOrDefaultAsync(ct);
+        return vehicle is { IsActive: true } && (vehicle.AssignedBranchId is null || vehicle.AssignedBranchId == branchId);
+    }
+
+    /// <summary>Phase 10 D2: the location a purchase return issues from (<paramref name="requested"/> ?? the purchase's own).
+    /// Active, not Transit, same company; must fit the purchase's branch (<see cref="EnsureFitsAsync"/> with the company-level
+    /// <c>Purchase.Return</c> grant). Another branch's location (or vehicle) is allowed only with that grant company-wide AND
+    /// when the location's effective branch is accessible to the caller (mirrors the Phase 9 transfer Resolve). Call again after
+    /// the location KEY SHARE lock to re-check under the lock.</summary>
+    public static async Task<Guid> ResolveReturnSourceAsync(
+        SelloraDbContext db, Guid? requested, Guid purchaseLocationId, Guid purchaseBranchId, bool companyLevelPermission, CancellationToken ct)
+    {
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var id = requested ?? purchaseLocationId;
+        var location = await db.StockLocations.AsNoTracking().SingleOrDefaultAsync(l => l.CompanyId == companyId && l.Id == id, ct);
+        if (location is null || !location.IsActive || location.LocationType == StockLocationType.Transit) throw Invalid();
+
+        if (await FitsAsync(db, location, purchaseBranchId, companyLevelPermission, ct)) return location.Id;
+
+        if (companyLevelPermission)
+        {
+            var owner = location.BranchId;
+            var vehicleActive = true;
+            if (owner is null && location.LocationType == StockLocationType.Vehicle)
+            {
+                var v = await db.Vehicles.AsNoTracking().Where(x => x.CompanyId == companyId && x.StockLocationId == location.Id)
+                    .Select(x => new { x.AssignedBranchId, x.IsActive }).SingleOrDefaultAsync(ct);
+                owner = v?.AssignedBranchId;
+                vehicleActive = v is { IsActive: true };
+            }
+            if (vehicleActive && owner is { } b && b != purchaseBranchId && db.BranchContext.CanAccess(b)) return location.Id;
+        }
+
+        // Not usable: throw the natural failure of the branch-fit rules.
+        await EnsureFitsAsync(db, location, purchaseBranchId, companyLevelPermission, ct);
+        throw Invalid();
+    }
+
     /// <summary>Branch fit of an already loaded, active location for a working branch (arch 13.2): a branch-owned location must
     /// be the working branch's own; a vehicle assigned to the working branch is that branch's to use, one assigned to another
     /// branch never fits (no company-level grant opens it, D3); any other company-level location needs

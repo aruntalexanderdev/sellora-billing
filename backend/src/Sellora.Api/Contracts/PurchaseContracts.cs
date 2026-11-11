@@ -18,8 +18,12 @@ public record PurchaseLineDto(
     decimal TaxRatePercent, decimal OtherCharges, decimal Discount,
     decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal UnitCost,
     decimal ReturnedBaseQty, decimal ReturnableBaseQty, IReadOnlyList<PurchaseReturnUnitDto> ReturnUnits,
-    string? InternalBatchNo, string? SupplierBatchNumber, DateOnly? ReceivedDate
+    string? InternalBatchNo, string? SupplierBatchNumber, DateOnly? ReceivedDate,
+    IReadOnlyList<PurchaseLineLocationBalanceDto>? LocationBalances = null
 );
+
+/// <summary>Phase 10 (D3): base quantity of a purchase line's batch at one visible stock location (balance > 0 only).</summary>
+public record PurchaseLineLocationBalanceDto(Guid StockLocationId, string Code, string Name, decimal BaseQty);
 
 /// <summary>A unit a purchase line can be returned in. <see cref="MaxQty"/> is the returnable base quantity expressed in
 /// this unit, truncated to its decimal places (guidance only; the server re-validates).</summary>
@@ -101,7 +105,8 @@ public record CreatePurchaseReturnRequest(
     [Required] DateOnly ReturnDate,
     [MaxLength(300)] string? Reason,
     [MinLength(1)] PurchaseReturnLineRequest[] Lines,
-    PurchaseRefundRequest? Refund = null
+    PurchaseRefundRequest? Refund = null,
+    Guid? StockLocationId = null
 );
 
 public record AddPurchaseRefundRequest(

@@ -93,6 +93,8 @@ internal static class Idempotency
     public const string Purchase = "purchase";
     public const string Sale = "sale";
     public const string StockAdjustment = "stock-adjustment";
+    public const string SalesReturn = "sales-return";
+    public const string PurchaseReturn = "purchase-return";
     public const string StockTransfer = "stock-transfer";
     public const string StockTransferDispatch = "stock-transfer-dispatch";
     public const string StockTransferReceipt = "stock-transfer-receipt";

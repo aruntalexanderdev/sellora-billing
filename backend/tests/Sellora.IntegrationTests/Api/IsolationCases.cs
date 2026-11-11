@@ -187,6 +187,8 @@ public static class IsolationCases
             ($"/api/v1/purchases/{other.PurchaseId}/cancel", null)),
         new("PurchaseReturnsController.Create", "other company's purchase", Post, (own, other) =>
             ("/api/v1/purchase-returns", new CreatePurchaseReturnRequest(other.PurchaseId, Today, null, [new PurchaseReturnLineRequest(other.PurchaseLineId, null, 1m)]))),
+        new("PurchaseReturnsController.Create", "other company's stock location (Phase 10)", Post, (own, other) =>
+            ("/api/v1/purchase-returns", new CreatePurchaseReturnRequest(own.PurchaseId, Today, null, [new PurchaseReturnLineRequest(own.PurchaseLineId, null, 1m)], StockLocationId: other.LocationId))),
         new("SalesController.Create", "other company's customer", Post, (own, other) =>
             ("/api/v1/sales", new CreateSaleRequest(other.CustomerId, Today, PaymentMethod.Cash, 0m, [SaleLine(own)]))),
         new("SalesController.Create", "other company's product and unit", Post, (own, other) =>

@@ -275,7 +275,7 @@ public class StockReadsAtMultipleLocationsTests
 
         await using var read = lw.W.Db();
         var service = new PurchaseService(read, new ExchangeRateService(read));
-        var line = Ok(await new PurchasesController(read, service).Get(purchase.Id, default)).Lines.Single();
+        var line = Ok(await new PurchasesController(read, service, new FakeEffectivePermissions("Purchase.View")).Get(purchase.Id, default)).Lines.Single();
 
         Assert.Equal(10m, line.ReturnableBaseQty); // the sale drew BLR's store (30), not the warehouse batch; 20 more kg at CW do not matter
     }

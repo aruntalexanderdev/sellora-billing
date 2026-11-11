@@ -53,7 +53,9 @@ public sealed record CreatePurchaseReturnInput(
     DateOnly ReturnDate,
     string? Reason,
     IReadOnlyList<PurchaseReturnLineInput> Lines,
-    RefundDetails? Refund = null
+    RefundDetails? Refund = null,
+    Guid? StockLocationId = null,
+    string? IdempotencyKey = null
 );
 
 /// <summary>Money a supplier paid back, in the purchase's transaction currency. <see cref="ExpectedRefundable"/>

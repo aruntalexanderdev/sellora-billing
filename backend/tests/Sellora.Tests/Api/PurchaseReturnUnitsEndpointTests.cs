@@ -43,7 +43,7 @@ public class PurchaseReturnUnitsEndpointTests
         var service = new PurchaseService(db, new ExchangeRateService(db));
         var http = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())], "test")) };
         var ctx = new ControllerContext { HttpContext = http };
-        return new Fixture(db, service, new PurchasesController(db, service) { ControllerContext = ctx },
+        return new Fixture(db, service, new PurchasesController(db, service, new FakeEffectivePermissions("Purchase.View")) { ControllerContext = ctx },
             new PurchaseReturnsController(db, service) { ControllerContext = ctx }, user.Id, supplier, rows, pen, g, kg);
     }
 

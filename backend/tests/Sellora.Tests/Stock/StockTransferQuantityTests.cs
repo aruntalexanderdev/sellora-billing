@@ -252,7 +252,7 @@ public class StockTransferQuantityTests
 
         Assert.Equal(StockTransferStatus.Completed, result!.Transfer.Status);
         Assert.Equal((80m, 0m, 100m), (await w.QohAsync(w.L.BlrStore), await w.QohAsync(w.L.Transit), await w.QohAsync(w.L.MainStore)));
-        var damage = Assert.Single((await w.MovementsAsync(t.Id)).Where(m => m.Type == StockMovementType.Adjustment));
+        var damage = Assert.Single(await w.MovementsAsync(t.Id), m => m.Type == StockMovementType.Adjustment);
         Assert.Equal((w.L.Transit, -20m, AdjustmentType.Damage, "StockTransfer"), (damage.StockLocationId, damage.QuantityBaseUnits, damage.ReasonCode, damage.ReferenceType));
         Assert.Equal(batchBefore - 20m, await RemainingOfBatchesAsync(w)); // the damaged 20 leave the company
         Assert.Equal(180m, await w.CompanyQuantityAsync());
@@ -328,7 +328,7 @@ public class StockTransferQuantityTests
         Assert.Equal((40m, 0m, 100m), (await w.QohAsync(w.L.BlrStore), await w.QohAsync(w.L.Transit), await w.QohAsync(w.L.MainStore)));
         Assert.Equal(batchBefore - 60m, await RemainingOfBatchesAsync(w));
         Assert.Equal(valueBefore - 60m * 5m, await w.CompanyValueAsync());
-        var loss = Assert.Single((await w.MovementsAsync(t.Id)).Where(m => m.ReasonCode == AdjustmentType.Loss));
+        var loss = Assert.Single(await w.MovementsAsync(t.Id), m => m.ReasonCode == AdjustmentType.Loss);
         Assert.Equal((StockMovementType.Adjustment, w.L.Transit, -60m), (loss.Type, loss.StockLocationId, loss.QuantityBaseUnits));
         var done = await w.ReloadAsync(t.Id);
         Assert.Equal((60m, 0m), (done.Lines.Single().WrittenOffBaseQty, done.Lines.Single().ReturnedBaseQty));

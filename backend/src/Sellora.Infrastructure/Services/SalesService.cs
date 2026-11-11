@@ -306,6 +306,19 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         }
 
         await using var transaction = await BeginAsync(ct);
+
+        if (await Idempotency.FindAsync(db, userId, Idempotency.SalesReturn, input.IdempotencyKey, ct) is { } existingReturnId)
+        {
+            var replayed = await db.SalesReturns.Include(r => r.Lines).SingleOrDefaultAsync(r => r.Id == existingReturnId, ct)
+                ?? throw new DomainValidationException("IdempotencyKey", "This request was already processed, but its result is no longer visible with your current branch access.");
+            // A key reused for another sale must not answer with an unrelated return (no refund would happen for this one).
+            if (replayed.SalesInvoiceId != input.SalesInvoiceId)
+            {
+                throw new DomainValidationException("IdempotencyKey", "This Idempotency-Key was already used for a return against a different sale. Use a new key.");
+            }
+            return replayed;
+        }
+
         var invoice = await LockInvoiceAsync(input.SalesInvoiceId, ct)
             ?? throw new DomainValidationException("SalesInvoiceId", "Select a valid sale.");
         if (invoice.Status == SalesStatus.Cancelled)
@@ -325,9 +338,13 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         // Lock order: SalesInvoices (above) -> Products KEY SHARE -> StockItems. The return reads the factor of a unit
         // that history may not yet reference, so a concurrent product-unit edit must wait until this commits.
         await StockLocks.LockProductsKeyShareAsync(db, lineProductIds, ct);
-        // Goods go back to the location the sale issued from.
-        var locationId = invoice.StockLocationId;
-        await StockLocks.LockLocationsKeyShareAsync(db, [locationId], ct);
+        // Phase 10 D1: goods go back to the location the sale issued from while it is active and still the invoice branch's;
+        // a vehicle that is inactive or reassigned falls back to the invoice branch's store. Resolved before the lock for an
+        // early failure; both candidates (invoice location, branch store) are locked in id order, then it is re-resolved under
+        // the lock, so the answer cannot change before commit and the chosen row is always one we hold.
+        await StockLocationRules.ResolveRestockAsync(db, invoice, false, ct);
+        await StockLocks.LockLocationsKeyShareAsync(db, await StockLocationRules.RestockCandidatesAsync(db, invoice, false, ct), ct);
+        var locationId = await StockLocationRules.ResolveRestockAsync(db, invoice, false, ct);
         var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, lineProductIds.Select(id => (locationId, id)), ct);
         var lines = await db.SalesInvoiceLines
             .Include(l => l.Product).ThenInclude(p => p.BaseUnit)
@@ -344,7 +361,7 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
             Id = Guid.NewGuid(),
             ReturnNo = await DocumentNumbers.NextNumberAsync(db, DocumentSeries.SalesReturn, returnBranch, ct),
             BranchId = returnBranch.Id,
-            StockLocationId = invoice.StockLocationId,
+            StockLocationId = locationId,
             SalesInvoiceId = invoice.Id,
             ReturnDate = input.ReturnDate,
             Reason = string.IsNullOrWhiteSpace(input.Reason) ? null : input.Reason.Trim(),
@@ -457,6 +474,7 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         salesReturn.Total = salesReturn.TaxableTotal + salesReturn.TaxTotal;
         invoice.ReturnedAmount += salesReturn.Total;
         db.SalesReturns.Add(salesReturn);
+        Idempotency.Record(db, userId, Idempotency.SalesReturn, input.IdempotencyKey, salesReturn.Id);
 
         if (input.Refund is { } refund)
         {
@@ -476,8 +494,10 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         await using var transaction = await BeginAsync(ct);
         var locked = await LockInvoiceAsync(salesInvoiceId, ct) ?? throw new DomainValidationException("Id", "Sale not found.");
         BranchRules.EnsureCanAccessDocument(db, locked.BranchId);
-        var locationId = locked.StockLocationId;
-        await StockLocks.LockLocationsKeyShareAsync(db, [locationId], ct);
+        // Phase 10 D1: a cancellation is an exact undo at the sale's own location; no fallback. Re-resolved under the lock.
+        await StockLocationRules.ResolveRestockAsync(db, locked, true, ct);
+        await StockLocks.LockLocationsKeyShareAsync(db, [locked.StockLocationId], ct);
+        var locationId = await StockLocationRules.ResolveRestockAsync(db, locked, true, ct);
         var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db,
             (await db.SalesInvoiceLines.Where(l => l.SalesInvoiceId == salesInvoiceId).Select(l => l.ProductId).ToListAsync(ct)).Select(id => (locationId, id)), ct);
 

@@ -384,6 +384,19 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         }
 
         await using var transaction = await BeginAsync(ct);
+
+        if (await Idempotency.FindAsync(db, userId, Idempotency.PurchaseReturn, input.IdempotencyKey, ct) is { } existingReturnId)
+        {
+            var replayed = await db.PurchaseReturns.Include(r => r.Lines).SingleOrDefaultAsync(r => r.Id == existingReturnId, ct)
+                ?? throw new DomainValidationException("IdempotencyKey", "This request was already processed, but its result is no longer visible with your current branch access.");
+            // A key reused for another purchase must not answer with an unrelated return.
+            if (replayed.PurchaseOrderId != input.PurchaseOrderId)
+            {
+                throw new DomainValidationException("IdempotencyKey", "This Idempotency-Key was already used for a return against a different purchase. Use a new key.");
+            }
+            return replayed;
+        }
+
         var purchase = await LockPurchaseAsync(input.PurchaseOrderId, ct)
             ?? throw new DomainValidationException("PurchaseOrderId", "Select a valid purchase.");
         if (purchase.Status == PurchaseStatus.Cancelled)
@@ -403,9 +416,12 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         // Lock order: PurchaseOrders (above) -> Products KEY SHARE -> StockItems. The return reads the factor of a unit
         // that history may not yet reference, so a concurrent product-unit edit must wait until this commits.
         await StockLocks.LockProductsKeyShareAsync(db, purchaseLineProductIds, ct);
-        // Goods go back out of the location the purchase was received at.
-        var locationId = purchase.StockLocationId;
+        // Phase 10 D2: goods go out of the requested location (default: where the purchase was received), which must be
+        // usable by the purchase's branch. Resolved before the lock, locked, then re-checked under the lock.
+        var companyLevel = await StockLocationRules.HasCompanyLevelAsync(permissions, "Purchase.Return", ct);
+        var locationId = await StockLocationRules.ResolveReturnSourceAsync(db, input.StockLocationId, purchase.StockLocationId, purchase.BranchId, companyLevel, ct);
         await StockLocks.LockLocationsKeyShareAsync(db, [locationId], ct);
+        await StockLocationRules.ResolveReturnSourceAsync(db, locationId, purchase.StockLocationId, purchase.BranchId, companyLevel, ct);
         // Lock the stock rows before reading the batches, so the remaining quantities checked below are current.
         var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, purchaseLineProductIds.Select(id => (locationId, id)), ct);
         var lines = await db.PurchaseOrderLines.Include(l => l.Product).ThenInclude(p => p.BaseUnit).Include(l => l.Batch)
@@ -420,7 +436,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             Id = Guid.NewGuid(),
             ReturnNo = await DocumentNumbers.NextNumberAsync(db, DocumentSeries.PurchaseReturn, returnBranch, ct),
             BranchId = returnBranch.Id,
-            StockLocationId = purchase.StockLocationId,
+            StockLocationId = locationId,
             PurchaseOrderId = purchase.Id,
             ReturnDate = input.ReturnDate,
             Reason = string.IsNullOrWhiteSpace(input.Reason) ? null : input.Reason.Trim(),
@@ -543,6 +559,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         purchase.ReturnedAmount += purchaseReturn.Total;
         purchase.OriginalReturnedAmount += originalCredit;
         db.PurchaseReturns.Add(purchaseReturn);
+        Idempotency.Record(db, userId, Idempotency.PurchaseReturn, input.IdempotencyKey, purchaseReturn.Id);
 
         if (input.Refund is { } refund)
         {

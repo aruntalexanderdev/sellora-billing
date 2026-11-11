@@ -362,7 +362,7 @@ public class StockTransferApiTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(user.Client, HttpMethod.Get, $"/api/v1/stock-transfers/{IdOf(hidden)}", null, x)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(user.Client, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(hidden)}/approve", null, x)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(user.Client, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(hidden)}/cancel", new StockTransferReasonRequest("x"), x)).StatusCode);
-        Assert.Equal(StockTransferStatusOf(await OkAsync(await SendAsync(w.Admin, HttpMethod.Get, $"/api/v1/stock-transfers/{IdOf(hidden)}", null, y))), "Requested");
+        Assert.Equal("Requested", StockTransferStatusOf(await OkAsync(await SendAsync(w.Admin, HttpMethod.Get, $"/api/v1/stock-transfers/{IdOf(hidden)}", null, y))));
 
         async Task<Guid[]> Ids(string query) =>
             (await OkAsync(await SendAsync(user.Client, HttpMethod.Get, "/api/v1/stock-transfers?pageSize=100" + query, null, x))).GetProperty("items").EnumerateArray().Select(IdOf).ToArray();

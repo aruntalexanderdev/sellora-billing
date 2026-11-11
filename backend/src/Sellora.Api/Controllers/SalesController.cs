@@ -139,7 +139,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
     public async Task<ActionResult<PagedResult<SalesInvoiceListItemDto>>> List(
         [FromQuery] string? search, [FromQuery] Guid? customerId, [FromQuery] PaymentStatus? paymentStatus, [FromQuery] SalesStatus? status,
         [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -148,6 +148,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
 
         var query = db.SalesInvoices.Include(i => i.Customer).AsQueryable();
         if (branchId is not null) query = query.Where(i => i.BranchId == branchId);
+        if (stockLocationId is not null) query = query.Where(i => i.StockLocationId == stockLocationId);
 
         if (!string.IsNullOrWhiteSpace(search))
         {

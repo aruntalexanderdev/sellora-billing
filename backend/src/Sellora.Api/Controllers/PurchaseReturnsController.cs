@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
+using Sellora.Api.Validation;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Payments;
@@ -21,7 +22,7 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
     [Authorize(Policy = "Purchase.View")]
     public async Task<ActionResult<PagedResult<PurchaseReturnListItemDto>>> List(
         [FromQuery] string? search, [FromQuery] Guid? purchaseOrderId, [FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? branchId = null, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -30,6 +31,7 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
 
         var query = db.PurchaseReturns.AsQueryable();
         if (branchId is not null) query = query.Where(r => r.BranchId == branchId);
+        if (stockLocationId is not null) query = query.Where(r => r.StockLocationId == stockLocationId);
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim().ToLower();
@@ -99,6 +101,7 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
     public async Task<ActionResult<PurchaseReturnDetailDto>> Create(CreatePurchaseReturnRequest request, CancellationToken ct)
     {
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
+        if (!IdempotencyHeader.TryRead(Request, out var key)) return IdempotencyHeader.Invalid(this);
 
         try
         {
@@ -106,7 +109,7 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
             var refund = request.Refund is null ? null : new RefundDetails(request.Refund.Amount, request.Refund.PaymentMethod, request.Refund.AccountId, request.Refund.Reason);
             var created = await purchaseService.CreateReturnAsync(
                 new CreatePurchaseReturnInput(request.PurchaseOrderId!.Value, request.ReturnDate, request.Reason,
-                    request.Lines.Select(l => new PurchaseReturnLineInput(l.PurchaseOrderLineId!.Value, l.ProductUnitId, l.Qty)).ToList(), refund),
+                    request.Lines.Select(l => new PurchaseReturnLineInput(l.PurchaseOrderLineId!.Value, l.ProductUnitId, l.Qty)).ToList(), refund, request.StockLocationId, key),
                 userId, ct);
             return await Get(created.Id, ct);
         }

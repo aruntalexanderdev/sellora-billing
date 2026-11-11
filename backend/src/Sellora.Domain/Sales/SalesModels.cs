@@ -42,7 +42,8 @@ public sealed record CreateSaleReturnInput(
     DateOnly ReturnDate,
     string? Reason,
     IReadOnlyList<SaleReturnLineInput> Lines,
-    RefundDetails? Refund = null
+    RefundDetails? Refund = null,
+    string? IdempotencyKey = null
 );
 
 /// <summary>Money paid back to a customer. <see cref="ExpectedRefundable"/> is the refundable amount the caller
