@@ -3,6 +3,7 @@ import {
   computeFactors,
   convert,
   costPerBaseUnit,
+  formatBreakdown,
   formatQuantity,
   equivalenceChain,
   hasAtMostDecimals,
@@ -15,6 +16,7 @@ import {
   suggestInnerQuantity,
   type ChainNode,
 } from './unit-conversion';
+import type { BreakdownUnit } from './unit.models';
 import type { MeasurementCategory } from '../../features/masters/units/units.models';
 
 const PEN: ChainNode[] = [
@@ -292,5 +294,91 @@ describe('costPerBaseUnit', () => {
     expect(costPerBaseUnit(250, 100)).toBe(2.5);
     expect(costPerBaseUnit(100, 12)).toBeCloseTo(8.333333, 6);
     expect(costPerBaseUnit(40, 1)).toBe(40);
+  });
+});
+
+describe('formatBreakdown', () => {
+  const bu = (code: string, factor: number, isBaseUnit = false, label = code): BreakdownUnit => ({
+    productUnitId: `id-${code}`, unitCode: code, label, factor, isBaseUnit,
+  });
+  const PEN_UNITS = [bu('PC', 1, true, 'Piece'), bu('BOX', 10, false, 'Box'), bu('HC', 50, false, 'Half Carton'), bu('FC', 100, false, 'Full Carton')];
+  const RICE = [bu('KG', 1, true, 'kg'), bu('BAG', 25, false, 'Bag'), bu('GM', 0.001, false, 'Gm')];
+  const OIL = [bu('L', 1, true, 'L'), bu('CASE', 6, false, 'Case'), bu('BTL', 0.5, false, 'Bottle')];
+
+  it('Pen 122 -> 1 Full Carton, 2 Box, 2 Piece (Half Carton does not fit the 22 left)', () => {
+    expect(formatBreakdown(122, PEN_UNITS, 0, 'Piece')).toBe('1 Full Carton, 2 Box, 2 Piece');
+  });
+
+  it('Pen 1 / 10 / 50 / 100 break down to a single part each', () => {
+    expect(formatBreakdown(1, PEN_UNITS, 0)).toBe('1 Piece');
+    expect(formatBreakdown(10, PEN_UNITS, 0)).toBe('1 Box');
+    expect(formatBreakdown(50, PEN_UNITS, 0)).toBe('1 Half Carton');
+    expect(formatBreakdown(100, PEN_UNITS, 0)).toBe('1 Full Carton');
+  });
+
+  it('Pen 172 uses the Half Carton: 1 Full Carton, 1 Half Carton, 2 Box, 2 Piece', () => {
+    expect(formatBreakdown(172, PEN_UNITS, 0)).toBe('1 Full Carton, 1 Half Carton, 2 Box, 2 Piece');
+  });
+
+  it('is independent of input order', () => {
+    expect(formatBreakdown(122, [...PEN_UNITS].reverse(), 0)).toBe('1 Full Carton, 2 Box, 2 Piece');
+  });
+
+  it('Rice 37.5 kg with a Gm unit takes whole kg in the base unit and the fraction in Gm', () => {
+    expect(formatBreakdown(37.5, RICE, 3)).toBe('1 Bag, 12 kg, 500 Gm');
+  });
+
+  it('Rice 37.5 kg without a Gm unit folds the remainder into the base unit at base dp', () => {
+    expect(formatBreakdown(37.5, [RICE[0], RICE[1]], 3)).toBe('1 Bag, 12.500 kg');
+  });
+
+  it('Rice 25 kg is exactly 1 Bag with no base remainder', () => {
+    expect(formatBreakdown(25, RICE, 3)).toBe('1 Bag');
+  });
+
+  it('uses the baseLabel argument when no base row is supplied', () => {
+    expect(formatBreakdown(26.5, [RICE[1]], 3, 'kg')).toBe('1 Bag, 1.500 kg');
+    expect(formatBreakdown(26.5, [RICE[1]], 3)).toBe('1 Bag, 1.500');
+  });
+
+  it('folds an inexpressible remainder into an existing base part (1.75 L -> 1.250 L, 1 Bottle)', () => {
+    expect(formatBreakdown(1.75, OIL, 3)).toBe('1.250 L, 1 Bottle');
+  });
+
+  it('Oil with fractional factors: 13.5 L -> 2 Case, 1 L, 1 Bottle', () => {
+    expect(formatBreakdown(13.5, OIL, 3)).toBe('2 Case, 1 L, 1 Bottle');
+  });
+
+  it('Oil 0.75 L -> 1 Bottle, 0.250 L remainder', () => {
+    expect(formatBreakdown(0.75, OIL, 3)).toBe('1 Bottle, 0.250 L');
+  });
+
+  it('survives float noise (0.1 + 0.2 over a 0.1 unit and a 0.5 unit)', () => {
+    const units = [bu('L', 1, true, 'L'), bu('DL', 0.1, false, 'dL')];
+    expect(formatBreakdown(0.1 + 0.2, units, 3)).toBe('3 dL');
+    expect(formatBreakdown(0.1 + 0.2, OIL, 3)).toBe('0.300 L');
+  });
+
+  it('returns null for zero, negative, NaN and Infinity quantities', () => {
+    expect(formatBreakdown(0, PEN_UNITS, 0)).toBeNull();
+    expect(formatBreakdown(-5, PEN_UNITS, 0)).toBeNull();
+    expect(formatBreakdown(Number.NaN, PEN_UNITS, 0)).toBeNull();
+    expect(formatBreakdown(Number.POSITIVE_INFINITY, PEN_UNITS, 0)).toBeNull();
+  });
+
+  it('returns null for null, undefined, empty and base-only unit lists', () => {
+    expect(formatBreakdown(10, null, 0)).toBeNull();
+    expect(formatBreakdown(10, undefined, 0)).toBeNull();
+    expect(formatBreakdown(10, [], 0)).toBeNull();
+    expect(formatBreakdown(10, [bu('PC', 1, true, 'Piece')], 0)).toBeNull();
+  });
+
+  it('identical-factor ties are deterministic: the first listed unit wins', () => {
+    const a = bu('BA', 10, false, 'Box A');
+    const b = bu('BB', 10, false, 'Box B');
+    const pc = bu('PC', 1, true, 'Piece');
+    expect(formatBreakdown(25, [pc, a, b], 0)).toBe('2 Box A, 5 Piece');
+    expect(formatBreakdown(25, [pc, b, a], 0)).toBe('2 Box B, 5 Piece');
+    expect(formatBreakdown(25, [pc, a, b], 0)).toBe(formatBreakdown(25, [pc, a, b], 0));
   });
 });

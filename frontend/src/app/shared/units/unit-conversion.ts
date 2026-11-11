@@ -317,14 +317,24 @@ export function formatBreakdown(
   if (!Number.isFinite(baseQty) || baseQty <= 0 || !units || !units.some((u) => !u.isBaseUnit)) return null;
   const baseUnit = units.find((u) => u.isBaseUnit);
   const labelOf = new Map(units.map((u) => [u.productUnitId, u.label]));
+  // The base unit joins the greedy pass, so it takes the whole part and units
+  // smaller than the base only express the fraction ("1 Bag, 12 kg, 500 Gm").
   const result = breakdown(
     baseQty,
-    units.filter((u) => !u.isBaseUnit).map((u) => ({ key: u.productUnitId, factor: u.factor })),
+    units.map((u) => ({ key: u.productUnitId, factor: u.isBaseUnit ? 1 : u.factor })),
   );
-  const texts = result.parts.map((p) => `${formatQuantity(p.quantity, 0)} ${labelOf.get(p.key) ?? ''}`.trim());
+  const parts = result.parts.map((p) => ({ ...p }));
   if (result.remainder > 0) {
-    const label = baseUnit?.label ?? baseLabel ?? '';
-    texts.push(`${formatQuantity(result.remainder, baseDp)} ${label}`.trim());
+    // Not expressible in any unit: fold into the base part (never rounded away).
+    const basePart = baseUnit && parts.find((p) => p.key === baseUnit.productUnitId);
+    if (basePart) basePart.quantity = round10(basePart.quantity + result.remainder);
+    else parts.push({ key: baseUnit?.productUnitId ?? '', quantity: result.remainder });
   }
+  const texts = parts.map((p) => {
+    const isBase = !baseUnit || p.key === baseUnit.productUnitId || p.key === '';
+    const label = labelOf.get(p.key) ?? baseUnit?.label ?? baseLabel ?? '';
+    const dp = isBase && !Number.isInteger(p.quantity) ? baseDp : 0;
+    return `${formatQuantity(p.quantity, dp)} ${label}`.trim();
+  });
   return texts.length > 0 ? texts.join(', ') : null;
 }
