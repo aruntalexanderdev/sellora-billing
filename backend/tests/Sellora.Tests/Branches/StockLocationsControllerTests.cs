@@ -81,4 +81,34 @@ public class StockLocationsControllerTests
         Assert.IsType<NotFoundResult>((await Controller(db).Get(otherStore.Id, CancellationToken.None)).Result);
         Assert.DoesNotContain(otherStore.Id, (await ListAsync(db)).Select(l => l.Id));
     }
+
+    // Phase 11b DEF-2: a vehicle's location row has no BranchId; its branch is the vehicle's assignment.
+    private static async Task<List<StockLocationDto>> ListAsync(SelloraDbContext db, Guid? branchId, string? type) =>
+        ((await Controller(db).List(type, branchId, false)).Result as OkObjectResult)!.Value is IReadOnlyList<StockLocationDto> l ? l.ToList() : throw new InvalidOperationException("not ok");
+
+    [Fact]
+    public async Task List_BranchFilter_IncludesTheVehiclesAssignedToThatBranch_NotCentralOrOtherBranchVehicles()
+    {
+        var lw = await LocationWorld.CreateAsync();
+        await using var db = lw.W.Db();
+
+        var blrVehicles = (await ListAsync(db, lw.W.Blr, "Vehicle")).Select(l => l.Id).ToList();
+        var mainVehicles = (await ListAsync(db, lw.W.Main, "Vehicle")).Select(l => l.Id).ToList();
+
+        Assert.Equal([lw.BlrVan], blrVehicles);
+        Assert.DoesNotContain(lw.BlrVan, mainVehicles);
+        Assert.DoesNotContain(lw.CentralVan, blrVehicles);
+    }
+
+    [Fact]
+    public async Task List_RestrictedToAnotherBranch_HidesAVehicleAssignedToAnInaccessibleBranch_KeepsCentralVehicles()
+    {
+        var lw = await LocationWorld.CreateAsync();
+        await using var db = lw.W.Db(allowed: new HashSet<Guid> { lw.W.Main }, unrestricted: false);
+
+        var ids = (await ListAsync(db)).Select(l => l.Id).ToHashSet();
+
+        Assert.DoesNotContain(lw.BlrVan, ids);
+        Assert.Contains(lw.CentralVan, ids);
+    }
 }

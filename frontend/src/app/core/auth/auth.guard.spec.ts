@@ -170,12 +170,34 @@ describe('requiresBranchGuard (D13)', () => {
   });
 
   it('cancelling the picker cancels the navigation and keeps All branches', async () => {
-    const { ctx, picker } = await allMode();
+    const { ctx, picker, router } = await allMode();
+    router.navigated = true; // in-app navigation: cancelling just stays put
     const pending = runBranch(branchRoute());
     await tick();
     picker.respond(null);
     expect(await pending).toBe(false);
     expect(ctx.isAllBranches()).toBe(true);
+  });
+
+  it('initial navigation (guard runs before any shell exists): the picker opens and cancel lands on /dashboard, not a blank page', async () => {
+    const { ctx, router, picker } = await allMode();
+    expect(router.navigated).toBe(false); // nothing has been activated yet
+    const pending = runBranch(branchRoute(), '/sales/new');
+    await tick();
+    expect(picker.active()).not.toBeNull(); // the picker service is usable without any shell
+    picker.respond(null);
+    expect(asUrl(await pending, router)).toBe('/dashboard');
+    expect(ctx.isAllBranches()).toBe(true);
+  });
+
+  it('initial navigation: picking a branch re-runs the deep link', async () => {
+    const { http, router, picker } = await allMode();
+    const pending = runBranch(branchRoute(), '/purchases/new');
+    await tick();
+    picker.respond('b-north');
+    await tick();
+    http.expectOne(ME_URL).flush(me({ permissions: ['Sales.View', 'Sales.Create'] }));
+    expect(asUrl(await pending, router)).toBe('/purchases/new');
   });
 
   it('does not prompt for a screen the user cannot open anyway (the permission guard denies)', async () => {
@@ -190,7 +212,8 @@ describe('requiresBranchGuard (D13)', () => {
   });
 
   it('a switch that fails to load keeps All branches and cancels the navigation', async () => {
-    const { ctx, http, picker } = await allMode();
+    const { ctx, http, picker, router } = await allMode();
+    router.navigated = true;
     const pending = runBranch(branchRoute());
     await tick();
     picker.respond('b-north');

@@ -11,6 +11,13 @@
   }
 
   <form [formGroup]="form" (ngSubmit)="submit()">
+    <div style="margin-bottom: 16px" data-testid="adjust-location">
+      <app-location-select purpose="adjust" label="Location" [(value)]="locationId" />
+      @if (locationError(); as e) {
+        <div class="field-error">{{ e }}</div>
+      }
+    </div>
+
     <label class="field-label">Item</label>
     <select formControlName="productId" class="field-input" (change)="onProductChange(form.controls.productId.value)">
       <option value="" disabled>Select an item…</option>
@@ -102,6 +109,9 @@
       <div class="field-error">{{ form.get('reason')?.errors?.['server'] }}</div>
     }
 
+    @if (needsBranch()) {
+      <div class="field-hint" data-testid="select-branch-hint">Select a branch to see the current stock.</div>
+    }
     @if (currentQty() !== null) {
       <div class="preview-card">
         <div class="preview-item">

@@ -5,7 +5,7 @@ import { UiBadge } from '../../../../shared/ui/badge/badge';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { StockService } from '../stock.service';
-import type { BatchConsumption, BatchStatus, StockBatch, StockDetail as StockDetailModel } from '../stock.models';
+import type { BatchConsumption, BatchStatus, StockBatch, StockDetail as StockDetailModel, StockMovement } from '../stock.models';
 
 import { formatQuantity } from '../../../../shared/units/unit-conversion';
 import { enteredLabel, movementTone, movementTypeLabel } from '../../../../shared/units/stock-movement';
@@ -32,6 +32,17 @@ export class StockDetail implements OnInit {
   readonly formatQuantity = formatQuantity;
   readonly detail = signal<StockDetailModel | null>(null);
   readonly loading = signal(true);
+  /** Base unit decimals from the movement snapshot; formatQuantity widens up to 3 dp when the value needs it. */
+  qtyDp(d: StockDetailModel): number {
+    return d.movements.find((m) => m.baseDecimalPlaces != null)?.baseDecimalPlaces ?? 0;
+  }
+
+  readonly transferRoute = (id: string) => ['/inventory/stock-transfers', id];
+
+  /** Movement links to its transfer only for StockTransfer references that carry an id. */
+  transferLinkId(m: StockMovement): string | null {
+    return m.referenceType === 'StockTransfer' && m.referenceId ? m.referenceId : null;
+  }
 
   readonly canAdjust = computed(() => this.auth.hasPermission('Inventory.Adjust'));
   readonly canViewPurchases = computed(() => this.auth.hasPermission('Purchase.View'));
@@ -70,7 +81,7 @@ export class StockDetail implements OnInit {
 
   ngOnInit(): void {
     const productId = this.route.snapshot.paramMap.get('id')!;
-    this.stockService.detail(productId).subscribe({
+    this.stockService.detail(productId, null, true).subscribe({
       next: (d) => {
         this.detail.set(d);
         this.loading.set(false);

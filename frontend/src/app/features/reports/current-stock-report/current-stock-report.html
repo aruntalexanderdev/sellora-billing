@@ -5,6 +5,14 @@
   </div>
 </div>
 
+@if (showLocation()) {
+  <div class="report-filters">
+    <app-scope-filters [showBranch]="false" [stockLocationId]="stockLocationId()" (stockLocationIdChange)="onLocationChange($event)" />
+  </div>
+}
+
+<app-load-error [message]="errorMessage()" />
+
 <ui-data-table
   [cols]="cols"
   [rows]="rows()"

@@ -4,6 +4,10 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { merge } from 'rxjs';
 import { FormArray, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
+import { LocationSelect } from '../../../shared/locations/location-select';
+import { splitLocationError } from '../../../shared/locations/location-errors';
+import { ContextService } from '../../../core/context/context.service';
+import { problemMessage } from '../../../core/http/api-errors';
 import { UiButton } from '../../../shared/ui/button/button';
 import { ToastService } from '../../../shared/ui/toast/toast.service';
 import { PurchasesService } from '../purchases.service';
@@ -21,7 +25,7 @@ import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash
 import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
 
 import type { HasUnsavedChanges } from '../../../core/unsaved-changes.guard';
-import { newIdempotencyKey } from '../../../core/idempotency';
+import { IdempotentSubmission } from '../../../core/idempotency';
 
 type LineGroup = FormGroup<{
   productId: FormControl<string>;
@@ -65,14 +69,14 @@ const roundTo = (n: number, places: number) => {
 @Component({
   selector: 'app-purchase-form',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton],
+  imports: [LocationSelect, ReactiveFormsModule, RouterLink, UiButton],
   templateUrl: './purchase-form.html',
   styleUrl: './purchase-form.scss',
 })
 export class PurchaseForm implements OnInit, HasUnsavedChanges {
   private readonly fb = inject(FormBuilder);
   // One key per form, so a double-click or retry can't receive stock twice.
-  private readonly idempotencyKey = newIdempotencyKey();
+  private readonly submission = new IdempotentSubmission();
   private readonly purchasesService = inject(PurchasesService);
   private readonly suppliersService = inject(SuppliersService);
   private readonly productsService = inject(ProductsService);
@@ -80,9 +84,18 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
   private readonly cashBank = inject(CashBankService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
+  private readonly context = inject(ContextService);
 
   readonly paymentMethods: PaymentMethod[] = ['Cash', 'Upi', 'Card', 'Credit', 'BankTransfer'];
-  readonly accountOptions = signal<AccountOption[]>([]);
+  private readonly allAccountOptions = signal<AccountOption[]>([]);
+  /** Accounts usable for this purchase: company-level ones plus those of the working branch. */
+  readonly accountOptions = computed(() => {
+    const branchId = this.context.workingBranch()?.id ?? null;
+    return this.allAccountOptions().filter((a) => !a.branchId || a.branchId === branchId);
+  });
+  /** Receiving location (null = server default). The picker shows only for StockLocations.View holders with > 1 eligible location. */
+  readonly locationId = signal<string | null>(null);
+  readonly locationError = signal<string | null>(null);
   readonly suppliers = signal<SupplierItem[]>([]);
   readonly products = signal<{ id: string; name: string; sku: string }[]>([]);
   private readonly productCache = signal<Map<string, PurchaseProduct>>(new Map());
@@ -214,8 +227,8 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
   ngOnInit(): void {
     this.cashBank.options().subscribe({
       next: (o) => {
-        this.accountOptions.set(o);
-        this.form.patchValue({ accountId: defaultAccountId(o, this.form.controls.paymentMethod.value) });
+        this.allAccountOptions.set(o);
+        this.form.patchValue({ accountId: defaultAccountId(this.accountOptions(), this.form.controls.paymentMethod.value) });
         this.form.controls.accountId.markAsPristine();
       },
     });
@@ -327,8 +340,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
 
     this.saving.set(true);
     const v = this.form.getRawValue();
-    this.purchasesService
-      .create({
+    const body = {
         supplierId: v.supplierId,
         purchaseDate: v.purchaseDate,
         supplierInvoiceNumber: v.supplierInvoiceNumber || null,
@@ -336,6 +348,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
         paymentMethod: v.paymentMethod,
         paidAmount: v.paidAmount,
         accountId: v.accountId || null,
+        stockLocationId: this.locationId(),
         lines: v.lines.map((l) => ({
           productId: l.productId,
           productUnitId: l.productUnitId,
@@ -345,7 +358,9 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
           discount: l.discount,
           supplierBatchNumber: l.supplierBatchNumber.trim() === '' ? null : l.supplierBatchNumber,
         })),
-      }, this.idempotencyKey)
+      };
+    this.purchasesService
+      .create(body, this.submission.keyFor(body))
       .subscribe({
         next: (purchase) => {
           this.saving.set(false);
@@ -355,8 +370,9 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
         },
         error: (err: HttpErrorResponse) => {
           this.saving.set(false);
-          const problem = err.error as ApiProblem | undefined;
-          this.serverError.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Something went wrong.');
+          const { locationError, rest } = splitLocationError(err.error as ApiProblem | undefined);
+          this.locationError.set(locationError);
+          this.serverError.set(Object.values(rest?.errors ?? {})[0]?.[0] ?? locationError ?? problemMessage(rest, 'Something went wrong.'));
         },
       });
   }

@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { Observable, of, throwError } from 'rxjs';
@@ -12,6 +13,7 @@ function detail(overrides: Partial<Detail> = {}): Detail {
     conversionFactorToBase: 100, enteredDecimalPlaces: 0, quantityBaseUnits: 300, baseUnitCode: 'pc', baseDecimalPlaces: 0,
     enteredUnitCost: 250, unitCost: 2.5, reason: 'First count', beforeQty: 0, afterQty: 300, userName: 'Ravi Krishnan',
     batches: [{ purchaseBatchId: 'b1', internalBatchNo: 'BATCH-0001', quantityBaseUnits: 300, unitCost: 2.5 }],
+    branchId: 'b1', branchCode: 'B1', branchName: 'Branch 1', stockLocationId: 'l1', stockLocationCode: 'STORE', stockLocationName: 'Main Store',
     ...overrides,
   };
 }
@@ -79,9 +81,22 @@ describe('StockAdjustmentDetail', () => {
     expect(el.querySelectorAll('td.negative')).toHaveLength(2);
   });
 
-  it('shows "not found" when the request fails', () => {
-    const { el } = setup(throwError(() => new Error('404')));
+  it('shows "not found" for a 404', () => {
+    const { el } = setup(throwError(() => new HttpErrorResponse({ status: 404 })));
 
     expect(el.textContent).toContain('Adjustment not found.');
+  });
+
+  it('shows the server problem message (with trace id) for other failures', () => {
+    const { el } = setup(throwError(() => new HttpErrorResponse({ status: 400, error: { status: 400, code: 'branch_access_denied', traceId: 'trace-1' } })));
+
+    expect(text(el, '[role="alert"]')).toBe('You do not have access to that branch, or to the location you selected. (Ref: trace-1)');
+  });
+
+  it('shows the adjustment branch and stock location', () => {
+    const { el } = setup(of(detail()));
+
+    expect(text(el, '[data-testid="scope-branch"]')).toBe('Branch 1 (B1)');
+    expect(text(el, '[data-testid="scope-location"]')).toBe('Main Store (STORE)');
   });
 });

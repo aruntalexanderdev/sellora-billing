@@ -38,7 +38,7 @@ export const SALES_ROUTES: Routes = [
   },
   {
     path: 'van',
-    loadComponent: () => import('../../shared/ui/coming-soon/coming-soon').then((m) => m.ComingSoon),
+    loadComponent: () => import('./van/van-workspace/van-workspace').then((m) => m.VanWorkspace),
     canActivate: [permissionGuard('Sales.Create'), requiresBranchGuard],
     data: { group: 'Sales & Billing', page: 'Van workspace', requiresBranch: true },
   },

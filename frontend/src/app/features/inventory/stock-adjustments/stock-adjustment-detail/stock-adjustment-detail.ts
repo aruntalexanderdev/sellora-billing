@@ -3,6 +3,9 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { UiBadge } from '../../../../shared/ui/badge/badge';
 import { formatChainQuantity, formatQuantity } from '../../../../shared/units/unit-conversion';
+import { DocumentScope, type DocumentScopeItem } from '../../../../shared/scope/document-scope';
+import { placeLabel } from '../../../../shared/scope/list-scope';
+import { loadErrorText } from '../../../../shared/scope/problem-text';
 import { StockAdjustmentsService } from '../stock-adjustments.service';
 import type { StockAdjustmentDetail as StockAdjustmentDetailModel } from '../stock-adjustments.models';
 
@@ -12,7 +15,7 @@ const money = (n: number, maxDecimals = 2) =>
 @Component({
   selector: 'app-stock-adjustment-detail',
   standalone: true,
-  imports: [RouterLink, UiBadge, DatePipe],
+  imports: [RouterLink, UiBadge, DatePipe, DocumentScope],
   templateUrl: './stock-adjustment-detail.html',
   styleUrl: './stock-adjustment-detail.scss',
 })
@@ -22,6 +25,15 @@ export class StockAdjustmentDetail implements OnInit {
 
   readonly adjustment = signal<StockAdjustmentDetailModel | null>(null);
   readonly loading = signal(true);
+  readonly loadError = signal<string | null>(null);
+  readonly scopeItems = computed<DocumentScopeItem[]>(() => {
+    const a = this.adjustment();
+    if (!a) return [];
+    return [
+      { label: 'Branch', value: placeLabel(a.branchCode, a.branchName), testId: 'scope-branch' },
+      { label: 'Stock location', value: placeLabel(a.stockLocationCode, a.stockLocationName), testId: 'scope-location' },
+    ];
+  });
 
   readonly isIncrease = computed(() => this.adjustment()?.direction === 'Increase');
 
@@ -39,7 +51,10 @@ export class StockAdjustmentDetail implements OnInit {
         this.adjustment.set(a);
         this.loading.set(false);
       },
-      error: () => this.loading.set(false),
+      error: (err) => {
+        this.loadError.set(loadErrorText(err, 'Could not load this adjustment.'));
+        this.loading.set(false);
+      },
     });
   }
 }

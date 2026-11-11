@@ -1,0 +1,63 @@
+<div class="panel" role="group" [attr.aria-label]="title()" data-testid="van-wizard">
+  <h3>{{ title() }}</h3>
+  <p class="hint">
+    Creates a stock transfer and moves it along as far as your permissions allow:
+    @for (s of plan(); track s.label; let last = $last) {
+      <span [class.off]="!s.allowed" [attr.title]="s.allowed ? null : 'Needs ' + s.permission">{{ s.label }}</span>{{ last ? '.' : ' → ' }}
+    }
+    Steps you cannot perform are left for someone who can.
+  </p>
+
+  @if (result(); as r) {
+    <div class="result" data-testid="wizard-result">
+      @for (s of r.completed; track s) {
+        <div class="ok">✓ {{ stepLabel(s) }}</div>
+      }
+      @if (r.stoppedAt === null) {
+        <div class="ok" data-testid="wizard-done"><strong>Done:</strong> {{ r.transfer?.transferNo }} is complete.</div>
+      } @else if (r.reason === 'permission') {
+        <div class="stop" data-testid="wizard-stopped-permission">
+          Stopped before “{{ r.stoppedAt }}”: you do not have {{ r.missingPermission }}. {{ r.transfer?.transferNo }} is now {{ r.transfer?.status }}.
+        </div>
+      } @else if (r.reason === 'error') {
+        <div class="stop" data-testid="wizard-stopped-error">The “{{ r.stoppedAt }}” step failed. {{ r.transfer?.transferNo }} is {{ r.transfer?.status }}.</div>
+      } @else {
+        <div class="stop" data-testid="wizard-stopped-status">{{ r.transfer?.transferNo }} is {{ r.transfer?.status }}; finish it from the transfer screen.</div>
+      }
+      <div class="actions">
+        @if (r.transfer && canViewTransfers()) {
+          <a [routerLink]="['/inventory/stock-transfers', r.transfer.id]" class="link" data-testid="wizard-transfer-link">Open {{ r.transfer.transferNo }}</a>
+        }
+        @if (r.reason === 'error') {
+          <ui-button variant="primary" [disabled]="running()" (onClick)="retry()">Retry</ui-button>
+        }
+        <ui-button (onClick)="close()">Close</ui-button>
+      </div>
+    </div>
+  } @else {
+    @if (serverError(); as e) {
+      <div class="server-error" role="alert" data-testid="wizard-error">{{ e }}</div>
+    }
+    <form [formGroup]="form" (ngSubmit)="run()">
+      <label class="field-label">{{ counterpartLabel() }}</label>
+      <select formControlName="counterpartId" class="field-input" data-testid="wizard-counterpart">
+        <option value="" disabled>Select a location…</option>
+        @for (l of counterparts(); track l.id) {
+          <option [value]="l.id">{{ l.name }} ({{ l.code }})</option>
+        }
+      </select>
+      @if (form.controls.counterpartId.errors?.['server']; as e) {
+        <div class="field-error">{{ e }}</div>
+      } @else if (form.controls.counterpartId.touched && form.controls.counterpartId.errors?.['required']) {
+        <div class="field-error">Select a location.</div>
+      }
+
+      <h4>Items</h4>
+      <app-transfer-lines-editor [lines]="form.controls.lines" />
+      <div class="actions">
+        <ui-button type="submit" variant="primary" [disabled]="running()">{{ running() ? 'Working…' : mode() === 'load' ? 'Load vehicle' : 'Unload vehicle' }}</ui-button>
+        <ui-button (onClick)="close()">Cancel</ui-button>
+      </div>
+    </form>
+  }
+</div>

@@ -1,3 +1,5 @@
+import type { BranchFields, LocationFields } from '../../shared/scope/scope.models';
+
 export type SalesStatus = 'Completed' | 'Cancelled';
 export type PaymentStatus = 'Due' | 'PartiallyPaid' | 'Paid';
 export type PaymentMethod = 'Cash' | 'Upi' | 'Card' | 'Credit' | 'BankTransfer';
@@ -47,7 +49,7 @@ export interface SaleCatalogProduct {
   units: SaleCatalogUnit[];
 }
 
-export interface SalesInvoiceListItem {
+export interface SalesInvoiceListItem extends BranchFields, LocationFields {
   id: string;
   invoiceNo: string;
   customerName: string;
@@ -123,7 +125,7 @@ export interface SalesReturnSummary {
   refundedAmount: number;
 }
 
-export interface SalesInvoiceDetail {
+export interface SalesInvoiceDetail extends BranchFields, LocationFields {
   id: string;
   invoiceNo: string;
   customerId: string;
@@ -147,6 +149,8 @@ export interface SalesInvoiceDetail {
   netTotal: number;
   refundableAmount: number;
   returns: SalesReturnSummary[];
+  /** Seller GSTIN snapshot (null for legacy invoices / unregistered branches). */
+  sellerGstin: string | null;
 }
 
 export interface CreateSaleLineRequest {
@@ -165,6 +169,8 @@ export interface CreateSaleRequest {
   paymentMethod: PaymentMethod;
   paidAmount: number;
   accountId?: string | null;
+  /** Selling location; omitted/null = the working branch's default store. */
+  stockLocationId?: string | null;
   lines: CreateSaleLineRequest[];
 }
 
@@ -195,7 +201,7 @@ export interface CreateSaleReturnRequest {
   refund?: RefundDetails | null;
 }
 
-export interface SalesReturnListItem {
+export interface SalesReturnListItem extends BranchFields, LocationFields {
   id: string;
   returnNo: string;
   returnDate: string;
@@ -220,7 +226,7 @@ export interface SalesReturnLine {
   lineTotal: number;
 }
 
-export interface SalesReturnDetail {
+export interface SalesReturnDetail extends BranchFields, LocationFields {
   id: string;
   returnNo: string;
   returnDate: string;

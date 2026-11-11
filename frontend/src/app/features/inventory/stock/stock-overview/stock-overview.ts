@@ -1,5 +1,7 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { LocationSelect } from '../../../../shared/locations/location-select';
+import { formatQuantity } from '../../../../shared/units/unit-conversion';
 import { UiDataTable } from '../../../../shared/ui/data-table/data-table';
 import type { DataTableColumn, DataTableRow, DataTableState } from '../../../../shared/ui/data-table/data-table.types';
 import { AuthService } from '../../../../core/auth/auth.service';
@@ -9,6 +11,7 @@ import type { StockOverviewItem } from '../stock.models';
 const COLS: DataTableColumn[] = [
   { label: 'Item', align: 'left' },
   { label: 'Unit', align: 'left' },
+  { label: 'Location', align: 'left' },
   { label: 'Available qty', align: 'right' },
   { label: 'Avg. cost', align: 'right' },
   { label: 'Stock value', align: 'right' },
@@ -19,10 +22,19 @@ const COLS: DataTableColumn[] = [
 const INR = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
 const PAGE_SIZE = 20;
 
+/** Per-location data exists only when the server sends `locations[]`; one row shows its code, several show a count. */
+export function locationText(p: StockOverviewItem): string {
+  const l = p.locations ?? [];
+  if (l.length === 0) return '—';
+  const one = l.length === 1 ? l[0] : null;
+  if (one) return one.type === 'Transit' ? `${one.code} (in transit)` : one.code;
+  return `${l.length} locations`;
+}
+
 @Component({
   selector: 'app-stock-overview',
   standalone: true,
-  imports: [UiDataTable],
+  imports: [UiDataTable, LocationSelect],
   templateUrl: './stock-overview.html',
   styleUrl: '../../../administration/users/user-list/user-list.scss',
 })
@@ -30,10 +42,13 @@ export class StockOverview implements OnInit {
   private readonly stockService = inject(StockService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   readonly cols = COLS;
   readonly search = signal('');
   readonly page = signal(1);
+  /** Location filter (null = all visible locations). */
+  readonly locationId = signal<string | null>(null);
   readonly state = signal<DataTableState>('loading');
   readonly items = signal<StockOverviewItem[]>([]);
   readonly total = signal(0);
@@ -48,7 +63,8 @@ export class StockOverview implements OnInit {
       cells: [
         { kind: 'link', text: p.name, onClick: () => this.router.navigate(['/inventory/stock', p.productId]) },
         { kind: 'text', text: p.baseUnitLabel, color: 'var(--color-text-muted)' },
-        { kind: 'text', text: p.quantityOnHand.toFixed(2), align: 'right', weight: '600' },
+        { kind: 'text', text: locationText(p), color: 'var(--color-text-muted)' },
+        { kind: 'text', text: formatQuantity(p.quantityOnHand, 0), align: 'right', weight: '600' },
         { kind: 'text', text: INR(p.averageCost), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(p.stockValue), align: 'right', weight: '650' },
         {
@@ -72,12 +88,22 @@ export class StockOverview implements OnInit {
   );
 
   ngOnInit(): void {
+    const wanted = this.route.snapshot.queryParamMap.get('stockLocationId');
+    if (wanted) this.locationId.set(wanted);
     this.load();
   }
 
   onSearch(value: string): void {
     this.search.set(value);
     this.page.set(1);
+    this.load();
+  }
+
+  onLocationChange(id: string | null): void {
+    if (id === this.locationId()) return;
+    this.locationId.set(id);
+    this.page.set(1);
+    this.router.navigate([], { relativeTo: this.route, queryParams: { stockLocationId: id }, queryParamsHandling: 'merge', replaceUrl: true });
     this.load();
   }
 
@@ -92,7 +118,7 @@ export class StockOverview implements OnInit {
 
   private load(): void {
     this.state.set('loading');
-    this.stockService.overview({ search: this.search(), page: this.page(), pageSize: PAGE_SIZE }).subscribe({
+    this.stockService.overview({ search: this.search(), page: this.page(), pageSize: PAGE_SIZE, stockLocationId: this.locationId() }).subscribe({
       next: (res) => {
         this.items.set(res.items);
         this.total.set(res.total);

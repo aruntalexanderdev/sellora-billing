@@ -8,8 +8,23 @@
   }
 </div>
 
+<app-load-error [message]="errorMessage()" />
+
+@if (showBranch() || showLocation()) {
+  <div class="report-filters">
+    <app-scope-filters
+      [showBranch]="showBranch()"
+      [showLocation]="showLocation()"
+      [branchId]="branchId()"
+      (branchIdChange)="onBranchChange($event)"
+      [stockLocationId]="stockLocationId()"
+      (stockLocationIdChange)="onLocationChange($event)"
+    />
+  </div>
+}
+
 <ui-data-table
-  [cols]="cols"
+  [cols]="cols()"
   [rows]="rows()"
   [state]="state()"
   [showSearch]="true"

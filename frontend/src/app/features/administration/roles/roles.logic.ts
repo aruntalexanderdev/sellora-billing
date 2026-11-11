@@ -11,6 +11,7 @@ export const BRANCH_ELIGIBLE_CODES: ReadonlySet<string> = new Set([
   'Inventory.Adjust', 'StockLocations.View', 'Inventory.View',
   'StockTransfers.View', 'StockTransfers.Create', 'StockTransfers.Approve', 'StockTransfers.Dispatch', 'StockTransfers.Receive', 'StockTransfers.Cancel',
   'Expenses.View', 'Expenses.Create', 'Expenses.Edit', 'Expenses.Cancel',
+  'Customers.View',
   'Reports.Sales', 'Reports.Purchase', 'Reports.Stock', 'Reports.Movement',
   'Branch.Roles.View', 'Branch.Roles.Manage', 'Branch.Users.AssignRoles',
 ]);

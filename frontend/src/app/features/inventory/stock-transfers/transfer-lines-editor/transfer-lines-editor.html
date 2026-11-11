@@ -1,0 +1,47 @@
+<div class="lines" data-testid="lines-editor">
+  @for (row of lines().controls; track row; let i = $index) {
+    <div class="line-row" [formGroup]="row">
+      <div class="cell product">
+        <label class="field-label">Product</label>
+        <select formControlName="productId" class="field-input" [attr.data-testid]="'line-product-' + i">
+          <option value="" disabled>Select a product…</option>
+          @for (p of pickerProducts(); track p.id) {
+            <option [value]="p.id">{{ p.name }} ({{ p.sku }})</option>
+          }
+          @if (row.controls.productId.value && !pickerProducts().some(p => p.id === row.controls.productId.value)) {
+            <option [value]="row.controls.productId.value">Selected product</option>
+          }
+        </select>
+        @if (error(row, 'productId'); as msg) {
+          <div class="field-error">{{ msg }}</div>
+        }
+      </div>
+      <div class="cell">
+        <label class="field-label">Unit</label>
+        <select formControlName="productUnitId" class="field-input" [attr.data-testid]="'line-unit-' + i">
+          @if (unitsFor(row).length === 0) {
+            <option value="" disabled>Select a product first…</option>
+          }
+          @for (u of unitsFor(row); track u.id) {
+            <option [value]="u.id">{{ u.displayName }} ({{ u.unitCode }})</option>
+          }
+        </select>
+        @if (error(row, 'productUnitId'); as msg) {
+          <div class="field-error">{{ msg }}</div>
+        }
+      </div>
+      <div class="cell">
+        <label class="field-label">Quantity</label>
+        <input type="number" formControlName="quantity" class="field-input" [step]="step(row)" [attr.data-testid]="'line-qty-' + i" />
+        @if (preview(row); as p) {
+          <div class="field-hint">{{ p }}</div>
+        }
+        @if (error(row, 'quantity'); as msg) {
+          <div class="field-error" [attr.data-testid]="'line-qty-error-' + i">{{ msg }}</div>
+        }
+      </div>
+      <button type="button" class="remove" [disabled]="lines().length <= 1" [attr.aria-label]="'Remove line ' + (i + 1)" (click)="remove(i)">✕</button>
+    </div>
+  }
+  <button type="button" class="add" data-testid="add-line" (click)="add()">+ Add line</button>
+</div>

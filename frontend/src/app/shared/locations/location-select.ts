@@ -19,7 +19,7 @@ import { StockLocationsService } from './stock-locations.service';
           <option value="">{{ allLabel() }}</option>
         }
         @for (l of locations(); track l.id) {
-          <option [value]="l.id">{{ l.name }} ({{ l.code }})</option>
+          <option [value]="l.id" [selected]="l.id === value()">{{ l.name }} ({{ l.code }})</option>
         }
       </select>
     }

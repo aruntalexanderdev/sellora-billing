@@ -6,7 +6,7 @@ interface ActivePicker {
   resolve: (branchId: string | null) => void;
 }
 
-/** D13: asks the user to pick a working branch (resolves the branch id, or null when cancelled). Rendered by the shell's host. */
+/** D13: asks the user to pick a working branch (resolves the branch id, or null when cancelled). Rendered by the host mounted at the app root. */
 @Injectable({ providedIn: 'root' })
 export class BranchPickerService {
   private readonly _active = signal<ActivePicker | null>(null);

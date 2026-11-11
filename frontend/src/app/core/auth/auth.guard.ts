@@ -66,7 +66,7 @@ export function governanceGuard(governanceCode?: string): CanActivateFn {
 /**
  * D13: routes that create or change documents carry `data.requiresBranch`. In All-branches mode (no X-Branch-Id, so a
  * write would silently land on the primary branch) the user must pick a branch first; picking one switches the working
- * branch and re-runs the navigation, cancelling the picker cancels the navigation.
+ * branch and re-runs the navigation, cancelling the picker cancels the navigation (on the initial navigation it lands on /dashboard instead of a blank page).
  */
 export const requiresBranchGuard: CanActivateFn = async (route, state) => {
   if (route.data?.['requiresBranch'] !== true) return true;
@@ -85,7 +85,9 @@ export const requiresBranchGuard: CanActivateFn = async (route, state) => {
   }
 
   const branchId = await picker.pick([...context.allowedBranches()]);
-  if (!branchId) return false;
-  if (!(await context.switchBranch(branchId, { reroute: false }))) return false;
+  // Initial navigation (deep link / reload): cancelling must not leave a blank page, so land on the dashboard.
+  const cancelled = () => (router.navigated ? false : router.createUrlTree(['/dashboard']));
+  if (!branchId) return cancelled();
+  if (!(await context.switchBranch(branchId, { reroute: false }))) return cancelled();
   return router.parseUrl(state.url); // re-run every guard with the branch-scoped permissions
 };

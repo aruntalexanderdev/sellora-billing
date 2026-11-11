@@ -24,4 +24,12 @@ describe('stock-movement helpers', () => {
     expect(enteredLabel({ enteredQuantity: -1.5, enteredUnitCode: 'KG', conversionFactorSnapshot: 1, enteredDecimalPlaces: 3 })).toBe('1.500 KG');
     expect(enteredLabel({ enteredQuantity: null, enteredUnitCode: 'BOX', conversionFactorSnapshot: 10 })).toBe('in BOX');
   });
+
+  it('covers transfer movements', () => {
+    expect(STOCK_MOVEMENT_TYPES).toEqual(expect.arrayContaining(['TransferOut', 'TransferIn']));
+    expect(movementTypeLabel('TransferOut')).toBe('Transfer out');
+    expect(movementTypeLabel('TransferIn')).toBe('Transfer in');
+    expect(movementTone('TransferOut')).toBe('info');
+    expect(movementTone('TransferIn')).toBe('good');
+  });
 });

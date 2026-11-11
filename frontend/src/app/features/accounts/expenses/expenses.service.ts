@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
+import { primaryLoad } from '../../../core/http/request-context';
 import type { PagedResult } from '../../../core/api.models';
 import type {
   CreateExpenseRequest,
@@ -19,6 +20,7 @@ export interface ExpenseListQuery {
   search?: string;
   categoryId?: string;
   status?: ExpenseStatus;
+  branchId?: string | null;
   page?: number;
   pageSize?: number;
 }
@@ -32,11 +34,12 @@ export class ExpensesService {
     if (query.search) params['search'] = query.search;
     if (query.categoryId) params['categoryId'] = query.categoryId;
     if (query.status) params['status'] = query.status;
+    if (query.branchId) params['branchId'] = query.branchId;
     return this.http.get<PagedResult<ExpenseListItem>>(BASE_URL, { params });
   }
 
   get(id: string): Observable<ExpenseDetail> {
-    return this.http.get<ExpenseDetail>(`${BASE_URL}/${id}`);
+    return this.http.get<ExpenseDetail>(`${BASE_URL}/${id}`, { context: primaryLoad() });
   }
 
   create(request: CreateExpenseRequest): Observable<ExpenseDetail> {

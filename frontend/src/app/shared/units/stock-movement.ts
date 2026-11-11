@@ -10,6 +10,8 @@ export const STOCK_MOVEMENT_TYPES = [
   'SaleCancellation',
   'PurchaseCancellation',
   'OpeningStock',
+  'TransferOut',
+  'TransferIn',
 ] as const;
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
 
@@ -35,6 +37,8 @@ const TONES: Record<StockMovementType, MovementTone> = {
   PurchaseReturn: 'info',
   PurchaseCancellation: 'warn',
   Adjustment: 'warn',
+  TransferOut: 'info',
+  TransferIn: 'good',
 };
 
 const TYPE_LABELS: Record<StockMovementType, string> = {
@@ -46,6 +50,8 @@ const TYPE_LABELS: Record<StockMovementType, string> = {
   SaleCancellation: 'Sale cancellation',
   PurchaseCancellation: 'Purchase cancellation',
   OpeningStock: 'Opening stock',
+  TransferOut: 'Transfer out',
+  TransferIn: 'Transfer in',
 };
 
 export function movementTone(type: StockMovementType): MovementTone {

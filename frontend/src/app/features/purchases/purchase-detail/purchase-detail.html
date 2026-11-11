@@ -33,6 +33,15 @@
     }
   </div>
 
+  <app-document-scope [items]="scopeItems()" />
+
+  @if (p.status === 'Completed') {
+    <div class="status-row no-print" data-testid="return-location">
+      <span class="muted">Returnable quantity measured at</span>
+      <app-location-select purpose="filter" allLabel="Purchase location" label="Returnable location" [branchId]="p.branchId" [value]="returnLocationId()" (valueChange)="onReturnLocationChange($event)" />
+    </div>
+  }
+
   @if (p.currencyCode !== p.baseCurrencyCode) {
     <div class="fx-card">
       <div><span class="fx-label">Original amount</span><strong>{{ original(p.originalGrandTotal) }} {{ p.currencyCode }}</strong></div>
@@ -211,6 +220,7 @@
             <th class="num">Rate</th>
             <th class="num">Tax</th>
             <th>Batch</th>
+            <th>Stock held at</th>
             <th class="num">Line total</th>
           </tr>
         </thead>
@@ -227,6 +237,14 @@
                   <span class="strong">{{ line.internalBatchNo }}</span>
                   <span class="muted"> · {{ line.supplierBatchNumber ?? 'no supplier batch no.' }}</span>
                 }
+              </td>
+              <td data-testid="location-balances">
+                @for (b of line.locationBalances ?? []; track b.stockLocationId) {
+                  <div><span>{{ b.name }} ({{ b.code }})</span>&ngsp;<span class="muted">{{ formatQuantity(b.baseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }}</span></div>
+                } @empty {
+                  <span class="muted">—</span>
+                }
+                <div class="muted">Returnable: {{ formatQuantity(line.returnableBaseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }}</div>
               </td>
               <td class="num strong">{{ base(line.lineTotal) }}</td>
             </tr>
@@ -355,5 +373,5 @@
     }
   </div>
 } @else if (!loading()) {
-  <div class="not-found">Purchase not found.</div>
+  <div class="not-found" [attr.role]="loadError() ? 'alert' : null">{{ loadError() ?? 'Purchase not found.' }}</div>
 }

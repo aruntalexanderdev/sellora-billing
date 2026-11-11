@@ -1,3 +1,4 @@
+import type { OptionalBranchFields } from '../../../shared/scope/scope.models';
 import type { PaymentMethod } from '../../purchases/purchases.models';
 
 export type { PaymentMethod };
@@ -9,7 +10,7 @@ export interface ExpenseCategory {
   isActive: boolean;
 }
 
-export interface ExpenseListItem {
+export interface ExpenseListItem extends OptionalBranchFields {
   id: string;
   expenseNo: string;
   expenseDate: string;
@@ -22,7 +23,7 @@ export interface ExpenseListItem {
   status: ExpenseStatus;
 }
 
-export interface ExpenseDetail {
+export interface ExpenseDetail extends OptionalBranchFields {
   id: string;
   expenseNo: string;
   expenseDate: string;

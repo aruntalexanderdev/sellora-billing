@@ -17,6 +17,8 @@
     <ui-badge [text]="a.direction" [tone]="isIncrease() ? 'good' : 'bad'" />
   </div>
 
+  <app-document-scope [items]="scopeItems()" />
+
   <div class="summary-grid">
     <div class="summary-card">
       <div class="summary-label">Entered</div>
@@ -87,5 +89,5 @@
     }
   </div>
 } @else if (!loading()) {
-  <div class="not-found">Adjustment not found.</div>
+  <div class="not-found" [attr.role]="loadError() ? 'alert' : null">{{ loadError() ?? 'Adjustment not found.' }}</div>
 }

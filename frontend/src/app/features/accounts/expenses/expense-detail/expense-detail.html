@@ -15,6 +15,8 @@
     </div>
   </div>
 
+  <app-document-scope [items]="scopeItems()" />
+
   <div class="status-row">
     <ui-badge [text]="e.status" [tone]="e.status === 'Active' ? 'good' : 'mute'" />
     @if (e.status === 'Cancelled') {
@@ -92,5 +94,5 @@
     </div>
   </div>
 } @else if (!loading()) {
-  <div class="not-found">Expense not found.</div>
+  <div class="not-found" [attr.role]="loadError() ? 'alert' : null">{{ loadError() ?? 'Expense not found.' }}</div>
 }

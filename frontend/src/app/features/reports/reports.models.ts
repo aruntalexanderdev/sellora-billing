@@ -1,3 +1,4 @@
+import type { BranchFields, LocationFields } from '../../shared/scope/scope.models';
 export type StockStatus = 'Normal' | 'Low' | 'OutOfStock';
 import type { StockMovementType, StockReasonCode } from '../../shared/units/stock-movement';
 
@@ -20,7 +21,7 @@ export interface CurrentStockReportRow {
   status: StockStatus;
 }
 
-export interface StockMovementReportRow {
+export interface StockMovementReportRow extends LocationFields {
   id: string;
   occurredAt: string;
   productName: string;
@@ -38,9 +39,11 @@ export interface StockMovementReportRow {
   conversionFactorSnapshot: number | null;
   enteredDecimalPlaces: number | null;
   baseDecimalPlaces: number;
+  /** Source document id (additive G2); set for StockTransfer movements. */
+  referenceId?: string | null;
 }
 
-export interface PurchaseReportRow {
+export interface PurchaseReportRow extends BranchFields {
   id: string;
   purchaseNo: string;
   purchaseDate: string;
@@ -56,7 +59,7 @@ export interface PurchaseReportRow {
   originalGrandTotal: number;
 }
 
-export interface SalesReportRow {
+export interface SalesReportRow extends BranchFields {
   id: string;
   invoiceNo: string;
   invoiceDate: string;
@@ -78,4 +81,5 @@ export interface ProfitSummary {
   costOfGoodsSold: number;
   grossProfit: number;
   grossMarginPercent: number | null;
+  branchId?: string | null;
 }

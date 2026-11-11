@@ -12,6 +12,7 @@ public class PermissionScopeCatalogueTests
         "Inventory.Adjust", "StockLocations.View", "Inventory.View",
         "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.Cancel",
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
+        "Customers.View",
         "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",
         "Branch.Roles.View", "Branch.Roles.Manage", "Branch.Users.AssignRoles",
     ];
@@ -31,6 +32,14 @@ public class PermissionScopeCatalogueTests
     public void Phase8StockReadCodes_AreBranchEligible(string code)
     {
         Assert.Equal(PermissionScope.CompanyOrBranch, PermissionCatalog.ScopeOf(code));
+    }
+
+    [Fact]
+    public void Phase11D15_CustomersView_IsBranchEligible_ButCustomerWritesStayCompanyOnly()
+    {
+        Assert.Equal(PermissionScope.CompanyOrBranch, PermissionCatalog.ScopeOf("Customers.View"));
+        Assert.All(PermissionCatalog.All.Where(p => p.Code.StartsWith("Customers.", StringComparison.Ordinal) && p.Code != "Customers.View"),
+            p => Assert.Equal(PermissionScope.CompanyOnly, p.Scope));
     }
 
     [Fact]

@@ -1,7 +1,7 @@
 <div class="page-head">
   <div>
     <h1>Stock movement report</h1>
-    <p>Every purchase, sale and adjustment that changed stock, in one ledger.</p>
+    <p>Every purchase, sale, adjustment and transfer that changed stock, in one ledger.</p>
   </div>
 </div>
 
@@ -24,13 +24,16 @@
       (change)="onDateToChange($any($event.target).value)"
     />
   </div>
+  <app-scope-filters [showBranch]="false" [showLocation]="showLocation()" [stockLocationId]="stockLocationId()" (stockLocationIdChange)="onLocationChange($event)" />
   @if (hasDateFilter()) {
     <button type="button" class="report-filter-clear" (click)="clearDates()">Clear dates</button>
   }
 </div>
 
+<app-load-error [message]="errorMessage()" />
+
 <ui-data-table
-  [cols]="cols"
+  [cols]="cols()"
   [rows]="rows()"
   [state]="state()"
   [showSearch]="true"

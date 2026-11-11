@@ -1,9 +1,16 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { newIdempotencyKey } from '../../../core/idempotency';
+import { IdempotentSubmission } from '../../../core/idempotency';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormArray, FormBuilder, FormGroup, FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { LocationSelect } from '../../../shared/locations/location-select';
+import { isEligibleLocation } from '../../../shared/locations/locations.models';
+import { StockLocationsService } from '../../../shared/locations/stock-locations.service';
+import { splitLocationError } from '../../../shared/locations/location-errors';
+import { ConfirmDialogService } from '../../../shared/ui/confirm-dialog/confirm-dialog.service';
+import { ContextService } from '../../../core/context/context.service';
+import { problemMessage } from '../../../core/http/api-errors';
 import { UiButton } from '../../../shared/ui/button/button';
 import { ToastService } from '../../../shared/ui/toast/toast.service';
 import { SalesService } from '../sales.service';
@@ -54,19 +61,23 @@ const EMPTY_PREVIEW: LinePreview = {
 @Component({
   selector: 'app-pos',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton],
+  imports: [ReactiveFormsModule, RouterLink, UiButton, LocationSelect],
   templateUrl: './pos.html',
   styleUrl: './pos.scss',
 })
 export class Pos implements OnInit, HasUnsavedChanges {
   private readonly fb = inject(FormBuilder);
   // One key per sale, so a double-tap on Complete can't sell the stock twice.
-  private readonly idempotencyKey = newIdempotencyKey();
+  private readonly submission = new IdempotentSubmission();
   private readonly salesService = inject(SalesService);
   private readonly customersService = inject(CustomersService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly stockLocations = inject(StockLocationsService);
   private readonly auth = inject(AuthService);
+  private readonly context = inject(ContextService);
+  private readonly confirmDialog = inject(ConfirmDialogService);
 
   /** Only holders of Sales.PriceOverride may change a price or discount; everyone else charges the list price. */
   readonly canOverridePrice = computed(() => this.auth.hasPermission('Sales.PriceOverride'));
@@ -74,7 +85,17 @@ export class Pos implements OnInit, HasUnsavedChanges {
   readonly quantityStep = quantityStep;
 
   private readonly cashBank = inject(CashBankService);
-  readonly accountOptions = signal<AccountOption[]>([]);
+  private readonly allAccountOptions = signal<AccountOption[]>([]);
+  /** Accounts usable for this sale: company-level ones plus those of the working branch. */
+  readonly accountOptions = computed(() => {
+    const branchId = this.context.workingBranch()?.id ?? null;
+    return this.allAccountOptions().filter((a) => !a.branchId || a.branchId === branchId);
+  });
+  /** Selling location (null = server default: the working branch's store). Bound to the picker, which is hidden unless O5 holds. */
+  readonly locationId = signal<string | null>(null);
+  readonly locationError = signal<string | null>(null);
+  private committedLocation: string | null = null;
+  private catalogSeq = 0;
   readonly paymentMethods: PaymentMethod[] = ['Cash', 'Upi', 'Card', 'Credit', 'BankTransfer'];
   readonly customers = signal<CustomerItem[]>([]);
   readonly catalog = signal<SaleCatalogProduct[]>([]);
@@ -199,8 +220,8 @@ export class Pos implements OnInit, HasUnsavedChanges {
   ngOnInit(): void {
     this.cashBank.options().subscribe({
       next: (o) => {
-        this.accountOptions.set(o);
-        this.form.patchValue({ accountId: defaultAccountId(o, this.form.controls.paymentMethod.value) });
+        this.allAccountOptions.set(o);
+        this.form.patchValue({ accountId: defaultAccountId(this.accountOptions(), this.form.controls.paymentMethod.value) });
         this.form.controls.accountId.markAsPristine();
       },
     });
@@ -215,7 +236,66 @@ export class Pos implements OnInit, HasUnsavedChanges {
         if (walkIn) this.form.controls.customerId.setValue(walkIn.id);
       },
     });
-    this.salesService.catalog().subscribe({ next: (res) => this.catalog.set(res) });
+    this.preselectLocation();
+  }
+
+  /**
+   * `?locationId=` (from the van workspace) preselects the selling location when it is an eligible, visible sale location;
+   * anything else is ignored silently and the server default stays. The catalog loads once the choice is known.
+   */
+  private preselectLocation(): void {
+    const wanted = this.route.snapshot.queryParamMap.get('locationId');
+    if (!wanted || !this.auth.hasPermission('StockLocations.View')) {
+      this.loadCatalog();
+      return;
+    }
+    this.stockLocations.list().subscribe({
+      next: (all) => {
+        if (all.some((l) => l.id === wanted && l.isActive && isEligibleLocation(l, 'sale'))) {
+          this.committedLocation = wanted;
+          this.locationId.set(wanted);
+        }
+        this.loadCatalog();
+      },
+      error: () => this.loadCatalog(),
+    });
+  }
+
+  /** Loads the catalog at the selling location; a stale response (location changed meanwhile) is dropped. */
+  private loadCatalog(): void {
+    const seq = ++this.catalogSeq;
+    this.salesService.catalog(undefined, this.committedLocation).subscribe({
+      next: (res) => {
+        if (seq === this.catalogSeq) this.catalog.set(res);
+      },
+    });
+  }
+
+  /**
+   * Picker change. Availability and prices are per location, so with items in the cart the user must confirm; the cart is then
+   * cleared. Declining puts the picker back on the committed location.
+   */
+  async onLocationChange(next: string | null): Promise<void> {
+    this.locationId.set(next);
+    if (next === this.committedLocation) return;
+    this.locationError.set(null);
+    if (this.lines.length > 0) {
+      const ok = await this.confirmDialog.ask({
+        title: 'Change selling location?',
+        body: 'Stock availability is per location, so the items in the cart will be cleared.',
+        confirmLabel: 'Change and clear cart',
+        destructive: true,
+      });
+      if (!ok) {
+        this.locationId.set(this.committedLocation);
+        return;
+      }
+      this.lines.clear();
+    }
+    this.committedLocation = next;
+    // The old list belongs to the previous location: nothing may be added from it while the new one loads.
+    this.catalog.set([]);
+    this.loadCatalog();
   }
 
   addToCart(product: SaleCatalogProduct): void {
@@ -257,7 +337,7 @@ export class Pos implements OnInit, HasUnsavedChanges {
     event?.preventDefault();
     const code = this.productQuery().trim();
     if (!code) return;
-    this.salesService.lookupBarcode(code).subscribe({
+    this.salesService.lookupBarcode(code, this.committedLocation).subscribe({
       next: (match) => {
         this.catalog.update((c) =>
           c.some((p) => p.productId === match.product.productId)
@@ -321,7 +401,7 @@ export class Pos implements OnInit, HasUnsavedChanges {
       this.lines.controls.map((r) => this.catalog().find((p) => p.productId === r.controls.productId.value)?.sku).filter((s): s is string => !!s),
     );
     for (const sku of skus) {
-      this.salesService.catalog(sku).subscribe({
+      this.salesService.catalog(sku, this.committedLocation).subscribe({
         next: (fresh) => {
           for (const product of fresh.filter((p) => p.sku === sku)) {
             for (const row of this.lines.controls.filter((r) => r.controls.productId.value === product.productId)) {
@@ -362,13 +442,13 @@ export class Pos implements OnInit, HasUnsavedChanges {
 
     this.saving.set(true);
     const v = this.form.getRawValue();
-    this.salesService
-      .create({
+    const body = {
         customerId: v.customerId,
         invoiceDate: v.invoiceDate,
         paymentMethod: v.paymentMethod,
         paidAmount: v.paidAmount,
         accountId: v.accountId || null,
+        stockLocationId: this.committedLocation,
         lines: v.lines.map((l) => ({
           productId: l.productId,
           productUnitId: l.productUnitId,
@@ -377,7 +457,9 @@ export class Pos implements OnInit, HasUnsavedChanges {
           discount: l.discount,
           overridePrice: this.canOverridePrice() && needsPriceOverride(l.unitPrice, this.unitPriceOf(l.productId, l.productUnitId), l.discount),
         })),
-      }, this.idempotencyKey)
+      };
+    this.salesService
+      .create(body, this.submission.keyFor(body))
       .subscribe({
         next: (invoice) => {
           this.saving.set(false);
@@ -387,9 +469,10 @@ export class Pos implements OnInit, HasUnsavedChanges {
         },
         error: (err: HttpErrorResponse) => {
           this.saving.set(false);
-          const problem = err.error as ApiProblem | undefined;
+          const { locationError, rest } = splitLocationError(err.error as ApiProblem | undefined);
+          if (locationError) this.locationError.set(locationError);
           // Field errors (key "Lines") carry the specific message; the ProblemDetails title is generic.
-          const message = Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Something went wrong.';
+          const message = Object.values(rest?.errors ?? {})[0]?.[0] ?? locationError ?? problemMessage(rest, 'Something went wrong.');
           this.serverError.set(message);
           if (/price of .* is now/i.test(message)) this.refreshPrices();
         },

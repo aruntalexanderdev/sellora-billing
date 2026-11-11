@@ -1,10 +1,15 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { UiDataTable } from '../../../shared/ui/data-table/data-table';
 import type { DataTableColumn, DataTableFilter, DataTableRow, DataTableState } from '../../../shared/ui/data-table/data-table.types';
+import { problemMessage, toProblem } from '../../../core/http/api-errors';
+import { LoadError } from '../../../shared/scope/load-error';
+import { ScopeFilters } from '../../../shared/scope/scope-filters';
+import { formatQuantity } from '../../../shared/units/unit-conversion';
+import { AuthService } from '../../../core/auth/auth.service';
 import { ReportsService } from '../reports.service';
 import type { CurrentStockReportRow, StockStatus } from '../reports.models';
 
-const COLS: DataTableColumn[] = [
+const BASE_COLS: DataTableColumn[] = [
   { label: 'Item', align: 'left' },
   { label: 'Unit', align: 'left' },
   { label: 'Current qty', align: 'right' },
@@ -21,14 +26,19 @@ const PAGE_SIZE = 20;
 @Component({
   selector: 'app-current-stock-report',
   standalone: true,
-  imports: [UiDataTable],
+  imports: [UiDataTable, ScopeFilters, LoadError],
   templateUrl: './current-stock-report.html',
   styleUrl: '../report-list.scss',
 })
 export class CurrentStockReport implements OnInit {
   private readonly reportsService = inject(ReportsService);
 
-  readonly cols = COLS;
+  private readonly auth = inject(AuthService);
+
+  readonly cols = BASE_COLS;
+  readonly showLocation = computed(() => this.auth.hasPermission('StockLocations.View'));
+  readonly stockLocationId = signal<string | null>(null);
+  readonly errorMessage = signal<string | null>(null);
   readonly search = signal('');
   readonly category = signal(ALL);
   readonly status = signal<'All' | StockStatus>(ALL);
@@ -50,7 +60,7 @@ export class CurrentStockReport implements OnInit {
       cells: [
         { kind: 'text', text: r.name, sub: r.sku, weight: '600' },
         { kind: 'text', text: r.baseUnitLabel, color: 'var(--color-text-muted)' },
-        { kind: 'text', text: r.quantityOnHand.toFixed(2), align: 'right', weight: '600' },
+        { kind: 'text', text: formatQuantity(r.quantityOnHand, 0), align: 'right', weight: '600' },
         { kind: 'text', text: INR(r.averageCost), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(r.stockValue), align: 'right', weight: '650' },
         { kind: 'text', text: r.sellingValue === null ? '—' : INR(r.sellingValue), align: 'right', color: 'var(--color-text-muted)' },
@@ -86,6 +96,12 @@ export class CurrentStockReport implements OnInit {
     this.load();
   }
 
+  onLocationChange(value: string | null): void {
+    this.stockLocationId.set(value);
+    this.page.set(1);
+    this.load();
+  }
+
   onPageChange(page: number): void {
     this.page.set(page);
     this.load();
@@ -97,6 +113,7 @@ export class CurrentStockReport implements OnInit {
 
   private load(): void {
     this.state.set('loading');
+    this.errorMessage.set(null);
     const category = this.category();
     const status = this.status();
     this.reportsService
@@ -104,6 +121,7 @@ export class CurrentStockReport implements OnInit {
         search: this.search(),
         category: category === ALL ? undefined : category,
         status: status === ALL ? undefined : status,
+        stockLocationId: this.stockLocationId(),
         page: this.page(),
         pageSize: PAGE_SIZE,
       })
@@ -113,7 +131,10 @@ export class CurrentStockReport implements OnInit {
           this.total.set(res.total);
           this.state.set('ready');
         },
-        error: () => this.state.set('error'),
+        error: (err) => {
+          this.errorMessage.set(problemMessage(toProblem(err)));
+          this.state.set('error');
+        },
       });
   }
 }

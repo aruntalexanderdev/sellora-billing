@@ -1,3 +1,5 @@
+import type { BranchFields, LocationFields } from '../../../shared/scope/scope.models';
+
 /** Mirrors backend `AdjustmentType` (string enum). */
 export type AdjustmentType = 'Damage' | 'Loss' | 'Correction' | 'Expiry' | 'OpeningStock';
 /** Mirrors backend `AdjustmentDirection` (string enum). */
@@ -15,10 +17,12 @@ export interface CreateStockAdjustmentRequest {
   quantity: number;
   unitCost?: number | null;
   reason?: string | null;
+  /** Adjusted location; omitted/null = the working branch's default store. */
+  stockLocationId?: string | null;
 }
 
 /** Mirrors backend `StockAdjustmentListItemDto`. */
-export interface StockAdjustmentListItem {
+export interface StockAdjustmentListItem extends BranchFields, LocationFields {
   id: string;
   adjustmentNo: string;
   createdAt: string;
@@ -51,7 +55,7 @@ export interface StockAdjustmentBatch {
 }
 
 /** Mirrors backend `StockAdjustmentDto` (GET {id} and the POST response). */
-export interface StockAdjustmentDetail {
+export interface StockAdjustmentDetail extends BranchFields, LocationFields {
   id: string;
   adjustmentNo: string;
   createdAt: string;
@@ -86,6 +90,8 @@ export interface StockAdjustmentListQuery {
   direction?: AdjustmentDirection;
   dateFrom?: string;
   dateTo?: string;
+  branchId?: string | null;
+  stockLocationId?: string | null;
   page?: number;
   pageSize?: number;
 }

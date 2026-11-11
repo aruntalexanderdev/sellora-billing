@@ -36,11 +36,22 @@ public class StockLocationsController(SelloraDbContext db) : ControllerBase
         var query = db.StockLocations.AsNoTracking().Where(l => l.CompanyId == companyId);
         if (!includeInactive) query = query.Where(l => l.IsActive);
         if (typeFilter is { } t) query = query.Where(l => l.LocationType == t);
-        if (branchId is { } b) query = query.Where(l => l.BranchId == b);
+        var rows = await query.ToListAsync(ct);
 
-        // Branch-owned locations follow branch access (as documents do); company-level locations are visible to every member.
-        var locations = (await query.ToListAsync(ct))
-            .Where(l => l.BranchId is not { } owner || db.BranchContext.CanAccess(owner))
+        // A vehicle's location row is company-level (BranchId NULL); its owner is the branch it is assigned to (Phase 8 D3,
+        // as StockVisibility). Effective owner = location.BranchId ?? the vehicle's AssignedBranchId; central vehicles and
+        // company warehouses have none.
+        var vehicleOwner = await db.Vehicles.AsNoTracking()
+            .Where(v => v.CompanyId == companyId && v.AssignedBranchId != null)
+            .Select(v => new { v.StockLocationId, v.AssignedBranchId })
+            .ToDictionaryAsync(v => v.StockLocationId, v => v.AssignedBranchId, ct);
+        Guid? OwnerOf(StockLocation l) => l.BranchId ?? vehicleOwner.GetValueOrDefault(l.Id);
+
+        // Branch-owned locations (incl. assigned vehicles) follow branch access (as documents do); company-level locations are
+        // visible to every member. The branchId filter matches the effective owner, so a branch's vehicles are listed with it.
+        var locations = rows
+            .Where(l => branchId is not { } b || OwnerOf(l) == b)
+            .Where(l => OwnerOf(l) is not { } owner || db.BranchContext.CanAccess(owner))
             .ToList();
         var labels = await BranchLabels.LoadAsync(db, ct);
         var defaultBranchId = await db.Branches.AsNoTracking()

@@ -4,12 +4,16 @@ import { UiDataTable } from '../../../../shared/ui/data-table/data-table';
 import { UiButton } from '../../../../shared/ui/button/button';
 import type { DataTableColumn, DataTableFilter, DataTableRow, DataTableState } from '../../../../shared/ui/data-table/data-table.types';
 import { AuthService } from '../../../../core/auth/auth.service';
+import { problemMessage, toProblem } from '../../../../core/http/api-errors';
+import { LoadError } from '../../../../shared/scope/load-error';
+import { ScopeFilters } from '../../../../shared/scope/scope-filters';
+import { injectBranchColumnVisible, scopeCells, scopeColumns } from '../../../../shared/scope/list-scope';
 import { formatQuantity } from '../../../../shared/units/unit-conversion';
 import { ProductsService } from '../../products/products.service';
 import { StockAdjustmentsService } from '../stock-adjustments.service';
 import type { AdjustmentDirection, AdjustmentType, StockAdjustmentListItem } from '../stock-adjustments.models';
 
-const COLS: DataTableColumn[] = [
+const HEAD_COLS: DataTableColumn[] = [
   { label: 'No', align: 'left' },
   { label: 'Date', align: 'left' },
   { label: 'Product', align: 'left' },
@@ -33,7 +37,7 @@ const money = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFraction
 @Component({
   selector: 'app-stock-adjustment-list',
   standalone: true,
-  imports: [UiDataTable, UiButton],
+  imports: [UiDataTable, UiButton, ScopeFilters, LoadError],
   templateUrl: './stock-adjustment-list.html',
   styleUrl: './stock-adjustment-list.scss',
 })
@@ -44,7 +48,12 @@ export class StockAdjustmentList implements OnInit {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
-  readonly cols = COLS;
+  readonly showBranch = injectBranchColumnVisible();
+  readonly showLocation = computed(() => this.auth.hasPermission('StockLocations.View'));
+  readonly cols = computed<DataTableColumn[]>(() => [...HEAD_COLS, ...scopeColumns(this.showBranch(), this.showLocation())]);
+  readonly branchId = signal<string | null>(null);
+  readonly stockLocationId = signal<string | null>(null);
+  readonly errorMessage = signal<string | null>(null);
   readonly search = signal('');
   readonly productId = signal('');
   readonly type = signal<AdjustmentType | typeof ALL_TYPES>(ALL_TYPES);
@@ -59,7 +68,7 @@ export class StockAdjustmentList implements OnInit {
 
   readonly canAdjust = computed(() => this.auth.hasPermission('Inventory.Adjust'));
   readonly hasMore = computed(() => this.page() * STOCK_ADJUSTMENT_PAGE_SIZE < this.total());
-  readonly hasExtraFilter = computed(() => !!this.productId() || !!this.dateFrom() || !!this.dateTo());
+  readonly hasExtraFilter = computed(() => !!this.productId() || !!this.dateFrom() || !!this.dateTo() || !!this.branchId() || !!this.stockLocationId());
   /** True when the product filter (e.g. from a deep link) is not in the loaded picker list. */
   readonly productOutsideList = computed(() => !!this.productId() && !this.products().some((p) => p.id === this.productId()));
 
@@ -99,6 +108,7 @@ export class StockAdjustmentList implements OnInit {
           },
           { kind: 'text', text: `${base(a.beforeQty)} → ${base(a.afterQty)} ${a.baseUnitCode}`, align: 'right' },
           { kind: 'text', text: a.userName, color: 'var(--color-text-muted)' },
+          ...scopeCells(a, this.showBranch(), this.showLocation()),
         ],
       } satisfies DataTableRow;
     }),
@@ -143,7 +153,19 @@ export class StockAdjustmentList implements OnInit {
     this.reload();
   }
 
+  onBranchChange(value: string | null): void {
+    this.branchId.set(value);
+    this.reload();
+  }
+
+  onLocationChange(value: string | null): void {
+    this.stockLocationId.set(value);
+    this.reload();
+  }
+
   clearFilters(): void {
+    this.branchId.set(null);
+    this.stockLocationId.set(null);
     this.productId.set('');
     this.dateFrom.set('');
     this.dateTo.set('');
@@ -175,6 +197,7 @@ export class StockAdjustmentList implements OnInit {
 
   private load(): void {
     this.state.set('loading');
+    this.errorMessage.set(null);
     const type = this.type();
     const direction = this.direction();
     this.adjustmentsService
@@ -185,6 +208,8 @@ export class StockAdjustmentList implements OnInit {
         direction: direction === ALL_DIRECTIONS ? undefined : direction,
         dateFrom: this.dateFrom() || undefined,
         dateTo: this.dateTo() || undefined,
+        branchId: this.branchId() || undefined,
+        stockLocationId: this.stockLocationId() || undefined,
         page: this.page(),
         pageSize: STOCK_ADJUSTMENT_PAGE_SIZE,
       })
@@ -194,7 +219,10 @@ export class StockAdjustmentList implements OnInit {
           this.total.set(res.total);
           this.state.set('ready');
         },
-        error: () => this.state.set('error'),
+        error: (err) => {
+          this.errorMessage.set(problemMessage(toProblem(err)));
+          this.state.set('error');
+        },
       });
   }
 }

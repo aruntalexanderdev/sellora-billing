@@ -15,7 +15,7 @@
   <div class="summary-grid">
     <div class="summary-card">
       <div class="summary-label">On hand</div>
-      <div class="summary-value">{{ d.quantityOnHand.toFixed(2) }} {{ d.baseUnitLabel }}</div>
+      <div class="summary-value">{{ formatQuantity(d.quantityOnHand, qtyDp(d)) }} {{ d.baseUnitLabel }}</div>
       <ui-badge
         [text]="d.status === 'OutOfStock' ? 'Out of stock' : d.status"
         [tone]="d.status === 'Normal' ? 'good' : d.status === 'Low' ? 'warn' : 'bad'"
@@ -40,6 +40,37 @@
   </div>
 
   <div class="panels">
+    @if (d.locations?.length) {
+      <div class="panel">
+        <div class="panel-title">Stock by location <span class="panel-hint">Base units at each location; quantities are for this product only.</span></div>
+        <div class="panel-body">
+          <table class="mini-table">
+            <thead>
+              <tr>
+                <th>Location</th>
+                <th class="num">Quantity</th>
+                <th class="num">Avg. cost</th>
+                <th class="num">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (l of d.locations; track l.locationId) {
+                <tr data-testid="location-row">
+                  <td>
+                    <span class="strong">{{ l.code }}</span> {{ l.name }}
+                    @if (l.type === 'Transit') { <ui-badge text="Transit" tone="info" /> }
+                  </td>
+                  <td class="num">{{ formatQuantity(l.qty, qtyDp(d)) }} {{ d.baseUnitLabel }}</td>
+                  <td class="num">{{ INR(l.avgCost) }}</td>
+                  <td class="num">{{ INR(l.value) }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+
     <div class="panel">
       <div class="panel-title">Purchase batches <span class="panel-hint">Product → stock → batch → purchase. Sales draw from the oldest batch first.</span></div>
       <div class="panel-body">
@@ -104,6 +135,14 @@
                             }
                           }
                         </div>
+                        @if (b.locations?.length) {
+                          <div class="detail-line">
+                            At:
+                            @for (bl of b.locations; track bl.locationId; let last = $last) {
+                              {{ bl.code }} {{ formatQuantity(bl.qty, qtyDp(d)) }} {{ d.baseUnitLabel }}{{ last ? '' : ' · ' }}
+                            }
+                          </div>
+                        }
                         @if (!canViewSales()) {
                           <div class="detail-note">Sales detail needs the Sales view permission.</div>
                         } @else {
@@ -165,6 +204,7 @@
             <tr>
               <th>When</th>
               <th>Type</th>
+              <th>Location</th>
               <th class="num">Change</th>
               <th>Reference</th>
               <th>By</th>
@@ -177,11 +217,19 @@
                 <td>
                   <ui-badge [text]="movementTypeLabel(m.type, m.reasonCode)" [tone]="movementTone(m.type)" />
                 </td>
+                <td class="muted">
+                  @if (m.stockLocationCode) { <span [title]="m.stockLocationName ?? ''">{{ m.stockLocationCode }}</span> } @else { — }
+                </td>
                 <td class="num" [class.positive]="m.quantityBaseUnits > 0" [class.negative]="m.quantityBaseUnits < 0">
                   {{ m.quantityBaseUnits > 0 ? '+' : '' }}{{ m.baseDecimalPlaces == null ? m.quantityBaseUnits : formatQuantity(m.quantityBaseUnits, m.baseDecimalPlaces) }} {{ d.baseUnitLabel }}
                   @if (enteredLabel(m); as e) { <div class="entered">{{ e }}</div> }
                 </td>
-                <td class="muted">{{ m.referenceNo }}@if (m.internalBatchNo) { <span class="batch-chip">{{ m.internalBatchNo }}</span> }</td>
+                <td class="muted">
+                  @if (transferLinkId(m); as tid) {
+                    <a [routerLink]="transferRoute(tid)">{{ m.referenceNo }}</a>
+                  } @else {
+                    {{ m.referenceNo }}
+                  }@if (m.internalBatchNo) { <span class="batch-chip">{{ m.internalBatchNo }}</span> }</td>
                 <td class="muted">{{ m.userName }}</td>
               </tr>
             }

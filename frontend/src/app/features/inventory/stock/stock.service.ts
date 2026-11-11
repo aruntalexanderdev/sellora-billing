@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
+import { primaryLoad } from '../../../core/http/request-context';
 import type { PagedResult } from '../../../core/api.models';
 import type { BatchConsumption, StockDetail, StockOverviewItem, StockStatus } from './stock.models';
 
@@ -11,6 +12,7 @@ export interface StockOverviewQuery {
   search?: string;
   category?: string;
   status?: StockStatus;
+  stockLocationId?: string | null;
   page?: number;
   pageSize?: number;
 }
@@ -24,6 +26,7 @@ export class StockService {
     if (query.search) params['search'] = query.search;
     if (query.category) params['category'] = query.category;
     if (query.status) params['status'] = query.status;
+    if (query.stockLocationId) params['stockLocationId'] = query.stockLocationId;
     return this.http.get<PagedResult<StockOverviewItem>>(`${BASE_URL}/overview`, { params });
   }
 
@@ -31,7 +34,9 @@ export class StockService {
     return this.http.get<BatchConsumption[]>(`${BASE_URL}/batches/${batchId}/consumptions`);
   }
 
-  detail(productId: string): Observable<StockDetail> {
-    return this.http.get<StockDetail>(`${BASE_URL}/${productId}`);
+  /** `primary` marks the stock page's own load: a bare 403 then goes to /permission-denied. Lookups (e.g. the adjust form) leave it off. */
+  detail(productId: string, stockLocationId?: string | null, primary = false): Observable<StockDetail> {
+    const params: Record<string, string> = stockLocationId ? { stockLocationId } : {};
+    return this.http.get<StockDetail>(`${BASE_URL}/${productId}`, primary ? { params, context: primaryLoad() } : { params });
   }
 }

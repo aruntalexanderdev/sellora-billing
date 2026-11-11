@@ -1,4 +1,3 @@
-import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
@@ -10,7 +9,10 @@ import { ConfirmDialogService } from '../../../shared/ui/confirm-dialog/confirm-
 import { AuthService } from '../../../core/auth/auth.service';
 import { PurchasesService } from '../purchases.service';
 import type { PurchaseDetail as PurchaseDetailModel, PurchasePayment, PaymentMethod } from '../purchases.models';
-import type { ApiProblem } from '../../../core/auth/auth.models';
+import { DocumentScope, type DocumentScopeItem } from '../../../shared/scope/document-scope';
+import { placeLabel } from '../../../shared/scope/list-scope';
+import { LocationSelect } from '../../../shared/locations/location-select';
+import { loadErrorText, problemText } from '../../../shared/scope/problem-text';
 import { formatQuantity } from '../../../shared/units/unit-conversion';
 import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
 import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
@@ -26,7 +28,7 @@ const FORMAT = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits:
 @Component({
   selector: 'app-purchase-detail',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton, UiBadge],
+  imports: [ReactiveFormsModule, RouterLink, UiButton, UiBadge, DocumentScope, LocationSelect],
   templateUrl: './purchase-detail.html',
   styleUrl: './purchase-detail.scss',
 })
@@ -50,6 +52,17 @@ export class PurchaseDetail implements OnInit {
 
   readonly purchase = signal<PurchaseDetailModel | null>(null);
   readonly loading = signal(true);
+  readonly loadError = signal<string | null>(null);
+  /** Location the returnable quantities are measured at; null = the purchase's own location (server default). */
+  readonly returnLocationId = signal<string | null>(null);
+  readonly scopeItems = computed<DocumentScopeItem[]>(() => {
+    const p = this.purchase();
+    if (!p) return [];
+    return [
+      { label: 'Branch', value: placeLabel(p.branchCode, p.branchName), testId: 'scope-branch' },
+      { label: 'Stock location', value: placeLabel(p.stockLocationCode, p.stockLocationName), testId: 'scope-location' },
+    ];
+  });
   readonly editing = signal(false);
   readonly saving = signal(false);
 
@@ -183,10 +196,9 @@ export class PurchaseDetail implements OnInit {
           this.refunding.set(false);
           this.toast.show('Refund recorded.');
         },
-        error: (err: HttpErrorResponse) => {
+        error: (err) => {
           this.refundSaving.set(false);
-          const problem = err.error as ApiProblem | undefined;
-          this.refundError.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Could not record this refund.');
+          this.refundError.set(problemText(err, 'Could not record this refund.'));
         },
       });
   }
@@ -211,10 +223,9 @@ export class PurchaseDetail implements OnInit {
         this.reversing.set(null);
         this.toast.show('Payment reversed.');
       },
-      error: (err: HttpErrorResponse) => {
+      error: (err) => {
         this.reverseSaving.set(false);
-        const problem = err.error as ApiProblem | undefined;
-        this.reverseError.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Could not reverse this payment.');
+        this.reverseError.set(problemText(err, 'Could not reverse this payment.'));
       },
     });
   }
@@ -229,10 +240,18 @@ export class PurchaseDetail implements OnInit {
     );
   }
 
-  private load(): void {
+  /** Re-measure returnable quantities at another location (secondary reload: the page stays rendered). */
+  onReturnLocationChange(locationId: string | null): void {
+    if (locationId === this.returnLocationId()) return;
+    this.returnLocationId.set(locationId);
+    this.load(false);
+  }
+
+  private load(showSpinner = true): void {
     const id = this.route.snapshot.paramMap.get('id')!;
-    this.loading.set(true);
-    this.purchasesService.get(id).subscribe({
+    if (showSpinner) this.loading.set(true);
+    this.loadError.set(null);
+    this.purchasesService.get(id, this.returnLocationId()).subscribe({
       next: (p) => {
         this.purchase.set(p);
         this.headerForm.patchValue({
@@ -247,7 +266,10 @@ export class PurchaseDetail implements OnInit {
           if (this.canPay()) this.openPay();
         }
       },
-      error: () => this.loading.set(false),
+      error: (err) => {
+        this.loadError.set(loadErrorText(err, 'Could not load this purchase.'));
+        this.loading.set(false);
+      },
     });
   }
 
@@ -301,10 +323,9 @@ export class PurchaseDetail implements OnInit {
           );
           this.closePay();
         },
-        error: (err: HttpErrorResponse) => {
+        error: (err) => {
           this.paySaving.set(false);
-          const problem = err.error as ApiProblem | undefined;
-          this.payError.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Could not record this payment.');
+          this.payError.set(problemText(err, 'Could not record this payment.'));
         },
       });
   }
@@ -336,10 +357,9 @@ export class PurchaseDetail implements OnInit {
         this.editing.set(false);
         this.toast.show('Purchase updated.');
       },
-      error: (err: HttpErrorResponse) => {
+      error: (err) => {
         this.saving.set(false);
-        const problem = err.error as ApiProblem | undefined;
-        this.toast.show(problem?.title ?? 'Could not update this purchase.');
+        this.toast.show(problemText(err, 'Could not update this purchase.'));
       },
     });
   }
@@ -364,9 +384,8 @@ export class PurchaseDetail implements OnInit {
             this.toast.show(`${p.purchaseNo} cancelled — stock reversed.`);
             this.load();
           },
-          error: (err: HttpErrorResponse) => {
-            const problem = err.error as ApiProblem | undefined;
-            this.toast.show(problem?.title ?? 'Could not cancel this purchase.');
+          error: (err) => {
+            this.toast.show(problemText(err, 'Could not cancel this purchase.'));
           },
         });
       });

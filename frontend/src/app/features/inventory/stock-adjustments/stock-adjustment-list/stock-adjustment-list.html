@@ -29,13 +29,23 @@
     <label class="report-filter-label">To</label>
     <input type="date" class="report-filter-input" [value]="dateTo()" (change)="onDateToChange($any($event.target).value)" />
   </div>
+  <app-scope-filters
+    [showBranch]="showBranch()"
+    [showLocation]="showLocation()"
+    [branchId]="branchId()"
+    (branchIdChange)="onBranchChange($event)"
+    [stockLocationId]="stockLocationId()"
+    (stockLocationIdChange)="onLocationChange($event)"
+  />
   @if (hasExtraFilter()) {
     <button type="button" class="report-filter-clear" (click)="clearFilters()">Clear filters</button>
   }
 </div>
 
+<app-load-error [message]="errorMessage()" />
+
 <ui-data-table
-  [cols]="cols"
+  [cols]="cols()"
   [rows]="rows()"
   [state]="state()"
   [showSearch]="true"

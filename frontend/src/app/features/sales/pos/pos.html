@@ -37,6 +37,13 @@
         }
       </div>
 
+      <div style="margin-top: 16px" data-testid="pos-location">
+        <app-location-select purpose="sale" label="Selling location" [value]="locationId()" (valueChange)="onLocationChange($event)" />
+        @if (locationError(); as e) {
+          <div class="field-error">{{ e }}</div>
+        }
+      </div>
+
       <div class="grid-2" style="margin: 16px 0">
         <div>
           <label class="field-label">Customer</label>

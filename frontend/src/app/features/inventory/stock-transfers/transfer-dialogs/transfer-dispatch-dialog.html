@@ -1,0 +1,37 @@
+<div class="panel" role="group" aria-label="Dispatch transfer">
+  <h3>Dispatch {{ transfer().transferNo }}</h3>
+  <p class="hint">Every line is listed. Set a line to 0 to leave it unshipped (it is closed, not back-ordered). Dispatch happens once.</p>
+  @if (shown().form; as msg) {
+    <div class="server-error" data-testid="dispatch-error">{{ msg }}</div>
+  }
+  <table>
+    <thead>
+      <tr><th>Product</th><th class="num">Requested</th><th>Unit</th><th>Dispatch</th></tr>
+    </thead>
+    <tbody>
+      @for (r of rows(); track r.lineId; let i = $index) {
+        <tr>
+          <td>{{ r.line.productName }}<div class="sub">{{ r.line.sku }}</div></td>
+          <td class="num">{{ qty(r.line.requestedQty, r) }} {{ r.line.unitCode }}<div class="sub">= {{ fmt(r.line, r.line.requestedBaseQty) }} {{ r.line.baseUnitCode }}</div></td>
+          <td>
+            <select class="field-input" [attr.data-testid]="'dispatch-unit-' + i" [value]="r.unit?.id ?? ''" (change)="setUnit(i, $any($event.target).value)">
+              @for (u of r.units; track u.id) {
+                <option [value]="u.id" [selected]="u.id === r.unit?.id">{{ u.displayName }} ({{ u.unitCode }})</option>
+              }
+            </select>
+          </td>
+          <td>
+            <input type="number" min="0" class="field-input" [attr.data-testid]="'dispatch-qty-' + i" [step]="step(r)" [value]="r.quantity ?? ''" (input)="setQuantity(i, $any($event.target).value)" />
+            @if (shown().rows[i]; as msg) {
+              <div class="field-error" [attr.data-testid]="'dispatch-row-error-' + i">{{ msg }}</div>
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+  <div class="actions">
+    <ui-button variant="primary" [disabled]="busy()" (onClick)="submit()">{{ busy() ? 'Dispatching…' : 'Dispatch' }}</ui-button>
+    <ui-button (onClick)="cancelled.emit()">Cancel</ui-button>
+  </div>
+</div>

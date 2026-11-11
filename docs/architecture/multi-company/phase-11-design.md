@@ -193,3 +193,20 @@ Status: **11a delivered — review "Approve with fixes" (no Blocker), fixes appl
 **Breaking API note (D14)**: `POST /branches|warehouses|vehicles/{id}/status` now require `reason`; deploy backend and 11a frontend together.
 
 **Open / carried to 11b**: flag transfer create/action routes `requiresBranch` when built; screens opt into `primaryLoad()` for 403 → `/permission-denied`; status-change audit has no correlation id (services have no HTTP context).
+
+## 11b checkpoint — delivery record (2026-11-11)
+
+Status: **11b delivered — review "Approve with fixes" (no Blocker), fixes applied; Playwright regression run against a real local stack.** Verify: 1586 unit / 1043 PostgreSQL integration / 755 Vitest, 0 warnings, prod build within budget (initial 403 kB); after D15: 1587 unit, 755 Vitest, 163 permission/role integration tests green. No migration. Release after 11a (see `release-runbook.md`).
+
+**Delivered**
+- Location-aware forms (WP-D1): POS (incl. selling from a vehicle; location change confirms and clears the cart; `?locationId` preselect from the van workspace), purchase, adjustment, purchase return (location picker from `locationBalances`), sales return; `stockLocationId` and Idempotency-Key sent; account options filtered to company-level + working branch; stock overview/detail per location (Transit badge, movement → transfer link, `?stockLocationId` URL filter).
+- Lists/details/reports (WP-E, `shared/scope/*`): branch + location filters and columns on sales, returns, purchases, adjustments, expenses (branch only); seller GSTIN, branch, location, restock/issuing location on details; returnable per location on purchase detail; report branch/location filters; `primaryLoad()` on detail main loads.
+- Transfers + van (WP-D2): list/detail/create/edit, dispatch/receive (partial, damage)/resolve dialogs, status × permission gating, van workspace with load/unload wizard chaining every permitted step.
+- Release runbook (WP-R): `docs/architecture/multi-company/release-runbook.md` (order, idempotent migration script command verified, validation SQL, settings, smoke, rollback, known limitations, URL steps).
+- Backend: stock-locations list uses the effective owner (BranchId ?? vehicle AssignedBranchId) for the branch filter and visibility (DEF-2).
+
+**Regression (Playwright, not committed, O8)**: 19 flows on PostgreSQL 17 + API + Angular dev server: login, branch/company switch incl. All branches and picker, POS store/van, purchase into warehouse, adjustment, transfer lifecycle (partial receipt, damage, excess refused, resolve), purchase return from a moved location, sales return, sale cancel, van load/sell/unload, stock and reports per location, allocation revoke, branch-role limits, governance, platform console, 30 existing screens — 0 console errors, 0 5xx. Two defects found and fixed: DEF-1 (branch picker invisible on deep link / reload in All-branches mode → host moved to the app root) and DEF-2 (branch-assigned vehicles missing from the van workspace).
+
+**Review fixes**: transfer dialog idempotency survives close/reopen and reloads after ambiguous failures; idempotency keys rotate when the request body changes (all forms, wizard, dialogs); adjustment preview fails closed instead of guessing a store; POS catalog cleared on location change; runbook wording.
+
+**D15 (owner decision 2026-11-11)**: `Customers.View` becomes branch-eligible (CompanyOrBranch), so a branch-only cashier can pick named customers at POS through a branch role. Customers stay company master data (no branch filter). `Masters.View` and others unchanged.

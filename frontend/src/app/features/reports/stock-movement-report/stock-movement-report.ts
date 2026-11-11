@@ -1,12 +1,18 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { UiDataTable } from '../../../shared/ui/data-table/data-table';
 import type { DataTableColumn, DataTableFilter, DataTableRow, DataTableState } from '../../../shared/ui/data-table/data-table.types';
+import { AuthService } from '../../../core/auth/auth.service';
+import { problemMessage, toProblem } from '../../../core/http/api-errors';
+import { LoadError } from '../../../shared/scope/load-error';
+import { ScopeFilters } from '../../../shared/scope/scope-filters';
+import { placeLabel } from '../../../shared/scope/list-scope';
 import { ReportsService } from '../reports.service';
 import type { StockMovementReportRow, StockMovementType } from '../reports.models';
 import { STOCK_MOVEMENT_TYPES, enteredLabel, movementTone, movementTypeLabel } from '../../../shared/units/stock-movement';
 import { formatQuantity } from '../../../shared/units/unit-conversion';
 
-const COLS: DataTableColumn[] = [
+const BASE_COLS: DataTableColumn[] = [
   { label: 'Date', align: 'left' },
   { label: 'Item', align: 'left' },
   { label: 'Type', align: 'left' },
@@ -15,20 +21,32 @@ const COLS: DataTableColumn[] = [
   { label: 'User', align: 'left' },
 ];
 
+/** Movements written by a stock transfer link to the transfer (backend `ReferenceType`). */
+export const STOCK_TRANSFER_REFERENCE = 'StockTransfer';
+
 const ALL = 'All';
 const PAGE_SIZE = 20;
 
 @Component({
   selector: 'app-stock-movement-report',
   standalone: true,
-  imports: [UiDataTable],
+  imports: [UiDataTable, ScopeFilters, LoadError],
   templateUrl: './stock-movement-report.html',
   styleUrl: '../report-list.scss',
 })
 export class StockMovementReport implements OnInit {
   private readonly reportsService = inject(ReportsService);
+  private readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
 
-  readonly cols = COLS;
+  readonly showLocation = computed(() => this.auth.hasPermission('StockLocations.View'));
+  readonly cols = computed<DataTableColumn[]>(() => {
+    if (!this.showLocation()) return BASE_COLS;
+    // Location sits after Reference; User stays last.
+    return [...BASE_COLS.slice(0, 5), { label: 'Location', align: 'left' }, ...BASE_COLS.slice(5)];
+  });
+  readonly stockLocationId = signal<string | null>(null);
+  readonly errorMessage = signal<string | null>(null);
   readonly search = signal('');
   readonly type = signal<'All' | StockMovementType>(ALL);
   readonly dateFrom = signal('');
@@ -63,7 +81,10 @@ export class StockMovementReport implements OnInit {
           weight: '650',
           color: m.quantityBaseUnits >= 0 ? 'var(--tone-good-fg)' : 'var(--color-danger)',
         },
-        { kind: 'text', text: m.referenceNo, color: 'var(--color-text-muted)' },
+        m.referenceType === STOCK_TRANSFER_REFERENCE && m.referenceId
+          ? { kind: 'link', text: m.referenceNo, onClick: () => this.openTransfer(m.referenceId!) }
+          : { kind: 'text', text: m.referenceNo, color: 'var(--color-text-muted)' },
+        ...(this.showLocation() ? [{ kind: 'text' as const, text: placeLabel(m.stockLocationCode, m.stockLocationName), color: 'var(--color-text-muted)' }] : []),
         { kind: 'text', text: m.userName, color: 'var(--color-text-muted)' },
       ],
     })),
@@ -77,6 +98,16 @@ export class StockMovementReport implements OnInit {
     this.search.set(value);
     this.page.set(1);
     this.load();
+  }
+
+  onLocationChange(value: string | null): void {
+    this.stockLocationId.set(value);
+    this.page.set(1);
+    this.load();
+  }
+
+  openTransfer(id: string): void {
+    this.router.navigate(['/inventory/stock-transfers', id]);
   }
 
   onTypeChange(value: 'All' | StockMovementType): void {
@@ -115,6 +146,7 @@ export class StockMovementReport implements OnInit {
 
   private load(): void {
     this.state.set('loading');
+    this.errorMessage.set(null);
     const type = this.type();
     this.reportsService
       .stockMovement({
@@ -122,6 +154,7 @@ export class StockMovementReport implements OnInit {
         type: type === ALL ? undefined : type,
         dateFrom: this.dateFrom() || undefined,
         dateTo: this.dateTo() || undefined,
+        stockLocationId: this.stockLocationId(),
         page: this.page(),
         pageSize: PAGE_SIZE,
       })
@@ -131,7 +164,10 @@ export class StockMovementReport implements OnInit {
           this.total.set(res.total);
           this.state.set('ready');
         },
-        error: () => this.state.set('error'),
+        error: (err) => {
+          this.errorMessage.set(problemMessage(toProblem(err)));
+          this.state.set('error');
+        },
       });
   }
 }

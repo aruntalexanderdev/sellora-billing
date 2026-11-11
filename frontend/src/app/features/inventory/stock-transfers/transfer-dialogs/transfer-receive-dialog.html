@@ -1,0 +1,40 @@
+<div class="panel" role="group" aria-label="Receive transfer">
+  <h3>Receive {{ transfer().transferNo }}</h3>
+  <p class="hint">Accepted goes into destination stock; damaged is written off from transit. You may receive part now and the rest later. Accepted + damaged cannot exceed what is outstanding.</p>
+  @if (shown().form; as msg) {
+    <div class="server-error" data-testid="receive-error">{{ msg }}</div>
+  }
+  <table>
+    <thead>
+      <tr><th>Product</th><th class="num">Outstanding</th><th>Unit</th><th>Accepted</th><th>Damaged</th></tr>
+    </thead>
+    <tbody>
+      @for (r of rows(); track r.lineId; let i = $index) {
+        <tr>
+          <td>{{ r.line.productName }}<div class="sub">{{ r.line.sku }}</div></td>
+          <td class="num">{{ fmt(r.line, r.line.outstandingBaseQty) }} {{ r.line.baseUnitCode }}</td>
+          <td>
+            <select class="field-input" [attr.data-testid]="'receive-unit-' + i" [value]="r.unit?.id ?? ''" (change)="setUnit(i, $any($event.target).value)">
+              @for (u of r.units; track u.id) {
+                <option [value]="u.id" [selected]="u.id === r.unit?.id">{{ u.displayName }} ({{ u.unitCode }})</option>
+              }
+            </select>
+          </td>
+          <td><input type="number" min="0" class="field-input" [attr.data-testid]="'receive-accepted-' + i" [step]="step(r)" [value]="r.accepted ?? ''" (input)="setAccepted(i, $any($event.target).value)" /></td>
+          <td>
+            <input type="number" min="0" class="field-input" [attr.data-testid]="'receive-damaged-' + i" [step]="step(r)" [value]="r.damaged ?? ''" (input)="setDamaged(i, $any($event.target).value)" />
+            @if (shown().rows[i]; as msg) {
+              <div class="field-error" [attr.data-testid]="'receive-row-error-' + i">{{ msg }}</div>
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+  <label class="field-label" for="receive-notes">Notes (optional)</label>
+  <textarea id="receive-notes" class="field-input" rows="2" maxlength="500" [value]="notes()" (input)="notes.set($any($event.target).value)"></textarea>
+  <div class="actions">
+    <ui-button variant="primary" [disabled]="busy()" (onClick)="submit()">{{ busy() ? 'Receiving…' : 'Receive' }}</ui-button>
+    <ui-button (onClick)="cancelled.emit()">Cancel</ui-button>
+  </div>
+</div>

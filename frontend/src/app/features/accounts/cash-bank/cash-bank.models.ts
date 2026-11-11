@@ -25,6 +25,8 @@ export interface AccountOption {
   id: string;
   name: string;
   kind: AccountKind;
+  /** Null = company-level account (any branch); otherwise only documents of that branch. */
+  branchId?: string | null;
 }
 
 export interface CreateAccountRequest {

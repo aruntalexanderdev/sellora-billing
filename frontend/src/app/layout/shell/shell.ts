@@ -3,7 +3,6 @@ import { Router, RouterOutlet } from '@angular/router';
 import { Sidebar } from '../sidebar/sidebar';
 import { Header } from '../header/header';
 import { UiToastHost } from '../../shared/ui/toast/toast-host';
-import { UiBranchPickerHost } from '../../shared/ui/branch-picker/branch-picker-host';
 import { UiConfirmDialogHost } from '../../shared/ui/confirm-dialog/confirm-dialog-host';
 import { AuthService } from '../../core/auth/auth.service';
 import { ALL_BRANCHES } from '../../core/context/context.models';
@@ -35,7 +34,7 @@ function readInitialSidebarOpen(): boolean {
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, Sidebar, Header, UiToastHost, UiConfirmDialogHost, UiBranchPickerHost],
+  imports: [RouterOutlet, Sidebar, Header, UiToastHost, UiConfirmDialogHost],
   templateUrl: './shell.html',
   styleUrl: './shell.scss',
 })

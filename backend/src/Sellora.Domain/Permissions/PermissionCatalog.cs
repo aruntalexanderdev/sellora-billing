@@ -20,6 +20,7 @@ public static class PermissionCatalog
         "Inventory.Adjust", "StockLocations.View", "Inventory.View",
         "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.Cancel",
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
+        "Customers.View", // Phase 11 D15: branch cashiers pick named customers at POS (customers stay company master data)
         "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",
         BranchRolesView, BranchRolesManage, BranchUsersAssignRoles,
     };

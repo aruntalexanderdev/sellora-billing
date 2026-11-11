@@ -39,6 +39,7 @@ export const INVENTORY_ROUTES: Routes = [
     path: 'stock-adjustments/new',
     loadComponent: () => import('./stock-adjustments/stock-adjustment-form/stock-adjustment-form').then((m) => m.StockAdjustmentForm),
     canActivate: [permissionGuard('Inventory.Adjust'), requiresBranchGuard],
+    canDeactivate: [unsavedChangesGuard],
     data: { group: 'Inventory', page: 'Adjust Stock', requiresBranch: true },
   },
   {
@@ -61,8 +62,28 @@ export const INVENTORY_ROUTES: Routes = [
   },
   {
     path: 'stock-transfers',
-    loadComponent: () => import('../../shared/ui/coming-soon/coming-soon').then((m) => m.ComingSoon),
+    loadComponent: () => import('./stock-transfers/stock-transfer-list/stock-transfer-list').then((m) => m.StockTransferList),
     canActivate: [permissionGuard('StockTransfers.View')],
     data: { group: 'Inventory', page: 'Stock Transfers' },
+  },
+  {
+    path: 'stock-transfers/new',
+    loadComponent: () => import('./stock-transfers/stock-transfer-form/stock-transfer-form').then((m) => m.StockTransferForm),
+    canActivate: [permissionGuard('StockTransfers.Create'), requiresBranchGuard],
+    canDeactivate: [unsavedChangesGuard],
+    data: { group: 'Inventory', page: 'New transfer', requiresBranch: true },
+  },
+  {
+    path: 'stock-transfers/:id/edit',
+    loadComponent: () => import('./stock-transfers/stock-transfer-form/stock-transfer-form').then((m) => m.StockTransferForm),
+    canActivate: [permissionGuard('StockTransfers.Create'), requiresBranchGuard],
+    canDeactivate: [unsavedChangesGuard],
+    data: { group: 'Inventory', page: 'Edit transfer', requiresBranch: true },
+  },
+  {
+    path: 'stock-transfers/:id',
+    loadComponent: () => import('./stock-transfers/stock-transfer-detail/stock-transfer-detail').then((m) => m.StockTransferDetail),
+    canActivate: [permissionGuard('StockTransfers.View')],
+    data: { group: 'Inventory', page: 'Transfer details' },
   },
 ];

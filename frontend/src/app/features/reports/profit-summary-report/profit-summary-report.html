@@ -14,6 +14,7 @@
     <label class="report-filter-label">To</label>
     <input type="date" class="report-filter-input" [value]="dateTo()" (change)="onDateToChange($any($event.target).value)" />
   </div>
+  <app-scope-filters [showBranch]="showBranch()" [showLocation]="false" [branchId]="branchId()" (branchIdChange)="onBranchChange($event)" />
   @if (hasDateFilter()) {
     <button type="button" class="report-filter-clear" (click)="clearDates()">Clear dates</button>
   }
@@ -23,7 +24,7 @@
   <div class="profit-state">Loading…</div>
 } @else if (error()) {
   <div class="profit-state">
-    Could not load this report.
+    {{ error() }}
     <button type="button" class="report-filter-clear" (click)="retry()">Retry</button>
   </div>
 } @else if (summary(); as s) {

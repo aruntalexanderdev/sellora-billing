@@ -1,4 +1,3 @@
-import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
@@ -11,7 +10,9 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { SalesService } from '../sales.service';
 import { formatQuantity } from '../../../shared/units/unit-conversion';
 import type { PaymentMethod, SalesInvoiceDetail as SalesInvoiceDetailModel, SalesPayment } from '../sales.models';
-import type { ApiProblem } from '../../../core/auth/auth.models';
+import { DocumentScope, type DocumentScopeItem } from '../../../shared/scope/document-scope';
+import { placeLabel } from '../../../shared/scope/list-scope';
+import { loadErrorText, problemText } from '../../../shared/scope/problem-text';
 import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
 import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
 
@@ -21,7 +22,7 @@ const INR = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDi
 @Component({
   selector: 'app-sales-detail',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton, UiBadge],
+  imports: [ReactiveFormsModule, RouterLink, UiButton, UiBadge, DocumentScope],
   templateUrl: './sales-detail.html',
   styleUrl: '../../purchases/purchase-detail/purchase-detail.scss',
 })
@@ -41,6 +42,16 @@ export class SalesDetail implements OnInit {
 
   readonly invoice = signal<SalesInvoiceDetailModel | null>(null);
   readonly loading = signal(true);
+  readonly loadError = signal<string | null>(null);
+  readonly scopeItems = computed<DocumentScopeItem[]>(() => {
+    const i = this.invoice();
+    if (!i) return [];
+    return [
+      { label: 'Seller GSTIN', value: i.sellerGstin || '—', testId: 'scope-gstin' },
+      { label: 'Branch', value: placeLabel(i.branchCode, i.branchName), testId: 'scope-branch' },
+      { label: 'Stock location', value: placeLabel(i.stockLocationCode, i.stockLocationName), testId: 'scope-location' },
+    ];
+  });
 
   readonly canCancel = computed(() => this.auth.hasPermission('Sales.Cancel'));
   readonly paymentMethods: PaymentMethod[] = ['Cash', 'Upi', 'Card', 'Credit', 'BankTransfer'];
@@ -148,10 +159,9 @@ export class SalesDetail implements OnInit {
           this.refunding.set(false);
           this.toast.show('Refund recorded.');
         },
-        error: (err: HttpErrorResponse) => {
+        error: (err) => {
           this.refundSaving.set(false);
-          const problem = err.error as ApiProblem | undefined;
-          this.refundError.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Could not record this refund.');
+          this.refundError.set(problemText(err, 'Could not record this refund.'));
         },
       });
   }
@@ -176,10 +186,9 @@ export class SalesDetail implements OnInit {
         this.reversing.set(null);
         this.toast.show('Payment reversed.');
       },
-      error: (err: HttpErrorResponse) => {
+      error: (err) => {
         this.reverseSaving.set(false);
-        const problem = err.error as ApiProblem | undefined;
-        this.reverseError.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Could not reverse this payment.');
+        this.reverseError.set(problemText(err, 'Could not reverse this payment.'));
       },
     });
   }
@@ -197,6 +206,7 @@ export class SalesDetail implements OnInit {
   private load(): void {
     const id = this.route.snapshot.paramMap.get('id')!;
     this.loading.set(true);
+    this.loadError.set(null);
     this.salesService.get(id).subscribe({
       next: (i) => {
         this.invoice.set(i);
@@ -208,7 +218,10 @@ export class SalesDetail implements OnInit {
           if (this.canReceive()) this.openPay();
         }
       },
-      error: () => this.loading.set(false),
+      error: (err) => {
+        this.loadError.set(loadErrorText(err, 'Could not load this sale.'));
+        this.loading.set(false);
+      },
     });
   }
 
@@ -255,10 +268,9 @@ export class SalesDetail implements OnInit {
         this.toast.show(updated.dueAmount > 0 ? `Payment recorded · ${INR(updated.dueAmount)} still due.` : `${updated.invoiceNo} is fully paid.`);
         this.closePay();
       },
-      error: (err: HttpErrorResponse) => {
+      error: (err) => {
         this.paySaving.set(false);
-        const problem = err.error as ApiProblem | undefined;
-        this.payError.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Could not record this payment.');
+        this.payError.set(problemText(err, 'Could not record this payment.'));
       },
     });
   }
@@ -283,9 +295,8 @@ export class SalesDetail implements OnInit {
             this.toast.show(`${i.invoiceNo} cancelled — stock restored.`);
             this.load();
           },
-          error: (err: HttpErrorResponse) => {
-            const problem = err.error as ApiProblem | undefined;
-            this.toast.show(problem?.title ?? 'Could not cancel this sale.');
+          error: (err) => {
+            this.toast.show(problemText(err, 'Could not cancel this sale.'));
           },
         });
       });
