@@ -32,6 +32,7 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
             {
                 p.Id, p.Sku, p.Name, p.Category, p.ReorderLevel,
                 BaseUnitLabel = p.BaseUnit.ShortCode,
+                BaseDecimalPlaces = (int)p.BaseUnit.DecimalPlaces,
                 QuantityOnHand = db.StockItems.Where(s => s.ProductId == p.Id && scope.Contains(s.StockLocationId)).Sum(s => s.QuantityOnHand),
                 StockValue = db.StockItems.Where(s => s.ProductId == p.Id && scope.Contains(s.StockLocationId)).Sum(s => s.QuantityOnHand * s.AverageCost),
                 MaxAverageCost = db.StockItems.Where(s => s.ProductId == p.Id && scope.Contains(s.StockLocationId)).Max(s => (decimal?)s.AverageCost) ?? 0m,
@@ -58,12 +59,15 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
         var total = await query.CountAsync(ct);
         var rows = await query.OrderBy(p => p.Name).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
 
-        var balances = await visibility.BalancesAsync(db, rows.Select(r => r.Id).ToList(), scope, ct);
+        var pageIds = rows.Select(r => r.Id).ToList();
+        var balances = await visibility.BalancesAsync(db, pageIds, scope, ct);
+        var breakdowns = await BreakdownUnits.LoadAsync(db, pageIds, ct);
         var items = rows.Select(p => new StockOverviewItemDto(
             p.Id, p.Sku, p.Name, p.Category, p.BaseUnitLabel,
             p.QuantityOnHand, StockVisibility.WeightedAverage(p.QuantityOnHand, p.StockValue, p.MaxAverageCost), p.StockValue,
             StockStatusCalculator.Calculate(p.QuantityOnHand, p.ReorderLevel),
-            balances.GetValueOrDefault(p.Id)
+            balances.GetValueOrDefault(p.Id),
+            p.BaseDecimalPlaces, breakdowns.GetValueOrDefault(p.Id) ?? []
         )).ToList();
 
         return Ok(new PagedResult<StockOverviewItemDto>(items, total, page, pageSize));
@@ -156,9 +160,11 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
             b.PurchaseOrderId, b.PurchaseOrderLineId, b.StockAdjustmentId,
             balancesByBatch.GetValueOrDefault(b.Id))).ToList();
 
+        var breakdown = (await BreakdownUnits.LoadAsync(db, [productId], ct)).GetValueOrDefault(productId) ?? [];
+
         return Ok(new StockDetailDto(
             product.Id, product.Sku, product.Name, product.Category, product.BaseUnit.ShortCode, product.Tax.Name,
             qty, avgCost, stockValue, product.ReorderLevel, StockStatusCalculator.Calculate(qty, product.ReorderLevel),
-            movements, batches, locationRows));
+            movements, batches, locationRows, product.BaseUnit.DecimalPlaces, breakdown));
     }
 }

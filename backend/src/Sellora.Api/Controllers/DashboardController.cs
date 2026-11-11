@@ -94,6 +94,7 @@ public class DashboardController(SelloraDbContext db, IEffectivePermissionServic
                     p.Name,
                     p.ReorderLevel,
                     BaseUnitLabel = p.BaseUnit.ShortCode,
+                    BaseDecimalPlaces = (int)p.BaseUnit.DecimalPlaces,
                     // Summed over the visible locations; compared with the product-level ReorderLevel (per-location reorder levels are a later phase).
                     QuantityOnHand = db.StockItems.Where(s => s.ProductId == p.Id && scope.Contains(s.StockLocationId)).Sum(s => s.QuantityOnHand),
                 })
@@ -105,7 +106,7 @@ public class DashboardController(SelloraDbContext db, IEffectivePermissionServic
                 .Take(10)
                 .Select(p => new DashboardLowStockItemDto(
                     p.Id, p.Name, p.BaseUnitLabel, p.QuantityOnHand, p.ReorderLevel,
-                    StockStatusCalculator.Calculate(p.QuantityOnHand, p.ReorderLevel)))
+                    StockStatusCalculator.Calculate(p.QuantityOnHand, p.ReorderLevel), p.BaseDecimalPlaces))
                 .ToList();
         }
 

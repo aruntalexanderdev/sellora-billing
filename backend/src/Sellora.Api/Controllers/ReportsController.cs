@@ -36,6 +36,7 @@ public class ReportsController(SelloraDbContext db, IEffectivePermissionService 
                 p.Category,
                 p.ReorderLevel,
                 BaseUnitLabel = p.BaseUnit.ShortCode,
+                BaseDecimalPlaces = (int)p.BaseUnit.DecimalPlaces,
                 QuantityOnHand = db.StockItems.Where(s => s.ProductId == p.Id && scope.Contains(s.StockLocationId)).Sum(s => s.QuantityOnHand),
                 StockValue = db.StockItems.Where(s => s.ProductId == p.Id && scope.Contains(s.StockLocationId)).Sum(s => s.QuantityOnHand * s.AverageCost),
                 MaxAverageCost = db.StockItems.Where(s => s.ProductId == p.Id && scope.Contains(s.StockLocationId)).Max(s => (decimal?)s.AverageCost) ?? 0m,
@@ -87,6 +88,7 @@ public class ReportsController(SelloraDbContext db, IEffectivePermissionService 
                 });
 
         var balances = await visibility.BalancesAsync(db, productIds, scope, ct);
+        var breakdowns = await BreakdownUnits.LoadAsync(db, productIds, ct);
         var items = rows.Select(p =>
         {
             var pricePerBaseUnit = bestPriceByProduct.GetValueOrDefault(p.Id);
@@ -95,7 +97,8 @@ public class ReportsController(SelloraDbContext db, IEffectivePermissionService 
                 p.QuantityOnHand, StockVisibility.WeightedAverage(p.QuantityOnHand, p.StockValue, p.MaxAverageCost), p.StockValue,
                 pricePerBaseUnit, pricePerBaseUnit is null ? null : p.QuantityOnHand * pricePerBaseUnit,
                 StockStatusCalculator.Calculate(p.QuantityOnHand, p.ReorderLevel),
-                balances.GetValueOrDefault(p.Id));
+                balances.GetValueOrDefault(p.Id),
+                p.BaseDecimalPlaces, breakdowns.GetValueOrDefault(p.Id) ?? []);
         }).ToList();
 
         return Ok(new PagedResult<CurrentStockReportRowDto>(items, total, page, pageSize));
