@@ -13,9 +13,9 @@ public class StockLocationsApiTests(PostgresFixture postgres)
 {
     private const string Route = "/api/v1/stock-locations";
 
-    private static async Task<List<JsonElement>> ListAsync(BranchApiWorld w, string query = "", HttpClient? client = null)
+    private static async Task<List<JsonElement>> ListAsync(BranchApiWorld w, string query = "", HttpClient? client = null, Guid? branch = null)
     {
-        var response = await w.SendAsync(HttpMethod.Get, Route + query, client: client);
+        var response = await w.SendAsync(HttpMethod.Get, Route + query, branch: branch, client: client);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return (await JsonAsync(response)).EnumerateArray().ToList();
     }
@@ -114,7 +114,7 @@ public class StockLocationsApiTests(PostgresFixture postgres)
         var w = await GetAsync(postgres);
         var (branchId, _) = await w.NewBranchAsync();
 
-        var list = await ListAsync(w, $"?branchId={branchId}");
+        var list = await ListAsync(w, $"?branchId={branchId}", branch: branchId); // FI-D11: the filter names the ACTIVE branch
 
         Assert.Equal(branchId, Assert.Single(list).GetProperty("branchId").GetGuid());
     }
@@ -126,9 +126,14 @@ public class StockLocationsApiTests(PostgresFixture postgres)
         var (branchId, _) = await w.NewBranchAsync();
         await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branchId}/status", new SetStatusRequest(false, "test"));
 
-        var list = await ListAsync(w, $"?branchId={branchId}&includeInactive=true");
+        // FI-D11: an inactive branch can never be the ACTIVE branch (the header is refused), so its locations are no longer readable through the
+        // branchId filter on this endpoint (it has no ?scope=company); the filter answers the same 403 as any non-active branch.
+        var response = await w.SendAsync(HttpMethod.Get, $"{Route}?branchId={branchId}&includeInactive=true");
 
-        Assert.False(Assert.Single(list).GetProperty("isActive").GetBoolean());
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("branch_access_denied", await response.ProblemCodeAsync());
+        var headered = await w.SendAsync(HttpMethod.Get, $"{Route}?branchId={branchId}&includeInactive=true", branch: branchId);
+        Assert.Equal(HttpStatusCode.Forbidden, headered.StatusCode);
     }
 
     [Fact]

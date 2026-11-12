@@ -149,6 +149,11 @@ public sealed class CompanyContextMiddleware(RequestDelegate next)
         }
 
         branchContext.Set(requested, allowed, primary, active);
+        // FI-D11: Active Branch Only governs reads; writes still validate against (and may load documents of) every allowed branch.
+        if (!HttpMethods.IsGet(context.Request.Method) && !HttpMethods.IsHead(context.Request.Method) && !HttpMethods.IsOptions(context.Request.Method))
+        {
+            branchContext.UseWriteScope();
+        }
         await next(context);
     }
 

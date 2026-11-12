@@ -234,7 +234,10 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         }
         // Phase 7 compat: RoleId = "set the single company role". Unchanged = the user's only Active company role.
         var currentRoleIds = (await ActiveRolesAsync([user.Id], ct)).GetValueOrDefault(user.Id)?.Where(r => r.ScopeType == RoleScope.Company).Select(r => r.Id).ToList() ?? [];
-        var roleChanged = request.RoleId is { } requested && !(currentRoleIds.Count == 1 && currentRoleIds[0] == requested);
+        // FI-D14: a branch-scoped actor can only reach users without a company role and can never set one (R4), so RoleId is not a role change
+        // for them - this endpoint edits the profile; branch roles go through role-assignments.
+        var roleChanged = actor.IsCompanyWide
+            && request.RoleId is { } requested && !(currentRoleIds.Count == 1 && currentRoleIds[0] == requested);
         // Nobody changes their own role. Together with "only Administrators change Administrator accounts",
         // "nobody disables themselves" and the access-management lock (which re-loads the caller, so two
         // Administrators cannot remove each other concurrently), at least one active Administrator always remains.

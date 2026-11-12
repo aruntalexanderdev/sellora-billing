@@ -153,10 +153,10 @@ public class BranchDocumentsApiTests(PostgresFixture postgres)
         await w.SaleAsync(y, qty: 1m);
         await w.PurchaseAsync(x);
 
-        var profitX = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/reports/profit-summary?branchId={x}"));
-        var profitY = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/reports/profit-summary?branchId={y}"));
-        var salesX = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/reports/sales?branchId={x}"));
-        var purchasesY = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/reports/purchases?branchId={y}"));
+        var profitX = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/reports/profit-summary?branchId={x}", branch: x)); // FI-D11: branchId = the active branch
+        var profitY = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/reports/profit-summary?branchId={y}", branch: y));
+        var salesX = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/reports/sales?branchId={x}", branch: x));
+        var purchasesY = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/reports/purchases?branchId={y}", branch: y));
 
         Assert.Equal((1, 1), (profitY.GetProperty("invoiceCount").GetInt32(), profitX.GetProperty("invoiceCount").GetInt32()));
         Assert.Equal(x, profitX.GetProperty("branchId").GetGuid());
@@ -259,7 +259,7 @@ public class BranchDocumentsApiTests(PostgresFixture postgres)
         var atMain = await JsonAsync(await w.SaleAsync(null));
         var atBranch = await JsonAsync(await w.SaleAsync(withGstin));
         var atPlain = await JsonAsync(await w.SaleAsync(withoutGstin));
-        var detail = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/sales/{atBranch.GetProperty("id").GetGuid()}"));
+        var detail = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/sales/{atBranch.GetProperty("id").GetGuid()}", branch: withGstin)); // FI-D11: detail is read in the active branch
 
         Assert.Equal(CompanyGstin, Str(atMain, "sellerGstin"));
         Assert.Equal("33BBBBB1111B1Z5", Str(atBranch, "sellerGstin"));

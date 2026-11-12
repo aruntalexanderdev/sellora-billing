@@ -15,6 +15,7 @@ public sealed class BranchContext : IBranchContext
     private Guid? _requestedBranchId;
     private IReadOnlySet<Guid>? _allowedBranchIds = NoBranches;
     private Guid? _primaryBranchId;
+    private bool _writeScope;
     private Guid? _activeBranchId;
     private bool _companyScope;
 
@@ -30,7 +31,7 @@ public sealed class BranchContext : IBranchContext
     {
         get
         {
-            if (_companyScope || _activeBranchId is not { } active) return _allowedBranchIds;
+            if (_companyScope || _writeScope || _activeBranchId is not { } active) return _allowedBranchIds;
             return _allowedBranchIds is null || _allowedBranchIds.Contains(active) ? new HashSet<Guid> { active } : NoBranches;
         }
     }
@@ -41,6 +42,12 @@ public sealed class BranchContext : IBranchContext
 
     /// <summary>FI-D11: widens the read scope from the active branch to every allowed branch. Called only after the endpoint's permission was proven company-level.</summary>
     public void WidenToCompanyScope() => _companyScope = true;
+
+    /// <summary>
+    /// FI-D11: write requests (POST/PUT/PATCH/DELETE) keep the pre-Phase-01 scope - every allowed branch - so services can load the documents they
+    /// act on (a payment on another allowed branch's invoice) and a create can re-read what it just wrote. Does not set <see cref="IsCompanyScope"/>.
+    /// </summary>
+    public void UseWriteScope() => _writeScope = true;
 
     /// <summary>Sets the scope once; a second call throws (no mid-request branch switch). <paramref name="allowedBranchIds"/> null = every branch.</summary>
     public void Set(Guid? requestedBranchId, IReadOnlySet<Guid>? allowedBranchIds, Guid? primaryBranchId = null, Guid? activeBranchId = null)
