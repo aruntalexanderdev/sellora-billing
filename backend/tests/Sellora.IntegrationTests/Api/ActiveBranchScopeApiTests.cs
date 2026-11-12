@@ -309,15 +309,16 @@ public class ActiveBranchScopeApiTests(PostgresFixture postgres)
         return user;
     }
 
-    /// <summary>A CompanyWide member with no company role and no allocation, holding only a branch role at <paramref name="branch"/> (review finding 1).</summary>
-    private static async Task<RestrictedUser> CompanyWideBranchRoleUserAsync(RestrictedUserWorld r, Guid branch)
+    /// <summary>
+    /// A CompanyWide member with no role and no allocation (review finding 1: the old predicate let it through vacuously). A branch role cannot be
+    /// given to it - the service requires an allocation at the role's branch - so the company-wide scope itself is what puts it out of reach.
+    /// </summary>
+    private static async Task<RestrictedUser> CompanyWideWithoutRolesUserAsync(RestrictedUserWorld r)
     {
         var user = await r.CreateAsync("cw", await RoleAsync(r.World, ["Sales.View"]), CompanyAccessScope.CompanyWide);
-        var branchRole = await RoleAsync(r.World, ["Sales.View"], RoleScope.Branch, branch);
-        Check(await r.World.SendAsync(HttpMethod.Post, $"/api/v1/users/{user.Id}/roles", new AssignRoleRequest(branchRole, null)), "assign branch role to company-wide member");
         var roles = await RestrictedUserWorld.JsonOkAsync(await r.World.SendAsync(HttpMethod.Get, $"/api/v1/users/{user.Id}/roles"));
         var companyAssignment = roles.GetProperty("current").EnumerateArray().Single(a => a.GetProperty("scopeType").GetString() == "Company").GetProperty("id").GetGuid();
-        Check(await r.World.SendAsync(HttpMethod.Post, $"/api/v1/users/{user.Id}/roles/{companyAssignment}/end", new EndRoleAssignmentRequest("branch role only")), "end company role");
+        Check(await r.World.SendAsync(HttpMethod.Post, $"/api/v1/users/{user.Id}/roles/{companyAssignment}/end", new EndRoleAssignmentRequest("no roles")), "end company role");
         return user;
     }
 
@@ -331,11 +332,11 @@ public class ActiveBranchScopeApiTests(PostgresFixture postgres)
         var inA = await BranchOnlyUserAsync(r, a);
         var spansBoth = await r.CreateAsync("sp", await RoleAsync(w, ["Sales.View"]), CompanyAccessScope.AssignedBranches, [a, b], a);
         var withCompanyRole = await r.CreateAtAsync(a); // staff = a company-scope role
-        var companyWideAtB = await CompanyWideBranchRoleUserAsync(r, b); // FI-D14: company-wide membership, branch role only at B, no allocations
+        var companyWide = await CompanyWideWithoutRolesUserAsync(r); // FI-D14: company-wide membership, no roles, no allocations
         var update = new UpdateUserRequest("Changed", "Name", inA.Username, inA.Username + "@selloramart.in", null, r.StaffRoleId);
 
         // Not wholly within the actor's branches / holding a company role: 404 on every user-administration action, and absent from the list.
-        foreach (var hidden in new[] { onlyB, spansBoth, withCompanyRole, companyWideAtB })
+        foreach (var hidden in new[] { onlyB, spansBoth, withCompanyRole, companyWide })
         {
             Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Get, $"/api/v1/users/{hidden.Id}", client: actor.Client)).StatusCode);
             Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Put, $"/api/v1/users/{hidden.Id}", update, client: actor.Client)).StatusCode);
@@ -344,7 +345,7 @@ public class ActiveBranchScopeApiTests(PostgresFixture postgres)
         }
         var listed = (await ReadAsync(w, actor.Client, "/api/v1/users?pageSize=100")).GetProperty("items").EnumerateArray().Select(IdOf).ToArray();
         Assert.DoesNotContain(onlyB.Id, listed); Assert.DoesNotContain(spansBoth.Id, listed); Assert.DoesNotContain(withCompanyRole.Id, listed);
-        Assert.DoesNotContain(companyWideAtB.Id, listed);
+        Assert.DoesNotContain(companyWide.Id, listed);
         Assert.Contains(inA.Id, listed);
         Assert.Equal(0L, await AuditCountAsync(w, onlyB.Id)); // nothing was written for the refused calls
 
