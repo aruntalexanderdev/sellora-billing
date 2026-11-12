@@ -230,7 +230,7 @@ public class BranchDocumentsApiTests(PostgresFixture postgres)
         var options = await JsonAsync(await w.SendAsync(HttpMethod.Get, "/api/v1/financial-accounts/options", branch: x)); // FI-D11: x's tagged account is read at x
         Assert.Equal(x, options.EnumerateArray().Single(o => o.GetProperty("id").GetGuid() == tagged).GetProperty("branchId").GetGuid());
         Assert.Equal(JsonValueKind.Null, options.EnumerateArray().Single(o => o.GetProperty("id").GetGuid() == shared).GetProperty("branchId").ValueKind);
-        var onlyX = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/financial-accounts?branchId={x}"));
+        var onlyX = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/financial-accounts?branchId={x}", branch: x)); // FI-D11: filter = active branch
         Assert.Contains(onlyX.GetProperty("items").EnumerateArray(), a => a.GetProperty("id").GetGuid() == tagged);
         Assert.DoesNotContain(onlyX.GetProperty("items").EnumerateArray(), a => a.GetProperty("id").GetGuid() == shared);
     }
