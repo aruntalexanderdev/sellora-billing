@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
@@ -15,6 +16,7 @@ namespace Sellora.Api.Controllers;
 public class StockController(SelloraDbContext db, IEffectivePermissionService effectivePermissions) : ControllerBase
 {
     [HttpGet("overview")]
+    [CompanyScopeRead]
     public async Task<ActionResult<PagedResult<StockOverviewItemDto>>> Overview(
         [FromQuery] string? search, [FromQuery] string? category, [FromQuery] Guid? unitId, [FromQuery] StockStatus? status,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
@@ -78,7 +80,13 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
     [Authorize(Policy = "Sales.View")]
     public async Task<ActionResult<IReadOnlyList<BatchConsumptionDto>>> BatchConsumptions(Guid batchId, CancellationToken ct)
     {
-        if (!await db.PurchaseBatches.AnyAsync(b => b.Id == batchId, ct)) return NotFound();
+        // Phase 01 (G6): the batch must live (origin or remaining balance) in a location the caller may see; otherwise 404 (no existence leak).
+        var visibility = await StockVisibility.LoadAsync(db, effectivePermissions, "Inventory.View", ct);
+        var visibleIds = visibility.Ids.ToList();
+        var batchVisible = await db.PurchaseBatches.AnyAsync(b => b.Id == batchId
+            && (visibleIds.Contains(b.OriginStockLocationId)
+                || db.BatchLocationBalances.Any(x => x.PurchaseBatchId == b.Id && visibleIds.Contains(x.StockLocationId))), ct);
+        if (!batchVisible) return NotFound();
 
         var rows = await db.SalesInvoiceLineBatchConsumptions
             .Where(c => c.PurchaseBatchId == batchId)

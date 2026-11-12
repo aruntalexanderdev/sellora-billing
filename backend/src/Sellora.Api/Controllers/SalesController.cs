@@ -121,11 +121,9 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
         }
 
         var companyId = db.CompanyContext.RequireCompanyId();
-        var working = db.BranchContext.RequestedBranchId ?? db.BranchContext.PrimaryBranchId;
-        if (working is null)
-        {
-            working = await db.Branches.AsNoTracking().Where(b => b.CompanyId == companyId && b.IsDefault).Select(b => (Guid?)b.Id).FirstOrDefaultAsync(ct);
-        }
+        // ActiveBranchId is resolved by the middleware (header, primary, company default); the lookup only covers contexts built without it.
+        var working = db.BranchContext.ActiveBranchId
+            ?? await db.Branches.AsNoTracking().Where(b => b.CompanyId == companyId && b.IsDefault).Select(b => (Guid?)b.Id).FirstOrDefaultAsync(ct);
         if (working is not { } branchId) return (null, null);
 
         var store = await db.StockLocations.AsNoTracking()
@@ -145,6 +143,9 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
         pageSize = Math.Clamp(pageSize, 1, 100);
 
         if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
+
+        if (stockLocationId is not null
+            && (await StockVisibility.LoadAsync(db, effectivePermissions, "Sales.View", ct)).DenyUnlessVisible(this, stockLocationId) is { } locationDenied) return locationDenied;
 
         var query = db.SalesInvoices.Include(i => i.Customer).AsQueryable();
         if (branchId is not null) query = query.Where(i => i.BranchId == branchId);
@@ -262,7 +263,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
     {
         var set = await effectivePermissions.GetCurrentAsync(ct);
         var branchContext = HttpContext.RequestServices.GetRequiredService<BranchContext>();
-        var working = branchContext.RequestedBranchId ?? branchContext.PrimaryBranchId;
+        var working = branchContext.ActiveBranchId;
         if (set.HasCompanyLevel("Sales.PriceOverride")) return true;
         return working is { } id && set.HasAtBranch("Sales.PriceOverride", id);
     }

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Sellora.Api.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
@@ -11,6 +12,7 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/reports")]
+[CompanyScopeRead]
 public class ReportsController(SelloraDbContext db, IEffectivePermissionService effectivePermissions) : ControllerBase
 {
     [HttpGet("current-stock")]

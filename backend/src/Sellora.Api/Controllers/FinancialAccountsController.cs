@@ -13,7 +13,7 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/financial-accounts")]
-public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountService accountService) : ControllerBase
+public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountService accountService, IEffectivePermissionService effectivePermissions) : ControllerBase
 {
     /// <summary>The active accounts a payment can be recorded against. Open to any signed-in user, because
     /// choosing where money went is part of paying or receiving, not of viewing balances.</summary>
@@ -35,13 +35,14 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
         var accounts = await accountQuery.OrderBy(a => a.Kind).ThenBy(a => a.Name).ToListAsync(ct);
         var balances = await BalancesAsync(null, ct);
         var labels = await BranchLabels.LoadAsync(db, ct);
+        var sharedBalances = await CanSeeSharedBalancesAsync(ct);
 
-        var items = accounts.Select(a => ToDto(a, balances.GetValueOrDefault(a.Id), labels)).ToList();
+        var items = accounts.Select(a => ToDto(a, balances.GetValueOrDefault(a.Id), labels, sharedBalances)).ToList();
         var baseCurrency = await db.GetBaseCurrencyAsync(ct);
         return Ok(new FinancialAccountListDto(
             items,
-            items.Where(a => a.Kind == FinancialAccountKind.Cash).Sum(a => a.Balance),
-            items.Where(a => a.Kind == FinancialAccountKind.Bank).Sum(a => a.Balance),
+            items.Where(a => a.Kind == FinancialAccountKind.Cash).Sum(a => a.Balance ?? 0m),
+            items.Where(a => a.Kind == FinancialAccountKind.Bank).Sum(a => a.Balance ?? 0m),
             baseCurrency.Code, baseCurrency.Symbol, baseCurrency.DecimalPrecision));
     }
 
@@ -53,7 +54,7 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
         if (account is null) return NotFound();
 
         var balances = await BalancesAsync(id, ct);
-        return Ok(ToDto(account, balances.GetValueOrDefault(id), await BranchLabels.LoadAsync(db, ct)));
+        return Ok(ToDto(account, balances.GetValueOrDefault(id), await BranchLabels.LoadAsync(db, ct), await CanSeeSharedBalancesAsync(ct)));
     }
 
     [HttpPost]
@@ -179,7 +180,13 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
         return rows.ToDictionary(r => r.Id, r => new Balance(r.Book, r.Reconciled, r.Unreconciled));
     }
 
-    private static FinancialAccountDto ToDto(FinancialAccount a, Balance? b, BranchLabels labels) => new(
-        a.Id, a.Name, a.Kind, a.Reference, a.IsActive, b?.Book ?? 0m, b?.Reconciled ?? 0m, b?.Unreconciled ?? 0,
-        a.BranchId, labels.Code(a.BranchId), labels.Name(a.BranchId));
+    // FI-D12: balances of company-level accounts (BranchId null) are shared money; only a company-level CashBank.View holder sees them.
+    private async Task<bool> CanSeeSharedBalancesAsync(CancellationToken ct) =>
+        (await effectivePermissions.GetCurrentAsync(ct)).PermittedBranches("CashBank.View") is null;
+
+    private static FinancialAccountDto ToDto(FinancialAccount a, Balance? b, BranchLabels labels, bool sharedBalancesVisible) =>
+        a.BranchId is null && !sharedBalancesVisible
+            ? new(a.Id, a.Name, a.Kind, a.Reference, a.IsActive, null, null, 0, a.BranchId, null, null)
+            : new(a.Id, a.Name, a.Kind, a.Reference, a.IsActive, b?.Book ?? 0m, b?.Reconciled ?? 0m, b?.Unreconciled ?? 0,
+                a.BranchId, labels.Code(a.BranchId), labels.Name(a.BranchId));
 }

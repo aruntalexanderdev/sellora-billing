@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
+using Sellora.Api.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
+using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
@@ -17,7 +19,8 @@ namespace Sellora.Api.Controllers;
 [ApiController]
 [Route("api/v1/reports/accounts")]
 [Authorize(Policy = "Reports.Accounts")]
-public class AccountsReportsController(SelloraDbContext db) : ControllerBase
+[CompanyScopeRead]
+public class AccountsReportsController(SelloraDbContext db, IEffectivePermissionService effectivePermissions) : ControllerBase
 {
     // ------------------------------------------------------------------ payment reports
 
@@ -338,22 +341,25 @@ public class AccountsReportsController(SelloraDbContext db) : ControllerBase
             .ToDictionaryAsync(b => b.AccountId, ct);
 
         var accounts = await db.FinancialAccounts.OrderBy(a => a.Kind).ThenBy(a => a.Name).ToListAsync(ct);
+        // FI-D12: figures of company-level accounts (BranchId null) only for a company-level Reports.Accounts holder; others get null figures.
+        var sharedVisible = (await effectivePermissions.GetCurrentAsync(ct)).PermittedBranches("Reports.Accounts") is null;
         var rows = accounts
             // An inactive account with no balance and no activity in the period is noise.
             .Where(a => a.IsActive || balances.ContainsKey(a.Id))
-            .Select(a =>
-            {
-                var b = balances.GetValueOrDefault(a.Id);
-                return new CashBankReportRowDto(a.Id, a.Name, a.Kind, a.IsActive,
-                    (b?.Before ?? 0m) + (b?.OpeningInPeriod ?? 0m), b?.In ?? 0m, b?.Out ?? 0m, b?.TransfersIn ?? 0m, b?.TransfersOut ?? 0m,
-                    b?.Closing ?? 0m, b?.Unreconciled ?? 0);
-            })
-            .Where(r => r.IsActive || r.Closing != 0 || r.Opening != 0 || r.MoneyIn != 0 || r.MoneyOut != 0 || r.TransfersIn != 0 || r.TransfersOut != 0)
+            .Select(a => new { Account = a, Hidden = a.BranchId is null && !sharedVisible, B = balances.GetValueOrDefault(a.Id) })
+            .Where(x => x.Hidden || x.Account.IsActive || (x.B is { } b0
+                && ((b0.Before + b0.OpeningInPeriod) != 0 || b0.In != 0 || b0.Out != 0 || b0.TransfersIn != 0 || b0.TransfersOut != 0 || b0.Closing != 0)))
+            .Select(x => x.Hidden
+                ? new CashBankReportRowDto(x.Account.Id, x.Account.Name, x.Account.Kind, x.Account.IsActive, null, null, null, null, null, null, 0)
+                : new CashBankReportRowDto(x.Account.Id, x.Account.Name, x.Account.Kind, x.Account.IsActive,
+                    (x.B?.Before ?? 0m) + (x.B?.OpeningInPeriod ?? 0m), x.B?.In ?? 0m, x.B?.Out ?? 0m, x.B?.TransfersIn ?? 0m, x.B?.TransfersOut ?? 0m,
+                    x.B?.Closing ?? 0m, x.B?.Unreconciled ?? 0))
             .ToList();
 
+        // Totals cover the rows whose figures are visible to the reader.
         return Ok(new CashBankReportDto(dateFrom, dateTo, rows,
-            rows.Sum(r => r.Opening), rows.Sum(r => r.MoneyIn), rows.Sum(r => r.MoneyOut),
-            rows.Sum(r => r.TransfersIn), rows.Sum(r => r.TransfersOut), rows.Sum(r => r.Closing), await BaseCurrencyAsync(ct)));
+            rows.Sum(r => r.Opening ?? 0m), rows.Sum(r => r.MoneyIn ?? 0m), rows.Sum(r => r.MoneyOut ?? 0m),
+            rows.Sum(r => r.TransfersIn ?? 0m), rows.Sum(r => r.TransfersOut ?? 0m), rows.Sum(r => r.Closing ?? 0m), await BaseCurrencyAsync(ct)));
     }
 
     // ------------------------------------------------------------------ payment methods

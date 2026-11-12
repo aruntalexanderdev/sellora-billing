@@ -61,7 +61,7 @@ public class IgnoreQueryFiltersBypassTests
     [Fact]
     public void ProductionSource_Phase7CompanyBypassFiles_NameOnlyTheCompanyFilterAndKeepAnExplicitCompanyPredicate()
     {
-        foreach (var name in new[] { "EffectivePermissionService.cs", "PermissionAuthorizationHandler.cs" })
+        foreach (var name in new[] { "EffectivePermissionService.cs" }) // Phase 01: the handler no longer looks up the default branch (the middleware resolves ActiveBranchId)
         {
             var file = Directory.EnumerateFiles(SrcRoot(), name, SearchOption.AllDirectories).Single();
             var lines = File.ReadAllLines(file);

@@ -68,7 +68,7 @@ public class ProductUnitEndpointsTests
     }
 
     private static ProductsController Products(Fixture f) => WithContext(new ProductsController(f.Db, new ProductService(f.Db)));
-    private static PricingController Pricing(Fixture f) => WithContext(new PricingController(f.Db, new PricingService(f.Db)), f.User.Id);
+    private static PricingController Pricing(Fixture f) => WithContext(new PricingController(f.Db, new PricingService(f.Db), new FakeEffectivePermissions("Inventory.Price", "Inventory.View")), f.User.Id);
 
     private static T Ok<T>(ActionResult<T> result) => (T)Assert.IsType<OkObjectResult>(result.Result).Value!;
 

@@ -72,6 +72,11 @@ public static class AuditActions
     public const string BranchStatusChanged = "branch.status_changed";
     public const string WarehouseStatusChanged = "warehouse.status_changed";
     public const string VehicleStatusChanged = "vehicle.status_changed";
+
+    // Phase 01 (FI-D14): user administration (payloads never carry passwords or hashes).
+    public const string UserUpdated = "user.updated";
+    public const string UserStatusChanged = "user.status_changed";
+    public const string UserPasswordReset = "user.password_reset";
 }
 
 /// <summary>Values of <see cref="AuditEvent.TargetType"/>.</summary>
@@ -85,4 +90,5 @@ public static class AuditTargets
     public const string Branch = "Branch";
     public const string Warehouse = "Warehouse";
     public const string Vehicle = "Vehicle";
+    public const string User = "User";
 }

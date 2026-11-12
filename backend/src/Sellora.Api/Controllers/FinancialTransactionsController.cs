@@ -24,6 +24,15 @@ public class FinancialTransactionsController(SelloraDbContext db) : ControllerBa
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
+        // Phase 01 (G7): an explicit account filter must be a visible account (Branch filter = read scope; company-level accounts are visible); else one 403, no existence leak.
+        if (accountId is { } filterAccount && !await db.FinancialAccounts.AnyAsync(x => x.Id == filterAccount, ct))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status403Forbidden,
+                title: "You do not have access to this account.",
+                extensions: new Dictionary<string, object?> { ["code"] = Sellora.Api.Authorization.CompanyContextMiddleware.BranchAccessDeniedCode });
+        }
+
         // Phase 5 D7: visibility follows the source document / account (FinancialTransactionVisibility.VisibleTo); roots are filtered before projection.
         var query = db.FinancialTransactions.VisibleTo(db);
         if (type is not null) query = query.Where(t => t.Type == type);

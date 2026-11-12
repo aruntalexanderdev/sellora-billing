@@ -59,7 +59,10 @@ public record MeResponse(
     CompanyOptionDto[] Companies,
     GovernanceHintDto? Governance,
     AuthRoleDto[]? Roles = null,
-    string[]? PermissionsAnyBranch = null
+    // Obsolete (Phase 01): superseded by CompanyPermissions + the active-branch Permissions; kept until the SPA stops reading it.
+    string[]? PermissionsAnyBranch = null,
+    // Phase 01 (FI-D11): codes held company-level (Administrator = full catalogue).
+    string[]? CompanyPermissions = null
 ) : UserSummaryDto(Id, FirstName, LastName, Username, Email, RoleName, Permissions, CompanyId, CompanyName, AccessScope, PrimaryBranchId, AllowedBranches, Roles);
 
 public record SwitchCompanyRequest(

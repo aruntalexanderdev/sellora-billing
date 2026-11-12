@@ -34,14 +34,15 @@ internal sealed class BranchLabels
 internal static class BranchFilter
 {
     /// <summary>Validates an optional <c>branchId</c> list/report filter: it must be a branch of the company (inactive allowed, for
-    /// history) the caller may access. Unknown, foreign and inaccessible ids share one 403 <c>branch_access_denied</c> answer.
+    /// history) in the caller's read scope (active branch, or every allowed branch under ?scope=company). Unknown, foreign and inaccessible ids share one 403 <c>branch_access_denied</c> answer.
     /// Returns null when the filter is absent or valid.</summary>
     public static async Task<ObjectResult?> DenyUnlessAllowedAsync(this ControllerBase controller, SelloraDbContext db, Guid? branchId, CancellationToken ct)
     {
         if (branchId is not { } id) return null;
 
         var companyId = db.CompanyContext.RequireCompanyId();
-        if (db.BranchContext.CanAccess(id) && await db.Branches.AnyAsync(b => b.CompanyId == companyId && b.Id == id, ct))
+        // Phase 01 (FI-D11): reads honour the READ scope - an allowed branch that is not the active one is denied unless ?scope=company widened it.
+        if (db.BranchContext.CanAccess(id) && db.BranchContext.CanRead(id) && await db.Branches.AnyAsync(b => b.CompanyId == companyId && b.Id == id, ct))
         {
             return null;
         }

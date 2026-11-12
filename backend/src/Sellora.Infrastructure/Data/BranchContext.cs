@@ -15,15 +15,35 @@ public sealed class BranchContext : IBranchContext
     private Guid? _requestedBranchId;
     private IReadOnlySet<Guid>? _allowedBranchIds = NoBranches;
     private Guid? _primaryBranchId;
+    private Guid? _activeBranchId;
+    private bool _companyScope;
 
     public Guid? RequestedBranchId => _requestedBranchId;
     public IReadOnlySet<Guid>? AllowedBranchIds => _allowedBranchIds;
     public Guid? PrimaryBranchId => _primaryBranchId;
 
+    public Guid? ActiveBranchId => _activeBranchId;
+    public bool IsCompanyScope => _companyScope;
+
+    /// <summary>Computed lazily so <see cref="Narrow"/> and <see cref="WidenToCompanyScope"/> are reflected. Default {active}; company scope = allowed.</summary>
+    public IReadOnlySet<Guid>? ReadBranchIds
+    {
+        get
+        {
+            if (_companyScope || _activeBranchId is not { } active) return _allowedBranchIds;
+            return _allowedBranchIds is null || _allowedBranchIds.Contains(active) ? new HashSet<Guid> { active } : NoBranches;
+        }
+    }
+
     public bool CanAccess(Guid branchId) => _allowedBranchIds is null || _allowedBranchIds.Contains(branchId);
 
+    public bool CanRead(Guid branchId) => ReadBranchIds is not { } read || read.Contains(branchId);
+
+    /// <summary>FI-D11: widens the read scope from the active branch to every allowed branch. Called only after the endpoint's permission was proven company-level.</summary>
+    public void WidenToCompanyScope() => _companyScope = true;
+
     /// <summary>Sets the scope once; a second call throws (no mid-request branch switch). <paramref name="allowedBranchIds"/> null = every branch.</summary>
-    public void Set(Guid? requestedBranchId, IReadOnlySet<Guid>? allowedBranchIds, Guid? primaryBranchId = null)
+    public void Set(Guid? requestedBranchId, IReadOnlySet<Guid>? allowedBranchIds, Guid? primaryBranchId = null, Guid? activeBranchId = null)
     {
         if (requestedBranchId == Guid.Empty) throw new ArgumentException("A branch id must not be empty.", nameof(requestedBranchId));
         if (_isSet) throw new InvalidOperationException("The branch context cannot change within a scope.");
@@ -31,6 +51,8 @@ public sealed class BranchContext : IBranchContext
         _requestedBranchId = requestedBranchId;
         _allowedBranchIds = allowedBranchIds;
         _primaryBranchId = primaryBranchId;
+        // Active = explicit resolution by the middleware, else header, else primary; null keeps the read scope = allowed (non-HTTP callers).
+        _activeBranchId = activeBranchId ?? requestedBranchId ?? primaryBranchId;
     }
 
     /// <summary>
@@ -55,6 +77,10 @@ public sealed class BranchContext : IBranchContext
         public Guid? RequestedBranchId => requested;
         public IReadOnlySet<Guid>? AllowedBranchIds => allowed;
         public Guid? PrimaryBranchId => null;
+        public Guid? ActiveBranchId => requested;
+        public IReadOnlySet<Guid>? ReadBranchIds => allowed;
+        public bool IsCompanyScope => allowed is null;
+        public bool CanRead(Guid branchId) => CanAccess(branchId);
         public bool CanAccess(Guid branchId) => allowed is null || allowed.Contains(branchId);
     }
 }

@@ -71,7 +71,13 @@ public class StockLocationsController(SelloraDbContext db) : ControllerBase
     {
         var companyId = db.CompanyContext.RequireCompanyId();
         var location = await db.StockLocations.AsNoTracking().SingleOrDefaultAsync(l => l.CompanyId == companyId && l.Id == id, ct);
-        if (location is null || (location.BranchId is { } owner && !db.BranchContext.CanAccess(owner))) return NotFound();
+        if (location is null) return NotFound();
+
+        // Phase 01 (G5): same visibility as the list - the effective owner is the location's branch or, for a vehicle location, the vehicle's assigned branch.
+        var vehicleOwner = await db.Vehicles.AsNoTracking()
+            .Where(v => v.CompanyId == companyId && v.StockLocationId == id)
+            .Select(v => v.AssignedBranchId).FirstOrDefaultAsync(ct);
+        if ((location.BranchId ?? vehicleOwner) is { } owner && !db.BranchContext.CanAccess(owner)) return NotFound();
 
         return Ok(ToDto(location, await BranchLabels.LoadAsync(db, ct)));
     }

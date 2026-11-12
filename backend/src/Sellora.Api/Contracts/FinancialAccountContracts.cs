@@ -7,12 +7,13 @@ namespace Sellora.Api.Contracts;
 /// <param name="ReconciledBalance">The same, counting only transactions already matched to the statement.</param>
 public record FinancialAccountDto(
     Guid Id, string Name, FinancialAccountKind Kind, string? Reference, bool IsActive,
-    decimal Balance, decimal ReconciledBalance, int UnreconciledCount,
+    // Phase 01 (FI-D12): null for a company-level account (BranchId null) when the reader does not hold CashBank.View company-level.
+    decimal? Balance, decimal? ReconciledBalance, int UnreconciledCount,
     Guid? BranchId, string? BranchCode, string? BranchName
 );
 
 public record FinancialAccountListDto(
-    IReadOnlyList<FinancialAccountDto> Items, decimal CashBalance, decimal BankBalance,
+    IReadOnlyList<FinancialAccountDto> Items, decimal CashBalance, decimal BankBalance, // totals cover only the accounts whose balance is visible to the reader
     string BaseCurrencyCode, string BaseCurrencySymbol, int BaseCurrencyDecimalPrecision
 );
 

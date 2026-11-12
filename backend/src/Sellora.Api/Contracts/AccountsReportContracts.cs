@@ -75,7 +75,8 @@ public record CashFlowReportDto(
 /// and includes an opening balance entered during it.</summary>
 public record CashBankReportRowDto(
     Guid AccountId, string AccountName, FinancialAccountKind Kind, bool IsActive,
-    decimal Opening, decimal MoneyIn, decimal MoneyOut, decimal TransfersIn, decimal TransfersOut, decimal Closing,
+    // Phase 01 (FI-D12): all figures null for a company-level account when the reader does not hold Reports.Accounts company-level.
+    decimal? Opening, decimal? MoneyIn, decimal? MoneyOut, decimal? TransfersIn, decimal? TransfersOut, decimal? Closing,
     int UnreconciledCount
 );
 

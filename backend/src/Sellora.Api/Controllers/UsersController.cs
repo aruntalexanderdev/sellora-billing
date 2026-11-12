@@ -29,7 +29,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         pageSize = Math.Clamp(pageSize, 1, 100);
 
         var companyId = db.CompanyContext.RequireCompanyId();
-        var query = CompanyUsers().AsQueryable();
+        var query = VisibleUsers().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -125,7 +125,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     [Authorize(Policy = "Users.View")]
     public async Task<ActionResult<UserDetailDto>> Get(Guid id, CancellationToken ct)
     {
-        var user = await CompanyUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await VisibleUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
         return Ok(await BuildDetailAsync(user, ct));
     }
@@ -216,7 +216,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
-        var user = await CompanyUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await VisibleUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         var actor = access.Actor;
@@ -244,11 +244,14 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         }
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
+        var before = new { user.FirstName, user.LastName, user.Username, user.Email, user.PhoneNumber };
         user.FirstName = request.FirstName.Trim();
         user.LastName = request.LastName.Trim();
         user.Username = request.Username.Trim();
         user.Email = request.Email.Trim();
         user.PhoneNumber = request.PhoneNumber;
+        AppendAudit(actor, AuditActions.UserUpdated, user.Id, before,
+            new { user.FirstName, user.LastName, user.Username, user.Email, user.PhoneNumber, RoleId = roleChanged ? request.RoleId : null });
         await db.SaveChangesAsync(ct);
 
         if (roleChanged)
@@ -276,7 +279,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     public async Task<IActionResult> SetStatus(Guid id, SetUserStatusRequest request, CancellationToken ct)
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
-        var user = await CompanyUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await VisibleUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         var actor = access.Actor;
@@ -289,7 +292,9 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
 
         if (await ProtectedTargetAsync(user.Id, actor, ct) is { } protectedResult) return protectedResult;
 
+        var previousStatus = user.Status;
         user.Status = request.Status;
+        AppendAudit(actor, AuditActions.UserStatusChanged, user.Id, new { Status = previousStatus.ToString() }, new { Status = request.Status.ToString() });
         await db.SaveChangesAsync(ct);
         // Phase 7 D9 (defence in depth): disabling the last company-wide Administrator is refused (the scope rolls back on failure).
         if (request.Status == UserStatus.Disabled && await TargetHoldsAdministratorAsync(user.Id, ct))
@@ -312,7 +317,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     public async Task<ActionResult<ResetPasswordResponse>> ResetPassword(Guid id, CancellationToken ct)
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
-        var user = await CompanyUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await VisibleUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         var actor = access.Actor;
@@ -323,6 +328,8 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
 
         var temporaryPassword = GenerateTemporaryPassword();
         user.PasswordHash = passwordHasher.Hash(temporaryPassword);
+        // Never the password or hash: the event only records that a reset happened.
+        AppendAudit(actor, AuditActions.UserPasswordReset, user.Id, null, new { PasswordReset = true });
         await db.SaveChangesAsync(ct);
         await access.CommitAsync(ct);
 
@@ -335,6 +342,42 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     {
         var companyId = db.CompanyContext.RequireCompanyId();
         return db.Users.Where(u => db.UserCompanyMemberships.Any(m => m.UserId == u.Id && m.CompanyId == companyId));
+    }
+
+    /// <summary>
+    /// Phase 01 (FI-D14): company users the actor may see/administer. A CompanyWide actor (allowed set null) sees every company user; a branch-scoped
+    /// actor only users whose active branch allocations all lie within the actor's branches and who hold no active company-scope role (else 404).
+    /// </summary>
+    private IQueryable<User> VisibleUsers()
+    {
+        var query = CompanyUsers();
+        if (db.BranchContext.AllowedBranchIds is not { } allowedSet) return query;
+
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var allowed = allowedSet.ToArray();
+        return query.Where(u => !db.UserCompanyMemberships.Any(m => m.UserId == u.Id && m.CompanyId == companyId
+            && (db.UserBranchAssignments.Any(a => a.CompanyId == companyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active && !allowed.Contains(a.BranchId))
+                || db.UserRoleAssignments.Any(r => r.CompanyId == companyId && r.UserCompanyMembershipId == m.Id && r.Status == AssignmentStatus.Active && r.ScopeType == RoleScope.Company))));
+    }
+
+    private void AppendAudit(AccessManagementActor actor, string action, Guid targetUserId, object? before, object? after)
+    {
+        var json = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        var correlation = HttpContext.TraceIdentifier;
+        db.AuditEvents.Add(new AuditEvent
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = db.CompanyContext.RequireCompanyId(),
+            OccurredAt = DateTimeOffset.UtcNow,
+            ActorUserId = actor.UserId,
+            Action = action,
+            TargetType = AuditTargets.User,
+            TargetId = targetUserId,
+            SubjectUserId = targetUserId,
+            Before = before is null ? null : System.Text.Json.JsonSerializer.Serialize(before, json),
+            After = after is null ? null : System.Text.Json.JsonSerializer.Serialize(after, json),
+            CorrelationId = correlation is { Length: > 64 } ? correlation[..64] : correlation,
+        });
     }
 
     private async Task<bool> TargetHoldsAdministratorAsync(Guid userId, CancellationToken ct)
