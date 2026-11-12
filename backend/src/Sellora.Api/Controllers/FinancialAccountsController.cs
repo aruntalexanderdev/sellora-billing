@@ -180,9 +180,11 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
         return rows.ToDictionary(r => r.Id, r => new Balance(r.Book, r.Reconciled, r.Unreconciled));
     }
 
-    // FI-D12: balances of company-level accounts (BranchId null) are shared money; only a company-level CashBank.View holder sees them.
+    // FI-D12: balances of company-level accounts (BranchId null) are shared money; only a company-level CashBank.View holder whose membership
+    // covers every branch sees them (a member limited to some branches sees null even with a company role - their totals would include hidden branches).
     private async Task<bool> CanSeeSharedBalancesAsync(CancellationToken ct) =>
-        (await effectivePermissions.GetCurrentAsync(ct)).PermittedBranches("CashBank.View") is null;
+        db.BranchContext.AllowedBranchIds is null
+        && (await effectivePermissions.GetCurrentAsync(ct)).PermittedBranches("CashBank.View") is null;
 
     private static FinancialAccountDto ToDto(FinancialAccount a, Balance? b, BranchLabels labels, bool sharedBalancesVisible) =>
         a.BranchId is null && !sharedBalancesVisible

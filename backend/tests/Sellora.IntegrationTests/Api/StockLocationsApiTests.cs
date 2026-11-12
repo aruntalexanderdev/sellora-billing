@@ -126,12 +126,16 @@ public class StockLocationsApiTests(PostgresFixture postgres)
         var (branchId, _) = await w.NewBranchAsync();
         await w.SendAsync(HttpMethod.Post, $"/api/v1/branches/{branchId}/status", new SetStatusRequest(false, "test"));
 
-        // FI-D11: an inactive branch can never be the ACTIVE branch (the header is refused), so its locations are no longer readable through the
-        // branchId filter on this endpoint (it has no ?scope=company); the filter answers the same 403 as any non-active branch.
-        var response = await w.SendAsync(HttpMethod.Get, $"{Route}?branchId={branchId}&includeInactive=true");
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Equal("branch_access_denied", await response.ProblemCodeAsync());
+        // FI-D15: this list (and so its branch filter) covers the ALLOWED set, so an inactive branch's locations are listed with includeInactive -
+        // headerless and through the Company view. Only the header is refused: an inactive branch can never be the active one.
+        foreach (var route in new[] { $"{Route}?branchId={branchId}&includeInactive=true", $"{Route}?branchId={branchId}&includeInactive=true&scope=company" })
+        {
+            var response = await w.SendAsync(HttpMethod.Get, route);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var items = (await JsonAsync(response)).EnumerateArray().ToArray();
+            Assert.NotEmpty(items);
+            Assert.All(items, l => Assert.Equal(branchId, l.GetProperty("branchId").GetGuid()));
+        }
         var headered = await w.SendAsync(HttpMethod.Get, $"{Route}?branchId={branchId}&includeInactive=true", branch: branchId);
         Assert.Equal(HttpStatusCode.Forbidden, headered.StatusCode);
     }

@@ -123,17 +123,19 @@ public class BranchDocumentsApiTests(PostgresFixture postgres)
         var ex = await JsonAsync(await w.ExpenseAsync(x));
         var ey = await JsonAsync(await w.ExpenseAsync(y));
 
-        async Task<JsonElement[]> Items(string route) => (await JsonAsync(await w.SendAsync(HttpMethod.Get, route))).GetProperty("items").EnumerateArray().ToArray();
-        var purchasesX = await Items($"/api/v1/purchases?branchId={x}&pageSize=100");
+        // FI-D11: an explicit branchId filter must name the active branch; headerless = the default (main) branch only.
+        async Task<JsonElement[]> Items(string route, Guid? branch = null) => (await JsonAsync(await w.SendAsync(HttpMethod.Get, route, branch: branch))).GetProperty("items").EnumerateArray().ToArray();
+        var purchasesX = await Items($"/api/v1/purchases?branchId={x}&pageSize=100", x);
         var purchasesAll = await Items("/api/v1/purchases?pageSize=100");
-        var salesY = await Items($"/api/v1/sales?branchId={y}&pageSize=100");
-        var adjustmentsX = await Items($"/api/v1/stock-adjustments?branchId={x}&pageSize=100");
-        var expensesY = await Items($"/api/v1/expenses?branchId={y}&pageSize=100");
+        var salesY = await Items($"/api/v1/sales?branchId={y}&pageSize=100", y);
+        var adjustmentsX = await Items($"/api/v1/stock-adjustments?branchId={x}&pageSize=100", x);
+        var expensesY = await Items($"/api/v1/expenses?branchId={y}&pageSize=100", y);
 
         Assert.Equal([px.GetProperty("id").GetGuid()], purchasesX.Select(p => p.GetProperty("id").GetGuid()));
         Assert.All(purchasesX, p => Assert.Equal((x, xCode), (p.GetProperty("branchId").GetGuid(), Str(p, "branchCode"))));
-        Assert.Contains(purchasesAll, p => p.GetProperty("id").GetGuid() == py.GetProperty("id").GetGuid());
+        Assert.DoesNotContain(purchasesAll, p => p.GetProperty("id").GetGuid() == py.GetProperty("id").GetGuid()); // FI-D11: no merged branches
         Assert.Contains(purchasesAll, p => p.GetProperty("branchId").GetGuid() == w.MainId);
+        Assert.All(purchasesAll, p => Assert.Equal(w.MainId, p.GetProperty("branchId").GetGuid()));
         Assert.Equal([sy.GetProperty("id").GetGuid()], salesY.Select(p => p.GetProperty("id").GetGuid()));
         Assert.Equal(yCode, Str(salesY.Single(), "branchCode"));
         Assert.Equal([ax.GetProperty("id").GetGuid()], adjustmentsX.Select(p => p.GetProperty("id").GetGuid()));
@@ -200,7 +202,7 @@ public class BranchDocumentsApiTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.BadRequest, mismatch.StatusCode);
         Assert.Contains("branchid", await ErrorFieldsAsync(mismatch));
         Assert.Equal((x, $"PRT-{xCode}-0001"), (ok.GetProperty("branchId").GetGuid(), Str(ok, "returnNo")));
-        var returns = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/purchase-returns?branchId={x}"));
+        var returns = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/purchase-returns?branchId={x}", branch: x)); // FI-D11
         Assert.Equal(1, returns.GetProperty("items").GetArrayLength());
     }
 
@@ -225,7 +227,7 @@ public class BranchDocumentsApiTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.BadRequest, wrongPurchase.StatusCode);
         Assert.All(new[] { ownBranch, companyLevelAtMain, companyLevelAtX }, r => Assert.True(r.IsSuccessStatusCode, r.StatusCode.ToString()));
 
-        var options = await JsonAsync(await w.SendAsync(HttpMethod.Get, "/api/v1/financial-accounts/options"));
+        var options = await JsonAsync(await w.SendAsync(HttpMethod.Get, "/api/v1/financial-accounts/options", branch: x)); // FI-D11: x's tagged account is read at x
         Assert.Equal(x, options.EnumerateArray().Single(o => o.GetProperty("id").GetGuid() == tagged).GetProperty("branchId").GetGuid());
         Assert.Equal(JsonValueKind.Null, options.EnumerateArray().Single(o => o.GetProperty("id").GetGuid() == shared).GetProperty("branchId").ValueKind);
         var onlyX = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/financial-accounts?branchId={x}"));

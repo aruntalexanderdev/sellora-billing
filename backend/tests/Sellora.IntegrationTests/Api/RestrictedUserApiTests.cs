@@ -182,7 +182,7 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         var options = (await GetJsonAsync(user, "/api/v1/financial-accounts/options")).EnumerateArray().Select(IdOf).ToArray();
         var transactions = await GetJsonAsync(user, "/api/v1/financial-transactions?pageSize=100");
         var accountIds = transactions.GetProperty("items").EnumerateArray().Select(t => t.TryGetProperty("accountId", out var a) && a.ValueKind == JsonValueKind.String ? a.GetGuid() : (Guid?)null).ToArray();
-        var adminTransactions = await JsonAsync(await w.SendAsync(HttpMethod.Get, "/api/v1/financial-transactions?pageSize=100"));
+        var adminTransactions = await JsonAsync(await w.SendAsync(HttpMethod.Get, "/api/v1/financial-transactions?pageSize=100", branch: y)); // FI-D11: admin reads at Y
 
         Assert.Contains(shared, accounts); Assert.DoesNotContain(tagY, accounts);
         Assert.Contains(shared, options); Assert.DoesNotContain(tagY, options);

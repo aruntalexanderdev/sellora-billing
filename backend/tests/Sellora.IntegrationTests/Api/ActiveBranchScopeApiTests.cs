@@ -186,8 +186,8 @@ public class ActiveBranchScopeApiTests(PostgresFixture postgres)
     [Fact]
     public async Task CompanyAccountBalance_IsPresentForCompanyLevelReaders_AndBranchOnlyUsersNeverGetOne()
     {
-        // NOTE: CashBank.View / Reports.Accounts are company-only permissions (PermissionCatalog.BranchEligibleCodes), so every caller that passes the
-        // accounts policies holds them company-level and PermittedBranches(..) is null: the "balance == null" branch of FI-D12 is unreachable through the API.
+        // FI-D12 (amended): CashBank.View / Reports.Accounts are company-only codes, so the hidden-balance case is a member LIMITED TO SOME BRANCHES
+        // who holds them through a company role: such a reader gets null shared-account figures; only a member covering every branch sees them.
         var (r, w) = await WorldAsync(postgres);
         var (x, _) = await w.NewBranchAsync();
         var created = await w.SendAsync(HttpMethod.Post, "/api/v1/financial-accounts", new CreateFinancialAccountRequest("Shared " + Guid.NewGuid().ToString("N")[..8], FinancialAccountKind.Cash, null, 100m, null, null));
@@ -196,14 +196,21 @@ public class ActiveBranchScopeApiTests(PostgresFixture postgres)
         var branchOnly = await BranchReaderAsync(r, x, "Sales.View", "Reports.Sales");
         var companyReader = await r.CreateAtAsync(x); // staff role = company-level CashBank.View / Reports.Accounts, allowed {x}
 
-        foreach (var (client, header) in new[] { (companyReader.Client, (Guid?)x), (w.Admin, null) })
-        {
-            var row = (await ReadAsync(w, client, "/api/v1/financial-accounts", header)).GetProperty("items").EnumerateArray().Single(a => IdOf(a) == shared);
-            Assert.Equal(100m, row.GetProperty("balance").GetDecimal());
-            Assert.Equal(100m, (await ReadAsync(w, client, $"/api/v1/financial-accounts/{shared}", header)).GetProperty("balance").GetDecimal());
-            var report = (await ReadAsync(w, client, "/api/v1/reports/accounts/cash-bank", header)).GetProperty("items").EnumerateArray().Single(i => i.GetProperty("accountId").GetGuid() == shared);
-            Assert.Equal(100m, report.GetProperty("closing").GetDecimal());
-        }
+        var adminRow = (await ReadAsync(w, w.Admin, "/api/v1/financial-accounts", null)).GetProperty("items").EnumerateArray().Single(a => IdOf(a) == shared);
+        Assert.Equal(100m, adminRow.GetProperty("balance").GetDecimal());
+        Assert.Equal(100m, (await ReadAsync(w, w.Admin, $"/api/v1/financial-accounts/{shared}", null)).GetProperty("balance").GetDecimal());
+        var adminReport = (await ReadAsync(w, w.Admin, "/api/v1/reports/accounts/cash-bank", null)).GetProperty("items").EnumerateArray().Single(i => i.GetProperty("accountId").GetGuid() == shared);
+        Assert.Equal(100m, adminReport.GetProperty("closing").GetDecimal());
+
+        // Branch-limited member with a company role: the account is listed, but every shared-account figure is null (rendered "—"), and the
+        // list/report totals leave it out instead of leaking it.
+        var limitedRow = (await ReadAsync(w, companyReader.Client, "/api/v1/financial-accounts", x)).GetProperty("items").EnumerateArray().Single(a => IdOf(a) == shared);
+        Assert.Equal(JsonValueKind.Null, limitedRow.GetProperty("balance").ValueKind);
+        Assert.Equal(JsonValueKind.Null, limitedRow.GetProperty("reconciledBalance").ValueKind);
+        Assert.Equal(JsonValueKind.Null, (await ReadAsync(w, companyReader.Client, $"/api/v1/financial-accounts/{shared}", x)).GetProperty("balance").ValueKind);
+        var limitedReport = (await ReadAsync(w, companyReader.Client, "/api/v1/reports/accounts/cash-bank", x)).GetProperty("items").EnumerateArray().Single(i => i.GetProperty("accountId").GetGuid() == shared);
+        Assert.Equal(JsonValueKind.Null, limitedReport.GetProperty("opening").ValueKind);
+        Assert.Equal(JsonValueKind.Null, limitedReport.GetProperty("closing").ValueKind);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await w.SendAsync(HttpMethod.Get, "/api/v1/financial-accounts", branch: x, client: branchOnly.Client)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await w.SendAsync(HttpMethod.Get, $"/api/v1/financial-accounts/{shared}", branch: x, client: branchOnly.Client)).StatusCode);

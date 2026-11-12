@@ -342,7 +342,9 @@ public class AccountsReportsController(SelloraDbContext db, IEffectivePermission
 
         var accounts = await db.FinancialAccounts.OrderBy(a => a.Kind).ThenBy(a => a.Name).ToListAsync(ct);
         // FI-D12: figures of company-level accounts (BranchId null) only for a company-level Reports.Accounts holder; others get null figures.
-        var sharedVisible = (await effectivePermissions.GetCurrentAsync(ct)).PermittedBranches("Reports.Accounts") is null;
+        // ...and only when the membership covers every branch (FI-D12 as amended: branch-limited members never see shared-account figures).
+        var sharedVisible = db.BranchContext.AllowedBranchIds is null
+            && (await effectivePermissions.GetCurrentAsync(ct)).PermittedBranches("Reports.Accounts") is null;
         var rows = accounts
             // An inactive account with no balance and no activity in the period is noise.
             .Where(a => a.IsActive || balances.ContainsKey(a.Id))

@@ -16,20 +16,26 @@ namespace Sellora.IntegrationTests.Api;
 [Collection(PostgresCollection.Name)]
 public class RestrictedUserReportsApiTests(PostgresFixture postgres)
 {
-    private static async Task<JsonElement> GetAsync(HttpClient client, string route) => await RestrictedUserWorld.JsonOkAsync(await client.GetAsync(route));
+    // FI-D11: reads cover the active branch only; branch = the X-Branch-Id to read at (null = headerless = primary/default branch).
+    private static async Task<JsonElement> GetAsync(HttpClient client, string route, Guid? branch = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, route);
+        if (branch is { } b) request.Headers.Add("X-Branch-Id", b.ToString());
+        return await RestrictedUserWorld.JsonOkAsync(await client.SendAsync(request));
+    }
 
     private static decimal Num(JsonElement e, string name) => e.GetProperty(name).GetDecimal();
 
     private sealed record Totals(decimal PurchasePayments, decimal SalesPayments, decimal CashIn, decimal CashOut, decimal Received, decimal Paid, decimal Expenses,
         decimal MethodReceived, decimal MethodPaid, decimal TxIn, decimal TxOut, int TxTotal);
 
-    private static async Task<Totals> SnapshotAsync(HttpClient c)
+    private static async Task<Totals> SnapshotAsync(HttpClient c, Guid? branch = null)
     {
-        var pp = await GetAsync(c, "/api/v1/reports/accounts/purchase-payments");
-        var sp = await GetAsync(c, "/api/v1/reports/accounts/sales-payments");
-        var cf = await GetAsync(c, "/api/v1/reports/accounts/cash-flow");
-        var pm = await GetAsync(c, "/api/v1/reports/accounts/payment-methods");
-        var tx = await GetAsync(c, "/api/v1/financial-transactions?pageSize=100");
+        var pp = await GetAsync(c, "/api/v1/reports/accounts/purchase-payments", branch);
+        var sp = await GetAsync(c, "/api/v1/reports/accounts/sales-payments", branch);
+        var cf = await GetAsync(c, "/api/v1/reports/accounts/cash-flow", branch);
+        var pm = await GetAsync(c, "/api/v1/reports/accounts/payment-methods", branch);
+        var tx = await GetAsync(c, "/api/v1/financial-transactions?pageSize=100", branch);
         return new Totals(Num(pp, "payments"), Num(sp, "payments"), Num(cf, "moneyIn"), Num(cf, "moneyOut"), Num(cf, "receivedFromCustomers"),
             Num(cf, "paidToSuppliers"), Num(cf, "expenses"), Num(pm, "totalReceived"), Num(pm, "totalPaid"), Num(tx, "moneyIn"), Num(tx, "moneyOut"), tx.GetProperty("total").GetInt32());
     }
@@ -40,7 +46,7 @@ public class RestrictedUserReportsApiTests(PostgresFixture postgres)
         var r = await RestrictedUserWorld.GetWorldAsync(postgres); var w = r.World;
         var (x, _) = await w.NewBranchAsync(); var (y, _) = await w.NewBranchAsync();
         var user = await r.CreateAtAsync(x);
-        var adminBefore = await SnapshotAsync(w.Admin);
+        var adminBefore = await SnapshotAsync(w.Admin, y); // FI-D11: the admin reads at Y, where the hidden-branch money lands
         var userBefore = await SnapshotAsync(user.Client);
 
         // Hidden branch Y: null-account sales payment, purchase payment and a branch-tagged expense (no account).
@@ -48,7 +54,7 @@ public class RestrictedUserReportsApiTests(PostgresFixture postgres)
         Check(await w.PurchaseAsync(y, qty: 2m, paid: 10m), "purchase y");
         Check(await w.ExpenseAsync(y), "expense y");
 
-        var adminAfter = await SnapshotAsync(w.Admin);
+        var adminAfter = await SnapshotAsync(w.Admin, y);
         var userAfter = await SnapshotAsync(user.Client);
 
         Assert.Equal(adminBefore.SalesPayments + 40m, adminAfter.SalesPayments);
