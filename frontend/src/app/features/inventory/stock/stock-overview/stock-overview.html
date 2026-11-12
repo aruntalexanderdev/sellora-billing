@@ -5,6 +5,8 @@
   </div>
 </div>
 
+<ui-company-view-toggle permission="Inventory.View" (changed)="onCompanyViewChange()" />
+
 <div style="margin-bottom: 12px; max-width: 280px">
   <app-location-select purpose="filter" label="Filter by location" [value]="locationId()" (valueChange)="onLocationChange($event)" />
 </div>

@@ -5,13 +5,14 @@ import { ScopeFilters } from '../../../shared/scope/scope-filters';
 import { injectBranchColumnVisible } from '../../../shared/scope/list-scope';
 import { ReportsService } from '../reports.service';
 import type { ProfitSummary } from '../reports.models';
+import { UiCompanyViewToggle } from '../../../shared/ui/company-view-toggle/company-view-toggle';
 
 const INR = (n: number) => '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 
 @Component({
   selector: 'app-profit-summary-report',
   standalone: true,
-  imports: [UiCard, ScopeFilters],
+  imports: [UiCompanyViewToggle, UiCard, ScopeFilters],
   templateUrl: './profit-summary-report.html',
   styleUrl: './profit-summary-report.scss',
 })
@@ -51,6 +52,10 @@ export class ProfitSummaryReport implements OnInit {
   clearDates(): void {
     this.dateFrom.set('');
     this.dateTo.set('');
+    this.load();
+  }
+
+  onCompanyViewChange(): void {
     this.load();
   }
 

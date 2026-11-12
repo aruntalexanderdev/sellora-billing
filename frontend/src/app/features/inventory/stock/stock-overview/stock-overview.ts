@@ -7,6 +7,7 @@ import type { DataTableColumn, DataTableRow, DataTableState } from '../../../../
 import { AuthService } from '../../../../core/auth/auth.service';
 import { StockService } from '../stock.service';
 import type { StockOverviewItem } from '../stock.models';
+import { UiCompanyViewToggle } from '../../../../shared/ui/company-view-toggle/company-view-toggle';
 
 const COLS: DataTableColumn[] = [
   { label: 'Item', align: 'left' },
@@ -34,7 +35,7 @@ export function locationText(p: StockOverviewItem): string {
 @Component({
   selector: 'app-stock-overview',
   standalone: true,
-  imports: [UiDataTable, LocationSelect],
+  imports: [UiCompanyViewToggle, UiDataTable, LocationSelect],
   templateUrl: './stock-overview.html',
   styleUrl: '../../../administration/users/user-list/user-list.scss',
 })
@@ -109,6 +110,11 @@ export class StockOverview implements OnInit {
 
   onPageChange(page: number): void {
     this.page.set(page);
+    this.load();
+  }
+
+  onCompanyViewChange(): void {
+    this.page.set(1);
     this.load();
   }
 

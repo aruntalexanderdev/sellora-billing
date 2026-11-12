@@ -29,7 +29,7 @@ function mount(opts: { view: boolean; locations: StockLocation[]; items?: StockO
       { provide: StockService, useValue: { overview } },
       { provide: StockLocationsService, useValue: { list: () => of(opts.locations) } },
       { provide: AuthService, useValue: { hasPermission: (c: string) => opts.view && c === 'StockLocations.View' } },
-      { provide: ContextService, useValue: { contextVersion: signal(0).asReadonly(), workingBranch: signal({ id: 'b1' }) } },
+      { provide: ContextService, useValue: { contextVersion: signal(0).asReadonly(), workingBranch: signal({ id: 'b1' }), companyPermissions: signal(new Set<string>()), companyViewActive: () => false, setCompanyView: () => undefined } },
     ],
   });
   const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);

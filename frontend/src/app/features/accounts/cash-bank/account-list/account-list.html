@@ -56,7 +56,7 @@
                 }
               </td>
               <td>{{ a.kind }}</td>
-              <td class="num strong" [class.negative]="a.balance < 0">{{ fmt(a.balance) }}</td>
+              <td class="num strong" [class.negative]="a.balance !== null && a.balance < 0" [attr.title]="a.balance === null ? hiddenHint : null">{{ fmt(a.balance) }}</td>
               <td class="num">{{ a.unreconciledCount }}</td>
               <td><ui-badge [text]="a.isActive ? 'Active' : 'Inactive'" [tone]="a.isActive ? 'good' : 'mute'" /></td>
               <td class="row-actions">

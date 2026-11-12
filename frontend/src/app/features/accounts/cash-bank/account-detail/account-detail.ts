@@ -8,7 +8,7 @@ import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { CashBankService } from '../cash-bank.service';
 import { FinancialTransactionsService } from '../../financial-transactions/financial-transactions.service';
-import type { FinancialAccount } from '../cash-bank.models';
+import { HIDDEN_BALANCE_HINT, type FinancialAccount } from '../cash-bank.models';
 import type { FinancialTransaction, RelatedType } from '../../financial-transactions/financial-transactions.models';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 
@@ -60,14 +60,15 @@ export class AccountDetail implements OnInit {
   readonly canTransfer = computed(() => this.auth.hasPermission('CashBank.Transfer'));
   readonly canReconcile = computed(() => this.auth.hasPermission('CashBank.Reconcile'));
   readonly hasMore = computed(() => this.transactions().length < this.total());
-  readonly fmt = (n: number) => this.symbol() + money(n);
+  readonly fmt = (n: number | null) => (n === null ? '—' : this.symbol() + money(n));
+  readonly hiddenHint = HIDDEN_BALANCE_HINT;
   readonly label = (t: FinancialTransaction) => TYPE_LABEL[t.type] ?? t.type;
 
   // The statement balance is what the bank/cash count says; what should match it is the reconciled balance.
   readonly difference = computed(() => {
     const a = this.account();
     const s = this.statementBalance();
-    return a && s !== null ? (cents(s) - cents(a.reconciledBalance)) / 100 : null;
+    return a && s !== null && a.reconciledBalance !== null ? (cents(s) - cents(a.reconciledBalance)) / 100 : null;
   });
 
   private get id(): string {

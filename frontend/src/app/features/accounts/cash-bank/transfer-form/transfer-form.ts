@@ -52,13 +52,13 @@ export class TransferForm implements OnInit, HasUnsavedChanges {
   readonly toChoices = computed(() => this.filterByPreset(this.active(), 'to').filter((a) => a.id !== this.value().fromAccountId));
   readonly from = computed(() => this.accounts().find((a) => a.id === this.value().fromAccountId) ?? null);
   readonly to = computed(() => this.accounts().find((a) => a.id === this.value().toAccountId) ?? null);
-  readonly fmt = (n: number) => this.symbol() + money(n);
+  readonly fmt = (n: number | null) => (n === null ? '—' : this.symbol() + money(n));
 
   // The sending account is not blocked at zero (a bank account may overdraw), but going negative is worth a warning.
   readonly overdraws = computed(() => {
     const from = this.from();
     const amount = this.value().amount ?? 0;
-    return !!from && amount > from.balance;
+    return !!from && from.balance !== null && amount > from.balance;
   });
 
   readonly saving = signal(false);

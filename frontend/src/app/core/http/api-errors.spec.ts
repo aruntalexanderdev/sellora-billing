@@ -14,7 +14,7 @@ const ACCESS_CODES = ['access_management_forbidden', 'self_access_change_forbidd
 const PLATFORM_CODES = ['platform_admin_required', 'company_creation_disabled', 'platform_session_required'];
 const AUTH_CODES = [
   'account_disabled', 'no_branch_access', 'no_company_access', 'company_access_denied', 'branch_required', 'branch_header_invalid',
-  'branch_access_denied', 'company_context_invalid', 'invalid_refresh_token', 'invalid_credentials',
+  'branch_access_denied', 'company_scope_denied', 'company_context_invalid', 'invalid_refresh_token', 'invalid_credentials',
 ];
 
 describe('problemMessage', () => {

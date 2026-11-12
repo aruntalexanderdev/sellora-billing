@@ -1,13 +1,17 @@
 export type AccountKind = 'Cash' | 'Bank';
 
+/** Tooltip shown instead of a hidden (null) balance. */
+export const HIDDEN_BALANCE_HINT = 'Company account – balance visible to company-level users';
+
 export interface FinancialAccount {
   id: string;
   name: string;
   kind: AccountKind;
   reference: string | null;
   isActive: boolean;
-  balance: number;
-  reconciledBalance: number;
+  /** Null = company-level account and the reader lacks the company-level accounts permission (FI-D12): show "—", never 0. */
+  balance: number | null;
+  reconciledBalance: number | null;
   unreconciledCount: number;
 }
 

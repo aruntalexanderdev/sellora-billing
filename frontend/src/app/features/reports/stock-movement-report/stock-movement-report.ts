@@ -11,6 +11,7 @@ import { ReportsService } from '../reports.service';
 import type { StockMovementReportRow, StockMovementType } from '../reports.models';
 import { STOCK_MOVEMENT_TYPES, enteredLabel, movementTone, movementTypeLabel } from '../../../shared/units/stock-movement';
 import { formatQuantity } from '../../../shared/units/unit-conversion';
+import { UiCompanyViewToggle } from '../../../shared/ui/company-view-toggle/company-view-toggle';
 
 const BASE_COLS: DataTableColumn[] = [
   { label: 'Date', align: 'left' },
@@ -30,7 +31,7 @@ const PAGE_SIZE = 20;
 @Component({
   selector: 'app-stock-movement-report',
   standalone: true,
-  imports: [UiDataTable, ScopeFilters, LoadError],
+  imports: [UiCompanyViewToggle, UiDataTable, ScopeFilters, LoadError],
   templateUrl: './stock-movement-report.html',
   styleUrl: '../report-list.scss',
 })
@@ -137,6 +138,11 @@ export class StockMovementReport implements OnInit {
 
   onPageChange(page: number): void {
     this.page.set(page);
+    this.load();
+  }
+
+  onCompanyViewChange(): void {
+    this.page.set(1);
     this.load();
   }
 

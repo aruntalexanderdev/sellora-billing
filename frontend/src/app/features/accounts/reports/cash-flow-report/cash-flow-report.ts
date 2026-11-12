@@ -2,6 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { AccountsReportsService } from '../accounts-reports.service';
 import { ReportDateFilter } from '../report-date-filter/report-date-filter';
 import type { CashFlowReport as CashFlowReportModel } from '../accounts-reports.models';
+import { UiCompanyViewToggle } from '../../../../shared/ui/company-view-toggle/company-view-toggle';
 
 const money = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -9,7 +10,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 @Component({
   selector: 'app-cash-flow-report',
   standalone: true,
-  imports: [ReportDateFilter],
+  imports: [UiCompanyViewToggle, ReportDateFilter],
   templateUrl: './cash-flow-report.html',
   styleUrl: '../accounts-report.scss',
 })
@@ -38,6 +39,10 @@ export class CashFlowReport implements OnInit {
 
   print(): void {
     window.print();
+  }
+
+  onCompanyViewChange(): void {
+    this.load();
   }
 
   load(): void {

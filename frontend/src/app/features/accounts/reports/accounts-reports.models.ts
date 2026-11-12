@@ -130,12 +130,13 @@ export interface CashBankReportRow {
   accountName: string;
   kind: AccountKind;
   isActive: boolean;
-  opening: number;
-  moneyIn: number;
-  moneyOut: number;
-  transfersIn: number;
-  transfersOut: number;
-  closing: number;
+  /** Null for a company-level account the reader may not see balances of (FI-D12). */
+  opening: number | null;
+  moneyIn: number | null;
+  moneyOut: number | null;
+  transfersIn: number | null;
+  transfersOut: number | null;
+  closing: number | null;
   unreconciledCount: number;
 }
 

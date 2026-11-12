@@ -17,8 +17,8 @@
   </div>
 
   <div class="summary">
-    <div class="tile"><span class="tile-label">Book balance</span><strong [class.negative]="a.balance < 0">{{ fmt(a.balance) }}</strong></div>
-    <div class="tile"><span class="tile-label">Reconciled balance</span><strong>{{ fmt(a.reconciledBalance) }}</strong></div>
+    <div class="tile"><span class="tile-label">Book balance</span><strong [class.negative]="a.balance !== null && a.balance < 0" [attr.title]="a.balance === null ? hiddenHint : null">{{ fmt(a.balance) }}</strong></div>
+    <div class="tile"><span class="tile-label">Reconciled balance</span><strong [attr.title]="a.reconciledBalance === null ? hiddenHint : null">{{ fmt(a.reconciledBalance) }}</strong></div>
     <div class="tile"><span class="tile-label">Not yet reconciled</span><strong>{{ a.unreconciledCount }}</strong></div>
   </div>
 

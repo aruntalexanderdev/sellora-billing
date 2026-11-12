@@ -8,6 +8,7 @@ import { formatBreakdown, formatQuantity } from '../../../shared/units/unit-conv
 import { AuthService } from '../../../core/auth/auth.service';
 import { ReportsService } from '../reports.service';
 import type { CurrentStockReportRow, StockStatus } from '../reports.models';
+import { UiCompanyViewToggle } from '../../../shared/ui/company-view-toggle/company-view-toggle';
 
 const BASE_COLS: DataTableColumn[] = [
   { label: 'Item', align: 'left' },
@@ -26,7 +27,7 @@ const PAGE_SIZE = 20;
 @Component({
   selector: 'app-current-stock-report',
   standalone: true,
-  imports: [UiDataTable, ScopeFilters, LoadError],
+  imports: [UiCompanyViewToggle, UiDataTable, ScopeFilters, LoadError],
   templateUrl: './current-stock-report.html',
   styleUrl: '../report-list.scss',
 })
@@ -104,6 +105,11 @@ export class CurrentStockReport implements OnInit {
 
   onPageChange(page: number): void {
     this.page.set(page);
+    this.load();
+  }
+
+  onCompanyViewChange(): void {
+    this.page.set(1);
     this.load();
   }
 

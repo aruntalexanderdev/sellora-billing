@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
+import { ContextService } from '../../../core/context/context.service';
 import { primaryLoad } from '../../../core/http/request-context';
 import type { PagedResult } from '../../../core/api.models';
 import type { BatchConsumption, StockDetail, StockOverviewItem, StockStatus } from './stock.models';
@@ -20,6 +21,7 @@ export interface StockOverviewQuery {
 @Injectable({ providedIn: 'root' })
 export class StockService {
   private readonly http = inject(HttpClient);
+  private readonly context = inject(ContextService);
 
   overview(query: StockOverviewQuery): Observable<PagedResult<StockOverviewItem>> {
     const params: Record<string, string> = { page: String(query.page ?? 1), pageSize: String(query.pageSize ?? 50) };
@@ -27,6 +29,7 @@ export class StockService {
     if (query.category) params['category'] = query.category;
     if (query.status) params['status'] = query.status;
     if (query.stockLocationId) params['stockLocationId'] = query.stockLocationId;
+    if (this.context.companyViewActive('Inventory.View')) params['scope'] = 'company';
     return this.http.get<PagedResult<StockOverviewItem>>(`${BASE_URL}/overview`, { params });
   }
 
