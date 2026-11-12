@@ -84,3 +84,29 @@ describe('StockOverview location filter', () => {
     expect(locationText(item({ locations: [l('TRN', 'Transit')] }))).toBe('TRN (in transit)');
   });
 });
+
+describe('StockOverview quantity precision', () => {
+  const units = [
+    { productUnitId: 'u-pc', unitCode: 'PC', label: 'Piece', factor: 1, isBaseUnit: true },
+    { productUnitId: 'u-box', unitCode: 'BOX', label: 'Box', factor: 10, isBaseUnit: false },
+    { productUnitId: 'u-fc', unitCode: 'FC', label: 'Full Carton', factor: 100, isBaseUnit: false },
+  ];
+  const qtyCell = (c: StockOverview, i: number) => c.rows()[i].cells[3] as { text: string; sub?: string };
+
+  it('rows_pen122_showBreakdownAsSubText', () => {
+    const { c, el } = mount({ view: false, locations: [], items: [item({ quantityOnHand: 122, breakdownUnits: units })] });
+    expect(qtyCell(c, 0)).toMatchObject({ text: '122', sub: '1 Full Carton, 2 Box, 2 Piece' });
+    expect(el.textContent).toContain('1 Full Carton, 2 Box, 2 Piece');
+  });
+
+  it('rows_kgProduct_usesBaseDecimalPlaces', () => {
+    const { c } = mount({ view: false, locations: [], items: [item({ baseUnitLabel: 'kg', baseDecimalPlaces: 3, quantityOnHand: 12 })] });
+    expect(qtyCell(c, 0).text).toBe('12.000');
+  });
+
+  it('rows_baseOnlyOrZero_haveNoSubText', () => {
+    const { c } = mount({ view: false, locations: [], items: [item({ quantityOnHand: 5 }), item({ quantityOnHand: 0, breakdownUnits: units })] });
+    expect(qtyCell(c, 0).sub).toBeUndefined();
+    expect(qtyCell(c, 1).sub).toBeUndefined();
+  });
+});

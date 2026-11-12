@@ -112,3 +112,76 @@ describe('StockDetail locations', () => {
     expect(el.querySelector('.batch-detail')?.textContent?.replace(/\s+/g, ' ')).toContain('MAIN 25 pc · TRN 5 pc');
   });
 });
+
+describe('StockDetail quantity precision', () => {
+  const units = [
+    { productUnitId: 'u-pc', unitCode: 'PC', label: 'Piece', factor: 1, isBaseUnit: true },
+    { productUnitId: 'u-box', unitCode: 'BOX', label: 'Box', factor: 10, isBaseUnit: false },
+    { productUnitId: 'u-fc', unitCode: 'FC', label: 'Full Carton', factor: 100, isBaseUnit: false },
+  ];
+  const rice: Detail = {
+    productId: 'r', sku: 'RICE', name: 'Rice', category: null, baseUnitLabel: 'kg', baseDecimalPlaces: 3, taxLabel: 'GST', quantityOnHand: 12,
+    averageCost: 1, stockValue: 12, reorderLevel: 0, status: 'Normal', movements: [], batches: [],
+  };
+
+  function mount(detail: Detail) {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: 'p' }) } } },
+        { provide: StockService, useValue: { detail: () => of(detail) } },
+        { provide: AuthService, useValue: { hasPermission: () => false } },
+      ],
+    });
+    const f = TestBed.createComponent(StockDetail);
+    f.detectChanges();
+    return { f, el: f.nativeElement as HTMLElement };
+  }
+
+  it('onHand_kgProductWithNoMovements_shows3dp', () => {
+    const { el } = mount(rice);
+    expect(el.querySelector('.summary-value')?.textContent?.trim()).toBe('12.000 kg');
+  });
+
+  it('locations_kgProductWithNoMovements_show3dp', () => {
+    const { el } = mount({ ...rice, locations: [{ locationId: 'l1', code: 'MAIN', name: 'Main', type: 'BranchStore', qty: 7, avgCost: 1, value: 7 }] });
+    expect(el.querySelector('[data-testid="location-row"]')?.textContent).toContain('7.000 kg');
+  });
+
+  it('batches_kgProduct_useBaseDecimalPlaces', () => {
+    const d: Detail = {
+      ...rice,
+      batches: [{
+        id: 'b1', createdAt: '2026-11-01T00:00:00Z', sourceType: 'Purchase', sourceRefNo: 'PO-1', purchasedBaseQty: 20, remainingBaseQty: 12, unitCost: 1,
+        internalBatchNo: 'B-1', supplierBatchNumber: null, receivedDate: '2026-11-01', purchaseOrderId: null, purchaseOrderLineId: null,
+      }],
+    };
+    const { f, el } = mount(d);
+    f.componentInstance.toggleBatch(d.batches[0]);
+    f.detectChanges();
+    const text = el.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(text).toContain('20.000');
+    expect(text).toContain('12.000');
+    expect(text).toContain('Consumed 8.000 of 20.000 kg');
+  });
+
+  it('breakdown_pen122_rendersOnHandAndPerLocation', () => {
+    const { el } = mount({
+      ...rice, name: 'Pen', baseUnitLabel: 'pc', baseDecimalPlaces: 0, quantityOnHand: 122, breakdownUnits: units,
+      locations: [
+        { locationId: 'l1', code: 'MAIN', name: 'Main', type: 'BranchStore', qty: 110, avgCost: 1, value: 110 },
+        { locationId: 'l2', code: 'VAN', name: 'Van', type: 'BranchStore', qty: 12, avgCost: 1, value: 12 },
+      ],
+    });
+    expect(el.querySelector('[data-testid="onhand-breakdown"]')?.textContent?.trim()).toBe('1 Full Carton, 2 Box, 2 Piece');
+    const loc = Array.from(el.querySelectorAll('[data-testid="location-breakdown"]')).map((e) => e.textContent?.trim());
+    expect(loc).toEqual(['1 Full Carton, 1 Box', '1 Box, 2 Piece']);
+  });
+
+  it('breakdown_baseOnlyOrNoUnits_isNotRendered', () => {
+    const { el } = mount({ ...rice, breakdownUnits: [{ productUnitId: 'u', unitCode: 'KG', label: 'kg', factor: 1, isBaseUnit: true }] });
+    expect(el.querySelector('[data-testid="onhand-breakdown"]')).toBeNull();
+    TestBed.resetTestingModule();
+    expect(mount(rice).el.querySelector('[data-testid="onhand-breakdown"]')).toBeNull();
+  });
+});

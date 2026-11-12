@@ -20,7 +20,7 @@ Commands: prefer `scripts/verify.sh [unit|backend|frontend|all]` (compact output
 
 Read `docs/analysis/unit-conversion-restructuring-analysis.md` before any work on units, products, purchases, sales, stock, pricing or reports. All recommendations in §27 are **accepted** (D1–D10).
 
-Phase order (§25): 0 Quality gates → 1 Unit Master → 2 Product unit hierarchy → 3 Opening stock/adjustments → 4 Purchase → 5 Sales/POS → 6a Ledger enrichment → B Multi-location → 6b Transfers/damage → 7 Reports → 8 Release (per phase).
+Phase order (§25): 0 Quality gates → 1 Unit Master → 2 Product unit hierarchy → 3 Opening stock/adjustments → 4 Purchase → 5 Sales/POS → 6a Ledger enrichment → B Multi-location (≈ multi-company 1–3+8, ADR-03) → 6b Transfers/damage (≈ multi-company 9, ADR-03) → 7 Reports → 8 Release (per phase).
 Only the phase the user has explicitly approved may be implemented.
 
 ## Team model

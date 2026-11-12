@@ -34,7 +34,7 @@
     </div>
     <div class="summary-card">
       <div class="summary-label">Reorder level</div>
-      <div class="summary-value">{{ d.reorderLevel }} {{ d.baseUnitLabel }}</div>
+      <div class="summary-value">{{ d.reorderLevel | quantity: d.baseDecimalPlaces }} {{ d.baseUnitLabel }}</div>
     </div>
     <div class="summary-card">
       <div class="summary-label">Tax</div>
@@ -229,7 +229,7 @@
                   @if (m.stockLocationCode) { <span [title]="m.stockLocationName ?? ''">{{ m.stockLocationCode }}</span> } @else { — }
                 </td>
                 <td class="num" [class.positive]="m.quantityBaseUnits > 0" [class.negative]="m.quantityBaseUnits < 0">
-                  {{ m.quantityBaseUnits > 0 ? '+' : '' }}{{ m.baseDecimalPlaces == null ? m.quantityBaseUnits : formatQuantity(m.quantityBaseUnits, m.baseDecimalPlaces) }} {{ d.baseUnitLabel }}
+                  {{ m.quantityBaseUnits > 0 ? '+' : '' }}{{ formatQuantity(m.quantityBaseUnits, m.baseDecimalPlaces ?? d.baseDecimalPlaces) }} {{ d.baseUnitLabel }}
                   @if (enteredLabel(m); as e) { <div class="entered">{{ e }}</div> }
                 </td>
                 <td class="muted">
