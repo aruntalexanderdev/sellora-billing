@@ -43,6 +43,7 @@ FROM (VALUES
   ('Inventory.Edit', 'Inventory', 'Edit', 'Edit existing products.'),
   ('Inventory.Adjust', 'Inventory', 'Adjust', 'Post stock adjustments (damage, loss, correction, etc.).'),
   ('Inventory.Price', 'Inventory', 'Price', 'Configure product units and prices.'),
+  ('Inventory.Categories', 'Inventory', 'Manage categories', 'Create, edit, activate and deactivate product categories and subcategories.'),
   ('StockLocations.View', 'Inventory', 'View locations', 'View stock locations (branch stores, warehouses, vehicles, in-transit).'),
   ('StockTransfers.View', 'Inventory', 'View transfers', 'View stock transfers.'),
   ('StockTransfers.Create', 'Inventory', 'Create transfers', 'Create, edit and submit stock transfer requests.'),

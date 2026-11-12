@@ -124,9 +124,9 @@ public static class IsolationCases
         new("VehiclesController.Create", "other company's branch", Post, (own, other) =>
             ("/api/v1/vehicles", new CreateVehicleRequest("ISO-X", "Cross branch", "Van", other.BranchId))),
         new("ProductsController.Create", "other company's tax", Post, (own, other) =>
-            ("/api/v1/products", new UpsertProductRequest("ISO-1", "Isolation", null, own.BaseUnitId, other.TaxId, 0m, [EachUnit(own)]))),
+            ("/api/v1/products", new UpsertProductRequest("ISO-1", "Isolation", null, null, own.BaseUnitId, other.TaxId, 0m, [EachUnit(own)]))),
         new("ProductsController.Update", "other company's product", Put, (own, other) =>
-            ($"/api/v1/products/{other.ProductId}", new UpsertProductRequest("STN-PEN", "Hijacked", null, own.BaseUnitId, own.TaxId, 0m, [EachUnit(own)]))),
+            ($"/api/v1/products/{other.ProductId}", new UpsertProductRequest("STN-PEN", "Hijacked", null, null, own.BaseUnitId, own.TaxId, 0m, [EachUnit(own)]))),
         new("ProductsController.SetActive", "other company's product", Post, (own, other) =>
             ($"/api/v1/products/{other.ProductId}/status", new SetActiveRequest(false))),
         new("ProductsController.PreviewUnits", "other company's product", Post, (own, other) =>

@@ -8,7 +8,8 @@ public record CurrentStockReportRowDto(
     decimal QuantityOnHand, decimal AverageCost, decimal StockValue,
     decimal? SellingPricePerBaseUnit, decimal? SellingValue, StockStatus Status,
     IReadOnlyList<StockLocationBalanceDto>? Locations = null,
-    int BaseDecimalPlaces = 0, IReadOnlyList<BreakdownUnitDto>? BreakdownUnits = null
+    int BaseDecimalPlaces = 0, IReadOnlyList<BreakdownUnitDto>? BreakdownUnits = null,
+    Guid? CategoryId = null, string? SubcategoryName = null
 );
 
 public record StockMovementReportRowDto(

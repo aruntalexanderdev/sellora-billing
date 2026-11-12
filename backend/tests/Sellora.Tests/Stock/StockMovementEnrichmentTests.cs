@@ -39,7 +39,7 @@ public class StockMovementEnrichmentTests
         await db.SaveChangesAsync();
 
         var products = new ProductService(db);
-        var pen = await products.CreateProductAsync(new UpsertProductInput("STN-PEN", "Ball Pen", "Stationery", pcUnit.Id, tax.Id, 0m,
+        var pen = await products.CreateProductAsync(new UpsertProductInput("STN-PEN", "Ball Pen", null, null, pcUnit.Id, tax.Id, 0m,
         [
             new ProductUnitInputItem(null, pcUnit.Id, null, null, null, null, true, true, false, false, true),
             new ProductUnitInputItem(null, boxUnit.Id, pcUnit.Id, 10m, null, null, true, true, false, false, true),

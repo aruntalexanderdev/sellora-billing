@@ -19,7 +19,8 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
     [CompanyScopeRead]
     public async Task<ActionResult<PagedResult<StockOverviewItemDto>>> Overview(
         [FromQuery] string? search, [FromQuery] string? category, [FromQuery] Guid? unitId, [FromQuery] StockStatus? status,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default,
+        [FromQuery] Guid? categoryId = null, [FromQuery] Guid? subcategoryId = null)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -32,7 +33,8 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
         var query = db.Products.Where(p => p.IsActive)
             .Select(p => new
             {
-                p.Id, p.Sku, p.Name, p.Category, p.ReorderLevel,
+                p.Id, p.Sku, p.Name, p.Category, p.CategoryId, p.SubcategoryId, p.ReorderLevel,
+                SubcategoryName = db.ProductSubcategories.Where(s => s.Id == p.SubcategoryId).Select(s => s.Name).FirstOrDefault(),
                 BaseUnitLabel = p.BaseUnit.ShortCode,
                 BaseDecimalPlaces = (int)p.BaseUnit.DecimalPlaces,
                 QuantityOnHand = db.StockItems.Where(s => s.ProductId == p.Id && scope.Contains(s.StockLocationId)).Sum(s => s.QuantityOnHand),
@@ -46,7 +48,9 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
             var s = search.Trim().ToLower();
             query = query.Where(p => p.Name.ToLower().Contains(s) || p.Sku.ToLower().Contains(s));
         }
-        if (!string.IsNullOrWhiteSpace(category)) query = query.Where(p => p.Category == category);
+        if (!string.IsNullOrWhiteSpace(category)) query = query.Where(p => p.Category == category); // legacy name filter (FI-D17)
+        if (categoryId is not null) query = query.Where(p => p.CategoryId == categoryId);
+        if (subcategoryId is not null) query = query.Where(p => p.SubcategoryId == subcategoryId);
         if (unitId is not null) query = query.Where(p => p.UnitId == unitId);
         if (status is not null)
         {
@@ -69,7 +73,8 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
             p.QuantityOnHand, StockVisibility.WeightedAverage(p.QuantityOnHand, p.StockValue, p.MaxAverageCost), p.StockValue,
             StockStatusCalculator.Calculate(p.QuantityOnHand, p.ReorderLevel),
             balances.GetValueOrDefault(p.Id),
-            p.BaseDecimalPlaces, breakdowns.GetValueOrDefault(p.Id) ?? []
+            p.BaseDecimalPlaces, breakdowns.GetValueOrDefault(p.Id) ?? [],
+            p.CategoryId, p.SubcategoryName
         )).ToList();
 
         return Ok(new PagedResult<StockOverviewItemDto>(items, total, page, pageSize));
@@ -169,10 +174,14 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
             balancesByBatch.GetValueOrDefault(b.Id))).ToList();
 
         var breakdown = (await BreakdownUnits.LoadAsync(db, [productId], ct)).GetValueOrDefault(productId) ?? [];
+        var subcategoryName = product.SubcategoryId is { } subId
+            ? await db.ProductSubcategories.Where(s => s.Id == subId).Select(s => s.Name).FirstOrDefaultAsync(ct)
+            : null;
 
         return Ok(new StockDetailDto(
             product.Id, product.Sku, product.Name, product.Category, product.BaseUnit.ShortCode, product.Tax.Name,
             qty, avgCost, stockValue, product.ReorderLevel, StockStatusCalculator.Calculate(qty, product.ReorderLevel),
-            movements, batches, locationRows, product.BaseUnit.DecimalPlaces, breakdown));
+            movements, batches, locationRows, product.BaseUnit.DecimalPlaces, breakdown,
+            product.CategoryId, subcategoryName));
     }
 }

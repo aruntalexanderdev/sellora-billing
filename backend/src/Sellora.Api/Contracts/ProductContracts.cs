@@ -30,8 +30,10 @@ public record UpsertProductUnitRequest(
     bool IsActive = true
 );
 
+/// <summary><see cref="Category"/> is the legacy name field and equals <see cref="CategoryName"/>.</summary>
 public record ProductListItemDto(
     Guid Id, string Sku, string Name, string? Category,
+    Guid? CategoryId, string? CategoryName, Guid? SubcategoryId, string? SubcategoryName,
     string BaseUnitLabel, string TaxLabel, decimal ReorderLevel, bool IsActive
 );
 
@@ -39,6 +41,7 @@ public record ProductListItemDto(
 /// <see cref="Units"/> is ordered by SortOrder (base first).</summary>
 public record ProductDetailDto(
     Guid Id, string Sku, string Name, string? Category,
+    Guid? CategoryId, string? CategoryName, Guid? SubcategoryId, string? SubcategoryName,
     Guid BaseUnitId, string BaseUnitLabel, Guid TaxId, string TaxLabel, decimal TaxRatePercent,
     decimal ReorderLevel, bool IsActive, bool IsBaseUnitLocked, IReadOnlyList<ProductUnitDto> Units
 );
@@ -46,7 +49,8 @@ public record ProductDetailDto(
 public record UpsertProductRequest(
     [Required, MaxLength(40)] string Sku,
     [Required, MaxLength(150)] string Name,
-    [MaxLength(60)] string? Category,
+    Guid? CategoryId,
+    Guid? SubcategoryId,
     [Required] Guid? BaseUnitId,
     [Required] Guid? TaxId,
     [Range(0, double.MaxValue)] decimal ReorderLevel,

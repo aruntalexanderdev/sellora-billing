@@ -24,7 +24,8 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
     /// user can bill without needing Inventory permissions.</summary>
     [HttpGet("catalog")]
     [Authorize(Policy = "Sales.Create")]
-    public async Task<ActionResult<IReadOnlyList<SaleCatalogProductDto>>> Catalog([FromQuery] string? search, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
+    public async Task<ActionResult<IReadOnlyList<SaleCatalogProductDto>>> Catalog([FromQuery] string? search, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default,
+        [FromQuery] Guid? categoryId = null, [FromQuery] Guid? subcategoryId = null, [FromQuery] string? category = null)
     {
         // Phase 8: availability is read at the selling location (requested, else the working branch's store).
         var location = await ResolveCatalogLocationAsync(stockLocationId, ct);
@@ -39,6 +40,10 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             query = query.Where(p => p.Name.ToLower().Contains(s) || p.Sku.ToLower().Contains(s) || (p.Category != null && p.Category.ToLower().Contains(s))
                 || p.Units.Any(u => u.IsActive && u.IsSellable && u.Barcode == term));
         }
+
+        if (categoryId is not null) query = query.Where(p => p.CategoryId == categoryId);
+        if (subcategoryId is not null) query = query.Where(p => p.SubcategoryId == subcategoryId);
+        if (!string.IsNullOrWhiteSpace(category)) query = query.Where(p => p.Category == category); // legacy name filter (FI-D17)
 
         return Ok(await BuildCatalogItemsAsync(query.OrderBy(p => p.Name).Take(50), location.LocationId, ct));
     }
@@ -88,6 +93,10 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             .Where(p => unitIds.Contains(p.ProductUnitId) && p.EffectiveTo == null)
             .ToDictionaryAsync(p => p.ProductUnitId, p => p.Price, ct);
 
+        var subIds = products.Where(p => p.SubcategoryId != null).Select(p => p.SubcategoryId!.Value).Distinct().ToList();
+        var subNames = subIds.Count == 0 ? new Dictionary<Guid, string>()
+            : await db.ProductSubcategories.Where(s => subIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Name, ct);
+
         return products.Select(p => new SaleCatalogProductDto(
             p.Id, p.Sku, p.Name, p.Category, p.BaseUnit.ShortCode,
             qtyByProduct.GetValueOrDefault(p.Id, 0m), p.Tax.RatePercent,
@@ -95,7 +104,8 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
                 u.Id, u.UnitId, u.Unit.ShortCode, u.Label ?? u.Unit.Name,
                 u.ConversionFactorToBase, u.Unit.DecimalPlaces, u.IsBaseUnit, u.IsDefaultSalesUnit,
                 priceByUnit.TryGetValue(u.Id, out var price) ? price : null, u.Barcode)).ToList(),
-            locationId
+            locationId,
+            p.CategoryId, p.SubcategoryId is { } sid && subNames.TryGetValue(sid, out var subName) ? subName : null
         )).ToList();
     }
 

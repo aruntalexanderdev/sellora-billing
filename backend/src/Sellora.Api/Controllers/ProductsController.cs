@@ -17,7 +17,8 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
     [HttpGet]
     [Authorize(Policy = "Inventory.View")]
     public async Task<ActionResult<PagedResult<ProductListItemDto>>> List(
-        [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default,
+        [FromQuery] Guid? categoryId = null, [FromQuery] Guid? subcategoryId = null, [FromQuery] string? category = null)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -29,9 +30,17 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
             query = query.Where(p => p.Name.ToLower().Contains(s) || p.Sku.ToLower().Contains(s) || (p.Category != null && p.Category.ToLower().Contains(s)));
         }
 
+        if (categoryId is not null) query = query.Where(p => p.CategoryId == categoryId);
+        if (subcategoryId is not null) query = query.Where(p => p.SubcategoryId == subcategoryId);
+        // Legacy string filter, kept for one release (FI-D17): matches the category name.
+        if (!string.IsNullOrWhiteSpace(category)) query = query.Where(p => p.Category == category);
+
         var total = await query.CountAsync(ct);
         var items = await query.OrderBy(p => p.Name).Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(p => new ProductListItemDto(p.Id, p.Sku, p.Name, p.Category, p.BaseUnit.ShortCode, p.Tax.Name, p.ReorderLevel, p.IsActive))
+            .Select(p => new ProductListItemDto(p.Id, p.Sku, p.Name, p.Category,
+                p.CategoryId, p.Category, p.SubcategoryId,
+                db.ProductSubcategories.Where(s => s.Id == p.SubcategoryId).Select(s => s.Name).FirstOrDefault(),
+                p.BaseUnit.ShortCode, p.Tax.Name, p.ReorderLevel, p.IsActive))
             .ToListAsync(ct);
 
         return Ok(new PagedResult<ProductListItemDto>(items, total, page, pageSize));
@@ -118,7 +127,7 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
     }
 
     private static UpsertProductInput ToInput(UpsertProductRequest request) => new(
-        request.Sku, request.Name, request.Category, request.BaseUnitId!.Value, request.TaxId!.Value, request.ReorderLevel,
+        request.Sku, request.Name, request.CategoryId, request.SubcategoryId, request.BaseUnitId!.Value, request.TaxId!.Value, request.ReorderLevel,
         ToUnitInputs(request.Units));
 
     private static List<ProductUnitInputItem> ToUnitInputs(IEnumerable<UpsertProductUnitRequest> units) => units
@@ -150,8 +159,13 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
                 u.IsActive, locks.ContainsKey(u.Id), locks.GetValueOrDefault(u.Id)))
             .ToList();
 
+        var subcategoryName = product.SubcategoryId is { } subId
+            ? await db.ProductSubcategories.Where(s => s.Id == subId).Select(s => s.Name).FirstOrDefaultAsync(ct)
+            : null;
+
         return new ProductDetailDto(
-            product.Id, product.Sku, product.Name, product.Category, product.BaseUnitId, product.BaseUnit.ShortCode,
+            product.Id, product.Sku, product.Name, product.Category,
+            product.CategoryId, product.Category, product.SubcategoryId, subcategoryName, product.BaseUnitId, product.BaseUnit.ShortCode,
             product.TaxId, product.Tax.Name, product.Tax.RatePercent, product.ReorderLevel, product.IsActive,
             isBaseUnitLocked, dtos);
     }

@@ -35,6 +35,7 @@ public class ProductService(SelloraDbContext db) : IProductService
         var units = await LoadUnitsAsync(ReferencedUnitIds(input.BaseUnitId, input.Units, []), lockForShare: true, ct);
         await ValidateReferencesAsync(input, units, currentBaseUnitId: null, ct);
         await EnsureUniqueSkuAsync(null, input.Sku, ct);
+        var categoryName = await ValidateClassificationAsync(input, currentCategoryId: null, currentSubcategoryId: null, ct);
 
         var productId = Guid.NewGuid();
         var plan = BuildDrafts(input.Units, [], NoLocks, units);
@@ -45,7 +46,9 @@ public class ProductService(SelloraDbContext db) : IProductService
             Id = productId,
             Sku = input.Sku.Trim(),
             Name = input.Name.Trim(),
-            Category = input.Category,
+            Category = categoryName,
+            CategoryId = input.CategoryId,
+            SubcategoryId = input.SubcategoryId,
             BaseUnitId = input.BaseUnitId,
             TaxId = input.TaxId,
             ReorderLevel = input.ReorderLevel,
@@ -82,6 +85,7 @@ public class ProductService(SelloraDbContext db) : IProductService
         // 3. Reference checks (base unit, packaging base, inactive base, tax, SKU).
         await ValidateReferencesAsync(input, units, product.BaseUnitId, ct);
         await EnsureUniqueSkuAsync(productId, input.Sku, ct);
+        var categoryName = await ValidateClassificationAsync(input, product.CategoryId, product.SubcategoryId, ct);
 
         // 4. Locks, drafts, rules.
         var locks = await ProductUnitUsage.GetLockReasonsAsync(db, product.Units.ToList(), ct);
@@ -91,7 +95,9 @@ public class ProductService(SelloraDbContext db) : IProductService
 
         product.Sku = input.Sku.Trim();
         product.Name = input.Name.Trim();
-        product.Category = input.Category;
+        product.Category = categoryName;
+        product.CategoryId = input.CategoryId;
+        product.SubcategoryId = input.SubcategoryId;
         product.BaseUnitId = input.BaseUnitId;
         product.TaxId = input.TaxId;
         product.ReorderLevel = input.ReorderLevel;
@@ -517,6 +523,42 @@ public class ProductService(SelloraDbContext db) : IProductService
         {
             throw new DomainValidationException(nameof(input.TaxId), "Select a valid tax.");
         }
+    }
+
+    /// <summary>Phase 08 (FI-D16): the category must exist in the company, the subcategory must belong to it and a subcategory needs
+    /// a category. An inactive master cannot be newly assigned; the one the product already has is kept. Returns the category
+    /// name to mirror into the legacy <c>Product.Category</c> (null when none).</summary>
+    private async Task<string?> ValidateClassificationAsync(UpsertProductInput input, Guid? currentCategoryId, Guid? currentSubcategoryId, CancellationToken ct)
+    {
+        if (input.CategoryId is null)
+        {
+            if (input.SubcategoryId is not null)
+            {
+                throw new DomainValidationException("subcategoryId", "Select a category before choosing a subcategory.");
+            }
+            return null;
+        }
+
+        var categoryId = input.CategoryId.Value;
+        var category = await db.ProductCategories.AsNoTracking().Where(c => c.Id == categoryId)
+            .Select(c => new { c.Name, c.IsActive }).SingleOrDefaultAsync(ct);
+        if (category is null) throw new DomainValidationException("categoryId", "Select a valid category.");
+        if (!category.IsActive && categoryId != currentCategoryId)
+        {
+            throw new DomainValidationException("categoryId", "This category is inactive and cannot be assigned.");
+        }
+
+        if (input.SubcategoryId is { } subcategoryId)
+        {
+            var sub = await db.ProductSubcategories.AsNoTracking().Where(s => s.Id == subcategoryId && s.CategoryId == categoryId)
+                .Select(s => new { s.IsActive }).SingleOrDefaultAsync(ct);
+            if (sub is null) throw new DomainValidationException("subcategoryId", "Select a subcategory of the chosen category.");
+            if (!sub.IsActive && subcategoryId != currentSubcategoryId)
+            {
+                throw new DomainValidationException("subcategoryId", "This subcategory is inactive and cannot be assigned.");
+            }
+        }
+        return category.Name;
     }
 
     private async Task EnsureUniqueSkuAsync(Guid? selfId, string sku, CancellationToken ct)
