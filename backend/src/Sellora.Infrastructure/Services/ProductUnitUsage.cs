@@ -71,6 +71,33 @@ public static class ProductUnitUsage
         await db.StockMovements.AnyAsync(m => m.ProductId == productId, ct)
         || await db.PurchaseBatches.AnyAsync(b => b.ProductId == productId, ct);
 
+    /// <summary>What makes a product part of the business record (documents, ledger, batches, stock on hand); empty when the
+    /// product may be hard-deleted. Labels are user-facing. Document queries bypass the "Branch" filter (D7, as above):
+    /// history in any branch blocks the delete.</summary>
+    public static async Task<List<string>> GetProductHistoryAsync(SelloraDbContext db, Guid productId, CancellationToken ct)
+    {
+        var checks = new (string Label, Func<Task<bool>> Exists)[]
+        {
+            ("purchases", () => db.PurchaseOrderLines.IgnoreQueryFilters(BranchBypass).AnyAsync(l => l.ProductId == productId, ct)),
+            ("purchase returns", () => db.PurchaseReturnLines.IgnoreQueryFilters(BranchBypass).AnyAsync(l => l.ProductId == productId, ct)),
+            ("sales", () => db.SalesInvoiceLines.IgnoreQueryFilters(BranchBypass).AnyAsync(l => l.ProductId == productId, ct)),
+            ("sales returns", () => db.SalesReturnLines.IgnoreQueryFilters(BranchBypass).AnyAsync(l => l.ProductId == productId, ct)),
+            ("stock adjustments", () => db.StockAdjustments.IgnoreQueryFilters(BranchBypass).AnyAsync(a => a.ProductId == productId, ct)),
+            ("stock transfers", () => db.StockTransferLines.AnyAsync(l => l.ProductId == productId, ct)),
+            ("transfer receipts", () => db.StockTransferReceiptLines.AnyAsync(l => l.ProductId == productId, ct)),
+            ("stock movements", () => db.StockMovements.AnyAsync(m => m.ProductId == productId, ct)),
+            ("purchase batches", () => db.PurchaseBatches.AnyAsync(b => b.ProductId == productId, ct)),
+            ("stock on hand", () => db.StockItems.AnyAsync(s => s.ProductId == productId && s.QuantityOnHand != 0, ct)),
+        };
+
+        var found = new List<string>();
+        foreach (var (label, exists) in checks)
+        {
+            if (await exists()) found.Add(label);
+        }
+        return found;
+    }
+
     /// <summary>True when the product's base unit cannot change: stock history exists or any unit row is locked.</summary>
     public static async Task<bool> IsBaseUnitLockedAsync(SelloraDbContext db, Guid productId, IReadOnlyDictionary<Guid, string> lockReasons, CancellationToken ct) =>
         lockReasons.Count > 0 || await HasStockHistoryAsync(db, productId, ct);

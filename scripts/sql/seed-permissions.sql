@@ -41,6 +41,7 @@ FROM (VALUES
   ('Inventory.View', 'Inventory', 'View', 'View stock overview, details and movement.'),
   ('Inventory.Create', 'Inventory', 'Create', 'Create new products.'),
   ('Inventory.Edit', 'Inventory', 'Edit', 'Edit existing products.'),
+  ('Inventory.Delete', 'Inventory', 'Delete', 'Delete products that have never been used in a transaction.'),
   ('Inventory.Adjust', 'Inventory', 'Adjust', 'Post stock adjustments (damage, loss, correction, etc.).'),
   ('Inventory.Price', 'Inventory', 'Price', 'Configure product units and prices.'),
   ('StockLocations.View', 'Inventory', 'View locations', 'View stock locations (branch stores, warehouses, vehicles, in-transit).'),
