@@ -46,6 +46,11 @@ export class ProductsService {
     return this.http.post<UnitPreviewResponse>(`${BASE_URL}/unit-preview`, request);
   }
 
+  /** Hard delete; the API refuses (400, field `Product`) once the product has any history. */
+  delete(id: string): Observable<void> {
+    return this.http.delete<void>(`${BASE_URL}/${id}`);
+  }
+
   setActive(id: string, isActive: boolean): Observable<void> {
     return this.http.post<void>(`${BASE_URL}/${id}/status`, { isActive });
   }
