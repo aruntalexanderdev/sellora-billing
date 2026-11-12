@@ -358,9 +358,15 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
 
         var companyId = db.CompanyContext.RequireCompanyId();
         var allowed = allowedSet.ToArray();
-        return query.Where(u => !db.UserCompanyMemberships.Any(m => m.UserId == u.Id && m.CompanyId == companyId
-            && (db.UserBranchAssignments.Any(a => a.CompanyId == companyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active && !allowed.Contains(a.BranchId))
-                || db.UserRoleAssignments.Any(r => r.CompanyId == companyId && r.UserCompanyMembershipId == m.Id && r.Status == AssignmentStatus.Active && r.ScopeType == RoleScope.Company))));
+        // FI-D14: a branch-limited actor reaches only users that work wholly inside its branches - an AssignedBranches membership with at least
+        // one active allocation, every active allocation and every active branch role inside the actor's branches, and no company role.
+        // Company-wide members and users without any allocation are company administration (404 for the branch actor).
+        return query.Where(u => db.UserCompanyMemberships.Any(m => m.UserId == u.Id && m.CompanyId == companyId
+            && m.AccessScope == CompanyAccessScope.AssignedBranches
+            && db.UserBranchAssignments.Any(a => a.CompanyId == companyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active)
+            && !db.UserBranchAssignments.Any(a => a.CompanyId == companyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active && !allowed.Contains(a.BranchId))
+            && !db.UserRoleAssignments.Any(r => r.CompanyId == companyId && r.UserCompanyMembershipId == m.Id && r.Status == AssignmentStatus.Active
+                && (r.ScopeType == RoleScope.Company || (r.BranchId != null && !allowed.Contains(r.BranchId.Value))))));
     }
 
     private void AppendAudit(AccessManagementActor actor, string action, Guid targetUserId, object? before, object? after)

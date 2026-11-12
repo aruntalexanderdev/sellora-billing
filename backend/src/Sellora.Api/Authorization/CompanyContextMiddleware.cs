@@ -143,7 +143,7 @@ public sealed class CompanyContextMiddleware(RequestDelegate next)
             var candidates = db.Branches.AsNoTracking().Where(b => b.CompanyId == companyId);
             if (allowed is not null) candidates = candidates.Where(b => allowed.Contains(b.Id));
             active = await candidates
-                .OrderByDescending(b => b.IsDefault).ThenByDescending(b => b.IsActive).ThenBy(b => b.Code).ThenBy(b => b.Id)
+                .OrderByDescending(b => b.IsActive).ThenByDescending(b => b.IsDefault).ThenBy(b => b.Code).ThenBy(b => b.Id)
                 .Select(b => (Guid?)b.Id)
                 .FirstOrDefaultAsync(context.RequestAborted);
         }
