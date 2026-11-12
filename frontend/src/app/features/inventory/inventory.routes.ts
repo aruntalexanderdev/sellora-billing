@@ -55,6 +55,12 @@ export const INVENTORY_ROUTES: Routes = [
     data: { group: 'Inventory', page: 'Stock Details' },
   },
   {
+    path: 'categories',
+    loadComponent: () => import('../masters/product-categories/product-categories').then((m) => m.ProductCategories),
+    canActivate: [permissionGuard(['Inventory.View', 'Inventory.Categories'])],
+    data: { group: 'Inventory', page: 'Product Categories' },
+  },
+  {
     path: 'pricing',
     loadComponent: () => import('./pricing/pricing-page/pricing-page').then((m) => m.PricingPage),
     canActivate: [permissionGuard('Inventory.Price')],

@@ -47,6 +47,7 @@ export const NAV_DEF: NavGroupDef[] = [
     items: [
       { label: 'Stock Overview', routerLink: '/inventory/stock', permission: 'Inventory.View' },
       { label: 'Products', routerLink: '/inventory/products', permission: 'Inventory.View' },
+      { label: 'Categories', routerLink: '/inventory/categories', permission: ['Inventory.View', 'Inventory.Categories'] },
       { label: 'Stock Adjustments', routerLink: '/inventory/stock-adjustments', permission: 'Inventory.View' },
       { label: 'Stock Transfers', routerLink: '/inventory/stock-transfers', permission: 'StockTransfers.View' },
       { label: 'Stock & Pricing', routerLink: '/inventory/pricing', permission: 'Inventory.Price' },

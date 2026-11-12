@@ -57,7 +57,12 @@ export interface ProductListItem {
   id: string;
   sku: string;
   name: string;
+  /** Category name (legacy field, mirrors `categoryName`). */
   category: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  subcategoryId: string | null;
+  subcategoryName: string | null;
   baseUnitLabel: string;
   taxLabel: string;
   reorderLevel: number;
@@ -70,6 +75,10 @@ export interface ProductDetail {
   sku: string;
   name: string;
   category: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  subcategoryId: string | null;
+  subcategoryName: string | null;
   baseUnitId: string;
   baseUnitLabel: string;
   taxId: string;
@@ -87,7 +96,8 @@ export interface ProductDetail {
 export interface UpsertProductRequest {
   sku: string;
   name: string;
-  category?: string | null;
+  categoryId: string | null;
+  subcategoryId: string | null;
   baseUnitId: string;
   taxId: string;
   reorderLevel: number;

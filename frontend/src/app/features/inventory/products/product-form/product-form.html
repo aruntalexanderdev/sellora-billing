@@ -34,7 +34,25 @@
     <div class="grid-2">
       <div>
         <label class="field-label">Category</label>
-        <input type="text" formControlName="category" class="field-input" placeholder="Grains" />
+        <select formControlName="categoryId" class="field-input">
+          <option value="">None</option>
+          @for (c of categoryOptions(); track c.id) {
+            <option [value]="c.id">{{ c.name }}{{ c.isActive ? '' : ' (inactive)' }}</option>
+          }
+        </select>
+        @if (form.get('categoryId')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('categoryId')?.errors?.['server'] }}</div>
+        }
+        <label class="field-label" style="margin-top: 10px">Subcategory</label>
+        <select formControlName="subcategoryId" class="field-input" [attr.disabled]="form.controls.categoryId.value ? null : ''">
+          <option value="">None</option>
+          @for (s of subcategoryOptions(); track s.id) {
+            <option [value]="s.id">{{ s.name }}{{ s.isActive ? '' : ' (inactive)' }}</option>
+          }
+        </select>
+        @if (form.get('subcategoryId')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('subcategoryId')?.errors?.['server'] }}</div>
+        }
       </div>
       <div>
         <label class="field-label">Reorder level</label>

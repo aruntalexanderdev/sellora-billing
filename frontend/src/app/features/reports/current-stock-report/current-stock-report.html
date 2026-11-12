@@ -13,6 +13,10 @@
   </div>
 }
 
+<div style="margin-bottom: 12px">
+  <app-category-filter [categoryId]="categoryId()" [subcategoryId]="subcategoryId()" (changed)="onCategoryChange($event)" />
+</div>
+
 <app-load-error [message]="errorMessage()" />
 
 <ui-data-table

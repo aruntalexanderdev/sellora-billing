@@ -43,18 +43,16 @@ export class ReportsService {
     return params;
   }
 
-  currentStock(query: LocationQuery & { search?: string; category?: string; status?: StockStatus; page?: number; pageSize?: number }): Observable<PagedResult<CurrentStockReportRow>> {
+  currentStock(query: LocationQuery & { search?: string; categoryId?: string | null; subcategoryId?: string | null; status?: StockStatus; page?: number; pageSize?: number }): Observable<PagedResult<CurrentStockReportRow>> {
     const params: Record<string, string> = { page: String(query.page ?? 1), pageSize: String(query.pageSize ?? 20) };
     if (query.search) params['search'] = query.search;
-    if (query.category) params['category'] = query.category;
+    if (query.categoryId) params['categoryId'] = query.categoryId;
+    if (query.subcategoryId) params['subcategoryId'] = query.subcategoryId;
     if (query.status) params['status'] = query.status;
     if (query.stockLocationId) params['stockLocationId'] = query.stockLocationId;
     return this.http.get<PagedResult<CurrentStockReportRow>>(`${BASE_URL}/current-stock`, { params: this.withScope(params, 'Reports.Stock') });
   }
 
-  currentStockCategories(): Observable<string[]> {
-    return this.http.get<string[]>(`${BASE_URL}/current-stock/categories`);
-  }
 
   stockMovement(query: DateRangeQuery & LocationQuery & { search?: string; type?: StockMovementType }): Observable<PagedResult<StockMovementReportRow>> {
     const params: Record<string, string> = { page: String(query.page ?? 1), pageSize: String(query.pageSize ?? 20) };

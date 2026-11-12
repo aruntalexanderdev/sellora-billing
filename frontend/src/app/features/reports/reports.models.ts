@@ -13,6 +13,8 @@ export interface CurrentStockReportRow {
   sku: string;
   name: string;
   category: string | null;
+  categoryId?: string | null;
+  subcategoryName?: string | null;
   baseUnitLabel: string;
   baseDecimalPlaces: number;
   breakdownUnits?: BreakdownUnit[];

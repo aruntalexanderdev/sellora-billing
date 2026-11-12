@@ -6,6 +6,8 @@ import type { DataTableColumn, DataTableRow, DataTableState } from '../../../../
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { ConfirmDialogService } from '../../../../shared/ui/confirm-dialog/confirm-dialog.service';
 import { AuthService } from '../../../../core/auth/auth.service';
+import { CategoryFilter } from '../../../../shared/product-categories/category-filter';
+import type { CategorySelection } from '../../../../shared/product-categories/product-categories.models';
 import { ProductsService } from '../products.service';
 import type { ProductListItem } from '../products.models';
 
@@ -24,7 +26,7 @@ const PAGE_SIZE = 20;
 @Component({
   selector: 'app-product-list',
   standalone: true,
-  imports: [UiDataTable, UiButton],
+  imports: [UiDataTable, UiButton, CategoryFilter],
   templateUrl: './product-list.html',
   styleUrl: '../../../administration/users/user-list/user-list.scss',
 })
@@ -37,6 +39,8 @@ export class ProductList implements OnInit {
 
   readonly cols = COLS;
   readonly search = signal('');
+  readonly categoryId = signal<string | null>(null);
+  readonly subcategoryId = signal<string | null>(null);
   readonly page = signal(1);
   readonly state = signal<DataTableState>('loading');
   readonly items = signal<ProductListItem[]>([]);
@@ -51,7 +55,7 @@ export class ProductList implements OnInit {
     this.items().map((p) => ({
       cells: [
         { kind: 'text', text: p.name, sub: p.sku, weight: '600' },
-        { kind: 'text', text: p.category ?? '—', color: 'var(--color-text-muted)' },
+        { kind: 'text', text: p.categoryName ?? p.category ?? '—', sub: p.subcategoryName ?? undefined, color: 'var(--color-text-muted)' },
         { kind: 'text', text: p.baseUnitLabel, color: 'var(--color-text-muted)' },
         { kind: 'text', text: p.taxLabel, color: 'var(--color-text-muted)' },
         { kind: 'text', text: String(p.reorderLevel), align: 'right', color: 'var(--color-text-muted)' },
@@ -77,6 +81,13 @@ export class ProductList implements OnInit {
     this.load();
   }
 
+  onCategoryChange(value: CategorySelection): void {
+    this.categoryId.set(value.categoryId);
+    this.subcategoryId.set(value.subcategoryId);
+    this.page.set(1);
+    this.load();
+  }
+
   onPageChange(page: number): void {
     this.page.set(page);
     this.load();
@@ -92,7 +103,7 @@ export class ProductList implements OnInit {
 
   private load(): void {
     this.state.set('loading');
-    this.productsService.list({ search: this.search(), page: this.page(), pageSize: PAGE_SIZE }).subscribe({
+    this.productsService.list({ search: this.search(), categoryId: this.categoryId(), subcategoryId: this.subcategoryId(), page: this.page(), pageSize: PAGE_SIZE }).subscribe({
       next: (res) => {
         this.items.set(res.items);
         this.total.set(res.total);

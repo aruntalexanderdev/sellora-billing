@@ -11,6 +11,10 @@
   <app-location-select purpose="filter" label="Filter by location" [value]="locationId()" (valueChange)="onLocationChange($event)" />
 </div>
 
+<div style="margin-bottom: 12px">
+  <app-category-filter [categoryId]="categoryId()" [subcategoryId]="subcategoryId()" (changed)="onCategoryChange($event)" />
+</div>
+
 <ui-data-table
   [cols]="cols"
   [rows]="rows()"

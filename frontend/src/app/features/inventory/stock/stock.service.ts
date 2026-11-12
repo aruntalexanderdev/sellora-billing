@@ -11,7 +11,8 @@ const BASE_URL = `${environment.apiBaseUrl}/stock`;
 
 export interface StockOverviewQuery {
   search?: string;
-  category?: string;
+  categoryId?: string | null;
+  subcategoryId?: string | null;
   status?: StockStatus;
   stockLocationId?: string | null;
   page?: number;
@@ -26,7 +27,8 @@ export class StockService {
   overview(query: StockOverviewQuery): Observable<PagedResult<StockOverviewItem>> {
     const params: Record<string, string> = { page: String(query.page ?? 1), pageSize: String(query.pageSize ?? 50) };
     if (query.search) params['search'] = query.search;
-    if (query.category) params['category'] = query.category;
+    if (query.categoryId) params['categoryId'] = query.categoryId;
+    if (query.subcategoryId) params['subcategoryId'] = query.subcategoryId;
     if (query.status) params['status'] = query.status;
     if (query.stockLocationId) params['stockLocationId'] = query.stockLocationId;
     if (this.context.companyViewActive('Inventory.View')) params['scope'] = 'company';
