@@ -67,14 +67,14 @@ public class CompanyQueryFilterTests
     }
 
     [Fact]
-    public void Model_CompanyOwnedTypes_AreTheThirtySevenDesignedTypes()
+    public void Model_CompanyOwnedTypes_AreTheDesignedTypes()
     {
         using var db = NewDb(TestCompany.Context);
         var owned = ModelTypes(db).Select(t => t.ClrType).Where(t => typeof(ICompanyOwned).IsAssignableFrom(t)).Select(t => t.Name).Order().ToArray();
         string[] expected =
         [
             "AuditEvent", "BatchLocationBalance", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
-            "FinancialTransaction", "GovernanceMemberPermission", "IdempotencyKey", "Product", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
+            "FinancialTransaction", "GovernanceMemberPermission", "IdempotencyKey", "Product", "ProductCategory", "ProductSubcategory", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
             "Role", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "StockTransfer", "StockTransferLine", "StockTransferLineBatch", "StockTransferReceipt", "StockTransferReceiptLine", "Supplier", "Tax", "UserBranchAssignment", "UserRoleAssignment", "Vehicle", "Warehouse",
         ];
         Assert.Equal(expected, owned);

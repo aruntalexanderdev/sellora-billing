@@ -1036,6 +1036,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
 
+                    b.Property<Guid?>("CategoryId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -1055,6 +1058,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<Guid?>("SubcategoryId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("TaxId")
                         .HasColumnType("uuid");
 
@@ -1066,10 +1072,106 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("CompanyId", "TaxId");
 
+                    b.HasIndex("CompanyId", "CategoryId", "SubcategoryId");
+
+                    b.HasIndex(new[] { "CompanyId", "CategoryId" }, "IX_Products_CompanyId_CategoryId");
+
                     b.HasIndex(new[] { "CompanyId", "Sku" }, "IX_Products_CompanyId_Sku")
                         .IsUnique();
 
-                    b.ToTable("Products");
+                    b.HasIndex(new[] { "CompanyId", "SubcategoryId" }, "IX_Products_CompanyId_SubcategoryId");
+
+                    b.ToTable("Products", t =>
+                        {
+                            t.HasCheckConstraint("CK_Products_Subcategory_Requires_Category", "\"SubcategoryId\" IS NULL OR \"CategoryId\" IS NOT NULL");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ProductCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "CompanyId", "Code" }, "IX_ProductCategories_CompanyId_Code")
+                        .IsUnique();
+
+                    b.ToTable("ProductCategories", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProductCategories_Code_Format", "\"Code\" ~ '^[A-Z0-9][A-Z0-9-]{0,19}$'");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ProductSubcategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "CompanyId", "CategoryId", "Code" }, "IX_ProductSubcategories_CompanyId_CategoryId_Code")
+                        .IsUnique();
+
+                    b.ToTable("ProductSubcategories", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProductSubcategories_Code_Format", "\"Code\" ~ '^[A-Z0-9][A-Z0-9-]{0,19}$'");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.ProductUnit", b =>
@@ -3905,6 +4007,13 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.ProductCategory", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CategoryId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Products_ProductCategories_CompanyId_CategoryId");
+
                     b.HasOne("Sellora.Domain.Entities.Tax", null)
                         .WithMany()
                         .HasForeignKey("CompanyId", "TaxId")
@@ -3912,9 +4021,44 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.ProductSubcategory", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CategoryId", "SubcategoryId")
+                        .HasPrincipalKey("CompanyId", "CategoryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Products_ProductSubcategories_CompanyId_CategoryId_SubcategoryId");
+
                     b.Navigation("BaseUnit");
 
                     b.Navigation("Tax");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ProductCategory", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ProductSubcategory", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.ProductCategory", "Category")
+                        .WithMany("Subcategories")
+                        .HasForeignKey("CompanyId", "CategoryId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_ProductSubcategories_ProductCategories_CompanyId_CategoryId");
+
+                    b.Navigation("Category");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.ProductUnit", b =>
@@ -5208,6 +5352,11 @@ namespace Sellora.Infrastructure.Data.Migrations
             modelBuilder.Entity("Sellora.Domain.Entities.Product", b =>
                 {
                     b.Navigation("Units");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ProductCategory", b =>
+                {
+                    b.Navigation("Subcategories");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrder", b =>

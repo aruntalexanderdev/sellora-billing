@@ -65,6 +65,8 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
     public DbSet<PurchaseReturn> PurchaseReturns => Set<PurchaseReturn>();
     public DbSet<PurchaseReturnLine> PurchaseReturnLines => Set<PurchaseReturnLine>();
     public DbSet<ExpenseCategory> ExpenseCategories => Set<ExpenseCategory>();
+    public DbSet<ProductCategory> ProductCategories => Set<ProductCategory>();
+    public DbSet<ProductSubcategory> ProductSubcategories => Set<ProductSubcategory>();
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<FinancialAccount> FinancialAccounts => Set<FinancialAccount>();
     public DbSet<FinancialTransaction> FinancialTransactions => Set<FinancialTransaction>();
