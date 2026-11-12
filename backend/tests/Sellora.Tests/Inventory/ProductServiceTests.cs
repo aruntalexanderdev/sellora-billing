@@ -393,4 +393,20 @@ public class ProductServiceTests
         Assert.False(await f.Service.DeleteProductAsync(Guid.NewGuid(), Guid.NewGuid(), null));
         Assert.Single(await f.Db.Products.ToListAsync());
     }
+
+    [Fact]
+    public async Task GetProductHistoryAsync_Batch_FlagsOnlyProductsWithHistory_WithTheirLabels()
+    {
+        var f = await SeedAsync(withPurchaseOrderLineOnBag: true);
+        var clean = new Product { Id = Guid.NewGuid(), Sku = "SALT-1", Name = "Salt", BaseUnitId = f.Unit.Id, TaxId = f.Tax.Id };
+        f.Db.Products.Add(clean);
+        f.Db.StockItems.Add(new StockItem { ProductId = clean.Id, StockLocationId = Guid.NewGuid(), QuantityOnHand = 0 });
+        await f.Db.SaveChangesAsync();
+
+        var history = await ProductUnitUsage.GetProductHistoryAsync(f.Db, [f.Product.Id, clean.Id], CancellationToken.None);
+
+        Assert.Equal(["purchases"], history[f.Product.Id]);
+        Assert.False(history.ContainsKey(clean.Id)); // zero stock is not history
+        Assert.Empty(await ProductUnitUsage.GetProductHistoryAsync(f.Db, clean.Id, CancellationToken.None));
+    }
 }
