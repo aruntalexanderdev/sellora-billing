@@ -117,11 +117,11 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
 
 // Startup migrations + idempotent seed data are gated by Database:ApplyMigrationsOnStartup (decision D10).
-// The code default when the key is missing is false, BUT the base appsettings.json currently ships true so the
-// existing dev Azure App Service keeps migrating/seeding on deploy. Follow-up (user action): set
-// Database__ApplyMigrationsOnStartup=true on the dev App Service, then flip appsettings.json to false.
-// Production must set Database__ApplyMigrationsOnStartup=false and apply a reviewed
-// `dotnet ef migrations script --idempotent` output after taking a database snapshot/branch.
+// Both the code default and the base appsettings.json are false. Local development opts in through
+// appsettings.Development.json (copy of appsettings.Development.json.example sets true); a dev Azure App Service
+// that should keep migrating/seeding must set Database__ApplyMigrationsOnStartup=true explicitly.
+// Production must keep it false and apply a reviewed `dotnet ef migrations script --idempotent` output after
+// taking a database snapshot/branch.
 var applyMigrationsOnStartup = app.Configuration.GetValue("Database:ApplyMigrationsOnStartup", false);
 if (applyMigrationsOnStartup)
 {

@@ -5,7 +5,7 @@
 | Document type | Architecture analysis and restructuring proposal (analysis only, nothing implemented) |
 | Repository state analysed | branch `analyse`, migrations up to `20260920114635_AddIdempotencyKeysAndCancelledBy` |
 | Date | 2026-11-04 |
-| Status | **Awaiting approval.** No source, schema, migration or data change has been made. |
+| Status | All recommendations accepted 2026-11-04 (D1-D10). Phases 0-7 delivered; Phase B and 6b are superseded by the multi-company phases (ADR-03, `docs/architecture/multi-company/phase-0-audit-and-plan.md`); Phase 8 release in progress (`docs/architecture/multi-company/release-runbook.md`). |
 
 Path conventions: `BE/` = `backend/src/`, `FE/` = `frontend/src/app/`, `TESTS/` = `backend/tests/Sellora.Tests/`.
 
@@ -758,6 +758,8 @@ flowchart LR
 ---
 
 ## 25. Phased implementation roadmap
+
+Note: Phase B and Phase 6b were superseded by the multi-company phases; see ADR-03 in `docs/architecture/multi-company/phase-0-audit-and-plan.md`.
 
 **Phase order change.** The suggested order (unit work, then transfers in Phase 6) assumes locations exist. They do not. I insert **Phase B, Multi-location inventory foundation**, which must precede transfers, and I split Phase 6. I also move the quality gates (CI tests, Testcontainers) to Phase 0, because every later phase depends on them.
 
