@@ -239,6 +239,7 @@ public class EndpointAuthorizationTests
     [InlineData(typeof(ProductsController), "PreviewUnits", "Inventory.View", "POST", "unit-preview")]
     [InlineData(typeof(ProductsController), "Create", "Inventory.Create", "POST", null)]
     [InlineData(typeof(ProductsController), "Update", "Inventory.Edit", "PUT", "{id:guid}")]
+    [InlineData(typeof(ProductsController), "Delete", "Inventory.Delete", "DELETE", "{id:guid}")]
     [InlineData(typeof(ProductsController), "Get", "Inventory.View", "GET", "{id:guid}")]
     [InlineData(typeof(PricingController), "List", "Inventory.Price", "GET", null)]
     [InlineData(typeof(PricingController), "History", "Inventory.Price", "GET", "{productUnitId:guid}/history")]

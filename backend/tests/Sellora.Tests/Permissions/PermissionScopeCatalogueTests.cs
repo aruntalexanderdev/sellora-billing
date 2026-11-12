@@ -67,6 +67,7 @@ public class PermissionScopeCatalogueTests
     [InlineData("Cash.")]
     [InlineData("Inventory.Create")]
     [InlineData("Inventory.Edit")]
+    [InlineData("Inventory.Delete")]
     [InlineData("Inventory.Price")]
     [InlineData("Reports.Profit")]
     [InlineData("Reports.Accounts")]

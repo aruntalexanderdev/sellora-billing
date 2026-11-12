@@ -72,6 +72,9 @@ public static class AuditActions
     public const string BranchStatusChanged = "branch.status_changed";
     public const string WarehouseStatusChanged = "warehouse.status_changed";
     public const string VehicleStatusChanged = "vehicle.status_changed";
+
+    // Products: hard delete of a product without history (the only product change audited so far).
+    public const string ProductDeleted = "product.deleted";
 }
 
 /// <summary>Values of <see cref="AuditEvent.TargetType"/>.</summary>
@@ -85,4 +88,5 @@ public static class AuditTargets
     public const string Branch = "Branch";
     public const string Warehouse = "Warehouse";
     public const string Vehicle = "Vehicle";
+    public const string Product = "Product";
 }

@@ -103,6 +103,45 @@ public class ProductService(SelloraDbContext db) : IProductService
         return product;
     }
 
+    public async Task<bool> DeleteProductAsync(Guid productId, Guid userId, string? correlationId, CancellationToken ct = default)
+    {
+        await using var transaction = await StockLocks.BeginAsync(db, ct);
+
+        // FOR UPDATE conflicts with the FOR KEY SHARE that purchase/sale/adjustment/transfer creates take on Products, so no
+        // new line can reference the product between the history check below and the delete.
+        await StockLocks.LockProductForUpdateAsync(db, productId, ct);
+        var product = await db.Products.Include(p => p.Units).SingleOrDefaultAsync(p => p.Id == productId, ct);
+        if (product is null) return false;
+
+        var usedIn = await ProductUnitUsage.GetProductHistoryAsync(db, productId, ct);
+        if (usedIn.Count > 0)
+        {
+            throw new DomainValidationException("Product",
+                $"This product has history ({string.Join(", ", usedIn)}) and cannot be deleted. Deactivate it instead.");
+        }
+
+        var unitIds = product.Units.Select(u => u.Id).ToList();
+        db.SellingPrices.RemoveRange(await db.SellingPrices.Where(p => unitIds.Contains(p.ProductUnitId)).ToListAsync(ct));
+        db.StockItems.RemoveRange(await db.StockItems.Where(s => s.ProductId == productId).ToListAsync(ct)); // all zero (checked)
+        db.ProductUnits.RemoveRange(product.Units); // EF orders the self-referencing rows (outer packs before inner ones)
+        db.Products.Remove(product);
+
+        AuditLog.Append(db, userId, correlationId, AuditActions.ProductDeleted, AuditTargets.Product, product.Id, null,
+            new
+            {
+                sku = product.Sku,
+                name = product.Name,
+                baseUnitId = product.BaseUnitId,
+                isActive = product.IsActive,
+                units = product.Units.Select(u => new { u.Id, u.UnitId, u.InnerProductUnitId, u.InnerQuantity, u.ConversionFactorToBase, u.Barcode }),
+            },
+            null);
+
+        await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
+        return true;
+    }
+
     public async Task<ProductUnitPreview?> PreviewUnitsAsync(Guid? productId, Guid baseUnitId, IReadOnlyList<ProductUnitInputItem> units, CancellationToken ct = default)
     {
         if (units.Count > ProductUnitConfigurationValidator.MaxUnits)

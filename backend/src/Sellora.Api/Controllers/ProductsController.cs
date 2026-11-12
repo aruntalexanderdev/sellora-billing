@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -110,6 +111,25 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
+
+    /// <summary>Hard-deletes a product that was never used (wrong/duplicate entry). 204 on success, 404 when unknown,
+    /// 400 (field <c>Product</c>) when it has any history: deactivate it with <c>POST {id}/status</c> instead.</summary>
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = "Inventory.Delete")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            var deleted = await productService.DeleteProductAsync(id, CurrentUserId(), HttpContext.TraceIdentifier, ct);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (DomainValidationException ex)
+        {
+            return ToValidationProblem(ex);
+        }
+    }
+
+    private Guid CurrentUserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
 
     private ActionResult ToValidationProblem(DomainValidationException ex)
     {
