@@ -1,5 +1,5 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { UiDataTable } from '../../../../shared/ui/data-table/data-table';
 import { UiButton } from '../../../../shared/ui/button/button';
 import type { DataTableColumn, DataTableFilter, DataTableRow, DataTableState } from '../../../../shared/ui/data-table/data-table.types';
@@ -7,7 +7,7 @@ import { LocationSelect } from '../../../../shared/locations/location-select';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { problemMessage, toProblem } from '../../../../core/http/api-errors';
 import { LoadError } from '../../../../shared/scope/load-error';
-import { endpointLabel, statusTone } from '../stock-transfer-rules';
+import { endpointLabel, statusFromLabel, statusLabel, statusTone } from '../stock-transfer-rules';
 import { StockTransfersService } from '../stock-transfers.service';
 import { STOCK_TRANSFER_STATUSES } from '../stock-transfers.models';
 import type { StockTransferDirection, StockTransferListItem, StockTransferStatus } from '../stock-transfers.models';
@@ -31,7 +31,7 @@ const branchLabel = (b: { code: string | null; name: string | null }) => b.code 
 @Component({
   selector: 'app-stock-transfer-list',
   standalone: true,
-  imports: [UiDataTable, UiButton, LoadError, LocationSelect],
+  imports: [RouterLink, UiDataTable, UiButton, LoadError, LocationSelect],
   templateUrl: './stock-transfer-list.html',
   styleUrl: './stock-transfer-list.scss',
 })
@@ -53,6 +53,7 @@ export class StockTransferList implements OnInit {
   readonly items = signal<StockTransferListItem[]>([]);
   readonly total = signal(0);
 
+  readonly canViewQueue = computed(() => this.auth.hasPermission('StockTransfers.Dispatch'));
   readonly canCreate = computed(() => this.auth.hasPermission('StockTransfers.Create'));
   readonly hasMore = computed(() => this.page() * STOCK_TRANSFER_PAGE_SIZE < this.total());
   readonly hasExtraFilter = computed(
@@ -61,9 +62,9 @@ export class StockTransferList implements OnInit {
 
   readonly filters = computed<DataTableFilter[]>(() => [
     {
-      value: this.status(),
-      options: [ALL_STATUSES, ...STOCK_TRANSFER_STATUSES],
-      onChange: (v) => this.onStatusChange(v as StockTransferStatus | typeof ALL_STATUSES),
+      value: this.status() === ALL_STATUSES ? ALL_STATUSES : statusLabel(this.status() as StockTransferStatus),
+      options: [ALL_STATUSES, ...STOCK_TRANSFER_STATUSES.map(statusLabel)],
+      onChange: (v) => this.onStatusChange(v === ALL_STATUSES ? ALL_STATUSES : (statusFromLabel(v) ?? ALL_STATUSES)),
     },
   ]);
 
@@ -75,7 +76,7 @@ export class StockTransferList implements OnInit {
         { kind: 'text', text: endpointLabel(t.from), sub: t.from.type ?? undefined },
         { kind: 'text', text: endpointLabel(t.to), sub: t.to.type ?? undefined },
         { kind: 'text', text: `${branchLabel(t.sourceBranch)} → ${branchLabel(t.destinationBranch)}`, color: 'var(--color-text-muted)' },
-        { kind: 'badge', text: t.status, tone: statusTone(t.status) },
+        { kind: 'badge', text: statusLabel(t.status), tone: statusTone(t.status) },
         { kind: 'text', text: String(t.lineCount), align: 'right' },
         // Never summed across products: a count of lines that still have goods in transit.
         { kind: 'text', text: t.outstandingLineCount > 0 ? `${t.outstandingLineCount} line${t.outstandingLineCount === 1 ? '' : 's'}` : '—', align: 'right', weight: t.outstandingLineCount > 0 ? '650' : undefined },

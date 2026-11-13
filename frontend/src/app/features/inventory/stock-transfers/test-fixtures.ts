@@ -5,7 +5,8 @@ export function line(overrides: Partial<StockTransferLine> = {}): StockTransferL
     id: 'l1', lineNo: 1, productId: 'pen', productName: 'Pen', sku: 'PEN-1', baseUnitCode: 'pc', baseDecimalPlaces: 0,
     productUnitId: 'box', unitCode: 'box', conversionFactorToBase: 10, requestedQty: 5, requestedBaseQty: 50,
     dispatchProductUnitId: null, dispatchUnitCode: null, dispatchFactor: null, dispatchedQty: null, dispatchedBaseQty: 0,
-    receivedBaseQty: 0, damagedBaseQty: 0, writtenOffBaseQty: 0, returnedBaseQty: 0, outstandingBaseQty: 0, batches: [],
+    receivedBaseQty: 0, damagedBaseQty: 0, writtenOffBaseQty: 0, returnedBaseQty: 0, outstandingBaseQty: 0,
+    allocatedBaseQty: 0, closedBaseQty: 0, remainingBaseQty: 50, batches: [],
     ...overrides,
   };
 }
@@ -27,6 +28,7 @@ export function transfer(status: StockTransferStatus, lines: StockTransferLine[]
     from: loc('store', 'Main Store', 'BranchStore'), to: loc('van', 'Van 1', 'Vehicle'), transit: loc('transit', 'Transit', 'Transit'),
     sourceBranch: branch, destinationBranch: branch, created: actor,
     submitted: null, approved: null, rejected: null, rejectionReason: null, dispatched: null, completed: null, cancelled: null, cancellationReason: null,
+    closedAt: null, closedByName: null, closureReason: null,
     lines, receipts: [], ...overrides,
   };
 }

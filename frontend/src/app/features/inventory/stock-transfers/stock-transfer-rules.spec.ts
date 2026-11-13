@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import {
-  IdempotentSubmission, availableActions, buildDispatchRequest, buildReceiveRequest, buildResolveRequest, mapRowProblem,
+  IdempotentSubmission, availableActions, buildDispatchRequest, closeProblemMessage, statusFromLabel, statusLabel, validateCloseReason, buildReceiveRequest, buildResolveRequest, mapRowProblem,
   validateDispatch, validateReceive, validateResolve, type DispatchRow, type ReceiveRow, type UnitRef,
 } from './stock-transfer-rules';
 import { STOCK_TRANSFER_STATUSES } from './stock-transfers.models';
@@ -17,7 +17,10 @@ describe('availableActions (status x permission)', () => {
   const expected: Record<string, string[]> = {
     Draft: ['edit', 'submit', 'cancel'],
     Requested: ['approve', 'reject', 'cancel'],
-    Approved: ['dispatch', 'cancel'],
+    Approved: ['dispatch', 'cancel', 'close'],
+    PartiallyFulfilled: ['close'],
+    Fulfilled: [],
+    Closed: [],
     Rejected: [],
     Dispatched: ['receive', 'resolve'],
     PartiallyReceived: ['receive', 'resolve'],
@@ -190,5 +193,35 @@ describe('mapRowProblem', () => {
 describe('fixtures', () => {
   it('line() has no outstanding by default', () => {
     expect(line().outstandingBaseQty).toBe(0);
+  });
+});
+
+describe('Phase 03 status labels and close rule', () => {
+  it('maps every status to its display label', () => {
+    expect(statusLabel('Approved')).toBe('Ready for shipment');
+    expect(statusLabel('PartiallyFulfilled')).toBe('Partially fulfilled');
+    expect(statusLabel('Fulfilled')).toBe('Fulfilled');
+    expect(statusLabel('Closed')).toBe('Closed (short)');
+    expect(statusLabel('Dispatched')).toBe('Dispatched');
+    expect(statusLabel('PartiallyReceived')).toBe('PartiallyReceived');
+    expect(statusLabel('Completed')).toBe('Completed');
+    expect(STOCK_TRANSFER_STATUSES.map((s) => statusFromLabel(statusLabel(s)))).toEqual(STOCK_TRANSFER_STATUSES);
+  });
+
+  it('validates the close reason (required, <= 500)', () => {
+    expect(validateCloseReason('  ')).toBe('A reason is required.');
+    expect(validateCloseReason('x'.repeat(501))).toContain('500');
+    expect(validateCloseReason('ok')).toBeNull();
+  });
+
+  it('close needs StockTransfers.Approve', () => {
+    const t = { status: 'PartiallyFulfilled' as const, lines: [{ outstandingBaseQty: 0, dispatchedBaseQty: 5 }] };
+    expect(availableActions(t, () => true)).toContain('close');
+    expect(availableActions(t, (c) => c !== 'StockTransfers.Approve')).not.toContain('close');
+  });
+
+  it('closeProblemMessage joins reason and status errors', () => {
+    expect(closeProblemMessage({ errors: { reason: ['a'], status: ['b'] } } as never)).toBe('a b');
+    expect(closeProblemMessage({} as never)).toBeNull();
   });
 });
