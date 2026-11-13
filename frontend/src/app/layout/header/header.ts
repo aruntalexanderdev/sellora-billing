@@ -1,6 +1,5 @@
 import { Component, computed, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { ALL_BRANCHES } from '../../core/context/context.models';
 import type { AllowedBranch, CompanyOption } from '../../core/auth/auth.models';
 
 @Component({
@@ -18,16 +17,13 @@ export class Header {
   readonly companyId = input('');
   readonly branches = input<AllowedBranch[]>([]);
   readonly branchId = input('');
-  /** D13: offer the "All branches" option (the shell passes `ALL_BRANCHES` as `branchId` while it is selected). */
-  readonly canChooseAll = input(false);
-  readonly allBranches = ALL_BRANCHES;
   readonly signOut = output<void>();
   readonly menuToggle = output<void>();
   readonly branchChange = output<string>();
   readonly companyChange = output<string>();
 
   /** Selectors are hidden when there is nothing to choose (1 branch and 1 company). */
-  readonly showBranchSelect = computed(() => this.branches().length > 1 || this.canChooseAll());
+  readonly showBranchSelect = computed(() => this.branches().length > 1);
   readonly showCompanySelect = computed(() => this.companies().length > 1);
 
   onBranch(event: Event): void {

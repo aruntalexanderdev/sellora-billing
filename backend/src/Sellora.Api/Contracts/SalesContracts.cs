@@ -13,7 +13,8 @@ public record SaleBarcodeMatchDto(SaleCatalogProductDto Product, Guid ProductUni
 public record SaleCatalogProductDto(
     Guid ProductId, string Sku, string Name, string? Category, string BaseUnitLabel,
     decimal QuantityOnHand, decimal TaxRatePercent, IReadOnlyList<SaleCatalogUnitDto> Units,
-    Guid? StockLocationId = null
+    Guid? StockLocationId = null,
+    Guid? CategoryId = null, string? SubcategoryName = null
 );
 
 public record SalesInvoiceListItemDto(

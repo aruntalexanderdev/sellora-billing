@@ -3,6 +3,7 @@ import { of } from 'rxjs';
 import { AuthService } from '../../core/auth/auth.service';
 import { provideScopeStubs, type ScopeStub } from '../../shared/scope/scope-testing';
 import { CurrentStockReport } from './current-stock-report/current-stock-report';
+import { ProductCategoriesService } from '../../shared/product-categories/product-categories.service';
 import { ProfitSummaryReport } from './profit-summary-report/profit-summary-report';
 import { PurchaseReport } from './purchase-report/purchase-report';
 import { ReportsService } from './reports.service';
@@ -14,6 +15,7 @@ function mount<T>(type: new () => T, svc: Record<string, unknown>, scope: ScopeS
   TestBed.configureTestingModule({
     providers: [
       ...provideScopeStubs(scope),
+      { provide: ProductCategoriesService, useValue: { list: () => of([]) } },
       { provide: ReportsService, useValue: svc },
       { provide: AuthService, useValue: { hasPermission: (c: string) => permissions.includes(c) } },
     ],
@@ -60,7 +62,7 @@ describe('report scope filters', () => {
   it('current stock: location filter -> stockLocationId, shown only with StockLocations.View; quantity is not rounded to 2 dp by toFixed', () => {
     const row = { productId: 'p', sku: 'RICE', name: 'Rice', category: null, baseUnitLabel: 'kg', quantityOnHand: 1.25, averageCost: 1, stockValue: 1, sellingPricePerBaseUnit: null, sellingValue: null, status: 'Normal' };
     const currentStock = vi.fn(() => page([row]));
-    const base = { currentStock, currentStockCategories: () => of([]) };
+    const base = { currentStock };
     const a = mount(CurrentStockReport, base, {}, ['StockLocations.View']);
 
     a.c.onLocationChange('loc1');
@@ -70,5 +72,14 @@ describe('report scope filters', () => {
 
     TestBed.resetTestingModule();
     expect(mount(CurrentStockReport, base).el.querySelector('.report-filters')).toBeNull();
+  });
+});
+
+describe('current stock category filter', () => {
+  it('passes ids to the report call', () => {
+    const currentStock = vi.fn(() => page([]));
+    const { c } = mount(CurrentStockReport, { currentStock });
+    c.onCategoryChange({ categoryId: 'c1', subcategoryId: 's1' });
+    expect(currentStock).toHaveBeenLastCalledWith(expect.objectContaining({ categoryId: 'c1', subcategoryId: 's1', page: 1 }));
   });
 });

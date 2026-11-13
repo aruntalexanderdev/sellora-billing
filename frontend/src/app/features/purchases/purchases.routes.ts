@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { permissionGuard, requiresBranchGuard } from '../../core/auth/auth.guard';
+import { permissionGuard } from '../../core/auth/auth.guard';
 import { unsavedChangesGuard } from '../../core/unsaved-changes.guard';
 
 export const PURCHASES_ROUTES: Routes = [
@@ -32,9 +32,9 @@ export const PURCHASES_ROUTES: Routes = [
   {
     path: 'new',
     loadComponent: () => import('./purchase-form/purchase-form').then((m) => m.PurchaseForm),
-    canActivate: [permissionGuard('Purchase.Create'), requiresBranchGuard],
+    canActivate: [permissionGuard('Purchase.Create')],
     canDeactivate: [unsavedChangesGuard],
-    data: { group: 'Purchases', page: 'New purchase', requiresBranch: true },
+    data: { group: 'Purchases', page: 'New purchase' },
   },
   {
     path: 'returns',
@@ -51,9 +51,9 @@ export const PURCHASES_ROUTES: Routes = [
   {
     path: ':id/return',
     loadComponent: () => import('./purchase-returns/purchase-return-form/purchase-return-form').then((m) => m.PurchaseReturnForm),
-    canActivate: [permissionGuard('Purchase.Return'), requiresBranchGuard],
+    canActivate: [permissionGuard('Purchase.Return')],
     canDeactivate: [unsavedChangesGuard],
-    data: { group: 'Purchases', page: 'Return items', requiresBranch: true },
+    data: { group: 'Purchases', page: 'Return items' },
   },
   {
     path: ':id',

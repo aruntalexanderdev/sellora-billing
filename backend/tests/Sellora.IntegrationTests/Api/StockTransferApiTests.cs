@@ -218,7 +218,7 @@ public class StockTransferApiTests(PostgresFixture postgres)
         var first = await CreateOkAsync(w, w.Admin, yStore, xStore, box, 5m, y, key: key);
         var replay = await CreateOkAsync(w, w.Admin, yStore, xStore, box, 5m, y, key: key);
         Assert.Equal((IdOf(first), first.GetProperty("transferNo").GetString()), (IdOf(replay), replay.GetProperty("transferNo").GetString()));
-        var list = await OkAsync(await SendAsync(w.Admin, HttpMethod.Get, $"/api/v1/stock-transfers?pageSize=100&destinationLocationId={xStore}", null, y));
+        var list = await OkAsync(await SendAsync(w.Admin, HttpMethod.Get, $"/api/v1/stock-transfers?pageSize=100&destinationLocationId={xStore}", null, x)); // FI-D11: x's store is read from x (the receiving, active branch)
         Assert.Single(list.GetProperty("items").EnumerateArray());
 
         var id = IdOf(first);
@@ -384,9 +384,12 @@ public class StockTransferApiTests(PostgresFixture postgres)
         Assert.Equal((1, 0), (row.GetProperty("lineCount").GetInt32(), row.GetProperty("outstandingLineCount").GetInt32()));
         Assert.Equal("Requested", row.GetProperty("status").GetString());
 
-        // The admin without a working branch sees all three.
-        var adminIds = (await OkAsync(await SendAsync(w.Admin, HttpMethod.Get, "/api/v1/stock-transfers?pageSize=100"))).GetProperty("items").EnumerateArray().Select(IdOf).ToHashSet();
-        Assert.Superset(new HashSet<Guid> { IdOf(hidden), IdOf(outgoing), IdOf(incoming) }, adminIds);
+        // FI-D11: the company-level admin reads the ACTIVE branch only. y touches all three transfers (y->y, x->y, y->x); x does not touch the y->y one.
+        async Task<HashSet<Guid>> AdminIds(Guid at) => (await OkAsync(await SendAsync(w.Admin, HttpMethod.Get, "/api/v1/stock-transfers?pageSize=100", null, at))).GetProperty("items").EnumerateArray().Select(IdOf).ToHashSet();
+        Assert.Superset(new HashSet<Guid> { IdOf(hidden), IdOf(outgoing), IdOf(incoming) }, await AdminIds(y));
+        var adminAtX = await AdminIds(x);
+        Assert.Superset(new HashSet<Guid> { IdOf(outgoing), IdOf(incoming) }, adminAtX);
+        Assert.DoesNotContain(IdOf(hidden), adminAtX);
     }
 
     private static string StockTransferStatusOf(JsonElement dto) => dto.GetProperty("status").GetString()!;
@@ -435,9 +438,14 @@ public class StockTransferApiTests(PostgresFixture postgres)
         await OkAsync(await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(t)}/dispatch", DispatchBody(approved, box, 3m), y));
         var user = await BranchUserAsync(r, x, "Inventory.View"); // Inventory.View held at branch x only
 
-        var adminDetail = await OkAsync(await SendAsync(w.Admin, HttpMethod.Get, $"/api/v1/stock/{w.ProductId}"));
-        Assert.Contains(adminDetail.GetProperty("locations").EnumerateArray(), l => l.GetProperty("locationId").GetGuid() == transit && l.GetProperty("qty").GetDecimal() >= 30m);
-        Assert.Contains(adminDetail.GetProperty("movements").EnumerateArray(), m => m.GetProperty("type").GetString() == "TransferOut" && m.GetProperty("referenceType").GetString() == "StockTransfer");
+        // FI-D11: goods in flight (Transit) appear only in the explicit company view (?scope=company); the default active-branch read never shows them.
+        var adminOverview = await OkAsync(await SendAsync(w.Admin, HttpMethod.Get, "/api/v1/stock/overview?search=STN-PEN&pageSize=100&scope=company", null));
+        var adminRow = adminOverview.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("productId").GetGuid() == w.ProductId);
+        Assert.Contains(adminRow.GetProperty("locations").EnumerateArray(), l => l.GetProperty("locationId").GetGuid() == transit && l.GetProperty("qty").GetDecimal() >= 30m);
+        var adminMovements = await OkAsync(await SendAsync(w.Admin, HttpMethod.Get, $"/api/v1/reports/stock-movement?scope=company&stockLocationId={transit}&pageSize=100", null));
+        Assert.Contains(adminMovements.GetProperty("items").EnumerateArray(), m => m.GetProperty("type").GetString() == "TransferIn" && m.GetProperty("referenceType").GetString() == "StockTransfer"); // dispatch books INTO Transit (the TransferOut sits at the source store)
+        var adminDefault = await OkAsync(await SendAsync(w.Admin, HttpMethod.Get, $"/api/v1/stock/{w.ProductId}"));
+        Assert.DoesNotContain(adminDefault.GetProperty("locations").EnumerateArray(), l => l.GetProperty("locationId").GetGuid() == transit);
 
         var userDetail = await OkAsync(await SendAsync(user.Client, HttpMethod.Get, $"/api/v1/stock/{w.ProductId}", null, x));
         Assert.DoesNotContain(userDetail.GetProperty("locations").EnumerateArray(), l => l.GetProperty("locationId").GetGuid() == transit);

@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { StockOverview, locationText } from './stock-overview';
+import { ProductCategoriesService } from '../../../../shared/product-categories/product-categories.service';
 import { StockService } from '../stock.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { ContextService } from '../../../../core/context/context.service';
@@ -26,10 +27,11 @@ function mount(opts: { view: boolean; locations: StockLocation[]; items?: StockO
     providers: [
       provideRouter([]),
       { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(opts.query ?? {}) } } },
+      { provide: ProductCategoriesService, useValue: { list: () => of([]) } },
       { provide: StockService, useValue: { overview } },
       { provide: StockLocationsService, useValue: { list: () => of(opts.locations) } },
       { provide: AuthService, useValue: { hasPermission: (c: string) => opts.view && c === 'StockLocations.View' } },
-      { provide: ContextService, useValue: { contextVersion: signal(0).asReadonly(), workingBranch: signal({ id: 'b1' }) } },
+      { provide: ContextService, useValue: { contextVersion: signal(0).asReadonly(), workingBranch: signal({ id: 'b1' }), companyPermissions: signal(new Set<string>()), companyViewActive: () => false, setCompanyView: () => undefined } },
     ],
   });
   const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
@@ -108,5 +110,15 @@ describe('StockOverview quantity precision', () => {
     const { c } = mount({ view: false, locations: [], items: [item({ quantityOnHand: 5 }), item({ quantityOnHand: 0, breakdownUnits: units })] });
     expect(qtyCell(c, 0).sub).toBeUndefined();
     expect(qtyCell(c, 1).sub).toBeUndefined();
+  });
+});
+
+describe('StockOverview category filter', () => {
+  it('passes categoryId/subcategoryId to the overview call and resets to page 1', () => {
+    const { c, overview } = mount({ view: false, locations: [] });
+    c.onCategoryChange({ categoryId: 'c1', subcategoryId: 's1' });
+    expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ categoryId: 'c1', subcategoryId: 's1', page: 1 }));
+    c.onCategoryChange({ categoryId: null, subcategoryId: null });
+    expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ categoryId: null, subcategoryId: null }));
   });
 });

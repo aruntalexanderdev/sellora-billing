@@ -126,7 +126,7 @@ public class AuthController(IAuthService authService, SelloraDbContext db, IEffe
 
         // Effective permissions at the working branch (header, else primary, else the company's default branch); roles of this membership.
         var set = await effectivePermissions.GetCurrentAsync(ct);
-        var working = db.BranchContext.RequestedBranchId ?? primaryId ?? branchRows.Where(b => b.IsDefault).Select(b => (Guid?)b.Id).FirstOrDefault();
+        var working = db.BranchContext.ActiveBranchId;
         var permissions = set.CodesAtBranch(working).OrderBy(c => c, StringComparer.Ordinal).ToArray();
         // D13 UI hint (authorization unchanged): company-level codes plus codes held via branch roles at any active branch this membership may access.
         var anyBranch = new HashSet<string>(set.CodesAtBranch(null), StringComparer.Ordinal);
@@ -135,6 +135,8 @@ public class AuthController(IAuthService authService, SelloraDbContext db, IEffe
             anyBranch.UnionWith(set.CodesAtBranch(b.Id));
         }
         var permissionsAnyBranch = anyBranch.OrderBy(c => c, StringComparer.Ordinal).ToArray();
+        // Phase 01 (FI-D11): codes held company-level (Administrator = the whole catalogue); drives the SPA "Company view" toggle.
+        var companyPermissions = set.CodesAtBranch(null).OrderBy(c => c, StringComparer.Ordinal).ToArray();
         var membershipId = HttpContext.RequestServices.GetRequiredService<IMembershipContext>().RequireMembershipId();
         var roleRows = await (
             from a in db.UserRoleAssignments
@@ -164,6 +166,6 @@ public class AuthController(IAuthService authService, SelloraDbContext db, IEffe
 
         return Ok(new MeResponse(summary.Id, summary.FirstName, summary.LastName, summary.Username, summary.Email,
             summary.RoleName, summary.Permissions, summary.CompanyId, summary.CompanyName,
-            scope, primaryId, allowedBranches, companies, governance, summary.Roles, permissionsAnyBranch));
+            scope, primaryId, allowedBranches, companies, governance, summary.Roles, permissionsAnyBranch, companyPermissions));
     }
 }

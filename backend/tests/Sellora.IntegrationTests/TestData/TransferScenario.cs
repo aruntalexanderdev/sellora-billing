@@ -42,7 +42,7 @@ public sealed record TransferScenario(LocationScenario L, Guid PenId, Guid Pc, G
         await db.SaveChangesAsync();
         var taxId = await db.Taxes.Select(t => t.Id).FirstAsync();
         static ProductUnitInputItem Row(Guid unit, Guid? inner, decimal? qty) => new(null, unit, inner, qty, null, null, true, true, false, false, true);
-        var pen = await new ProductService(db).CreateProductAsync(new UpsertProductInput("TRF-PEN", "Transfer Pen", "Stationery", pc.Id, taxId, 0m,
+        var pen = await new ProductService(db).CreateProductAsync(new UpsertProductInput("TRF-PEN", "Transfer Pen", null, null, pc.Id, taxId, 0m,
             [Row(pc.Id, null, 1m), Row(box.Id, pc.Id, 10m), Row(half.Id, box.Id, 5m), Row(full.Id, half.Id, 2m)]));
         var rows = await db.ProductUnits.AsNoTracking().Where(u => u.ProductId == pen.Id).Include(u => u.Unit).ToListAsync();
         ProductUnit R(string code) => rows.Single(r => r.Unit.ShortCode == code);

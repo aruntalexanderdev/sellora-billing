@@ -1,6 +1,6 @@
 import type { PaymentMethod } from '../../purchases/purchases.models';
 
-export type FinancialTransactionType = 'CustomerPayment' | 'SupplierPayment' | 'ExpensePayment' | 'OpeningBalance' | 'Transfer' | 'CustomerRefund' | 'SupplierRefund' | 'PaymentReversal';
+export type FinancialTransactionType = 'CustomerPayment' | 'SupplierPayment' | 'ExpensePayment' | 'OpeningBalance' | 'Transfer' | 'Funding' | 'Reversal' | 'CustomerRefund' | 'SupplierRefund' | 'PaymentReversal';
 export type MoneyDirection = 'In' | 'Out';
 export type FinancialTransactionStatus = 'Active' | 'Cancelled';
 export type RelatedType = 'Purchase' | 'Sale' | 'Expense';
@@ -25,6 +25,12 @@ export interface FinancialTransaction {
   accountName: string | null;
   isReconciled: boolean;
   notes: string | null;
+  reversedByTransactionId: string | null;
+  reversalOfTransactionId: string | null;
+  fundingSource: string | null;
+  reason: string | null;
+  sourceReference: string | null;
+  counterparty: string | null;
 }
 
 export interface FinancialTransactionList {

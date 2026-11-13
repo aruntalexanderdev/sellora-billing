@@ -15,6 +15,7 @@ export const PROBLEM_MESSAGES: Record<string, string> = {
   branch_access_denied: 'You do not have access to that branch, or to the location you selected.',
   company_context_invalid: 'Your access to this company has changed. Please sign in again.',
   invalid_refresh_token: 'Your session has expired. Please sign in again.',
+  company_scope_denied: 'Company view is not available to you for this page. Switch back to your active branch.',
   // roles
   role_management_forbidden: 'You are not allowed to manage this role.',
   role_assignment_forbidden: 'You are not allowed to assign this role.',

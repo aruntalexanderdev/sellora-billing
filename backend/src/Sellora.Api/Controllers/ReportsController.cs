@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Sellora.Api.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
@@ -11,13 +12,15 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/reports")]
+[CompanyScopeRead]
 public class ReportsController(SelloraDbContext db, IEffectivePermissionService effectivePermissions) : ControllerBase
 {
     [HttpGet("current-stock")]
     [Authorize(Policy = "Reports.Stock")]
     public async Task<ActionResult<PagedResult<CurrentStockReportRowDto>>> CurrentStock(
         [FromQuery] string? search, [FromQuery] string? category, [FromQuery] StockStatus? status,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? stockLocationId = null, CancellationToken ct = default,
+        [FromQuery] Guid? categoryId = null, [FromQuery] Guid? subcategoryId = null)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -34,6 +37,9 @@ public class ReportsController(SelloraDbContext db, IEffectivePermissionService 
                 p.Sku,
                 p.Name,
                 p.Category,
+                p.CategoryId,
+                p.SubcategoryId,
+                SubcategoryName = db.ProductSubcategories.Where(s => s.Id == p.SubcategoryId).Select(s => s.Name).FirstOrDefault(),
                 p.ReorderLevel,
                 BaseUnitLabel = p.BaseUnit.ShortCode,
                 BaseDecimalPlaces = (int)p.BaseUnit.DecimalPlaces,
@@ -47,7 +53,9 @@ public class ReportsController(SelloraDbContext db, IEffectivePermissionService 
             var s = search.Trim().ToLower();
             query = query.Where(p => p.Name.ToLower().Contains(s) || p.Sku.ToLower().Contains(s));
         }
-        if (!string.IsNullOrWhiteSpace(category)) query = query.Where(p => p.Category == category);
+        if (!string.IsNullOrWhiteSpace(category)) query = query.Where(p => p.Category == category); // legacy name filter (FI-D17)
+        if (categoryId is not null) query = query.Where(p => p.CategoryId == categoryId);
+        if (subcategoryId is not null) query = query.Where(p => p.SubcategoryId == subcategoryId);
         if (status is not null)
         {
             query = status switch
@@ -98,7 +106,8 @@ public class ReportsController(SelloraDbContext db, IEffectivePermissionService 
                 pricePerBaseUnit, pricePerBaseUnit is null ? null : p.QuantityOnHand * pricePerBaseUnit,
                 StockStatusCalculator.Calculate(p.QuantityOnHand, p.ReorderLevel),
                 balances.GetValueOrDefault(p.Id),
-                p.BaseDecimalPlaces, breakdowns.GetValueOrDefault(p.Id) ?? []);
+                p.BaseDecimalPlaces, breakdowns.GetValueOrDefault(p.Id) ?? [],
+                p.CategoryId, p.SubcategoryName);
         }).ToList();
 
         return Ok(new PagedResult<CurrentStockReportRowDto>(items, total, page, pageSize));
@@ -108,11 +117,10 @@ public class ReportsController(SelloraDbContext db, IEffectivePermissionService 
     [Authorize(Policy = "Reports.Stock")]
     public async Task<ActionResult<IReadOnlyList<string>>> CurrentStockCategories(CancellationToken ct)
     {
-        var categories = await db.Products
-            .Where(p => p.IsActive && p.Category != null)
-            .Select(p => p.Category!)
-            .Distinct()
-            .OrderBy(c => c)
+        var categories = await db.ProductCategories
+            .Where(c => c.IsActive)
+            .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+            .Select(c => c.Name)
             .ToListAsync(ct);
         return Ok(categories);
     }

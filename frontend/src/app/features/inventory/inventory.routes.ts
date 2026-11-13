@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { permissionGuard, requiresBranchGuard } from '../../core/auth/auth.guard';
+import { permissionGuard } from '../../core/auth/auth.guard';
 import { unsavedChangesGuard } from '../../core/unsaved-changes.guard';
 
 export const INVENTORY_ROUTES: Routes = [
@@ -38,9 +38,9 @@ export const INVENTORY_ROUTES: Routes = [
   {
     path: 'stock-adjustments/new',
     loadComponent: () => import('./stock-adjustments/stock-adjustment-form/stock-adjustment-form').then((m) => m.StockAdjustmentForm),
-    canActivate: [permissionGuard('Inventory.Adjust'), requiresBranchGuard],
+    canActivate: [permissionGuard('Inventory.Adjust')],
     canDeactivate: [unsavedChangesGuard],
-    data: { group: 'Inventory', page: 'Adjust Stock', requiresBranch: true },
+    data: { group: 'Inventory', page: 'Adjust Stock' },
   },
   {
     path: 'stock-adjustments/:id',
@@ -53,6 +53,12 @@ export const INVENTORY_ROUTES: Routes = [
     loadComponent: () => import('./stock/stock-detail/stock-detail').then((m) => m.StockDetail),
     canActivate: [permissionGuard('Inventory.View')],
     data: { group: 'Inventory', page: 'Stock Details' },
+  },
+  {
+    path: 'categories',
+    loadComponent: () => import('../masters/product-categories/product-categories').then((m) => m.ProductCategories),
+    canActivate: [permissionGuard(['Inventory.View', 'Inventory.Categories'])],
+    data: { group: 'Inventory', page: 'Product Categories' },
   },
   {
     path: 'pricing',
@@ -69,16 +75,16 @@ export const INVENTORY_ROUTES: Routes = [
   {
     path: 'stock-transfers/new',
     loadComponent: () => import('./stock-transfers/stock-transfer-form/stock-transfer-form').then((m) => m.StockTransferForm),
-    canActivate: [permissionGuard('StockTransfers.Create'), requiresBranchGuard],
+    canActivate: [permissionGuard('StockTransfers.Create')],
     canDeactivate: [unsavedChangesGuard],
-    data: { group: 'Inventory', page: 'New transfer', requiresBranch: true },
+    data: { group: 'Inventory', page: 'New transfer' },
   },
   {
     path: 'stock-transfers/:id/edit',
     loadComponent: () => import('./stock-transfers/stock-transfer-form/stock-transfer-form').then((m) => m.StockTransferForm),
-    canActivate: [permissionGuard('StockTransfers.Create'), requiresBranchGuard],
+    canActivate: [permissionGuard('StockTransfers.Create')],
     canDeactivate: [unsavedChangesGuard],
-    data: { group: 'Inventory', page: 'Edit transfer', requiresBranch: true },
+    data: { group: 'Inventory', page: 'Edit transfer' },
   },
   {
     path: 'stock-transfers/:id',

@@ -29,6 +29,9 @@
         @if (form.controls.fromAccountId.touched && form.controls.fromAccountId.errors?.['required']) {
           <div class="field-error">Choose the account to take money from.</div>
         }
+        @if (available() !== null) {
+          <div class="field-hint" data-testid="available">Available: {{ fmt(available()) }}@if (from()!.overdraftLimit > 0) { (includes overdraft of {{ fmt(from()!.overdraftLimit) }}) }</div>
+        }
         @if (form.controls.fromAccountId.errors?.['server']) {
           <div class="field-error">{{ form.controls.fromAccountId.errors?.['server'] }}</div>
         }
@@ -54,14 +57,14 @@
       <div>
         <label class="field-label">Amount</label>
         <input type="number" step="0.01" min="0" formControlName="amount" class="field-input" />
-        @if (form.controls.amount.touched && form.controls.amount.errors) {
+        @if (form.controls.amount.touched && (form.controls.amount.errors?.['required'] || form.controls.amount.errors?.['min'])) {
           <div class="field-error">Enter an amount greater than zero.</div>
         }
         @if (form.controls.amount.errors?.['server']) {
           <div class="field-error">{{ form.controls.amount.errors?.['server'] }}</div>
         }
         @if (overdraws()) {
-          <div class="field-hint">This is more than {{ from()!.name }} currently holds ({{ fmt(from()!.balance) }}) and will leave it negative.</div>
+          <div class="field-hint" data-testid="overdraw">This is more than {{ from()!.name }} can pay out ({{ fmt(available()) }} available) and the transfer will be rejected.</div>
         }
       </div>
       <div>

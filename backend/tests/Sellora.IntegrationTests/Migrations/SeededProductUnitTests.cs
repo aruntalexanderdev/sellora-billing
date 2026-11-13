@@ -72,7 +72,7 @@ public class SeededProductUnitTests(PostgresFixture postgres)
             var product = await LoadAsync(db, sku);
             before = product.Units.OrderBy(u => u.Id).Select(u => (u.Id, u.UnitId, u.ConversionFactorToBase, u.SortOrder)).ToList();
             var byId = product.Units.ToDictionary(u => u.Id);
-            var input = new Sellora.Domain.Inventory.UpsertProductInput(product.Sku, product.Name, product.Category, product.BaseUnitId, product.TaxId, product.ReorderLevel,
+            var input = new Sellora.Domain.Inventory.UpsertProductInput(product.Sku, product.Name, product.CategoryId, product.SubcategoryId, product.BaseUnitId, product.TaxId, product.ReorderLevel,
                 product.Units.Select(u => new Sellora.Domain.Inventory.ProductUnitInputItem(u.Id, u.UnitId,
                     u.InnerProductUnitId is { } i ? byId[i].UnitId : null, u.InnerQuantity, u.Label, u.Barcode,
                     u.IsPurchasable, u.IsSellable, u.IsDefaultPurchaseUnit, u.IsDefaultSalesUnit, u.IsActive)).ToList());

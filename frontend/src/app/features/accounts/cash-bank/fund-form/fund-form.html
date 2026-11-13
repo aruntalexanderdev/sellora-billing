@@ -1,0 +1,104 @@
+<div class="page-head">
+  <div>
+    <h1>Add funds{{ account() ? ' to ' + account()!.name : '' }}</h1>
+    <p>Record money coming into this account from outside, such as capital, a loan or a customer receipt.</p>
+  </div>
+</div>
+
+<div class="form-card">
+  @if (serverError()) {
+    <div class="server-error" role="alert">{{ serverError() }}</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <div class="grid-2">
+      <div>
+        <label class="field-label" for="fund-source">Source</label>
+        <select id="fund-source" formControlName="source" class="field-input">
+          @for (s of sources; track s.value) {
+            <option [value]="s.value">{{ s.label }}</option>
+          }
+        </select>
+        <div class="field-hint" data-testid="source-hint">{{ hint() }}</div>
+        @if (form.controls.source.errors?.['server']) {
+          <div class="field-error">{{ form.controls.source.errors?.['server'] }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label" for="fund-date">Date</label>
+        <input id="fund-date" type="date" formControlName="fundingDate" class="field-input" [max]="today" />
+        @if (form.controls.fundingDate.errors?.['server']) {
+          <div class="field-error">{{ form.controls.fundingDate.errors?.['server'] }}</div>
+        }
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label" for="fund-amount">Amount</label>
+        <input id="fund-amount" type="number" step="0.01" min="0" formControlName="amount" class="field-input" />
+        @if (form.controls.amount.touched && (form.controls.amount.errors?.['required'] || form.controls.amount.errors?.['min'])) {
+          <div class="field-error">Enter an amount greater than zero.</div>
+        }
+        @if (form.controls.amount.errors?.['server']) {
+          <div class="field-error">{{ form.controls.amount.errors?.['server'] }}</div>
+        }
+      </div>
+      @if (fields().counterparty; as c) {
+        <div>
+          <label class="field-label" for="fund-counterparty">{{ c.label }}</label>
+          <input id="fund-counterparty" type="text" formControlName="counterparty" class="field-input" maxlength="120" />
+          @if (form.controls.counterparty.errors?.['server']) {
+            <div class="field-error">{{ form.controls.counterparty.errors?.['server'] }}</div>
+          }
+        </div>
+      }
+    </div>
+
+    @if (fields().customer) {
+      <label class="field-label" for="fund-customer">Customer</label>
+      <select id="fund-customer" formControlName="customerId" class="field-input">
+        <option value="" disabled>Select a customer…</option>
+        @for (c of customers(); track c.id) {
+          <option [value]="c.id">{{ c.name }}{{ c.phone ? ' · ' + c.phone : '' }}</option>
+        }
+      </select>
+      @if (form.controls.customerId.touched && form.controls.customerId.errors?.['required']) {
+        <div class="field-error">Choose the customer who paid.</div>
+      }
+      @if (form.controls.customerId.errors?.['server']) {
+        <div class="field-error">{{ form.controls.customerId.errors?.['server'] }}</div>
+      }
+    }
+
+    @if (fields().reference; as r) {
+      <label class="field-label" for="fund-reference">{{ r.label }}{{ r.required ? '' : ' (optional)' }}</label>
+      <input id="fund-reference" type="text" formControlName="sourceReference" class="field-input" maxlength="120" />
+      @if (form.controls.sourceReference.touched && form.controls.sourceReference.errors?.['required']) {
+        <div class="field-error">A reference is required.</div>
+      }
+      @if (form.controls.sourceReference.errors?.['server']) {
+        <div class="field-error">{{ form.controls.sourceReference.errors?.['server'] }}</div>
+      }
+    }
+
+    @if (fields().reason) {
+      <label class="field-label" for="fund-reason">Reason</label>
+      <input id="fund-reason" type="text" formControlName="reason" class="field-input" maxlength="300" />
+      @if (form.controls.reason.touched && form.controls.reason.errors?.['required']) {
+        <div class="field-error">A reason is required for this source.</div>
+      }
+      @if (form.controls.reason.errors?.['server']) {
+        <div class="field-error">{{ form.controls.reason.errors?.['server'] }}</div>
+      }
+    }
+
+    <label class="field-label">Notes</label>
+    <textarea formControlName="notes" class="field-input" rows="2" maxlength="500"></textarea>
+
+    <div class="actions" style="margin-top: 16px">
+      <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Add funds' }}</ui-button>
+      <a [routerLink]="['/accounts/cash-bank', accountId]" class="cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>

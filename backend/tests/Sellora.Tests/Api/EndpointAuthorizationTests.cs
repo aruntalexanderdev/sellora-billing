@@ -32,7 +32,10 @@ public class EndpointAuthorizationTests
     private static readonly HashSet<string> SignedInOnly =
     [
         "BranchesController.Accessible", "CurrenciesController.List", "DashboardController.Get", "ExchangeRatesController.Resolve",
-        "FinancialAccountsController.Options", "UsersController.UpdateOwnUsername", "UsersController.ChangeOwnPassword",
+        "FinancialAccountsController.Options",
+        // Phase 08 (FI-D16, Q5): the category/subcategory read feeds pickers on product, stock and POS screens for any company member; writes need Inventory.Categories.
+        "ProductCategoriesController.List",
+        "UsersController.UpdateOwnUsername", "UsersController.ChangeOwnPassword",
         // Phase 7: scoped roles. A branch administrator holds Branch.Roles.* / Branch.Users.AssignRoles at ONE branch only, so a named company-level policy
         // would lock them out. These endpoints are plain [Authorize] and every action checks the caller's effective permissions at the role's scope
         // (RoleRules, R1-R4; 403 role_management_forbidden / role_assignment_forbidden, 404 outside reach). ScopedRolesApiTests.EveryServiceCheckedRoleRoute_RefusesASignedInUserWithoutAnyCode proves each route refuses a signed-in user with no codes.

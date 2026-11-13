@@ -7,7 +7,7 @@ import { ConfirmDialogService } from '../../shared/ui/confirm-dialog/confirm-dia
 import type { ApiProblem, AuthResponse, AuthenticatedUser, MeResponse } from '../auth/auth.models';
 import { AuthService } from '../auth/auth.service';
 import { ToastService } from '../../shared/ui/toast/toast.service';
-import { ALL_BRANCHES, BRANCH_KEY_PREFIX, ContextStatus, GuardRequirement } from './context.models';
+import { ALL_BRANCHES_LEGACY, BRANCH_KEY_PREFIX, ContextStatus, GuardRequirement } from './context.models';
 
 /** Full-page navigation (company switch). Injectable so tests do not trigger a jsdom navigation. */
 export const HARD_NAVIGATE = new InjectionToken<(url: string) => void>('HARD_NAVIGATE', {
@@ -30,11 +30,6 @@ function isBranchHeaderRejection(error: unknown): boolean {
   return (status === 403 && code === 'branch_access_denied') || (status === 400 && code === 'branch_header_invalid');
 }
 
-function canUseAll(me: MeResponse | null): boolean {
-  if (!me || (me.allowedBranches ?? []).length === 0) return false;
-  return me.allowedBranches.length > 1 || me.accessScope === 'CompanyWide';
-}
-
 @Injectable({ providedIn: 'root' })
 export class ContextService {
   private readonly http = inject(HttpClient);
@@ -47,7 +42,7 @@ export class ContextService {
   private readonly me = signal<MeResponse | null>(null);
   private readonly _status = signal<ContextStatus>('loading');
   private readonly _workingBranchId = signal<string | null>(null);
-  private readonly _allBranches = signal(false);
+  private readonly _companyView = signal(false);
   private readonly _contextVersion = signal(0);
 
   private seq = 0;
@@ -67,14 +62,18 @@ export class ContextService {
   readonly primaryBranchId = computed(() => this.me()?.primaryBranchId ?? null);
   /** The branch sent as X-Branch-Id; null for a company-wide user with no selection (and no primary branch). */
   readonly workingBranchId = this._workingBranchId.asReadonly();
-  /** D13: the explicit "All branches" choice (no X-Branch-Id is sent). */
-  readonly isAllBranches = this._allBranches.asReadonly();
-  /** Permissions for UI gating: the working-branch set, or `permissionsAnyBranch` in All-branches mode (falls back to the branch set). */
+  /** Permissions for UI gating: always those of the active (working) branch. */
   readonly permissions = computed<ReadonlySet<string>>(() => {
     const m = this.me();
-    if (!m) return EMPTY;
-    return new Set(this._allBranches() ? (m.permissionsAnyBranch ?? m.permissions) : m.permissions);
+    return m ? new Set(m.permissions) : EMPTY;
   });
+  /** FI-D11: codes the user holds company-level; only these may use the "Company view" (`scope=company`). */
+  readonly companyPermissions = computed<ReadonlySet<string>>(() => {
+    const m = this.me();
+    return m?.companyPermissions ? new Set(m.companyPermissions) : EMPTY;
+  });
+  /** FI-D11: the explicit, per-session "Company view" toggle. Off by default; reset on every context change. */
+  readonly companyView = this._companyView.asReadonly();
   readonly governance = computed(() => this.me()?.governance ?? null);
   /** Bumped after a branch switch; the shell re-creates the routed component (so it re-fetches) when it changes. */
   readonly contextVersion = this._contextVersion.asReadonly();
@@ -82,18 +81,29 @@ export class ContextService {
   /** The working branch, or the company default branch when a company-wide user has made no selection. */
   readonly workingBranch = computed(() => {
     const branches = this.allowedBranches();
-    if (this._allBranches()) return null;
     const id = this._workingBranchId();
     return (id ? branches.find((b) => b.id === id) : branches.find((b) => b.isDefault)) ?? null;
   });
-  /** D13: "All branches" is offered with 2+ allowed branches, or to a company-wide member. */
-  readonly canChooseAll = computed(() => canUseAll(this.me()));
   /** Selector is shown only when there is something to choose. */
-  readonly canSwitchBranch = computed(() => this.allowedBranches().length > 1 || this.canChooseAll());
+  readonly canSwitchBranch = computed(() => this.allowedBranches().length > 1);
   readonly canSwitchCompany = computed(() => this.companies().length > 1);
 
   hasPermission(code: string): boolean {
     return this.permissions().has(code);
+  }
+
+  /** True when `code` is held company-level, i.e. the Company view may be offered on that page. */
+  canCompanyView(code: string): boolean {
+    return this.companyPermissions().has(code);
+  }
+
+  /** True when the Company view is on and `code` is held company-level: requests for that page add `scope=company`. */
+  companyViewActive(code: string): boolean {
+    return this._companyView() && this.canCompanyView(code);
+  }
+
+  setCompanyView(on: boolean): void {
+    this._companyView.set(on);
   }
 
   /** True when the caller is an active governance member, optionally holding `code` (UI hint only). */
@@ -119,9 +129,13 @@ export class ContextService {
     }
     if (this._status() !== 'ready') this.setStatus('loading');
 
-    const choice = this._allBranches() ? ALL_BRANCHES : (this._workingBranchId() ?? this.readPreference(user));
-    const wantsAll = choice === ALL_BRANCHES;
-    let candidate = wantsAll ? null : choice;
+    let choice = this._workingBranchId() ?? this.readPreference(user);
+    if (choice === ALL_BRANCHES_LEGACY) {
+      // FI-D11: "All branches" no longer exists; a stored preference migrates to the primary/default branch.
+      this.clearPreference(user);
+      choice = null;
+    }
+    let candidate = choice;
     this._workingBranchId.set(candidate);
 
     let me: MeResponse;
@@ -150,24 +164,9 @@ export class ContextService {
     if (allowed.length === 0) {
       this.me.set(me);
       this._workingBranchId.set(null);
-      this._allBranches.set(false);
       this.setStatus('noBranch');
       return;
     }
-
-    if (wantsAll) {
-      if (canUseAll(me)) {
-        // D13: explicit choice; no header is sent, nav uses permissionsAnyBranch.
-        this._allBranches.set(true);
-        this._workingBranchId.set(null);
-        this.me.set(me);
-        this.setStatus('ready');
-        return;
-      }
-      // No longer entitled (allocations changed): drop the stale preference and fall back to the default branch.
-      this.clearPreference(user);
-    }
-    this._allBranches.set(false);
 
     const resolved = this.resolveWorking(me, candidate);
     const implicit = me.primaryBranchId ?? allowed.find((b) => b.isDefault)?.id ?? null;
@@ -188,32 +187,27 @@ export class ContextService {
   }
 
   /**
-   * D3/D13: switch the working branch for this tab (`ALL_BRANCHES` selects "All branches"). Resolves false when
+   * D3: switch the working branch for this tab. Resolves false when
    * cancelled, not allowed, or when loading the new context failed (the previous working branch is restored).
-   * `reroute: false` skips the "current route no longer accessible" redirect (used by the requiresBranch guard).
+   * `reroute: false` skips the "current route no longer accessible" redirect.
    */
   async switchBranch(target: string, options: { reroute?: boolean } = {}): Promise<boolean> {
-    const toAll = target === ALL_BRANCHES;
-    if (toAll ? this._allBranches() : !this._allBranches() && target === this._workingBranchId()) return true;
-    if (toAll ? !this.canChooseAll() : !this.allowedBranches().some((b) => b.id === target)) return false;
+    if (target === this._workingBranchId()) return true;
+    if (!this.allowedBranches().some((b) => b.id === target)) return false;
     if (!(await this.confirmDiscardIfDirty())) return false;
 
     const user = this.auth.currentUser();
     const previousId = this._workingBranchId();
-    const previousAll = this._allBranches();
     const previousStatus = this._status();
-    this._allBranches.set(toAll);
-    this._workingBranchId.set(toAll ? null : target);
+    this._workingBranchId.set(target);
     if (user) this.writePreference(user, target);
     await this.hydrate();
 
     if (this._status() !== 'ready' && previousStatus === 'ready' && this.me() !== null) {
       // The new context could not be loaded: stay on the branch the user was working in (me is still the old, consistent one).
-      this._allBranches.set(previousAll);
       this._workingBranchId.set(previousId);
       if (user) {
-        if (previousAll) this.writePreference(user, ALL_BRANCHES);
-        else if (previousId) this.writePreference(user, previousId);
+        if (previousId) this.writePreference(user, previousId);
         else this.clearPreference(user);
       }
       this.setStatus('ready');
@@ -224,7 +218,7 @@ export class ContextService {
     if (this._status() === 'ready' && options.reroute !== false && !this.routeAccessible()) {
       await this.router.navigateByUrl('/dashboard');
     }
-    this._contextVersion.update((v) => v + 1);
+    this.bumpContext();
     return true;
   }
 
@@ -252,7 +246,7 @@ export class ContextService {
     const before = this._workingBranchId();
     await this.hydrate();
     if (this._workingBranchId() === before) return 'resource';
-    this._contextVersion.update((v) => v + 1);
+    this.bumpContext();
     return 'revoked';
   }
 
@@ -266,9 +260,15 @@ export class ContextService {
     if (this.resyncInFlight) return this.resyncInFlight;
     if (Date.now() - this.lastResyncAt < RESYNC_MIN_INTERVAL_MS) return Promise.resolve();
     this.lastResyncAt = Date.now();
-    this.resyncInFlight = this.hydrate().finally(() => {
-      this.resyncInFlight = null;
-    });
+    const before = this.contextSignature();
+    this.resyncInFlight = this.hydrate()
+      .then(() => {
+        // Only a real change re-creates the outlet; an unchanged re-sync must not discard the page's state.
+        if (this.contextSignature() !== before) this.bumpContext();
+      })
+      .finally(() => {
+        this.resyncInFlight = null;
+      });
     return this.resyncInFlight;
   }
 
@@ -277,8 +277,8 @@ export class ContextService {
     const user = this.auth.currentUser();
     if (user) this.clearPreference(user);
     this._workingBranchId.set(null);
-    this._allBranches.set(false);
     await this.hydrate();
+    this.bumpContext();
   }
 
   /** The shell registers a probe reporting whether the routed component has unsaved changes. Returns an unregister function. */
@@ -320,8 +320,19 @@ export class ContextService {
     this.seq++;
     this.me.set(null);
     this._workingBranchId.set(null);
-    this._allBranches.set(false);
+    this._companyView.set(false);
     this.setStatus('loading');
+  }
+
+  /** Re-creates the routed component (caches reset) and drops the Company view: the working branch or its permissions changed. */
+  private bumpContext(): void {
+    this._companyView.set(false);
+    this._contextVersion.update((v) => v + 1);
+  }
+
+  private contextSignature(): string {
+    const m = this.me();
+    return JSON.stringify([this._workingBranchId(), [...(m?.permissions ?? [])].sort(), [...(m?.companyPermissions ?? [])].sort()]);
   }
 
   private clear(): void {
@@ -351,7 +362,7 @@ export class ContextService {
     const has = (id: string | null) => id !== null && allowed.some((b) => b.id === id);
     if (has(candidate)) return candidate;
     if (has(me.primaryBranchId)) return me.primaryBranchId;
-    if (me.accessScope === 'CompanyWide') return null;
+    // FI-D11 (Q3a): header, else primary, else the company default branch; always a concrete branch so the header is always sent.
     return (allowed.find((b) => b.isDefault) ?? allowed[0]).id;
   }
 

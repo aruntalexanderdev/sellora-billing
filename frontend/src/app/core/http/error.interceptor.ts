@@ -50,6 +50,9 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
               // 'resource': a hidden location; the caller shows the readable branch_access_denied message.
             });
           }
+        } else if (status === 403 && code === 'company_scope_denied') {
+          // FI-D11: the Company view was refused; fall back to the active branch. The page shows the mapped message.
+          context.setCompanyView(false);
         } else if (status === 403 && !code) {
           if (!path.startsWith('/auth/')) {
             void context.resyncPermissions();

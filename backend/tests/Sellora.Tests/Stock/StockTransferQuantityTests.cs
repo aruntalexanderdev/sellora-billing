@@ -547,7 +547,7 @@ public class StockTransferQuantityTests
             u.Id == w.Box ? 12m : u.InnerQuantity, u.Label, null, u.IsPurchasable, u.IsSellable, u.IsDefaultPurchaseUnit, u.IsDefaultSalesUnit, u.IsActive)).ToList();
 
         await Assert.ThrowsAsync<DomainValidationException>(() => new ProductService(db).UpdateProductAsync(w.PenId,
-            new Sellora.Domain.Inventory.UpsertProductInput(product.Sku, product.Name, product.Category, product.BaseUnitId, product.TaxId, product.ReorderLevel, items)));
+            new Sellora.Domain.Inventory.UpsertProductInput(product.Sku, product.Name, product.CategoryId, product.SubcategoryId, product.BaseUnitId, product.TaxId, product.ReorderLevel, items)));
     }
 
     private static async Task<decimal> RemainingOfBatchesAsync(TransferWorld w)

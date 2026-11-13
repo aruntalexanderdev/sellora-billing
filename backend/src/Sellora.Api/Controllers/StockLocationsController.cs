@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Inventory;
@@ -15,6 +16,7 @@ namespace Sellora.Api.Controllers;
 public class StockLocationsController(SelloraDbContext db) : ControllerBase
 {
     [HttpGet]
+    [CompanyScopeRead] // FI-D15: the Company view is accepted here as everywhere else; the list already covers the allowed set
     public async Task<ActionResult<IReadOnlyList<StockLocationDto>>> List(
         [FromQuery] string? type, [FromQuery] Guid? branchId, [FromQuery] bool includeInactive = false, CancellationToken ct = default)
     {
@@ -29,7 +31,9 @@ public class StockLocationsController(SelloraDbContext db) : ControllerBase
             typeFilter = parsed;
         }
 
-        var denied = await this.DenyUnlessAllowedAsync(db, branchId, ct);
+        // FI-D15: this list serves location pickers and lists the ALLOWED set (not just the active branch), so its branch filter follows the
+        // allowed set too - any allowed branch, inactive ones included (with includeInactive) - instead of 403-ing every non-active branch.
+        var denied = await this.DenyUnlessAllowedAsync(db, branchId, ct, readScope: false);
         if (denied is not null) return denied;
 
         var companyId = db.CompanyContext.RequireCompanyId();
@@ -71,7 +75,13 @@ public class StockLocationsController(SelloraDbContext db) : ControllerBase
     {
         var companyId = db.CompanyContext.RequireCompanyId();
         var location = await db.StockLocations.AsNoTracking().SingleOrDefaultAsync(l => l.CompanyId == companyId && l.Id == id, ct);
-        if (location is null || (location.BranchId is { } owner && !db.BranchContext.CanAccess(owner))) return NotFound();
+        if (location is null) return NotFound();
+
+        // Phase 01 (G5): same visibility as the list - the effective owner is the location's branch or, for a vehicle location, the vehicle's assigned branch.
+        var vehicleOwner = await db.Vehicles.AsNoTracking()
+            .Where(v => v.CompanyId == companyId && v.StockLocationId == id)
+            .Select(v => v.AssignedBranchId).FirstOrDefaultAsync(ct);
+        if ((location.BranchId ?? vehicleOwner) is { } owner && !db.BranchContext.CanAccess(owner)) return NotFound();
 
         return Ok(ToDto(location, await BranchLabels.LoadAsync(db, ct)));
     }

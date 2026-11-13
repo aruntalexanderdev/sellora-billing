@@ -68,14 +68,19 @@ public record CashFlowReportDto(
     decimal ReversalsIn, decimal ReversalsOut,
     decimal TransfersIn, decimal TransfersOut,
     decimal MoneyIn, decimal MoneyOut, decimal Net,
-    IReadOnlyList<CashFlowPeriodDto> Months, BaseCurrencyDto BaseCurrency
+    IReadOnlyList<CashFlowPeriodDto> Months, BaseCurrencyDto BaseCurrency,
+    // Phase 07 (FI-D19): capital, loans, deposits, customer receipts and other funding, net of reversals; never part of the customer receipts or MoneyIn/MoneyOut above.
+    IReadOnlyList<FundingSourceTotalDto> FundingBySource, decimal FundingTotal
 );
+
+public record FundingSourceTotalDto(FundingSource Source, decimal Amount);
 
 /// <summary>Closing = Opening + MoneyIn − MoneyOut + net transfers. Opening is the balance at the start of the period,
 /// and includes an opening balance entered during it.</summary>
 public record CashBankReportRowDto(
     Guid AccountId, string AccountName, FinancialAccountKind Kind, bool IsActive,
-    decimal Opening, decimal MoneyIn, decimal MoneyOut, decimal TransfersIn, decimal TransfersOut, decimal Closing,
+    // Phase 01 (FI-D12): all figures null for a company-level account when the reader does not hold Reports.Accounts company-level.
+    decimal? Opening, decimal? MoneyIn, decimal? MoneyOut, decimal? TransfersIn, decimal? TransfersOut, decimal? Closing,
     int UnreconciledCount
 );
 

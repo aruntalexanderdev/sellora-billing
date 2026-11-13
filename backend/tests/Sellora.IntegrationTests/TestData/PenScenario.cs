@@ -47,7 +47,7 @@ public sealed record PenScenario(Guid PenId, Guid TaxId, Guid UserId, Guid Pc, G
         new(id, unitId, innerUnitId, qty, null, barcode, true, true, false, defaultSales, active);
 
     public UpsertProductInput Input(string sku, Guid baseUnitId, params ProductUnitInputItem[] units) =>
-        new(sku, "Ball Pen " + sku, "Stationery", baseUnitId, TaxId, 0m, units);
+        new(sku, "Ball Pen " + sku, null, null, baseUnitId, TaxId, 0m, units);
 
     /// <summary>The product's active stored rows as the editor would resubmit them, keyed by UnitId.</summary>
     public static async Task<Dictionary<Guid, ProductUnitInputItem>> CurrentAsync(SelloraDbContext db, Guid productId)

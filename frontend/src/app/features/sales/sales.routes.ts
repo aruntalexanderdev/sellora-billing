@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { permissionGuard, requiresBranchGuard } from '../../core/auth/auth.guard';
+import { permissionGuard } from '../../core/auth/auth.guard';
 import { unsavedChangesGuard } from '../../core/unsaved-changes.guard';
 
 export const SALES_ROUTES: Routes = [
@@ -26,9 +26,9 @@ export const SALES_ROUTES: Routes = [
   {
     path: 'new',
     loadComponent: () => import('./pos/pos').then((m) => m.Pos),
-    canActivate: [permissionGuard('Sales.Create'), requiresBranchGuard],
+    canActivate: [permissionGuard('Sales.Create')],
     canDeactivate: [unsavedChangesGuard],
-    data: { group: 'Sales & Billing', page: 'New sale', requiresBranch: true },
+    data: { group: 'Sales & Billing', page: 'New sale' },
   },
   {
     path: '',
@@ -39,8 +39,8 @@ export const SALES_ROUTES: Routes = [
   {
     path: 'van',
     loadComponent: () => import('./van/van-workspace/van-workspace').then((m) => m.VanWorkspace),
-    canActivate: [permissionGuard('Sales.Create'), requiresBranchGuard],
-    data: { group: 'Sales & Billing', page: 'Van workspace', requiresBranch: true },
+    canActivate: [permissionGuard('Sales.Create')],
+    data: { group: 'Sales & Billing', page: 'Van workspace' },
   },
   {
     path: 'returns',
@@ -57,9 +57,9 @@ export const SALES_ROUTES: Routes = [
   {
     path: ':id/return',
     loadComponent: () => import('./sales-returns/sales-return-form/sales-return-form').then((m) => m.SalesReturnForm),
-    canActivate: [permissionGuard('Sales.Return'), requiresBranchGuard],
+    canActivate: [permissionGuard('Sales.Return')],
     canDeactivate: [unsavedChangesGuard],
-    data: { group: 'Sales & Billing', page: 'Return items', requiresBranch: true },
+    data: { group: 'Sales & Billing', page: 'Return items' },
   },
   {
     path: ':id',
