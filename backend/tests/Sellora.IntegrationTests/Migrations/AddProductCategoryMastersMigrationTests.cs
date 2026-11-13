@@ -142,6 +142,37 @@ public class AddProductCategoryMastersMigrationTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task Up_GrantsInventoryCategories_ToEveryRoleHoldingInventoryEdit_AndDownRemovesIt()
+    {
+        await using var database = await CreateLegacyAsync();
+        var editor = G(3001);
+        var viewer = G(3002);
+        await ExecuteAsync(database, $"""
+            INSERT INTO "Roles" ("Id", "CompanyId", "Name", "Description", "IsActive", "IsSystem", "CreatedAt") VALUES
+              ('{editor}', '{DefaultCompany}', 'Stock editor', NULL, true, false, now()), ('{viewer}', '{DefaultCompany}', 'Stock viewer', NULL, true, false, now());
+            INSERT INTO "Permissions" ("Id", "Code", "Module", "Action", "Description") VALUES
+              ('{G(3101)}', 'Inventory.Edit', 'Inventory', 'Edit', 'D'), ('{G(3102)}', 'Inventory.View', 'Inventory', 'View', 'D');
+            INSERT INTO "RolePermissions" ("RoleId", "PermissionId", "GrantedAt") VALUES
+              ('{editor}', '{G(3101)}', now()), ('{viewer}', '{G(3102)}', now());
+            """);
+
+        await MigrateToAsync(database);
+
+        const string Holders = """SELECT rp."RoleId"::text FROM "RolePermissions" rp JOIN "Permissions" p ON p."Id" = rp."PermissionId" WHERE p."Code" = 'Inventory.Categories' ORDER BY 1""";
+        Assert.Equal([editor], await QueryAsync(database, Holders, r => r.GetString(0)));
+        Assert.Equal("Inventory|Manage categories", await ScalarAsync<string>(database, """SELECT "Module" || '|' || "Action" FROM "Permissions" WHERE "Code" = 'Inventory.Categories'"""));
+        Assert.Empty(await QueryAsync(database, """
+            SELECT r."Id"::text FROM "Roles" r WHERE EXISTS (SELECT 1 FROM "RolePermissions" rp JOIN "Permissions" p ON p."Id" = rp."PermissionId" WHERE rp."RoleId" = r."Id" AND p."Code" = 'Inventory.Edit')
+              AND NOT EXISTS (SELECT 1 FROM "RolePermissions" rp JOIN "Permissions" p ON p."Id" = rp."PermissionId" WHERE rp."RoleId" = r."Id" AND p."Code" = 'Inventory.Categories')
+            """, r => r.GetString(0)));
+
+        await MigrateToAsync(database, B10);
+
+        Assert.Equal(0L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Permissions" WHERE "Code" = 'Inventory.Categories'"""));
+        Assert.Equal(2L, await ScalarAsync<long>(database, $"""SELECT COUNT(*) FROM "RolePermissions" WHERE "RoleId" IN ('{editor}', '{viewer}')"""));
+    }
+
+    [Fact]
     public async Task IdempotentScript_OnTheLegacyDataset_AppliesAndBackfills()
     {
         await using var database = await CreateLegacyAsync();

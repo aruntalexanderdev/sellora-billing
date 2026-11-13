@@ -55,7 +55,8 @@ public partial class ProductCategoryService(SelloraDbContext db) : IProductCateg
 
         if (renamed)
         {
-            // Mirror of the legacy Product.Category string (kept for one release, FI-D17).
+            // Mirror of the legacy Product.Category string (kept for one release, FI-D17; dropped in Phase 09). Tracked update on purpose: it runs in
+            // this transaction, is bounded by one category's products, and stays testable on the InMemory provider (ExecuteUpdate is not supported there).
             var products = await db.Products.Where(p => p.CategoryId == categoryId).ToListAsync(ct);
             foreach (var product in products) product.Category = name;
         }
@@ -84,6 +85,9 @@ public partial class ProductCategoryService(SelloraDbContext db) : IProductCateg
         var (code, name) = Normalise(input);
         var category = await db.ProductCategories.AsNoTracking().SingleOrDefaultAsync(c => c.Id == categoryId, ct);
         if (category is null) return null;
+        // Same rule as SetSubcategoryActiveAsync: an inactive category cannot gain an active subcategory (FI-D16, review m3).
+        if (!category.IsActive)
+            throw new DomainValidationException("categoryId", "Activate the category first; subcategories cannot be added to an inactive category.");
         await EnsureSubcategoryUniqueAsync(categoryId, null, code, name, ct);
 
         var sub = new ProductSubcategory

@@ -9,7 +9,8 @@ namespace Sellora.Infrastructure.Data.Migrations
     /// Phase 08 (FI-D16 / FI-D17): ProductCategories + ProductSubcategories masters and Products.CategoryId / SubcategoryId. Additive.
     /// Raw SQL (not modelled by EF): UX_ProductCategories_CompanyId_Name_Lower ((CompanyId, lower(Name))) and
     /// UX_ProductSubcategories_Category_Name_Lower ((CompanyId, CategoryId, lower(Name))); then the FI-D17 backfill.
-    /// The legacy Products.Category string is NOT touched. Down drops the links and tables (the backfilled masters are re-derivable
+    /// The legacy Products.Category string is NOT touched. The Inventory.Categories permission row is inserted and granted to every role holding Inventory.Edit
+    /// (review M1, Phase 7 B4 precedent; Down removes the grants and the row). Down drops the links and tables (the backfilled masters are re-derivable
     /// from Products.Category, which is kept; subcategories created after Up are lost - take the pre-deploy snapshot).
     ///
     /// Backfill rules: per company, distinct whitespace-trimmed non-blank Category grouped case-insensitively; representative spelling =
@@ -30,6 +31,9 @@ namespace Sellora.Infrastructure.Data.Migrations
     /// -- V4 codes valid and unique per company (also enforced by constraints)
     /// SELECT "CompanyId", "Code" FROM "ProductCategories" GROUP BY 1, 2 HAVING COUNT(*) &gt; 1;
     /// -- V5 product row count unchanged: SELECT COUNT(*) FROM "Products" (compare with the pre-deploy figure)
+    /// -- V6 roles holding Inventory.Edit without Inventory.Categories
+    /// SELECT r."Id" FROM "Roles" r WHERE EXISTS (SELECT 1 FROM "RolePermissions" rp JOIN "Permissions" p ON p."Id" = rp."PermissionId" WHERE rp."RoleId" = r."Id" AND p."Code" = 'Inventory.Edit')
+    ///   AND NOT EXISTS (SELECT 1 FROM "RolePermissions" rp JOIN "Permissions" p ON p."Id" = rp."PermissionId" WHERE rp."RoleId" = r."Id" AND p."Code" = 'Inventory.Categories');
     /// </summary>
     public partial class AddProductCategoryMasters : Migration
     {
@@ -108,26 +112,6 @@ namespace Sellora.Infrastructure.Data.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_Products_CompanyId_CategoryId",
-                table: "Products",
-                columns: new[] { "CompanyId", "CategoryId" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Products_CompanyId_CategoryId_SubcategoryId",
-                table: "Products",
-                columns: new[] { "CompanyId", "CategoryId", "SubcategoryId" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Products_CompanyId_SubcategoryId",
-                table: "Products",
-                columns: new[] { "CompanyId", "SubcategoryId" });
-
-            migrationBuilder.AddCheckConstraint(
-                name: "CK_Products_Subcategory_Requires_Category",
-                table: "Products",
-                sql: "\"SubcategoryId\" IS NULL OR \"CategoryId\" IS NOT NULL");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_ProductCategories_CompanyId_Code",
                 table: "ProductCategories",
                 columns: new[] { "CompanyId", "Code" },
@@ -139,29 +123,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                 columns: new[] { "CompanyId", "CategoryId", "Code" },
                 unique: true);
 
-            migrationBuilder.AddForeignKey(
-                name: "FK_Products_ProductCategories_CompanyId_CategoryId",
-                table: "Products",
-                columns: new[] { "CompanyId", "CategoryId" },
-                principalTable: "ProductCategories",
-                principalColumns: new[] { "CompanyId", "Id" },
-                onDelete: ReferentialAction.Restrict);
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_Products_ProductSubcategories_CompanyId_CategoryId_SubcategoryId",
-                table: "Products",
-                columns: new[] { "CompanyId", "CategoryId", "SubcategoryId" },
-                principalTable: "ProductSubcategories",
-                principalColumns: new[] { "CompanyId", "CategoryId", "Id" },
-                onDelete: ReferentialAction.Restrict);
-
             // Case-insensitive name uniqueness (EF cannot model expression indexes; keep them when editing the table configuration).
             migrationBuilder.Sql("""
                 CREATE UNIQUE INDEX "UX_ProductCategories_CompanyId_Name_Lower" ON "ProductCategories" ("CompanyId", lower("Name"));
                 CREATE UNIQUE INDEX "UX_ProductSubcategories_Category_Name_Lower" ON "ProductSubcategories" ("CompanyId", "CategoryId", lower("Name"));
                 """);
 
-            // FI-D17 backfill. Collision handling is a loop (a generated "RICE-2" can collide with a real "Rice 2"), in alphabetical order.
+
+            // FI-D17 backfill (before the Products FKs / indexes / CHECK so the UPDATE runs without per-row FK checks and the constraints then validate it). Collision handling is a loop (a generated "RICE-2" can collide with a real "Rice 2"), in alphabetical order.
             migrationBuilder.Sql("""
                 DO $$
                 DECLARE
@@ -207,11 +176,67 @@ namespace Sellora.Infrastructure.Data.Migrations
                 WHERE c."CompanyId" = p."CompanyId" AND lower(c."Name") = lower(btrim(p."Category", E' \t\r\n'))
                   AND p."Category" IS NOT NULL;
                 """);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Products_CompanyId_CategoryId",
+                table: "Products",
+                columns: new[] { "CompanyId", "CategoryId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Products_CompanyId_CategoryId_SubcategoryId",
+                table: "Products",
+                columns: new[] { "CompanyId", "CategoryId", "SubcategoryId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Products_CompanyId_SubcategoryId",
+                table: "Products",
+                columns: new[] { "CompanyId", "SubcategoryId" });
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_Products_Subcategory_Requires_Category",
+                table: "Products",
+                sql: "\"SubcategoryId\" IS NULL OR \"CategoryId\" IS NOT NULL");
+
+            migrationBuilder.AddForeignKey(
+                name: "FK_Products_ProductCategories_CompanyId_CategoryId",
+                table: "Products",
+                columns: new[] { "CompanyId", "CategoryId" },
+                principalTable: "ProductCategories",
+                principalColumns: new[] { "CompanyId", "Id" },
+                onDelete: ReferentialAction.Restrict);
+
+            migrationBuilder.AddForeignKey(
+                name: "FK_Products_ProductSubcategories_CompanyId_CategoryId_SubcategoryId",
+                table: "Products",
+                columns: new[] { "CompanyId", "CategoryId", "SubcategoryId" },
+                principalTable: "ProductSubcategories",
+                principalColumns: new[] { "CompanyId", "CategoryId", "Id" },
+                onDelete: ReferentialAction.Restrict);
+
+            // Review M1: the new Inventory.Categories permission (company-only) goes to every role that holds Inventory.Edit (Phase 7 precedent, B4).
+            migrationBuilder.Sql("""
+                INSERT INTO "Permissions" ("Id", "Code", "Module", "Action", "Description")
+                VALUES (md5('perm:Inventory.Categories')::uuid, 'Inventory.Categories', 'Inventory', 'Manage categories',
+                        'Create, edit, activate and deactivate product categories and subcategories.')
+                ON CONFLICT ("Code") DO NOTHING;
+
+                INSERT INTO "RolePermissions" ("RoleId", "PermissionId", "GrantedAt")
+                SELECT DISTINCT rp."RoleId", np."Id", now()
+                FROM "RolePermissions" rp
+                JOIN "Permissions" ep ON ep."Id" = rp."PermissionId" AND ep."Code" = 'Inventory.Edit'
+                CROSS JOIN (SELECT "Id" FROM "Permissions" WHERE "Code" = 'Inventory.Categories') np
+                ON CONFLICT DO NOTHING;
+                """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql("""
+                DELETE FROM "RolePermissions" WHERE "PermissionId" IN (SELECT "Id" FROM "Permissions" WHERE "Code" = 'Inventory.Categories');
+                DELETE FROM "Permissions" WHERE "Code" = 'Inventory.Categories';
+                """);
+
             migrationBuilder.DropForeignKey(
                 name: "FK_Products_ProductCategories_CompanyId_CategoryId",
                 table: "Products");

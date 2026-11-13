@@ -120,6 +120,8 @@ public static class DbSeeder
         await GrantNewPermissionToExistingHoldersAsync(db, "Sales.Receive", "Sales.Create", ct);
         // Phase 7: assigning roles was part of Users.Create/Users.Edit; the migration does the same for existing databases (B4).
         await GrantNewPermissionToExistingHoldersAsync(db, PermissionCatalog.CompanyUsersAssignRoles, ["Users.Create", "Users.Edit"], ct);
+        // Phase 08: managing categories was part of Inventory.Edit (free-text Category); the migration does the same for existing databases.
+        await GrantNewPermissionToExistingHoldersAsync(db, "Inventory.Categories", "Inventory.Edit", ct);
     }
 
     // Recording payments used to be covered by an edit permission, so every role holding that permission keeps

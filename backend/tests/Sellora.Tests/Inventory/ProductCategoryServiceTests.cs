@@ -167,6 +167,20 @@ public class ProductCategoryServiceTests
     }
 
     [Fact]
+    public async Task CreateSubcategoryAsync_UnderAnInactiveCategory_Is400OnCategoryId_AndWorksOnceReactivated()
+    {
+        var f = await SeedAsync();
+        var category = await f.Categories.CreateCategoryAsync(Input("DAIRY", "Dairy"));
+        await f.Categories.SetCategoryActiveAsync(category.Id, false);
+
+        Assert.Equal("categoryId", await FieldOf(() => f.Categories.CreateSubcategoryAsync(category.Id, Input("MILK", "Milk"))));
+        Assert.Empty(f.Db.ProductSubcategories.Where(s => s.CategoryId == category.Id));
+
+        await f.Categories.SetCategoryActiveAsync(category.Id, true);
+        Assert.NotNull(await f.Categories.CreateSubcategoryAsync(category.Id, Input("MILK", "Milk")));
+    }
+
+    [Fact]
     public async Task CreateSubcategoryAsync_UnknownCategory_ReturnsNull()
     {
         var f = await SeedAsync();
