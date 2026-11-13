@@ -550,4 +550,18 @@ public class ReturnsAndRefundsTests
         var payments = await f.Db.SalesPayments.CountAsync();
         Assert.Equal(await f.Db.FinancialTransactions.CountAsync(t => t.SalesPaymentId != null), payments);
     }
+
+    [Fact]
+    public async Task CreatePurchaseReturn_ReservationAgainstTheBatchReducesAvailability_Refused()
+    {
+        var f = await SeedAsync();
+        var purchase = await Buy(f, f.InrSupplier, 100, 10m);
+
+        using (StockAvailability.UseReservedSource((_, _, _, batch, _) => Task.FromResult(batch is null ? 0m : 95m)))
+        {
+            await Fails(() => ReturnPurchase(f, purchase, 10), "Lines");
+        }
+
+        await ReturnPurchase(f, purchase, 10); // nothing reserved: allowed
+    }
 }

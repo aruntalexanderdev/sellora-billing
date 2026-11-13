@@ -33,6 +33,18 @@ function setup(response: Observable<Detail>) {
   return { get, el, text: (sel: string) => (el.querySelector(sel)?.textContent ?? '').replace(/\s+/g, ' ').trim() };
 }
 
+describe('SalesDetail free items', () => {
+  const line = (id: string, unitPrice: number) =>
+    ({ id, productId: 'p', productName: 'Pen', productUnitId: 'u', unitLabel: 'Piece', unitCode: 'pc', conversionFactorToBase: 1, unitDecimalPlaces: 0, qty: 1, baseQty: 1,
+      baseUnitLabel: 'pc', baseUnitDecimalPlaces: 0, unitPrice, listUnitPrice: 10, priceOverridden: unitPrice !== 10, taxRatePercent: 0, discount: 0, taxableValue: unitPrice,
+      taxAmount: 0, lineTotal: unitPrice, costOfGoodsSold: 0, returnedBaseQty: 0, returnableBaseQty: 0, returnUnits: [], batchConsumptions: [] }) as unknown as Detail['lines'][number];
+
+  it('shows a Free badge only on lines with unit price 0', () => {
+    const { el } = setup(of(invoice({ lines: [line('a', 0), line('b', 10)] })));
+    expect(el.querySelectorAll('[data-testid="free-badge"]').length).toBe(1);
+  });
+});
+
 describe('SalesDetail scope', () => {
   it('shows seller GSTIN, branch and stock location', () => {
     const { get, text } = setup(of(invoice()));

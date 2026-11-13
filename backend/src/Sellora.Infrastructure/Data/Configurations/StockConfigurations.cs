@@ -72,6 +72,8 @@ public class StockItemConfiguration : IEntityTypeConfiguration<StockItem>
         builder.HasKey(s => new { s.StockLocationId, s.ProductId });
         builder.Property(s => s.QuantityOnHand).HasColumnType("numeric(18,3)");
         builder.Property(s => s.AverageCost).HasColumnType("numeric(18,6)");
+        // FI-D25: negative stock is never allowed; the database is the last line of defence behind StockAvailability.
+        builder.ToTable(t => t.HasCheckConstraint("CK_StockItems_QuantityOnHand_NonNegative", "\"QuantityOnHand\" >= 0"));
 
         builder.HasOne(s => s.Product).WithMany().HasForeignKey(s => s.ProductId).OnDelete(DeleteBehavior.Cascade);
         // Same-company guarantee: the stock row and its product share the company.
