@@ -32,7 +32,10 @@ public record UpsertProductUnitRequest(
 
 public record ProductListItemDto(
     Guid Id, string Sku, string Name, string? Category,
-    string BaseUnitLabel, string TaxLabel, decimal ReorderLevel, bool IsActive
+    string BaseUnitLabel, string TaxLabel, decimal ReorderLevel, bool IsActive,
+    // True when the product has no history, i.e. DELETE would succeed (same rule as the delete). Independent of the
+    // caller's permissions: the client still checks Inventory.Delete.
+    bool CanDelete = false
 );
 
 /// <summary><see cref="IsBaseUnitLocked"/> is true when the product has stock history or any unit row is locked.

@@ -63,7 +63,8 @@ export class ProductList implements OnInit {
           actions: [
             ...(this.canEdit() ? [{ label: 'Edit', onClick: () => this.router.navigate(['/inventory/products', p.id, 'edit']) }] : []),
             ...(this.canEdit() ? [{ label: p.isActive ? 'Deactivate' : 'Activate', onClick: () => this.toggle(p) }] : []),
-            ...(this.canDelete() ? [{ label: 'Delete', onClick: () => this.remove(p) }] : []),
+            // Only for products without history (server flag); a used product can only be deactivated.
+            ...(this.canDelete() && p.canDelete ? [{ label: 'Delete', onClick: () => this.remove(p) }] : []),
           ],
         },
       ],

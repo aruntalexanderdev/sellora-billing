@@ -62,6 +62,8 @@ export interface ProductListItem {
   taxLabel: string;
   reorderLevel: number;
   isActive: boolean;
+  /** No history (never purchased, sold, adjusted, transferred, no stock on hand): DELETE would succeed. */
+  canDelete: boolean;
 }
 
 /** Mirrors backend `ProductDetailDto`. */

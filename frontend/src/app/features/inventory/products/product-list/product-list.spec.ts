@@ -11,13 +11,14 @@ import type { ProductListItem } from '../products.models';
 
 const RICE: ProductListItem = {
   id: 'p1', sku: 'RICE-1', name: 'Rice', category: null, baseUnitLabel: 'kg', taxLabel: 'GST 5%', reorderLevel: 0, isActive: true,
+  canDelete: true,
 };
 
-function setup(opts: { permissions?: string[]; confirm?: boolean; remove?: () => unknown } = {}) {
+function setup(opts: { permissions?: string[]; confirm?: boolean; remove?: () => unknown; item?: Partial<ProductListItem> } = {}) {
   const permissions = opts.permissions ?? [];
   const toast = { show: vi.fn() };
   const ask = vi.fn(() => Promise.resolve(opts.confirm ?? true));
-  const list = vi.fn(() => of({ items: [RICE], total: 1, page: 1, pageSize: 20 }));
+  const list = vi.fn(() => of({ items: [{ ...RICE, ...opts.item }], total: 1, page: 1, pageSize: 20 }));
   const remove = vi.fn(opts.remove ?? (() => of(undefined)));
   TestBed.configureTestingModule({
     imports: [ProductList],
@@ -51,6 +52,11 @@ describe('ProductList delete', () => {
   it('shows Delete with Inventory.Delete only', () => {
     const { actions } = setup({ permissions: ['Inventory.Delete'] });
     expect(actions().map((a) => a.label)).toEqual(['Delete']);
+  });
+
+  it('hides Delete for a product with history even with Inventory.Delete', () => {
+    const { actions } = setup({ permissions: ['Inventory.Edit', 'Inventory.Delete'], item: { canDelete: false } });
+    expect(actions().map((a) => a.label)).toEqual(['Edit', 'Deactivate']);
   });
 
   it('deletes after confirmation, toasts and reloads', async () => {

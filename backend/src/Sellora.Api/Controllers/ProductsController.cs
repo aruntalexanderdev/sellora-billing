@@ -35,6 +35,10 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
             .Select(p => new ProductListItemDto(p.Id, p.Sku, p.Name, p.Category, p.BaseUnit.ShortCode, p.Tax.Name, p.ReorderLevel, p.IsActive))
             .ToListAsync(ct);
 
+        // One query per history source for the whole page (not per row).
+        var history = await ProductUnitUsage.GetProductHistoryAsync(db, items.Select(i => i.Id).ToList(), ct);
+        items = items.Select(i => i with { CanDelete = !history.ContainsKey(i.Id) }).ToList();
+
         return Ok(new PagedResult<ProductListItemDto>(items, total, page, pageSize));
     }
 
