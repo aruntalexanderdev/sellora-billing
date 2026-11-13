@@ -1,0 +1,196 @@
+name: Deploy template
+
+# Reusable deploy logic, written once. Called by deploy-dev.yml and deploy-claude-dev.yml; never runs on its own.
+# Everything that differs per environment lives in GitHub → Settings → Environments → <environment>:
+#
+#   Secrets:    AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID   (user-assigned managed identity, OIDC login)
+#               AZURE_STATIC_WEB_APPS_API_TOKEN                           (only when deploy_frontend is true)
+#   Variables:  AZURE_WEBAPP_NAME     App Service name of the API
+#               API_HEALTH_URL        https://<api-domain>/health  (smoke test after deploy)
+#               SELLORA_API_BASE_URL  https://<api-domain>         (baked into the frontend build)
+#
+# Azure side, per managed identity: federated credential with subject
+# repo:aruntalexanderdev/sellora-billing:environment:<environment>, and the Website Contributor role on the App Service.
+#
+# Database migrations are NOT applied here (D10). The idempotent migration script is published as the
+# "migration-sql" artifact for review; apply it manually after a database snapshot.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment name (dev | claude-dev)
+        required: true
+        type: string
+      deploy_frontend:
+        description: Also build and deploy the Angular frontend to Azure Static Web Apps
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  NODE_VERSION: "22"
+  API_PROJECT_PATH: "backend/src/Sellora.Api/Sellora.Api.csproj"
+  INFRASTRUCTURE_PROJECT_PATH: "backend/src/Sellora.Infrastructure"
+  DOTNET_EF_VERSION: "10.0.12"
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  build-api:
+    name: Publish API
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Publish API
+        run: >
+          dotnet publish "${{ env.API_PROJECT_PATH }}"
+          --configuration Release
+          --output api-publish
+
+      - name: Generate idempotent migration script
+        run: |
+          dotnet tool install --global dotnet-ef --version "${{ env.DOTNET_EF_VERSION }}"
+          dotnet ef migrations script --idempotent \
+            --project "${{ env.INFRASTRUCTURE_PROJECT_PATH }}" \
+            --startup-project "${{ env.INFRASTRUCTURE_PROJECT_PATH }}" \
+            --configuration Release \
+            --output migration-sql/migrate-idempotent.sql
+
+      - name: Upload published API
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-publish
+          path: api-publish/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload migration script
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-sql
+          path: migration-sql/
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy-api:
+    name: Deploy API (${{ inputs.environment }})
+    needs: build-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check environment configuration
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+          API_HEALTH_URL: ${{ vars.API_HEALTH_URL }}
+        run: |
+          missing=0
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_WEBAPP_NAME API_HEALTH_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::'$name' is not set in GitHub environment '${{ inputs.environment }}'."
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Download published API
+        uses: actions/download-artifact@v4
+        with:
+          name: api-publish
+          path: api-publish
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: api-publish
+
+      # /health also checks the database connection: 200 = up, 503 = database unreachable.
+      - name: Smoke test API
+        run: >
+          curl --fail --silent --show-error
+          --retry 12 --retry-delay 15 --retry-all-errors --max-time 30
+          "${{ vars.API_HEALTH_URL }}"
+
+  deploy-web:
+    name: Deploy frontend (${{ inputs.environment }})
+    if: inputs.deploy_frontend
+    needs: deploy-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Check environment configuration
+        env:
+          SWA_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+        run: |
+          if [ -z "$SWA_TOKEN" ]; then
+            echo "::error::'AZURE_STATIC_WEB_APPS_API_TOKEN' is not set in GitHub environment '${{ inputs.environment }}'."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # No-op when the variable is empty (relative /api/v1 stays); fails on a malformed URL.
+      - name: Set API base URL
+        env:
+          SELLORA_API_BASE_URL: ${{ vars.SELLORA_API_BASE_URL }}
+        run: node frontend/scripts/set-api-base-url.mjs
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      # Built here with the pinned Node version (the code CI tested); Azure's own build is skipped.
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          skip_app_build: true
+          skip_api_build: true
+          app_location: frontend/dist/frontend/browser
+          api_location: ""
+          output_location: ""
