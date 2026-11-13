@@ -1,11 +1,20 @@
 name: CI
 
+# Tests only; never deploys.
+# - Development branches: runs on every push.
+# - dev / claude_dev: skipped on push, because deploy-dev.yml / deploy-claude-dev.yml call this
+#   workflow (workflow_call) as their first job, so tests gate every deploy without running twice.
 on:
   push:
+    branches-ignore:
+      - dev
+      - claude_dev
   pull_request:
     branches:
-      - dev
       - main
+      - dev
+      - claude_dev
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -26,7 +35,8 @@ jobs:
   backend:
     name: Backend build and test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The Testcontainers integration suite alone takes ~20 min; 20 here cancelled every run since 2026-11-10.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -54,6 +64,16 @@ jobs:
           --configuration Release
           --no-restore
 
+      # Fails when an entity/configuration changed without a matching migration.
+      - name: Check for missing EF Core migration
+        run: |
+          dotnet tool install --global dotnet-ef --version 10.0.12
+          dotnet ef migrations has-pending-model-changes \
+            --project backend/src/Sellora.Infrastructure \
+            --startup-project backend/src/Sellora.Infrastructure \
+            --configuration Release \
+            --no-build
+
       # Docker is available on ubuntu-latest, so Testcontainers-based integration tests run here too.
       - name: Test
         run: >
@@ -62,6 +82,7 @@ jobs:
           --no-build
           --logger trx
           --results-directory TestResults
+          --blame-hang-timeout 10m
 
       - name: Upload test results
         if: always()

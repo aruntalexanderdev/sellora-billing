@@ -10,6 +10,7 @@ import { CategoryFilter } from '../../../../shared/product-categories/category-f
 import type { CategorySelection } from '../../../../shared/product-categories/product-categories.models';
 import { ProductsService } from '../products.service';
 import type { ProductListItem } from '../products.models';
+import { problemText } from '../../../../shared/scope/problem-text';
 
 const COLS: DataTableColumn[] = [
   { label: 'Product', align: 'left' },
@@ -48,6 +49,7 @@ export class ProductList implements OnInit {
 
   readonly canCreate = computed(() => this.auth.hasPermission('Inventory.Create'));
   readonly canEdit = computed(() => this.auth.hasPermission('Inventory.Edit'));
+  readonly canDelete = computed(() => this.auth.hasPermission('Inventory.Delete'));
 
   readonly hasMore = computed(() => this.page() * PAGE_SIZE < this.total());
 
@@ -65,6 +67,8 @@ export class ProductList implements OnInit {
           actions: [
             ...(this.canEdit() ? [{ label: 'Edit', onClick: () => this.router.navigate(['/inventory/products', p.id, 'edit']) }] : []),
             ...(this.canEdit() ? [{ label: p.isActive ? 'Deactivate' : 'Activate', onClick: () => this.toggle(p) }] : []),
+            // Only for products without history (server flag); a used product can only be deactivated.
+            ...(this.canDelete() && p.canDelete ? [{ label: 'Delete', onClick: () => this.remove(p) }] : []),
           ],
         },
       ],
@@ -111,6 +115,30 @@ export class ProductList implements OnInit {
       },
       error: () => this.state.set('error'),
     });
+  }
+
+  private remove(p: ProductListItem): void {
+    this.confirm
+      .ask({
+        title: `Delete ${p.name}?`,
+        body:
+          'The product, its units and prices are removed permanently. This only works for a product that was never ' +
+          'purchased, sold, adjusted or transferred; otherwise deactivate it instead.',
+        confirmLabel: 'Delete',
+        destructive: true,
+      })
+      .then((confirmed) => {
+        if (!confirmed) return;
+        this.productsService.delete(p.id).subscribe({
+          next: () => {
+            this.toast.show(`${p.name} deleted.`);
+            // Step back when the last row of a later page was removed.
+            if (this.items().length === 1 && this.page() > 1) this.page.update((n) => n - 1);
+            this.load();
+          },
+          error: (err) => this.toast.show(problemText(err, 'Could not delete this product.')),
+        });
+      });
   }
 
   private toggle(p: ProductListItem): void {

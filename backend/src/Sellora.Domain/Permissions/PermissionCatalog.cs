@@ -86,6 +86,7 @@ public static class PermissionCatalog
         new("Inventory.View", "Inventory", "View", "View stock overview, details and movement."),
         new("Inventory.Create", "Inventory", "Create", "Create new products."),
         new("Inventory.Edit", "Inventory", "Edit", "Edit existing products."),
+        new("Inventory.Delete", "Inventory", "Delete", "Delete products that have never been used in a transaction."),
         new("Inventory.Adjust", "Inventory", "Adjust", "Post stock adjustments (damage, loss, correction, etc.)."),
         new("Inventory.Price", "Inventory", "Price", "Configure product units and prices."),
         new("Inventory.Categories", "Inventory", "Manage categories", "Create, edit, activate and deactivate product categories and subcategories."),

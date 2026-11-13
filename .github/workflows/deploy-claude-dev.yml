@@ -1,0 +1,48 @@
+name: Deploy claude-dev
+
+# Deploys branch claude_dev → GitHub environment "claude-dev" (API + frontend).
+# Rollout: manual only for now. When a manual run is green, enable the push trigger below and delete
+# dev_sellora-billing-dev-api-claude.yml and azure-static-web-apps-wonderful-bay-04d447700.yml in the
+# same commit, so one push never deploys twice.
+on:
+  # push:
+  #   branches: [claude_dev]
+  #   paths-ignore:
+  #     - "docs/**"
+  #     - "**/*.md"
+  #     - ".claude/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-claude-dev
+  cancel-in-progress: false # never stop a deploy halfway; a newer run waits
+
+jobs:
+  guard:
+    name: Check branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only the claude_dev branch deploys to claude-dev
+        if: github.ref_name != 'claude_dev'
+        run: |
+          echo "::error::Run this workflow on branch 'claude_dev' (selected: '${{ github.ref_name }}')."
+          exit 1
+
+  ci:
+    name: CI
+    needs: guard
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy
+    needs: ci
+    uses: ./.github/workflows/_deploy-template.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: claude-dev
+      deploy_frontend: true

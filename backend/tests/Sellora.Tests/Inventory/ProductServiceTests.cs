@@ -336,4 +336,77 @@ public class ProductServiceTests
 
         Assert.Null(await f.Service.UpdateProductAsync(Guid.NewGuid(), UnchangedInput(f) with { BaseUnitId = box.Id }));
     }
+
+    [Fact]
+    public async Task DeleteProductAsync_WithoutHistory_RemovesProductUnitsPricesAndZeroStock_AndAudits()
+    {
+        var f = await SeedAsync();
+        f.Db.SellingPrices.Add(new SellingPrice { Id = Guid.NewGuid(), ProductUnitId = f.Bag.Id, Price = 600, EffectiveFrom = DateTimeOffset.UtcNow, CreatedByUserId = Guid.NewGuid() });
+        f.Db.StockItems.Add(new StockItem { ProductId = f.Product.Id, StockLocationId = Guid.NewGuid(), QuantityOnHand = 0 });
+        await f.Db.SaveChangesAsync();
+        var userId = Guid.NewGuid();
+
+        Assert.True(await f.Service.DeleteProductAsync(f.Product.Id, userId, "trace-1"));
+
+        Assert.Empty(await f.Db.Products.ToListAsync());
+        Assert.Empty(await f.Db.ProductUnits.ToListAsync());
+        Assert.Empty(await f.Db.SellingPrices.ToListAsync());
+        Assert.Empty(await f.Db.StockItems.ToListAsync());
+        var audit = Assert.Single(await f.Db.AuditEvents.ToListAsync());
+        Assert.Equal(AuditActions.ProductDeleted, audit.Action);
+        Assert.Equal(f.Product.Id, audit.TargetId);
+        Assert.Equal(userId, audit.ActorUserId);
+        Assert.Contains("RICE-BP10", audit.Before);
+    }
+
+    [Fact]
+    public async Task DeleteProductAsync_UsedInPurchase_IsRefused_AndNothingChanges()
+    {
+        var f = await SeedAsync(withPurchaseOrderLineOnBag: true);
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.DeleteProductAsync(f.Product.Id, Guid.NewGuid(), null));
+
+        Assert.Contains(ex.Errors, e => e.Field == "Product" && e.Message.Contains("purchases"));
+        Assert.Single(await f.Db.Products.ToListAsync());
+        Assert.Equal(2, await f.Db.ProductUnits.CountAsync());
+        Assert.Empty(await f.Db.AuditEvents.ToListAsync());
+    }
+
+    [Fact]
+    public async Task DeleteProductAsync_WithStockOnHand_IsRefused()
+    {
+        var f = await SeedAsync();
+        f.Db.StockItems.Add(new StockItem { ProductId = f.Product.Id, StockLocationId = Guid.NewGuid(), QuantityOnHand = 5 });
+        await f.Db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.DeleteProductAsync(f.Product.Id, Guid.NewGuid(), null));
+
+        Assert.Contains(ex.Errors, e => e.Message.Contains("stock on hand"));
+        Assert.Single(await f.Db.Products.ToListAsync());
+    }
+
+    [Fact]
+    public async Task DeleteProductAsync_MissingProduct_ReturnsFalse()
+    {
+        var f = await SeedAsync();
+
+        Assert.False(await f.Service.DeleteProductAsync(Guid.NewGuid(), Guid.NewGuid(), null));
+        Assert.Single(await f.Db.Products.ToListAsync());
+    }
+
+    [Fact]
+    public async Task GetProductHistoryAsync_Batch_FlagsOnlyProductsWithHistory_WithTheirLabels()
+    {
+        var f = await SeedAsync(withPurchaseOrderLineOnBag: true);
+        var clean = new Product { Id = Guid.NewGuid(), Sku = "SALT-1", Name = "Salt", BaseUnitId = f.Unit.Id, TaxId = f.Tax.Id };
+        f.Db.Products.Add(clean);
+        f.Db.StockItems.Add(new StockItem { ProductId = clean.Id, StockLocationId = Guid.NewGuid(), QuantityOnHand = 0 });
+        await f.Db.SaveChangesAsync();
+
+        var history = await ProductUnitUsage.GetProductHistoryAsync(f.Db, [f.Product.Id, clean.Id], CancellationToken.None);
+
+        Assert.Equal(["purchases"], history[f.Product.Id]);
+        Assert.False(history.ContainsKey(clean.Id)); // zero stock is not history
+        Assert.Empty(await ProductUnitUsage.GetProductHistoryAsync(f.Db, clean.Id, CancellationToken.None));
+    }
 }

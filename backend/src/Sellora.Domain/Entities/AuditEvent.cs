@@ -82,6 +82,8 @@ public static class AuditActions
     public const string CashFunded = "cash.funded";
     public const string CashTransferred = "cash.transferred";
     public const string CashReversed = "cash.reversed";
+    // Products: hard delete of a product without history (the only product change audited so far).
+    public const string ProductDeleted = "product.deleted";
 }
 
 /// <summary>Values of <see cref="AuditEvent.TargetType"/>.</summary>
@@ -97,4 +99,5 @@ public static class AuditTargets
     public const string Vehicle = "Vehicle";
     public const string User = "User";
     public const string FinancialTransaction = "FinancialTransaction";
+    public const string Product = "Product";
 }

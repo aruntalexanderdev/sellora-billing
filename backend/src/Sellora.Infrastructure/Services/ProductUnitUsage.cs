@@ -71,6 +71,47 @@ public static class ProductUnitUsage
         await db.StockMovements.AnyAsync(m => m.ProductId == productId, ct)
         || await db.PurchaseBatches.AnyAsync(b => b.ProductId == productId, ct);
 
+    /// <summary>What makes a product part of the business record (documents, ledger, batches, stock on hand); empty when the
+    /// product may be hard-deleted. Labels are user-facing. Document queries bypass the "Branch" filter (D7, as above):
+    /// history in any branch blocks the delete.</summary>
+    public static async Task<List<string>> GetProductHistoryAsync(SelloraDbContext db, Guid productId, CancellationToken ct) =>
+        (await GetProductHistoryAsync(db, [productId], ct)).GetValueOrDefault(productId) ?? [];
+
+    /// <summary>Batch form (one query per source, whatever the number of ids) used by the product list's <c>canDelete</c>
+    /// flag, so the list and the delete apply the exact same rule. Products without history are absent from the result.</summary>
+    public static async Task<IReadOnlyDictionary<Guid, List<string>>> GetProductHistoryAsync(
+        SelloraDbContext db, IReadOnlyCollection<Guid> productIds, CancellationToken ct)
+    {
+        var result = new Dictionary<Guid, List<string>>();
+        if (productIds.Count == 0) return result;
+        var ids = productIds.Distinct().ToList();
+
+        var checks = new (string Label, Func<Task<List<Guid>>> Query)[]
+        {
+            ("purchases", () => db.PurchaseOrderLines.IgnoreQueryFilters(BranchBypass).Where(l => ids.Contains(l.ProductId)).Select(l => l.ProductId).Distinct().ToListAsync(ct)),
+            ("purchase returns", () => db.PurchaseReturnLines.IgnoreQueryFilters(BranchBypass).Where(l => ids.Contains(l.ProductId)).Select(l => l.ProductId).Distinct().ToListAsync(ct)),
+            ("sales", () => db.SalesInvoiceLines.IgnoreQueryFilters(BranchBypass).Where(l => ids.Contains(l.ProductId)).Select(l => l.ProductId).Distinct().ToListAsync(ct)),
+            ("sales returns", () => db.SalesReturnLines.IgnoreQueryFilters(BranchBypass).Where(l => ids.Contains(l.ProductId)).Select(l => l.ProductId).Distinct().ToListAsync(ct)),
+            ("stock adjustments", () => db.StockAdjustments.IgnoreQueryFilters(BranchBypass).Where(a => ids.Contains(a.ProductId)).Select(a => a.ProductId).Distinct().ToListAsync(ct)),
+            ("stock transfers", () => db.StockTransferLines.Where(l => ids.Contains(l.ProductId)).Select(l => l.ProductId).Distinct().ToListAsync(ct)),
+            ("transfer receipts", () => db.StockTransferReceiptLines.Where(l => ids.Contains(l.ProductId)).Select(l => l.ProductId).Distinct().ToListAsync(ct)),
+            ("stock movements", () => db.StockMovements.Where(m => ids.Contains(m.ProductId)).Select(m => m.ProductId).Distinct().ToListAsync(ct)),
+            ("purchase batches", () => db.PurchaseBatches.Where(b => ids.Contains(b.ProductId)).Select(b => b.ProductId).Distinct().ToListAsync(ct)),
+            ("stock on hand", () => db.StockItems.Where(s => ids.Contains(s.ProductId) && s.QuantityOnHand != 0).Select(s => s.ProductId).Distinct().ToListAsync(ct)),
+        };
+
+        // Sequential on purpose: one DbContext cannot run queries concurrently.
+        foreach (var (label, query) in checks)
+        {
+            foreach (var id in await query())
+            {
+                if (!result.TryGetValue(id, out var labels)) result[id] = labels = [];
+                labels.Add(label);
+            }
+        }
+        return result;
+    }
+
     /// <summary>True when the product's base unit cannot change: stock history exists or any unit row is locked.</summary>
     public static async Task<bool> IsBaseUnitLockedAsync(SelloraDbContext db, Guid productId, IReadOnlyDictionary<Guid, string> lockReasons, CancellationToken ct) =>
         lockReasons.Count > 0 || await HasStockHistoryAsync(db, productId, ct);

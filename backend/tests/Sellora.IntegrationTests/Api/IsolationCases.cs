@@ -103,6 +103,7 @@ public static class IsolationCases
 
     private static HttpMethod Post => HttpMethod.Post;
     private static HttpMethod Put => HttpMethod.Put;
+    private static HttpMethod Delete => HttpMethod.Delete;
 
     public static readonly WriteCase[] Writes =
     [
@@ -130,6 +131,8 @@ public static class IsolationCases
             ($"/api/v1/products/{other.ProductId}", new UpsertProductRequest("STN-PEN", "Hijacked", null, null, own.BaseUnitId, own.TaxId, 0m, [EachUnit(own)]))),
         new("ProductsController.SetActive", "other company's product", Post, (own, other) =>
             ($"/api/v1/products/{other.ProductId}/status", new SetActiveRequest(false))),
+        new("ProductsController.Delete", "other company's product", Delete, (own, other) =>
+            ($"/api/v1/products/{other.ProductId}", null)),
         new("ProductsController.PreviewUnits", "other company's product", Post, (own, other) =>
             ("/api/v1/products/unit-preview", new UnitPreviewRequest(other.ProductId, own.BaseUnitId, [EachUnit(own)]))),
         new("SuppliersController.Update", "other company's supplier", Put, (own, other) =>
