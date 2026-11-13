@@ -77,6 +77,11 @@ public static class AuditActions
     public const string UserUpdated = "user.updated";
     public const string UserStatusChanged = "user.status_changed";
     public const string UserPasswordReset = "user.password_reset";
+
+    // Phase 07 (FI-D21): cash and bank postings.
+    public const string CashFunded = "cash.funded";
+    public const string CashTransferred = "cash.transferred";
+    public const string CashReversed = "cash.reversed";
 }
 
 /// <summary>Values of <see cref="AuditEvent.TargetType"/>.</summary>
@@ -91,4 +96,5 @@ public static class AuditTargets
     public const string Warehouse = "Warehouse";
     public const string Vehicle = "Vehicle";
     public const string User = "User";
+    public const string FinancialTransaction = "FinancialTransaction";
 }

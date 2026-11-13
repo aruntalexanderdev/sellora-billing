@@ -45,6 +45,7 @@ public static class IsolationCases
         new("FinancialAccountsController.List", _ => "/api/v1/financial-accounts"),
         new("FinancialAccountsController.Options", _ => "/api/v1/financial-accounts/options"),
         new("FinancialAccountsController.Get", i => $"/api/v1/financial-accounts/{i.AccountId}", Detail: true),
+        new("FinancialAccountsController.Statement", i => $"/api/v1/financial-accounts/{i.AccountId}/statement", Detail: true),
         new("FinancialTransactionsController.List", _ => "/api/v1/financial-transactions", ShowsRowIds: false), // items are empty today: see FinancialTransactionsList_ItemsMatchTheReportedTotal
         new("PurchasesController.List", _ => "/api/v1/purchases"),
         new("PurchasesController.Get", i => $"/api/v1/purchases/{i.PurchaseId}", Detail: true),
@@ -165,6 +166,8 @@ public static class IsolationCases
             ("/api/v1/financial-accounts/transfers", new TransferRequest(own.AccountId, other.AccountId, 1m, Today, null))),
         new("FinancialAccountsController.Transfer", "from other company's account", Post, (own, other) =>
             ("/api/v1/financial-accounts/transfers", new TransferRequest(other.AccountId, own.AccountId, 1m, Today, null))),
+        new("FinancialAccountsController.Fund", "other company's account", Post, (own, other) =>
+            ($"/api/v1/financial-accounts/{other.AccountId}/fundings", new FundingRequest(FundingSource.Loan, 1m, Today, null, null, null, null, null))),
         new("FinancialAccountsController.Reconcile", "other company's account", Post, (own, other) =>
             ($"/api/v1/financial-accounts/{other.AccountId}/reconcile", new ReconcileRequest([Guid.NewGuid()]))),
         new("FinancialAccountsController.Unreconcile", "other company's account", Post, (own, other) =>
@@ -266,6 +269,8 @@ public static class IsolationCases
         "UsersController.List", "UsersController.Get", "UsersController.Create", "UsersController.Update", "UsersController.SetStatus", "UsersController.ResetPassword",
         "SettingsController.Update", "BranchesController.Create", "SuppliersController.Create", "CustomersController.Create", "TaxesController.Create",
         "ExpenseCategoriesController.Create", "FinancialAccountsController.Create", "ExchangeRatesController.Create",
+        // Phase 07: reversing another company's transaction id is a 404 and writes nothing - CashBankOperationsApiTests.Reverse_AnotherCompanysTransaction_IsNotFound_AndUnknownIdIsNotFound.
+        "FinancialTransactionsController.Reverse",
         // Phase 5 access API: a user (or assignment) of another company answers 404 - UserAccessApiTests.Get_UnknownUserAndNonMemberAndForeignCompanyUser_AreNotFound_WithIdenticalBodies
         // (read, events and a write against a foreign-company user); assignments carry their own company id and composite FKs (AddUserBranchAssignmentsMigrationTests constraint test).
         "UserAccessController.Get", "UserAccessController.Events", "UserAccessController.SetScope", "UserAccessController.AddAssignment",

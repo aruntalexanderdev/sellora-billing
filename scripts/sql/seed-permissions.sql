@@ -85,6 +85,8 @@ FROM (VALUES
   ('CashBank.Manage', 'Accounts', 'Manage', 'Create, edit and deactivate cash and bank accounts.'),
   ('CashBank.Transfer', 'Accounts', 'Transfer', 'Transfer money between accounts, including cash deposits and withdrawals.'),
   ('CashBank.Reconcile', 'Accounts', 'Reconcile', 'Reconcile account transactions against statements.'),
+  ('CashBank.Fund', 'Accounts', 'Fund', 'Record funding (capital, loan, deposit, customer receipt) into cash and bank accounts.'),
+  ('CashBank.Reverse', 'Accounts', 'Reverse', 'Reverse funding, transfers and opening balances posted in error.'),
   ('Reports.Stock', 'Reports', 'View', 'View the current stock report.'),
   ('Reports.Movement', 'Reports', 'View', 'View the stock movement report.'),
   ('Reports.Purchase', 'Reports', 'View', 'View the purchase report.'),

@@ -30,6 +30,7 @@ export class AccountList implements OnInit {
   readonly failed = signal(false);
 
   readonly canManage = computed(() => this.auth.hasPermission('CashBank.Manage'));
+  readonly canFund = computed(() => this.auth.hasPermission('CashBank.Fund'));
   readonly canTransfer = computed(() => this.auth.hasPermission('CashBank.Transfer'));
   readonly fmt = (n: number | null) => (n === null ? '—' : (this.data()?.baseCurrencySymbol ?? '₹') + money(n));
   readonly hiddenHint = HIDDEN_BALANCE_HINT;

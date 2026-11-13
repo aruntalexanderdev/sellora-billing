@@ -9,7 +9,10 @@ public record FinancialTransactionDto(
     Guid Id, DateOnly TransactionDate, FinancialTransactionType Type, MoneyDirection Direction, FinancialTransactionStatus Status,
     string Party, string? RelatedType, Guid? RelatedId, string? RelatedNo, PaymentMethod PaymentMethod,
     decimal Amount, string CurrencyCode, decimal ExchangeRateToBase, decimal BaseAmount, DateTimeOffset CreatedAt,
-    Guid? AccountId, string? AccountName, bool IsReconciled, string? Notes
+    Guid? AccountId, string? AccountName, bool IsReconciled, string? Notes,
+    // Phase 07: always present, null when not applicable.
+    FundingSource? FundingSource = null, string? SourceReference = null, string? Counterparty = null, string? Reason = null,
+    Guid? ReversalOfTransactionId = null, Guid? ReversedByTransactionId = null
 );
 
 /// <summary><see cref="MoneyIn"/> and <see cref="MoneyOut"/> total the active transactions matching the filters,

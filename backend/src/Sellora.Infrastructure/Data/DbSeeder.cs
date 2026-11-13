@@ -122,6 +122,9 @@ public static class DbSeeder
         await GrantNewPermissionToExistingHoldersAsync(db, PermissionCatalog.CompanyUsersAssignRoles, ["Users.Create", "Users.Edit"], ct);
         // Phase 08: managing categories was part of Inventory.Edit (free-text Category); the migration does the same for existing databases.
         await GrantNewPermissionToExistingHoldersAsync(db, "Inventory.Categories", "Inventory.Edit", ct);
+        // Phase 07: funding and reversal are new; existing CashBank.Manage holders keep them (the migration does the same).
+        await GrantNewPermissionToExistingHoldersAsync(db, "CashBank.Fund", "CashBank.Manage", ct);
+        await GrantNewPermissionToExistingHoldersAsync(db, "CashBank.Reverse", "CashBank.Manage", ct);
     }
 
     // Recording payments used to be covered by an edit permission, so every role holding that permission keeps

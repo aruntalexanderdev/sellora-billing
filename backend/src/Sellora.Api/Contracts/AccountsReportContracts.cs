@@ -68,8 +68,12 @@ public record CashFlowReportDto(
     decimal ReversalsIn, decimal ReversalsOut,
     decimal TransfersIn, decimal TransfersOut,
     decimal MoneyIn, decimal MoneyOut, decimal Net,
-    IReadOnlyList<CashFlowPeriodDto> Months, BaseCurrencyDto BaseCurrency
+    IReadOnlyList<CashFlowPeriodDto> Months, BaseCurrencyDto BaseCurrency,
+    // Phase 07 (FI-D19): capital, loans, deposits, customer receipts and other funding, net of reversals; never part of the customer receipts or MoneyIn/MoneyOut above.
+    IReadOnlyList<FundingSourceTotalDto> FundingBySource, decimal FundingTotal
 );
+
+public record FundingSourceTotalDto(FundingSource Source, decimal Amount);
 
 /// <summary>Closing = Opening + MoneyIn − MoneyOut + net transfers. Opening is the balance at the start of the period,
 /// and includes an opening balance entered during it.</summary>

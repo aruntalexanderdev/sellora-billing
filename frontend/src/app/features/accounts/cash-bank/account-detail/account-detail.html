@@ -5,6 +5,9 @@
       <p>{{ a.kind }} account{{ a.reference ? ' · ' + a.reference : '' }}</p>
     </div>
     <div class="head-actions">
+      @if (canFund() && a.isActive) {
+        <ui-button variant="secondary" (onClick)="addFunds()">Add funds</ui-button>
+      }
       @if (canTransfer() && a.isActive) {
         <ui-button variant="secondary" (onClick)="transfer()">Transfer</ui-button>
       }
@@ -22,7 +25,86 @@
     <div class="tile"><span class="tile-label">Not yet reconciled</span><strong>{{ a.unreconciledCount }}</strong></div>
   </div>
 
-  @if (canReconcile()) {
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" class="tab" data-testid="tab-history" [class.on]="tab() === 'history'" [attr.aria-selected]="tab() === 'history'" (click)="selectTab('history')">History</button>
+    <button type="button" role="tab" class="tab" data-testid="tab-statement" [class.on]="tab() === 'statement'" [attr.aria-selected]="tab() === 'statement'" (click)="selectTab('statement')">Statement</button>
+  </div>
+
+  @if (reversing(); as r) {
+    <div class="reconcile-card" data-testid="reverse-panel">
+      <div class="reconcile-head"><strong>Reverse {{ label(r) }} of {{ signed(r) }} on {{ r.transactionDate }}?</strong> <span class="muted">Opposite entries are posted; the original stays visible.</span></div>
+      <label class="field-label" for="reverse-reason">Reason</label>
+      <textarea id="reverse-reason" class="field-input" rows="2" maxlength="300" [ngModel]="reverseReason()" (ngModelChange)="reverseReason.set($event)"></textarea>
+      @if (reverseError()) {
+        <div class="field-error" role="alert" data-testid="reverse-error">{{ reverseError() }}</div>
+      }
+      <div class="reconcile-actions" style="margin-top: 10px">
+        <ui-button variant="primary" [disabled]="working()" (onClick)="confirmReverse()">{{ working() ? 'Reversing…' : 'Reverse' }}</ui-button>
+        <ui-button variant="secondary" [disabled]="working()" (onClick)="cancelReverse()">Cancel</ui-button>
+      </div>
+    </div>
+  }
+
+  @if (tab() === 'statement') {
+    <div class="reconcile-card" data-testid="statement">
+      <div class="reconcile-row">
+        <label class="field-label" for="st-from">From</label>
+        <input id="st-from" type="date" class="field-input" [ngModel]="from()" (ngModelChange)="setRange($event, to())" />
+        <label class="field-label" for="st-to">To</label>
+        <input id="st-to" type="date" class="field-input" [ngModel]="to()" (ngModelChange)="setRange(from(), $event)" />
+        <ui-button variant="primary" [disabled]="statementLoading()" (onClick)="loadStatement()">Show</ui-button>
+      </div>
+      @if (statementError()) {
+        <div class="field-error" role="alert" data-testid="statement-error">{{ statementError() }}</div>
+      }
+      @if (statementLoading()) {
+        <p class="muted">Loading…</p>
+      } @else if (statement(); as st) {
+        <div class="summary">
+          <div class="tile"><span class="tile-label">Opening balance</span><strong data-testid="st-opening">{{ fmt(st.openingBalance) }}</strong></div>
+          <div class="tile"><span class="tile-label">Total in</span><strong>{{ fmt(st.totalIn) }}</strong></div>
+          <div class="tile"><span class="tile-label">Total out</span><strong>{{ fmt(st.totalOut) }}</strong></div>
+          <div class="tile"><span class="tile-label">Closing balance</span><strong data-testid="st-closing">{{ fmt(st.closingBalance) }}</strong></div>
+        </div>
+        <div class="table-wrap">
+          <table class="txn-table">
+            <thead>
+              <tr><th>Date</th><th>Transaction</th><th>Reference</th><th class="num">In</th><th class="num">Out</th><th class="num">Balance</th><th>Reconciled</th></tr>
+            </thead>
+            <tbody>
+              @for (r of st.rows; track r.transactionId) {
+                <tr [class.cancelled]="r.reversedByTransactionId" data-testid="st-row">
+                  <td class="muted">{{ r.date }}</td>
+                  <td>
+                    <span class="strong">{{ typeLabel(r.type) }}</span>
+                    @if (r.fundingSource) {
+                      <span class="muted"> · {{ fundingLabel(r.fundingSource) }}</span>
+                    }
+                    @if (r.isReversal) {
+                      <ui-badge text="Reversal" tone="mute" />
+                    }
+                    @if (r.reversedByTransactionId) {
+                      <ui-badge text="Reversed" tone="mute" />
+                    }
+                    <div class="muted">{{ r.description }}</div>
+                  </td>
+                  <td class="muted">{{ r.reference ?? '—' }}</td>
+                  <td class="num in">{{ r.moneyIn ? fmt(r.moneyIn) : '' }}</td>
+                  <td class="num out">{{ r.moneyOut ? fmt(r.moneyOut) : '' }}</td>
+                  <td class="num strong">{{ fmt(r.runningBalance) }}</td>
+                  <td>{{ r.reconciled ? 'Yes' : '—' }}</td>
+                </tr>
+              } @empty {
+                <tr><td colspan="7" class="muted">No transactions in this period.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+  }
+
+  @if (tab() === 'history' && canReconcile()) {
     <div class="reconcile-card">
       <div class="reconcile-head"><strong>Reconcile</strong> <span class="muted">Tick transactions that appear on your statement or cash count, then mark them reconciled.</span></div>
       <div class="reconcile-row">
@@ -44,6 +126,7 @@
     </div>
   }
 
+  @if (tab() === 'history') {
   <div class="table-wrap">
     @if (loading()) {
       <p class="muted pad">Loading…</p>
@@ -61,6 +144,9 @@
             <th>Details</th>
             <th class="num">Money</th>
             <th>Reconciled</th>
+            @if (canReverse()) {
+              <th></th>
+            }
           </tr>
         </thead>
         <tbody>
@@ -70,7 +156,7 @@
                 <td class="check"><input type="checkbox" [disabled]="!canSelect(t)" [checked]="selected().has(t.id)" (change)="toggle(t)" [attr.aria-label]="'Select ' + label(t)" /></td>
               }
               <td class="muted">{{ t.transactionDate }}</td>
-              <td class="strong">{{ label(t) }}{{ t.status === 'Cancelled' ? ' (cancelled)' : '' }}</td>
+              <td class="strong">{{ label(t) }}{{ t.status === 'Cancelled' ? ' (cancelled)' : '' }}@if (t.reversedByTransactionId) { <ui-badge text="Reversed" tone="mute" /> }@if (t.reversalOfTransactionId) { <ui-badge text="Reversal" tone="mute" /> }</td>
               <td>
                 @if (t.relatedType && t.relatedId) {
                   <a class="link" (click)="open(t)">{{ t.relatedType }} {{ t.relatedNo }}</a>
@@ -81,11 +167,20 @@
                     <span class="muted"> · {{ t.notes }}</span>
                   }
                 } @else {
-                  <span class="muted">{{ t.notes ?? '—' }}</span>
+                  <span class="muted">{{ describe(t) || '—' }}</span>
                 }
               </td>
               <td class="num strong" [class.in]="t.direction === 'In'" [class.out]="t.direction === 'Out'">{{ signed(t) }}</td>
               <td>{{ t.isReconciled ? 'Yes' : '—' }}</td>
+              @if (canReverse()) {
+                <td>
+                  @if (canReverseRow(t)) {
+                    <a class="link" data-testid="reverse" (click)="startReverse(t)">Reverse</a>
+                  } @else if (t.reversedByTransactionId) {
+                    <span class="muted">Reversed</span>
+                  }
+                </td>
+              }
             </tr>
           }
         </tbody>
@@ -95,6 +190,7 @@
       }
     }
   </div>
+  }
 } @else if (!loading()) {
   <div class="muted">Account not found.</div>
 }

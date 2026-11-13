@@ -284,10 +284,30 @@ public class AccountsReportsController(SelloraDbContext db, IEffectivePermission
         var transfersIn = Sum(FinancialTransactionType.Transfer, MoneyDirection.In);
         var transfersOut = Sum(FinancialTransactionType.Transfer, MoneyDirection.Out);
 
+        // Phase 07: funding is not trading cash - it has its own lines. A reversal nets against what it reverses (a reversed funding lowers its source,
+        // a reversed transfer lowers the transfer totals, a reversed opening balance is not movement); it never lands in the trading totals.
+        var funding = await query.Where(t => t.Type == FinancialTransactionType.Funding)
+            .Select(t => new { Source = t.FundingSource!.Value, t.BaseAmount }).ToListAsync(ct);
+        var reversals = await query.Where(t => t.Type == FinancialTransactionType.Reversal)
+            .Select(t => new
+            {
+                t.Direction, t.BaseAmount,
+                OriginalType = db.FinancialTransactions.Where(o => o.Id == t.ReversalOfTransactionId).Select(o => o.Type).FirstOrDefault(),
+                OriginalSource = db.FinancialTransactions.Where(o => o.Id == t.ReversalOfTransactionId).Select(o => o.FundingSource).FirstOrDefault(),
+            }).ToListAsync(ct);
+        // Reversing an Out leg credits the account (In), so it nets against transfers out, and vice versa.
+        transfersIn -= reversals.Where(r => r.OriginalType == FinancialTransactionType.Transfer && r.Direction == MoneyDirection.Out).Sum(r => r.BaseAmount);
+        transfersOut -= reversals.Where(r => r.OriginalType == FinancialTransactionType.Transfer && r.Direction == MoneyDirection.In).Sum(r => r.BaseAmount);
+        var fundingBySource = funding.Select(f => (f.Source, Amount: f.BaseAmount))
+            .Concat(reversals.Where(r => r.OriginalType == FinancialTransactionType.Funding && r.OriginalSource is not null)
+                .Select(r => (Source: r.OriginalSource!.Value, Amount: -r.BaseAmount)))
+            .GroupBy(x => x.Source).OrderBy(g => g.Key)
+            .Select(g => new FundingSourceTotalDto(g.Key, g.Sum(x => x.Amount))).ToList();
+
         var moneyIn = received + supplierRefunds + reversalsIn;
         var moneyOut = paid + expenses + customerRefunds + reversalsOut;
 
-        var months = await query.Where(t => t.Type != FinancialTransactionType.Transfer)
+        var months = await query.Where(t => t.Type != FinancialTransactionType.Transfer && t.Type != FinancialTransactionType.Funding && t.Type != FinancialTransactionType.Reversal)
             .GroupBy(t => new { t.TransactionDate.Year, t.TransactionDate.Month })
             .Select(g => new
             {
@@ -309,7 +329,7 @@ public class AccountsReportsController(SelloraDbContext db, IEffectivePermission
             reversalsIn, reversalsOut, transfersIn, transfersOut, moneyIn, moneyOut, moneyIn - moneyOut,
             months.Select(m => new CashFlowPeriodDto($"{m.Year:D4}-{m.Month:D2}", m.In, m.Out, m.In - m.Out,
                 m.Received, m.Paid, m.Expenses, m.CustomerRefunds - m.SupplierRefunds)).ToList(),
-            await BaseCurrencyAsync(ct)));
+            await BaseCurrencyAsync(ct), fundingBySource, fundingBySource.Sum(f => f.Amount)));
     }
 
     // ------------------------------------------------------------------ cash & bank
@@ -323,7 +343,7 @@ public class AccountsReportsController(SelloraDbContext db, IEffectivePermission
 
         var balances = await query
             .GroupBy(t => t.AccountId!.Value)
-            .Select(g => new
+            .Select(g => new CashBankFigures
             {
                 AccountId = g.Key,
                 // The balance before the period starts, plus an opening balance entered during it.
@@ -339,6 +359,17 @@ public class AccountsReportsController(SelloraDbContext db, IEffectivePermission
                 Unreconciled = g.Count(t => t.ReconciledAt == null),
             })
             .ToDictionaryAsync(b => b.AccountId, ct);
+
+        // Phase 07: a reversal of a transfer leg nets against the transfer figures instead of showing as ordinary money in/out (closing is unchanged).
+        var transferReversals = await query.Where(t => t.Type == FinancialTransactionType.Reversal && (dateFrom == null || t.TransactionDate >= dateFrom)
+                && db.FinancialTransactions.Any(o => o.Id == t.ReversalOfTransactionId && o.Type == FinancialTransactionType.Transfer))
+            .Select(t => new { AccountId = t.AccountId!.Value, t.Direction, t.BaseAmount }).ToListAsync(ct);
+        foreach (var r in transferReversals)
+        {
+            var figures = balances[r.AccountId];
+            if (r.Direction == MoneyDirection.In) { figures.In -= r.BaseAmount; figures.TransfersOut -= r.BaseAmount; }
+            else { figures.Out -= r.BaseAmount; figures.TransfersIn -= r.BaseAmount; }
+        }
 
         var accounts = await db.FinancialAccounts.OrderBy(a => a.Kind).ThenBy(a => a.Name).ToListAsync(ct);
         // FI-D12: figures of company-level accounts (BranchId null) only for a company-level Reports.Accounts holder; others get null figures.
@@ -369,10 +400,11 @@ public class AccountsReportsController(SelloraDbContext db, IEffectivePermission
     [HttpGet("payment-methods")]
     public async Task<ActionResult<PaymentMethodSummaryDto>> PaymentMethods([FromQuery] DateOnly? dateFrom, [FromQuery] DateOnly? dateTo, CancellationToken ct = default)
     {
-        // Only movements that came from a payment, refund or expense have a real method; opening balances and
-        // transfers between accounts do not.
+        // Only movements that came from a payment, refund or expense have a real method; opening balances, transfers between
+        // accounts, funding and the reversals of manual entries do not.
         var query = db.FinancialTransactions.VisibleTo(db).Where(t => t.Status == FinancialTransactionStatus.Active
-            && t.Type != FinancialTransactionType.OpeningBalance && t.Type != FinancialTransactionType.Transfer);
+            && t.Type != FinancialTransactionType.OpeningBalance && t.Type != FinancialTransactionType.Transfer
+            && t.Type != FinancialTransactionType.Funding && t.Type != FinancialTransactionType.Reversal);
         if (dateFrom is not null) query = query.Where(t => t.TransactionDate >= dateFrom);
         if (dateTo is not null) query = query.Where(t => t.TransactionDate <= dateTo);
 
@@ -389,6 +421,19 @@ public class AccountsReportsController(SelloraDbContext db, IEffectivePermission
         var items = rows.OrderBy(r => r.Method).Select(r => new PaymentMethodSummaryRowDto(r.Method, r.Count, r.Received, r.Paid, r.Received - r.Paid)).ToList();
         return Ok(new PaymentMethodSummaryDto(dateFrom, dateTo, items,
             items.Sum(r => r.Received), items.Sum(r => r.Paid), items.Sum(r => r.Net), await BaseCurrencyAsync(ct)));
+    }
+
+    private sealed class CashBankFigures
+    {
+        public Guid AccountId { get; init; }
+        public decimal Before { get; init; }
+        public decimal OpeningInPeriod { get; init; }
+        public decimal In { get; set; }
+        public decimal Out { get; set; }
+        public decimal TransfersIn { get; set; }
+        public decimal TransfersOut { get; set; }
+        public decimal Closing { get; init; }
+        public int Unreconciled { get; init; }
     }
 
     private async Task<BaseCurrencyDto> BaseCurrencyAsync(CancellationToken ct)

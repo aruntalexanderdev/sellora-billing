@@ -144,6 +144,8 @@ public static class PermissionCatalog
         new("CashBank.Manage", "Accounts", "Manage", "Create, edit and deactivate cash and bank accounts."),
         new("CashBank.Transfer", "Accounts", "Transfer", "Transfer money between accounts, including cash deposits and withdrawals."),
         new("CashBank.Reconcile", "Accounts", "Reconcile", "Reconcile account transactions against statements."),
+        new("CashBank.Fund", "Accounts", "Fund", "Record funding (capital, loan, deposit, customer receipt) into cash and bank accounts."),
+        new("CashBank.Reverse", "Accounts", "Reverse", "Reverse funding, transfers and opening balances posted in error."),
 
         // Reports
         new("Reports.Stock", "Reports", "View", "View the current stock report."),

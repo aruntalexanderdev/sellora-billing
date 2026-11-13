@@ -12,6 +12,8 @@ public class FinancialAccountConfiguration : IEntityTypeConfiguration<FinancialA
         builder.Property(a => a.Name).HasMaxLength(60).IsRequired();
         builder.Property(a => a.Reference).HasMaxLength(60);
         builder.Property(a => a.Kind).HasConversion<string>().HasMaxLength(10);
+        builder.Property(a => a.OverdraftLimit).HasColumnType("numeric(18,2)").HasDefaultValue(0m);
+        builder.ToTable(t => t.HasCheckConstraint("CK_FinancialAccounts_Overdraft", "\"OverdraftLimit\" >= 0 AND (\"Kind\" <> 'Cash' OR \"OverdraftLimit\" = 0)"));
         builder.HasAlternateKey(a => new { a.CompanyId, a.Id });
         builder.HasIndex(a => new { a.CompanyId, a.Name }, "IX_FinancialAccounts_CompanyId_Name").IsUnique();
         builder.HasIndex(a => new { a.CompanyId, a.BranchId }, "IX_FinancialAccounts_CompanyId_BranchId");

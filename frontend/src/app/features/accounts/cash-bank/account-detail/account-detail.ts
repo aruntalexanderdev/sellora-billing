@@ -8,7 +8,8 @@ import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { CashBankService } from '../cash-bank.service';
 import { FinancialTransactionsService } from '../../financial-transactions/financial-transactions.service';
-import { HIDDEN_BALANCE_HINT, type FinancialAccount } from '../cash-bank.models';
+import { FUNDING_SOURCE_LABEL, HIDDEN_BALANCE_HINT, type AccountStatement, type FinancialAccount } from '../cash-bank.models';
+import { IdempotentSubmission } from '../../../../core/idempotency';
 import type { FinancialTransaction, RelatedType } from '../../financial-transactions/financial-transactions.models';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 
@@ -22,10 +23,20 @@ const TYPE_LABEL: Record<string, string> = {
   ExpensePayment: 'Expense paid',
   OpeningBalance: 'Opening balance',
   Transfer: 'Transfer',
+  Funding: 'Funding',
+  Reversal: 'Reversal',
   CustomerRefund: 'Customer refund',
   SupplierRefund: 'Supplier refund',
   PaymentReversal: 'Payment reversal',
 };
+
+const REVERSIBLE = new Set(['Funding', 'Transfer', 'OpeningBalance']);
+const pad = (n: number) => String(n).padStart(2, '0');
+const isoDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/** First and last day of the current month, yyyy-MM-dd. */
+export function currentMonthRange(now = new Date()): { from: string; to: string } {
+  return { from: isoDate(new Date(now.getFullYear(), now.getMonth(), 1)), to: isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
+}
 
 const ROUTE: Record<RelatedType, string> = { Purchase: '/purchases', Sale: '/sales', Expense: '/accounts/expenses' };
 
@@ -57,6 +68,8 @@ export class AccountDetail implements OnInit {
   readonly selected = signal<ReadonlySet<string>>(new Set());
   readonly statementBalance = signal<number | null>(null);
 
+  readonly canFund = computed(() => this.auth.hasPermission('CashBank.Fund'));
+  readonly canReverse = computed(() => this.auth.hasPermission('CashBank.Reverse'));
   readonly canTransfer = computed(() => this.auth.hasPermission('CashBank.Transfer'));
   readonly canReconcile = computed(() => this.auth.hasPermission('CashBank.Reconcile'));
   readonly hasMore = computed(() => this.transactions().length < this.total());
@@ -70,6 +83,23 @@ export class AccountDetail implements OnInit {
     const s = this.statementBalance();
     return a && s !== null && a.reconciledBalance !== null ? (cents(s) - cents(a.reconciledBalance)) / 100 : null;
   });
+
+  // Statement tab
+  readonly tab = signal<'history' | 'statement'>('history');
+  private readonly month = currentMonthRange();
+  readonly from = signal(this.month.from);
+  readonly to = signal(this.month.to);
+  readonly statement = signal<AccountStatement | null>(null);
+  readonly statementLoading = signal(false);
+  readonly statementError = signal<string | null>(null);
+  readonly fundingLabel = (s: string | null) => (s ? (FUNDING_SOURCE_LABEL[s] ?? s) : null);
+  readonly typeLabel = (type: string) => TYPE_LABEL[type] ?? type;
+
+  // Reverse panel
+  readonly reversing = signal<FinancialTransaction | null>(null);
+  readonly reverseReason = signal('');
+  readonly reverseError = signal<string | null>(null);
+  private readonly reverseSubmission = new IdempotentSubmission();
 
   private get id(): string {
     return this.route.snapshot.paramMap.get('id')!;
@@ -156,6 +186,95 @@ export class AccountDetail implements OnInit {
         this.error.set(Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Could not update reconciliation.');
       },
     });
+  }
+
+  /** Funding, transfer and opening balance rows that are neither reconciled nor already reversed. */
+  canReverseRow(t: FinancialTransaction): boolean {
+    return this.canReverse() && REVERSIBLE.has(t.type) && t.status === 'Active' && !t.isReconciled && !t.reversedByTransactionId && !t.reversalOfTransactionId;
+  }
+
+  describe(t: FinancialTransaction): string {
+    const parts = [this.fundingLabel(t.fundingSource), t.counterparty, t.sourceReference, t.reason, t.notes].filter((p): p is string => !!p);
+    return parts.join(' · ');
+  }
+
+  selectTab(tab: 'history' | 'statement'): void {
+    this.tab.set(tab);
+    if (tab === 'statement' && !this.statement() && !this.statementLoading()) this.loadStatement();
+  }
+
+  setRange(from: string, to: string): void {
+    this.from.set(from);
+    this.to.set(to);
+  }
+
+  loadStatement(): void {
+    if (!this.from() || !this.to() || this.from() > this.to()) {
+      this.statementError.set('Choose a valid date range.');
+      return;
+    }
+    this.statementLoading.set(true);
+    this.statementError.set(null);
+    this.service.statement(this.id, this.from(), this.to()).subscribe({
+      next: (s) => {
+        this.statement.set(s);
+        this.statementLoading.set(false);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.statement.set(null);
+        this.statementLoading.set(false);
+        const problem = err.error as ApiProblem | undefined;
+        this.statementError.set(
+          err.status === 403
+            ? 'The statement for this company-level account is only visible to company-level users.'
+            : (Object.values(problem?.errors ?? {})[0]?.[0] ?? problem?.title ?? 'Could not load the statement.'),
+        );
+      },
+    });
+  }
+
+  startReverse(t: FinancialTransaction): void {
+    this.reversing.set(t);
+    this.reverseReason.set('');
+    this.reverseError.set(null);
+  }
+
+  cancelReverse(): void {
+    this.reversing.set(null);
+  }
+
+  confirmReverse(): void {
+    const t = this.reversing();
+    const reason = this.reverseReason().trim();
+    if (!t || this.working()) return;
+    if (!reason) {
+      this.reverseError.set('A reason is required.');
+      return;
+    }
+    this.working.set(true);
+    this.reverseError.set(null);
+    this.service.reverse(t.id, reason, this.reverseSubmission.keyFor({ id: t.id, reason })).subscribe({
+      next: () => {
+        this.reverseSubmission.succeeded();
+        this.working.set(false);
+        this.reversing.set(null);
+        this.toast.show('Transaction reversed.');
+        this.statement.set(null);
+        this.reload();
+        if (this.tab() === 'statement') this.loadStatement();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.reverseSubmission.failed(err);
+        this.working.set(false);
+        const problem = err.error as ApiProblem | undefined;
+        const errors = problem?.errors ?? {};
+        this.reverseError.set(errors['reason']?.[0] ?? errors['id']?.[0] ?? Object.values(errors)[0]?.[0] ?? problem?.title ?? 'Could not reverse this transaction.');
+      },
+    });
+  }
+
+  addFunds(): void {
+    this.router.navigate(['/accounts/cash-bank', this.id, 'fund']);
   }
 
   transfer(): void {

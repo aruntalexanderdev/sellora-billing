@@ -67,7 +67,7 @@ public class AddProductCategoryMastersMigrationTests(PostgresFixture postgres)
 
         await MigrateToAsync(database);
 
-        Assert.EndsWith("_AddProductCategoryMasters", (await AppliedAsync(database)).Last());
+        Assert.Contains(await AppliedAsync(database), m => m.EndsWith("_AddProductCategoryMasters"));
         Assert.Equal(before, await QueryAsync(database, Snapshot, r => r.GetString(0))); // legacy string untouched, nothing else changed
         Assert.Equal(counts, await RowCountsAsync(database, CountedTables));
         // Default company: alphabetical by lower(name) in C collation ("!!!" sorts first, then extra..., oil, rice, rice!). "!!!" -> empty code -> CAT.

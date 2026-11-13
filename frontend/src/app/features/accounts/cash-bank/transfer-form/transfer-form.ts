@@ -6,7 +6,8 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { CashBankService } from '../cash-bank.service';
-import type { FinancialAccount } from '../cash-bank.models';
+import { availableBalance, type FinancialAccount } from '../cash-bank.models';
+import { IdempotentSubmission } from '../../../../core/idempotency';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 
@@ -54,12 +55,18 @@ export class TransferForm implements OnInit, HasUnsavedChanges {
   readonly to = computed(() => this.accounts().find((a) => a.id === this.value().toAccountId) ?? null);
   readonly fmt = (n: number | null) => (n === null ? '—' : this.symbol() + money(n));
 
-  // The sending account is not blocked at zero (a bank account may overdraw), but going negative is worth a warning.
-  readonly overdraws = computed(() => {
+  /** Balance plus the overdraft allowance; null (show nothing) when the balance is hidden. */
+  readonly available = computed(() => {
     const from = this.from();
-    const amount = this.value().amount ?? 0;
-    return !!from && from.balance !== null && amount > from.balance;
+    return from ? availableBalance(from) : null;
   });
+  // Beyond the available balance the server rejects the transfer; warn before submitting.
+  readonly overdraws = computed(() => {
+    const available = this.available();
+    const amount = this.value().amount ?? 0;
+    return available !== null && amount > available;
+  });
+  private readonly submission = new IdempotentSubmission();
 
   readonly saving = signal(false);
   readonly serverError = signal<string | null>(null);
@@ -103,17 +110,20 @@ export class TransferForm implements OnInit, HasUnsavedChanges {
     }
 
     const v = this.form.getRawValue();
+    const body = { fromAccountId: v.fromAccountId, toAccountId: v.toAccountId, amount: v.amount!, transferDate: v.transferDate, notes: v.notes || null };
     this.saving.set(true);
     this.service
-      .transfer({ fromAccountId: v.fromAccountId, toAccountId: v.toAccountId, amount: v.amount!, transferDate: v.transferDate, notes: v.notes || null })
+      .transfer(body, this.submission.keyFor(body))
       .subscribe({
         next: () => {
+          this.submission.succeeded();
           this.saving.set(false);
           this.saved = true;
           this.toast.show('Transfer recorded.');
           this.router.navigateByUrl('/accounts/cash-bank');
         },
         error: (err: HttpErrorResponse) => {
+          this.submission.failed(err);
           this.saving.set(false);
           const problem = err.error as ApiProblem | undefined;
           if (problem?.errors) {

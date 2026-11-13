@@ -105,6 +105,11 @@ export interface CashFlowPeriod {
   refunds: number;
 }
 
+export interface FundingBySource {
+  source: string;
+  amount: number;
+}
+
 export interface CashFlowReport {
   dateFrom: string | null;
   dateTo: string | null;
@@ -121,6 +126,9 @@ export interface CashFlowReport {
   moneyIn: number;
   moneyOut: number;
   net: number;
+  /** Capital, loans and other funding; NOT part of customer receipts. */
+  fundingBySource: FundingBySource[];
+  fundingTotal: number;
   months: CashFlowPeriod[];
   baseCurrency: BaseCurrency;
 }

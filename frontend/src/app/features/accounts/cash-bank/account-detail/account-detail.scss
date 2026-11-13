@@ -143,3 +143,27 @@
   text-align: center;
   border-top: 1px solid var(--color-border);
 }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--color-border);
+
+  .tab {
+    padding: 8px 14px;
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    cursor: pointer;
+
+    &.on {
+      color: var(--color-text);
+      border-bottom-color: var(--color-primary, #2563eb);
+    }
+  }
+}
+.in { color: var(--color-success, #15803d); }
+.out { color: var(--color-danger); }

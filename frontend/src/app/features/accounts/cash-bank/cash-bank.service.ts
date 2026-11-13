@@ -1,10 +1,15 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
+import { idempotencyHeaders } from '../../../core/idempotency';
 import { environment } from '../../../../environments/environment';
 import type { PaymentMethod } from '../../purchases/purchases.models';
 import type {
   AccountOption,
+  AccountStatement,
+  FundingRequest,
+  FundingResult,
+  ReverseResult,
   CreateAccountRequest,
   FinancialAccount,
   FinancialAccountList,
@@ -13,6 +18,7 @@ import type {
 } from './cash-bank.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/financial-accounts`;
+const TXN_URL = `${environment.apiBaseUrl}/financial-transactions`;
 
 /** The account a payment made by this method most plausibly went through: cash → a cash account, anything
  *  else → a bank account. Falls back to the first option; '' when there are no accounts. */
@@ -50,8 +56,20 @@ export class CashBankService {
     return this.http.post<void>(`${BASE_URL}/${id}/status`, { isActive });
   }
 
-  transfer(request: TransferRequest): Observable<void> {
-    return this.http.post<void>(`${BASE_URL}/transfers`, request);
+  transfer(request: TransferRequest, idempotencyKey?: string): Observable<void> {
+    return this.http.post<void>(`${BASE_URL}/transfers`, request, { headers: idempotencyHeaders(idempotencyKey) });
+  }
+
+  fund(accountId: string, request: FundingRequest, idempotencyKey: string): Observable<FundingResult> {
+    return this.http.post<FundingResult>(`${BASE_URL}/${accountId}/fundings`, request, { headers: idempotencyHeaders(idempotencyKey) });
+  }
+
+  reverse(transactionId: string, reason: string, idempotencyKey: string): Observable<ReverseResult> {
+    return this.http.post<ReverseResult>(`${TXN_URL}/${transactionId}/reverse`, { reason }, { headers: idempotencyHeaders(idempotencyKey) });
+  }
+
+  statement(accountId: string, from: string, to: string): Observable<AccountStatement> {
+    return this.http.get<AccountStatement>(`${BASE_URL}/${accountId}/statement`, { params: { from, to } });
   }
 
   reconcile(id: string, transactionIds: string[]): Observable<{ changed: number }> {

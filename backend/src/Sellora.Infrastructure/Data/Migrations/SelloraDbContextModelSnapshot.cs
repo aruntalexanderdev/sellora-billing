@@ -666,6 +666,11 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
 
+                    b.Property<decimal>("OverdraftLimit")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,2)")
+                        .HasDefaultValue(0m);
+
                     b.Property<string>("Reference")
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
@@ -679,7 +684,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex(new[] { "CompanyId", "Name" }, "IX_FinancialAccounts_CompanyId_Name")
                         .IsUnique();
 
-                    b.ToTable("FinancialAccounts");
+                    b.ToTable("FinancialAccounts", t =>
+                        {
+                            t.HasCheckConstraint("CK_FinancialAccounts_Overdraft", "\"OverdraftLimit\" >= 0 AND (\"Kind\" <> 'Cash' OR \"OverdraftLimit\" = 0)");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.FinancialTransaction", b =>
@@ -700,6 +708,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Counterparty")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -707,6 +719,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CustomerId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Direction")
@@ -720,6 +735,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid?>("ExpenseId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("FundingSource")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -732,14 +751,25 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid?>("PurchasePaymentId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Reason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
                     b.Property<DateTimeOffset?>("ReconciledAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("ReconciledByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("ReversalOfTransactionId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("SalesPaymentId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("SourceReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -771,12 +801,18 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("ReconciledByUserId");
 
+                    b.HasIndex("ReversalOfTransactionId")
+                        .IsUnique()
+                        .HasFilter("\"ReversalOfTransactionId\" IS NOT NULL");
+
                     b.HasIndex("SalesPaymentId")
                         .IsUnique();
 
                     b.HasIndex("AccountId", "TransactionDate");
 
                     b.HasIndex("CompanyId", "AccountId");
+
+                    b.HasIndex("CompanyId", "CustomerId");
 
                     b.HasIndex("TransactionDate", "CreatedAt");
 
@@ -786,9 +822,17 @@ namespace Sellora.Infrastructure.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_FinancialTransactions_Amount_Positive", "\"Amount\" > 0");
 
-                            t.HasCheckConstraint("CK_FinancialTransactions_ManualHasAccount", "\"Type\" NOT IN ('OpeningBalance', 'Transfer') OR \"AccountId\" IS NOT NULL");
+                            t.HasCheckConstraint("CK_FinancialTransactions_CustomerReceipt", "(\"FundingSource\" IS DISTINCT FROM 'CustomerReceipt' OR (\"CustomerId\" IS NOT NULL AND \"SourceReference\" IS NOT NULL)) AND (\"CustomerId\" IS NULL OR \"FundingSource\" = 'CustomerReceipt')");
 
-                            t.HasCheckConstraint("CK_FinancialTransactions_Source", "(CASE WHEN \"PurchasePaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"SalesPaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"ExpenseId\" IS NULL THEN 0 ELSE 1 END) = CASE WHEN \"Type\" IN ('OpeningBalance', 'Transfer') THEN 0 ELSE 1 END");
+                            t.HasCheckConstraint("CK_FinancialTransactions_Funding", "(\"Type\" = 'Funding') = (\"FundingSource\" IS NOT NULL) AND (\"Type\" <> 'Funding' OR \"Direction\" = 'In')");
+
+                            t.HasCheckConstraint("CK_FinancialTransactions_ManualHasAccount", "\"Type\" NOT IN ('OpeningBalance', 'Transfer', 'Funding', 'Reversal') OR \"AccountId\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_FinancialTransactions_OtherReason", "\"FundingSource\" IS DISTINCT FROM 'Other' OR \"Reason\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_FinancialTransactions_Reversal", "(\"Type\" = 'Reversal') = (\"ReversalOfTransactionId\" IS NOT NULL) AND (\"Type\" <> 'Reversal' OR \"Reason\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_FinancialTransactions_Source", "(CASE WHEN \"PurchasePaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"SalesPaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"ExpenseId\" IS NULL THEN 0 ELSE 1 END) = CASE WHEN \"Type\" IN ('OpeningBalance', 'Transfer', 'Funding', 'Reversal') THEN 0 ELSE 1 END");
                         });
                 });
 
@@ -3885,6 +3929,11 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("ReconciledByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Sellora.Domain.Entities.FinancialTransaction", null)
+                        .WithMany()
+                        .HasForeignKey("ReversalOfTransactionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Sellora.Domain.Entities.SalesPayment", "SalesPayment")
                         .WithMany()
                         .HasForeignKey("SalesPaymentId")
@@ -3893,6 +3942,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasOne("Sellora.Domain.Entities.FinancialAccount", null)
                         .WithMany()
                         .HasForeignKey("CompanyId", "AccountId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CustomerId")
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
