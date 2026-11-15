@@ -9,7 +9,12 @@ public class Product : ICompanyOwned
     public Guid Id { get; set; }
     public required string Sku { get; set; }
     public required string Name { get; set; }
+    /// <summary>Legacy free-text category, mirrored with the category master name for this release (dropped in Phase 09).</summary>
     public string? Category { get; set; }
+
+    /// <summary>Category master link (same company). Navigation-less by convention (filtered principals).</summary>
+    public Guid? CategoryId { get; set; }
+    public Guid? SubcategoryId { get; set; }
 
     public Guid BaseUnitId { get; set; }
     public Unit BaseUnit { get; set; } = null!;

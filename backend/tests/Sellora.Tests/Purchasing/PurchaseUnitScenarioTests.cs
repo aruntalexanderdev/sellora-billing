@@ -63,7 +63,7 @@ public class PurchaseUnitScenarioTests
         new(id, unitId, innerUnitId, qty, null, null, purchasable, true, false, false, active);
 
     private static UpsertProductInput Input(Fixture f, string sku, Guid baseUnitId, params ProductUnitInputItem[] units) =>
-        new(sku, "Ball Pen", "Stationery", baseUnitId, f.Tax.Id, 0m, units);
+        new(sku, "Ball Pen", null, null, baseUnitId, f.Tax.Id, 0m, units);
 
     private static async Task<Dictionary<Guid, ProductUnit>> RowsAsync(Fixture f, Guid productId) =>
         (await f.Db.ProductUnits.AsNoTracking().Where(u => u.ProductId == productId).ToListAsync()).ToDictionary(u => u.UnitId);

@@ -8,13 +8,17 @@
   }
 </div>
 
+<div style="margin-bottom: 12px">
+  <app-category-filter [categoryId]="categoryId()" [subcategoryId]="subcategoryId()" (changed)="onCategoryChange($event)" />
+</div>
+
 <ui-data-table
   [cols]="cols"
   [rows]="rows()"
   [state]="state()"
   [showSearch]="true"
   [searchValue]="search()"
-  searchPlaceholder="Search products, SKU or category…"
+  searchPlaceholder="Search products, or SKU…"
   emptyTitle="No products match that search"
   emptyBody="Clear the search box, or add the product to the catalogue."
   [emptyAction]="canCreate() ? '+ New product' : null"

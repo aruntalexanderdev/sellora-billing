@@ -29,6 +29,9 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         pageSize = Math.Clamp(pageSize, 1, 100);
         if (await this.DenyUnlessAllowedAsync(db, branchId, ct) is { } denied) return denied;
 
+        if (stockLocationId is not null
+            && (await StockVisibility.LoadAsync(db, effectivePermissions, "Purchase.View", ct)).DenyUnlessVisible(this, stockLocationId) is { } locationDenied) return locationDenied;
+
         var query = db.PurchaseOrders.Include(p => p.Supplier).AsQueryable();
         if (branchId is not null) query = query.Where(p => p.BranchId == branchId);
         if (stockLocationId is not null) query = query.Where(p => p.StockLocationId == stockLocationId);

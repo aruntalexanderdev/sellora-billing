@@ -1,17 +1,15 @@
 import { branchColumnVisible, placeLabel, scopeCells, scopeColumns } from './list-scope';
 
-const ctx = (accessScope: string | null, branches: number, all = false) => ({
+const ctx = (accessScope: string | null, branches: number) => ({
   accessScope: () => accessScope,
   allowedBranches: () => Array.from({ length: branches }),
-  isAllBranches: () => all,
 });
 
 describe('list scope rules', () => {
-  it('shows the Branch column for company-wide users, multi-branch users and All-branches mode only', () => {
+  it('shows the Branch column for company-wide users, multi-branch users only', () => {
     expect(branchColumnVisible(ctx('AssignedBranches', 1))).toBe(false);
     expect(branchColumnVisible(ctx('CompanyWide', 1))).toBe(true);
     expect(branchColumnVisible(ctx('AssignedBranches', 2))).toBe(true);
-    expect(branchColumnVisible(ctx('AssignedBranches', 1, true))).toBe(true);
     expect(branchColumnVisible(ctx(null, 0))).toBe(false);
   });
 

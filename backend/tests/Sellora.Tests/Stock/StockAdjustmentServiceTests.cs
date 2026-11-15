@@ -628,4 +628,21 @@ public class StockAdjustmentServiceTests
         Assert.Equal(qoh, await f.Db.PurchaseBatches.AsNoTracking().SumAsync(b => b.RemainingBaseQty));
         Assert.All(await f.Db.StockAdjustments.AsNoTracking().ToListAsync(), a => Assert.Equal(a.QuantityBaseUnits, a.EnteredQuantity * a.ConversionFactorToBase));
     }
+
+    [Fact]
+    public async Task CreateAdjustmentAsync_Decrease_ReservationReducesAvailability_Refused()
+    {
+        var f = await SeedAsync();
+        await SeedOpeningStockAsync(f, 100, 50m);
+
+        using (StockAvailability.UseReservedSource((_, _, _, _, _) => Task.FromResult(95m)))
+        {
+            var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateAdjustmentAsync(
+                new CreateAdjustmentInput(f.Product.Id, f.BaseUnitId, AdjustmentType.Damage, AdjustmentDirection.Decrease, 10, null, "Damaged"), f.UserId));
+            Assert.Equal("Quantity", ex.Field);
+            Assert.Contains("only 5 ", ex.Message);
+        }
+
+        Assert.Equal(100m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
+    }
 }

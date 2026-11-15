@@ -6,15 +6,14 @@ import type { DataTableCell, DataTableColumn } from '../ui/data-table/data-table
 export interface BranchScopeSource {
   accessScope(): string | null;
   allowedBranches(): readonly unknown[];
-  isAllBranches(): boolean;
 }
 
 /**
  * D13 / Phase 11 WP-E: lists and reports show a Branch column when the caller can see more than one branch's data:
- * a company-wide user, a user with more than one allowed branch, or anyone in All-branches mode.
+ * a company-wide user or a user with more than one allowed branch (a company view can span branches).
  */
 export function branchColumnVisible(ctx: BranchScopeSource): boolean {
-  return ctx.accessScope() === 'CompanyWide' || ctx.allowedBranches().length > 1 || ctx.isAllBranches();
+  return ctx.accessScope() === 'CompanyWide' || ctx.allowedBranches().length > 1;
 }
 
 /** Signal form of {@link branchColumnVisible}; call inside an injection context. */

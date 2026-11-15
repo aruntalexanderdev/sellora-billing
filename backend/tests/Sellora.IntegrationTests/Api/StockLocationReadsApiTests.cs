@@ -61,23 +61,30 @@ public class StockLocationReadsApiTests(PostgresFixture postgres)
         var w = s.W;
         var pid = w.ProductId;
 
-        var overview = Row(await GetOkAsync(w, "/api/v1/stock/overview?search=STN-PEN&pageSize=100"), pid);
+        // FI-D11: the company-wide breakdown is the explicit company view (admin holds the permissions company-level).
+        var overview = Row(await GetOkAsync(w, "/api/v1/stock/overview?search=STN-PEN&pageSize=100&scope=company"), pid);
         var byLocation = LocationQty(overview.GetProperty("locations"));
         Assert.Equal((30m, 20m), (byLocation[s.BranchStore], byLocation[s.CompanyWarehouse]));
         Assert.True(byLocation.Count >= 3);
         Assert.Equal(byLocation.Values.Sum(), overview.GetProperty("quantityOnHand").GetDecimal()); // one product's quantity summed over its own locations
 
-        var detail = await GetOkAsync(w, $"/api/v1/stock/{pid}");
-        Assert.Equal(byLocation.Values.Sum(), detail.GetProperty("quantityOnHand").GetDecimal());
-        Assert.Equal(30m, LocationQty(detail.GetProperty("locations"))[s.BranchStore]);
+        // The detail has no company view: it reads the ACTIVE branch (the new branch) plus the company-level locations (the warehouse).
+        var detail = await GetOkAsync(w, $"/api/v1/stock/{pid}", branch: s.Branch);
+        var detailByLocation = LocationQty(detail.GetProperty("locations"));
+        Assert.Equal(detailByLocation.Values.Sum(), detail.GetProperty("quantityOnHand").GetDecimal());
+        Assert.Equal((30m, 20m), (detailByLocation[s.BranchStore], detailByLocation[s.CompanyWarehouse]));
+        await using (var mainDb = w.Host.Database.CreateDbContext(w.CompanyId))
+            Assert.DoesNotContain(await StockSeed.StoreOfAsync(mainDb, w.MainId), detailByLocation.Keys); // the default branch's store is another branch: not in the active-branch read
+        var overviewAtBranch = Row(await GetOkAsync(w, "/api/v1/stock/overview?search=STN-PEN&pageSize=100", branch: s.Branch), pid);
+        Assert.Equal(detail.GetProperty("quantityOnHand").GetDecimal(), overviewAtBranch.GetProperty("quantityOnHand").GetDecimal());
         var batchLocations = detail.GetProperty("batches").EnumerateArray().SelectMany(b => b.GetProperty("locations").EnumerateArray()).Select(l => l.GetProperty("locationId").GetGuid()).ToHashSet();
         Assert.Contains(s.BranchStore, batchLocations);
         Assert.Contains(s.CompanyWarehouse, batchLocations);
         Assert.All(detail.GetProperty("movements").EnumerateArray(), m => Assert.False(string.IsNullOrEmpty(m.GetProperty("stockLocationCode").GetString())));
 
-        var report = Row(await GetOkAsync(w, "/api/v1/reports/current-stock?search=STN-PEN&pageSize=100"), pid);
+        var report = Row(await GetOkAsync(w, "/api/v1/reports/current-stock?search=STN-PEN&pageSize=100&scope=company"), pid);
         Assert.Equal(overview.GetProperty("quantityOnHand").GetDecimal(), report.GetProperty("quantityOnHand").GetDecimal());
-        await GetOkAsync(w, "/api/v1/reports/current-stock/categories");
+        await GetOkAsync(w, "/api/v1/reports/current-stock/categories?scope=company");
 
         var movements = await GetOkAsync(w, $"/api/v1/reports/stock-movement?stockLocationId={s.CompanyWarehouse}");
         Assert.Equal(1, movements.GetProperty("total").GetInt32());
@@ -92,7 +99,7 @@ public class StockLocationReadsApiTests(PostgresFixture postgres)
     {
         var s = await SeedAsync();
 
-        var row = Row(await GetOkAsync(s.W, $"/api/v1/stock/overview?search=STN-PEN&stockLocationId={s.BranchStore}"), s.W.ProductId);
+        var row = Row(await GetOkAsync(s.W, $"/api/v1/stock/overview?search=STN-PEN&stockLocationId={s.BranchStore}", branch: s.Branch), s.W.ProductId);
         Assert.Equal((30m, 20m, 600m), (row.GetProperty("quantityOnHand").GetDecimal(), row.GetProperty("averageCost").GetDecimal(), row.GetProperty("stockValue").GetDecimal()));
 
         var report = Row(await GetOkAsync(s.W, $"/api/v1/reports/current-stock?search=STN-PEN&stockLocationId={s.CompanyWarehouse}"), s.W.ProductId);
@@ -123,7 +130,7 @@ public class StockLocationReadsApiTests(PostgresFixture postgres)
         var purchase = await JsonAsync(response);
         Check(await s.W.SaleAsync(s.Branch, qty: 2m), "sale at the new branch");
 
-        var detail = await GetOkAsync(s.W, $"/api/v1/purchases/{purchase.GetProperty("id").GetGuid()}");
+        var detail = await GetOkAsync(s.W, $"/api/v1/purchases/{purchase.GetProperty("id").GetGuid()}", branch: s.Branch);
 
         // The branch store holds 30 + 12 and the sale drew FIFO from the older seeded batch: the purchase's batch is intact at its own location.
         Assert.Equal(12m, detail.GetProperty("lines")[0].GetProperty("returnableBaseQty").GetDecimal());

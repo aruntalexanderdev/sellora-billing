@@ -11,7 +11,7 @@ namespace Sellora.Api.Controllers;
 
 /// <summary>
 /// Phase 8 (D6): which stock locations a read may see, as an explicit predicate (NOT a global query filter: posting code must never be
-/// narrowed). Visible = locations of branches the caller may access (<see cref="BranchContext"/>), further narrowed to the branches where the
+/// narrowed). Visible = locations of branches in the READ scope (Phase 01: the active branch, or the allowed company scope under ?scope=company; <see cref="IBranchContext.ReadBranchIds"/>), further narrowed to the branches where the
 /// required permission is held (<see cref="EffectivePermissionSet.PermittedBranches"/>), plus company-level locations (BranchId NULL and not a vehicle assigned to a branch; Phase 3/7
 /// decision). Inactive locations stay visible for history. Also serves as the id → code/name/type lookup (location FKs are navigation-less).
 /// </summary>
@@ -60,12 +60,13 @@ internal sealed class StockVisibility
         // reader of the permission; branch-scoped readers (and the permission-less POS catalog) never get it in their sums and see the
         // in-transit quantity on the transfer document instead.
         // Company-wide membership as well: an AssignedBranches member with a company-scope role must not see other branches' goods in flight.
-        var companyLevel = permissionCode is not null && permitted is null && db.BranchContext.AllowedBranchIds is null;
+        // Phase 01 (FI-D11): additionally only in the explicit company view (?scope=company); the default active-branch read never shows goods in flight.
+        var companyLevel = permissionCode is not null && permitted is null && db.BranchContext.AllowedBranchIds is null && db.BranchContext.IsCompanyScope;
 
         var visible = rows
             .Where(l => companyLevel || l.LocationType != StockLocationType.Transit)
             .Select(l => new { l.Id, l.Code, l.Name, l.LocationType, Owner = l.BranchId ?? vehicleOwner.GetValueOrDefault(l.Id) })
-            .Where(l => l.Owner is not { } b || (db.BranchContext.CanAccess(b) && (permitted is null || permitted.Contains(b))))
+            .Where(l => l.Owner is not { } b || (db.BranchContext.CanRead(b) && (permitted is null || permitted.Contains(b))))
             .ToDictionary(l => l.Id, l => new StockLocationLabel(l.Code, l.Name, l.LocationType.ToString()));
         return new StockVisibility(visible);
     }

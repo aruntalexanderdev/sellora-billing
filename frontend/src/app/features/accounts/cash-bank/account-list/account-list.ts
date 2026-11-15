@@ -7,7 +7,7 @@ import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { ConfirmDialogService } from '../../../../shared/ui/confirm-dialog/confirm-dialog.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { CashBankService } from '../cash-bank.service';
-import type { FinancialAccount, FinancialAccountList } from '../cash-bank.models';
+import { HIDDEN_BALANCE_HINT, type FinancialAccount, type FinancialAccountList } from '../cash-bank.models';
 
 const money = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -30,8 +30,10 @@ export class AccountList implements OnInit {
   readonly failed = signal(false);
 
   readonly canManage = computed(() => this.auth.hasPermission('CashBank.Manage'));
+  readonly canFund = computed(() => this.auth.hasPermission('CashBank.Fund'));
   readonly canTransfer = computed(() => this.auth.hasPermission('CashBank.Transfer'));
-  readonly fmt = (n: number) => (this.data()?.baseCurrencySymbol ?? '₹') + money(n);
+  readonly fmt = (n: number | null) => (n === null ? '—' : (this.data()?.baseCurrencySymbol ?? '₹') + money(n));
+  readonly hiddenHint = HIDDEN_BALANCE_HINT;
   readonly total = computed(() => (this.data()?.cashBalance ?? 0) + (this.data()?.bankBalance ?? 0));
 
   ngOnInit(): void {

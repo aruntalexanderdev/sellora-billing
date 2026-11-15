@@ -22,7 +22,7 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
     public DbSet<UserCompanyMembership> UserCompanyMemberships => Set<UserCompanyMembership>();
     // Parameter of the "Branch" filter (D6): null = every branch. A private instance member, like CurrentCompanyId, so EF
     // parameterises it per query execution. The BranchContext default (never set) is an empty set = fail closed.
-    private Guid[]? CurrentAllowedBranchIds => BranchContext.AllowedBranchIds?.ToArray();
+    private Guid[]? CurrentReadBranchIds => BranchContext.ReadBranchIds?.ToArray();
 
     public DbSet<UserRoleAssignment> UserRoleAssignments => Set<UserRoleAssignment>();
     public DbSet<UserBranchAssignment> UserBranchAssignments => Set<UserBranchAssignment>();
@@ -65,6 +65,8 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
     public DbSet<PurchaseReturn> PurchaseReturns => Set<PurchaseReturn>();
     public DbSet<PurchaseReturnLine> PurchaseReturnLines => Set<PurchaseReturnLine>();
     public DbSet<ExpenseCategory> ExpenseCategories => Set<ExpenseCategory>();
+    public DbSet<ProductCategory> ProductCategories => Set<ProductCategory>();
+    public DbSet<ProductSubcategory> ProductSubcategories => Set<ProductSubcategory>();
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<FinancialAccount> FinancialAccounts => Set<FinancialAccount>();
     public DbSet<FinancialTransaction> FinancialTransactions => Set<FinancialTransaction>();
@@ -93,22 +95,22 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
         ConfigureBranchFilters(modelBuilder);
     }
 
-    // Named filter "Branch" (BranchQueryFilter.Name), beside "Company". Mandatory-branch headers: Allowed == null || Allowed.Contains(BranchId).
+    // Named filter "Branch" (BranchQueryFilter.Name), beside "Company". Mandatory-branch headers (Phase 01, FI-D11: the READ scope = active branch unless widened by ?scope=company): Read == null || Allowed.Contains(BranchId).
     // Optional-branch Expenses/FinancialAccounts: NULL BranchId = company-level, always visible. Children (lines, payments) are not
     // filtered here: they reach the company through their header navigation (ASSUMPTION T3, proven by the integration test).
     private void ConfigureBranchFilters(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<PurchaseOrder>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
-        modelBuilder.Entity<PurchaseReturn>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
-        modelBuilder.Entity<SalesInvoice>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
-        modelBuilder.Entity<SalesReturn>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
-        modelBuilder.Entity<StockAdjustment>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId));
+        modelBuilder.Entity<PurchaseOrder>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentReadBranchIds == null || CurrentReadBranchIds.Contains(e.BranchId));
+        modelBuilder.Entity<PurchaseReturn>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentReadBranchIds == null || CurrentReadBranchIds.Contains(e.BranchId));
+        modelBuilder.Entity<SalesInvoice>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentReadBranchIds == null || CurrentReadBranchIds.Contains(e.BranchId));
+        modelBuilder.Entity<SalesReturn>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentReadBranchIds == null || CurrentReadBranchIds.Contains(e.BranchId));
+        modelBuilder.Entity<StockAdjustment>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentReadBranchIds == null || CurrentReadBranchIds.Contains(e.BranchId));
         // Phase 9 (D7): a transfer is visible at its creating branch and at either endpoint's effective branch. Children (lines, batches, receipts) are not filtered here.
-        modelBuilder.Entity<StockTransfer>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId)
-            || (e.SourceBranchId != null && CurrentAllowedBranchIds.Contains(e.SourceBranchId.Value))
-            || (e.DestinationBranchId != null && CurrentAllowedBranchIds.Contains(e.DestinationBranchId.Value)));
-        modelBuilder.Entity<Expense>().HasQueryFilter(BranchQueryFilter.Name, e => e.BranchId == null || CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId.Value));
-        modelBuilder.Entity<FinancialAccount>().HasQueryFilter(BranchQueryFilter.Name, e => e.BranchId == null || CurrentAllowedBranchIds == null || CurrentAllowedBranchIds.Contains(e.BranchId.Value));
+        modelBuilder.Entity<StockTransfer>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentReadBranchIds == null || CurrentReadBranchIds.Contains(e.BranchId)
+            || (e.SourceBranchId != null && CurrentReadBranchIds.Contains(e.SourceBranchId.Value))
+            || (e.DestinationBranchId != null && CurrentReadBranchIds.Contains(e.DestinationBranchId.Value)));
+        modelBuilder.Entity<Expense>().HasQueryFilter(BranchQueryFilter.Name, e => e.BranchId == null || CurrentReadBranchIds == null || CurrentReadBranchIds.Contains(e.BranchId.Value));
+        modelBuilder.Entity<FinancialAccount>().HasQueryFilter(BranchQueryFilter.Name, e => e.BranchId == null || CurrentReadBranchIds == null || CurrentReadBranchIds.Contains(e.BranchId.Value));
     }
 
     // Every ICompanyOwned entity: CompanyId -> Companies (Restrict). Composite same-company FKs and the company-scoped

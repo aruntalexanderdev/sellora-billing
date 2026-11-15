@@ -38,6 +38,7 @@ export class AccountForm implements OnInit, HasUnsavedChanges {
     reference: [''],
     openingBalance: [0, [Validators.required, Validators.min(0)]],
     openingDate: [todayIso(), Validators.required],
+    overdraftLimit: [0, [Validators.required, Validators.min(0)]],
   });
 
   readonly kind = signal<AccountKind>('Cash');
@@ -53,7 +54,7 @@ export class AccountForm implements OnInit, HasUnsavedChanges {
     if (this.isEdit()) {
       this.service.get(this.accountId!).subscribe({
         next: (a) => {
-          this.form.patchValue({ name: a.name, kind: a.kind, reference: a.reference ?? '' });
+          this.form.patchValue({ name: a.name, kind: a.kind, reference: a.reference ?? '', overdraftLimit: a.overdraftLimit ?? 0 });
           this.kind.set(a.kind);
           this.form.controls.kind.disable();
           this.form.markAsPristine();
@@ -72,10 +73,11 @@ export class AccountForm implements OnInit, HasUnsavedChanges {
     }
 
     const v = this.form.getRawValue();
+    const overdraftLimit = v.kind === 'Bank' ? v.overdraftLimit : 0;
     this.saving.set(true);
     const request$ = this.isEdit()
-      ? this.service.update(this.accountId!, { name: v.name, reference: v.reference || null })
-      : this.service.create({ name: v.name, kind: v.kind, reference: v.reference || null, openingBalance: v.openingBalance, openingDate: v.openingDate });
+      ? this.service.update(this.accountId!, { name: v.name, reference: v.reference || null, overdraftLimit })
+      : this.service.create({ name: v.name, kind: v.kind, reference: v.reference || null, openingBalance: v.openingBalance, openingDate: v.openingDate, overdraftLimit });
 
     request$.subscribe({
       next: () => {

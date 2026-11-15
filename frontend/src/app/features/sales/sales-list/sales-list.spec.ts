@@ -51,7 +51,6 @@ describe('SalesList scope', () => {
   it.each([
     ['company-wide', { accessScope: 'CompanyWide' }],
     ['multi-branch', { branches: 3 }],
-    ['all-branches', { allBranches: true }],
   ] as [string, ScopeStub][])('shows the Branch column for a %s user', (_l, scope) => {
     const { headers, el } = setup(['Sales.View'], scope);
 

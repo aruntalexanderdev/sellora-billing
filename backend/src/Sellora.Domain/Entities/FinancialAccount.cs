@@ -28,6 +28,9 @@ public class FinancialAccount : ICompanyOwned
     /// <summary>Bank name, branch or the last digits of the account number — free text for recognising the account.</summary>
     public string? Reference { get; set; }
 
+    /// <summary>How far below zero a bank account may go through transfers and reversals. Always 0 for cash.</summary>
+    public decimal OverdraftLimit { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     public Guid CreatedByUserId { get; set; }

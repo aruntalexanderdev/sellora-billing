@@ -5,11 +5,17 @@
   </div>
 </div>
 
+<ui-company-view-toggle permission="Reports.Stock" (changed)="onCompanyViewChange()" />
+
 @if (showLocation()) {
   <div class="report-filters">
     <app-scope-filters [showBranch]="false" [stockLocationId]="stockLocationId()" (stockLocationIdChange)="onLocationChange($event)" />
   </div>
 }
+
+<div style="margin-bottom: 12px">
+  <app-category-filter [categoryId]="categoryId()" [subcategoryId]="subcategoryId()" (changed)="onCategoryChange($event)" />
+</div>
 
 <app-load-error [message]="errorMessage()" />
 

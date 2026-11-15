@@ -6,6 +6,8 @@
   <button type="button" class="report-print-btn" (click)="print()">Print</button>
 </div>
 
+<ui-company-view-toggle permission="Reports.Accounts" (changed)="onCompanyViewChange()" />
+
 <div class="report-filters no-print">
   <app-report-date-filter
     [from]="dateFrom()" [to]="dateTo()"
@@ -56,12 +58,12 @@
                 }
               </td>
               <td class="muted">{{ a.kind }}</td>
-              <td class="num">{{ fmt(a.opening) }}</td>
-              <td class="num in">{{ fmt(a.moneyIn) }}</td>
-              <td class="num out">{{ fmt(a.moneyOut) }}</td>
-              <td class="num">{{ fmt(a.transfersIn) }}</td>
-              <td class="num">{{ fmt(a.transfersOut) }}</td>
-              <td class="num strong" [class.negative]="a.closing < 0">{{ fmt(a.closing) }}</td>
+              <td class="num" [attr.title]="a.opening === null ? hiddenHint : null">{{ fmt(a.opening) }}</td>
+              <td class="num in" [attr.title]="a.moneyIn === null ? hiddenHint : null">{{ fmt(a.moneyIn) }}</td>
+              <td class="num out" [attr.title]="a.moneyOut === null ? hiddenHint : null">{{ fmt(a.moneyOut) }}</td>
+              <td class="num" [attr.title]="a.transfersIn === null ? hiddenHint : null">{{ fmt(a.transfersIn) }}</td>
+              <td class="num" [attr.title]="a.transfersOut === null ? hiddenHint : null">{{ fmt(a.transfersOut) }}</td>
+              <td class="num strong" [class.negative]="a.closing !== null && a.closing < 0" [attr.title]="a.closing === null ? hiddenHint : null">{{ fmt(a.closing) }}</td>
               <td class="num muted">{{ a.unreconciledCount }}</td>
             </tr>
           }

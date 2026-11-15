@@ -273,18 +273,15 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
             shipping.SelectMany(p => new[] { (transfer.SourceLocationId, p.Line.ProductId), (transfer.TransitLocationId, p.Line.ProductId) }), ct);
 
         // Availability per product across all lines (mixed units) before anything moves; no negative stock.
-        foreach (var group in shipping.GroupBy(p => p.Line.ProductId))
-        {
-            var sourceItem = items[(transfer.SourceLocationId, group.Key)];
-            var total = group.Sum(p => p.BaseQty);
-            if (total > sourceItem.QuantityOnHand)
+        await StockAvailability.EnsureAsync(db, items,
+            shipping.Select(p => new StockAvailability.Requirement(transfer.SourceLocationId, p.Line.ProductId, p.BaseQty)),
+            shortage =>
             {
-                var first = group.First();
-                var baseCode = products[group.Key].BaseUnit.ShortCode;
-                throw new DomainValidationException($"lines[{first.Index}].quantity",
-                    $"Cannot dispatch {StockQuantity.Format(total)} {baseCode} of {products[group.Key].Name} — only {StockQuantity.Format(sourceItem.QuantityOnHand)} {baseCode} is in stock at the source.");
-            }
-        }
+                var first = shipping.First(p => p.Line.ProductId == shortage.ProductId);
+                var baseCode = products[shortage.ProductId].BaseUnit.ShortCode;
+                return new DomainValidationException($"lines[{first.Index}].quantity",
+                    $"Cannot dispatch {StockQuantity.Format(shortage.Requested)} {baseCode} of {products[shortage.ProductId].Name} — only {StockQuantity.Format(shortage.Available)} {baseCode} is in stock at the source.");
+            }, ct);
 
         var now = DateTimeOffset.UtcNow;
         foreach (var (line, index, unit, qty, baseQty) in prepared)

@@ -28,7 +28,8 @@ public sealed record ProductUnitInputItem(
 public sealed record UpsertProductInput(
     string Sku,
     string Name,
-    string? Category,
+    Guid? CategoryId,
+    Guid? SubcategoryId,
     Guid BaseUnitId,
     Guid TaxId,
     decimal ReorderLevel,

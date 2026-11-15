@@ -1,0 +1,30 @@
+# Claude Code — Sellora Phase 08: Category and Subcategory Masters
+
+## Task
+Implement company-scoped product classifications without duplicating existing schema.
+
+## Mandatory context
+Read `IMPLEMENTATION_SPEC.md` and `PHASE_PLAN.md` (or the equivalent approved documents in the repository) and existing `CLAUDE.md` instructions. Treat this prompt as scoped to Phase 08 only. First inspect the actual code, migrations and tests. Do not assume entities/endpoints are absent or that a prior phase is complete.
+
+## Phase scope
+1. Inspect existing category entities and migrations before introducing or extending tables.
+2. Model category and subcategory codes, names, parent, status and sort order; enforce company-scoped uniqueness.
+3. Add dependent selectors to product create/edit; validate parent-child match server-side.
+4. Expose filters in products, stock overview and relevant purchasing/sales/report screens.
+5. Preserve legacy classifications and existing products during migration; deactivate in-use masters rather than hard delete.
+
+## Acceptance criteria
+- [ ] Product classification persists and is validated by API.
+- [ ] Existing products survive migration.
+- [ ] Branch users see authorized company catalog, not other companies.
+
+## Required workflow
+1. **PLAN ONLY FIRST:** Identify existing implementation, exact files, data model changes, authorization boundaries, migration strategy, tests and risks. Keep the plan concise; do not write code yet.
+2. Wait for explicit user approval of this phase's plan.
+3. Implement only approved scope using existing .NET/Angular/PostgreSQL architecture. Do not rewrite unrelated modules or add mock production data.
+4. Validate server-side scope, concurrency, idempotency and auditability where applicable. Use EF Core migrations only after examining existing history.
+5. Run targeted tests, relevant integration tests and builds. Report commands and outcomes honestly.
+6. Return modified-file summary, migration/rollback notes, known issues and a checklist of acceptance results. **STOP.** Do not begin Phase 09 or deploy without approval.
+
+## Efficiency constraints
+Read targeted files, not the whole repository indiscriminately. Reuse existing services/entities and conventions. Avoid redundant agents, documents, abstraction layers or dependencies. Keep changes small and reviewable.

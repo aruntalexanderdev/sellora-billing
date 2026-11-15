@@ -1,4 +1,4 @@
-import { HttpErrorResponse, provideHttpClient, withInterceptors } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -9,7 +9,7 @@ import { contextInterceptor } from '../http/context.interceptor';
 import { ConfirmDialogService } from '../../shared/ui/confirm-dialog/confirm-dialog.service';
 import { MAIN, NORTH, authResponse, branchKey, me, storeSession, tick, user } from '../testing/auth-fixtures';
 import { ToastService } from '../../shared/ui/toast/toast.service';
-import { ALL_BRANCHES } from './context.models';
+import { ALL_BRANCHES_LEGACY } from './context.models';
 import { ContextService, HARD_NAVIGATE } from './context.service';
 
 @Component({ template: '' })
@@ -133,13 +133,13 @@ describe('ContextService', () => {
     expect(ctx.workingBranchId()).toBe(MAIN.id);
   });
 
-  it('company-wide user without primary or preference sends no header and has no working branch', async () => {
+  it('company-wide user without primary or preference sends no header and settles on the default branch (FI-D11)', async () => {
     const { ctx, http } = setup();
     const done = ctx.hydrate();
     http.expectOne(ME_URL).flush(me({ accessScope: 'CompanyWide', primaryBranchId: null, allowedBranches: [{ ...MAIN, isPrimary: false }, NORTH] }));
     await done;
-    expect(ctx.workingBranchId()).toBeNull();
-    expect(ctx.workingBranch()?.id).toBe(MAIN.id); // display falls back to the default branch
+    expect(ctx.workingBranchId()).toBe(MAIN.id); // header is sent from now on
+    expect(ctx.workingBranch()?.id).toBe(MAIN.id);
   });
 
   it('status noBranch when /me lists no branches, or answers 403 no_branch_access', async () => {
@@ -361,118 +361,149 @@ describe('ContextService', () => {
   });
 });
 
-describe('All branches (D13) and switch rollback', () => {
+describe('Active branch only (FI-D11)', () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
   });
   afterEach(() => httpRef?.verify());
 
-  const WITH_ANY = { permissions: ['Sales.View'], permissionsAnyBranch: ['Sales.View', 'Sales.Create', 'Inventory.Adjust'] };
-
   async function ready(ctx: ContextService, http: HttpTestingController, over: Parameters<typeof me>[0] = {}) {
     const done = ctx.hydrate();
-    http.expectOne(ME_URL).flush(me({ ...WITH_ANY, ...over }));
+    http.expectOne(ME_URL).flush(me(over));
     await done;
   }
 
-  it('is offered with 2+ branches or to company-wide members, not to a single-branch assigned user', async () => {
-    const a = setup();
-    await ready(a.ctx, a.http);
-    expect(a.ctx.canChooseAll()).toBe(true);
-    TestBed.resetTestingModule();
-    const b = setup();
-    await ready(b.ctx, b.http, { allowedBranches: [MAIN] });
-    expect(b.ctx.canChooseAll()).toBe(false);
-    expect(b.ctx.canSwitchBranch()).toBe(false);
-    TestBed.resetTestingModule();
-    const c = setup();
-    await ready(c.ctx, c.http, { allowedBranches: [MAIN], accessScope: 'CompanyWide' });
-    expect(c.ctx.canChooseAll()).toBe(true);
-  });
-
-  it('selecting All branches clears the working branch, sends no header, uses permissionsAnyBranch and persists "all"', async () => {
+  it('has no All-branches mode: the legacy API is gone and a legacy target is rejected without a request', async () => {
     const { ctx, http } = setup();
     await ready(ctx, http);
-    expect(ctx.hasPermission('Sales.Create')).toBe(false);
-
-    const sw = ctx.switchBranch(ALL_BRANCHES);
-    await tick();
-    const req = http.expectOne(ME_URL);
-    expect(req.request.headers.has('X-Branch-Id')).toBe(false);
-    req.flush(me(WITH_ANY));
-    expect(await sw).toBe(true);
-
-    expect(ctx.isAllBranches()).toBe(true);
-    expect(ctx.workingBranchId()).toBeNull();
-    expect(ctx.workingBranch()).toBeNull();
-    expect(ctx.hasPermission('Sales.Create')).toBe(true);
-    expect(sessionStorage.getItem(branchKey())).toBe(ALL_BRANCHES);
-    expect(localStorage.getItem(branchKey())).toBe(ALL_BRANCHES);
-  });
-
-  it('falls back to the branch permissions when the server sends no permissionsAnyBranch', async () => {
-    const { ctx, http } = setup();
-    await ready(ctx, http, { permissionsAnyBranch: undefined });
-    const sw = ctx.switchBranch(ALL_BRANCHES);
-    await tick();
-    http.expectOne(ME_URL).flush(me({ permissions: ['Sales.View'], permissionsAnyBranch: undefined }));
-    await sw;
-    expect(ctx.hasPermission('Sales.View')).toBe(true);
-    expect(ctx.hasPermission('Sales.Create')).toBe(false);
-  });
-
-  it('the explicit choice survives a reload (not overridden by the primary default) and a later hydrate', async () => {
-    sessionStorage.setItem(branchKey(), ALL_BRANCHES);
-    const { ctx, http } = setup();
-    await ready(ctx, http);
-    expect(ctx.isAllBranches()).toBe(true);
-    expect(ctx.workingBranchId()).toBeNull();
-    const again = ctx.hydrate();
-    const req = http.expectOne(ME_URL);
-    expect(req.request.headers.has('X-Branch-Id')).toBe(false);
-    req.flush(me(WITH_ANY));
-    await again;
-    expect(ctx.isAllBranches()).toBe(true);
-  });
-
-  it('a stored "all" is dropped when the member can no longer choose it (default branch is used)', async () => {
-    sessionStorage.setItem(branchKey(), ALL_BRANCHES);
-    const { ctx, http } = setup();
-    await ready(ctx, http, { allowedBranches: [MAIN] });
-    expect(ctx.isAllBranches()).toBe(false);
-    expect(ctx.workingBranchId()).toBe(MAIN.id);
-    expect(sessionStorage.getItem(branchKey())).toBeNull();
-  });
-
-  it('switching from All back to a branch sends that header and restores branch permissions', async () => {
-    sessionStorage.setItem(branchKey(), ALL_BRANCHES);
-    const { ctx, http } = setup();
-    await ready(ctx, http);
-    const sw = ctx.switchBranch(NORTH.id);
-    await tick();
-    const req = http.expectOne(ME_URL);
-    expect(req.request.headers.get('X-Branch-Id')).toBe(NORTH.id);
-    req.flush(me({ permissions: ['Sales.View'], permissionsAnyBranch: WITH_ANY.permissionsAnyBranch }));
-    expect(await sw).toBe(true);
-    expect(ctx.isAllBranches()).toBe(false);
-    expect(ctx.workingBranchId()).toBe(NORTH.id);
-    expect(ctx.hasPermission('Sales.Create')).toBe(false);
-    expect(sessionStorage.getItem(branchKey())).toBe(NORTH.id);
-  });
-
-  it('rejects All when it is not offered', async () => {
-    const { ctx, http } = setup();
-    await ready(ctx, http, { allowedBranches: [MAIN] });
-    expect(await ctx.switchBranch(ALL_BRANCHES)).toBe(false);
+    expect('isAllBranches' in ctx).toBe(false);
+    expect('canChooseAll' in ctx).toBe(false);
+    expect(await ctx.switchBranch(ALL_BRANCHES_LEGACY)).toBe(false);
     http.expectNone(ME_URL);
   });
 
-  it('rolls back to the previous branch (and its persisted value) when hydrate fails', async () => {
+  it('migrates a persisted "all" preference to the primary branch and drops it from storage', async () => {
+    sessionStorage.setItem(branchKey(), ALL_BRANCHES_LEGACY);
+    localStorage.setItem(branchKey(), ALL_BRANCHES_LEGACY);
+    const { ctx, http } = setup();
+    const done = ctx.hydrate();
+    const req = http.expectOne(ME_URL);
+    expect(req.request.headers.has('X-Branch-Id')).toBe(false); // the server answers with the primary/default branch
+    req.flush(me());
+    await done;
+    expect(ctx.workingBranchId()).toBe(MAIN.id);
+    expect(sessionStorage.getItem(branchKey())).toBeNull();
+    expect(localStorage.getItem(branchKey())).toBeNull();
+  });
+
+  it('a company-wide user without a primary branch settles on the default branch, so the header is always sent afterwards', async () => {
+    const { ctx, http } = setup();
+    await ready(ctx, http, { accessScope: 'CompanyWide', primaryBranchId: null });
+    expect(ctx.workingBranchId()).toBe(MAIN.id);
+    const probe = TestBed.inject(HttpClient).get(`${API}/stock/overview`);
+    probe.subscribe();
+    expect(http.expectOne(`${API}/stock/overview`).request.headers.get('X-Branch-Id')).toBe(MAIN.id);
+  });
+
+  it('permissions are always the active branch set (companyPermissions never widen them)', async () => {
+    const { ctx, http } = setup();
+    await ready(ctx, http, { permissions: ['Sales.View'], companyPermissions: ['Reports.Sales'] });
+    expect(ctx.hasPermission('Reports.Sales')).toBe(false);
+    expect(ctx.canCompanyView('Reports.Sales')).toBe(true);
+  });
+
+  describe('contextVersion bumps on every working-branch / permission change', () => {
+    it('switchBranch', async () => {
+      const { ctx, http } = setup();
+      await ready(ctx, http);
+      const v = ctx.contextVersion();
+      const sw = ctx.switchBranch(NORTH.id);
+      await tick();
+      http.expectOne(ME_URL).flush(me({ permissions: ['Sales.View'] }));
+      await sw;
+      expect(ctx.contextVersion()).toBe(v + 1);
+    });
+
+    it('clearSelectionAndRehydrate (branch_header_invalid)', async () => {
+      const { ctx, http } = setup();
+      await ready(ctx, http);
+      const v = ctx.contextVersion();
+      const done = ctx.clearSelectionAndRehydrate();
+      http.expectOne(ME_URL).flush(me());
+      await done;
+      expect(ctx.contextVersion()).toBe(v + 1);
+    });
+
+    it('resyncPermissions when the permission set changed', async () => {
+      const { ctx, http } = setup();
+      await ready(ctx, http, { permissions: ['Sales.View', 'Sales.Create'] });
+      const v = ctx.contextVersion();
+      const done = ctx.resyncPermissions();
+      http.expectOne(ME_URL).flush(me({ permissions: ['Sales.View'] }));
+      await done;
+      expect(ctx.hasPermission('Sales.Create')).toBe(false);
+      expect(ctx.contextVersion()).toBe(v + 1);
+    });
+
+    it('resyncPermissions when the working branch changed', async () => {
+      const { ctx, http } = setup();
+      await ready(ctx, http, { permissions: ['Sales.View'] });
+      const v = ctx.contextVersion();
+      const done = ctx.resyncPermissions();
+      // the server no longer allows the working branch: only North remains
+      const north = me({ permissions: ['Sales.View'], allowedBranches: [NORTH], primaryBranchId: NORTH.id });
+      http.expectOne(ME_URL).flush(north);
+      await tick();
+      http.expectOne(ME_URL).flush(north); // re-asked with the branch it settled on
+      await done;
+      expect(ctx.workingBranchId()).toBe(NORTH.id);
+      expect(ctx.contextVersion()).toBe(v + 1);
+    });
+
+    it('resyncPermissions that changes nothing does not re-create the page', async () => {
+      const { ctx, http } = setup();
+      await ready(ctx, http);
+      const v = ctx.contextVersion();
+      const done = ctx.resyncPermissions();
+      http.expectOne(ME_URL).flush(me());
+      await done;
+      expect(ctx.contextVersion()).toBe(v);
+    });
+  });
+
+  describe('Company view state', () => {
+    it('is off by default, only active for company-level permissions, and reset by a branch switch', async () => {
+      const { ctx, http } = setup();
+      await ready(ctx, http, { companyPermissions: ['Reports.Sales'] });
+      expect(ctx.companyView()).toBe(false);
+      ctx.setCompanyView(true);
+      expect(ctx.companyViewActive('Reports.Sales')).toBe(true);
+      expect(ctx.companyViewActive('Reports.Stock')).toBe(false); // not held company-level
+
+      const sw = ctx.switchBranch(NORTH.id);
+      await tick();
+      http.expectOne(ME_URL).flush(me({ companyPermissions: ['Reports.Sales'] }));
+      await sw;
+      expect(ctx.companyView()).toBe(false);
+    });
+
+    it('is reset when the permission set changes on a resync', async () => {
+      const { ctx, http } = setup();
+      await ready(ctx, http, { permissions: ['Sales.View', 'Sales.Create'], companyPermissions: ['Reports.Sales'] });
+      ctx.setCompanyView(true);
+      const done = ctx.resyncPermissions();
+      http.expectOne(ME_URL).flush(me({ permissions: ['Sales.View'], companyPermissions: [] }));
+      await done;
+      expect(ctx.companyView()).toBe(false);
+      expect(ctx.companyViewActive('Reports.Sales')).toBe(false);
+    });
+  });
+
+  it('rolls back to the previous branch (and its persisted value) when hydrate fails, without bumping the version', async () => {
     const { ctx, http } = setup();
     await ready(ctx, http);
-    expect(sessionStorage.getItem(branchKey())).toBeNull();
-
+    const v = ctx.contextVersion();
     const sw = ctx.switchBranch(NORTH.id);
     await tick();
     http.expectOne(ME_URL).flush('boom', { status: 500, statusText: 'Server Error' });
@@ -480,22 +511,9 @@ describe('All branches (D13) and switch rollback', () => {
     expect(await sw).toBe(false);
     expect(ctx.workingBranchId()).toBe(MAIN.id);
     expect(ctx.status()).toBe('ready');
-    expect(ctx.hasPermission('Sales.View')).toBe(true);
     expect(sessionStorage.getItem(branchKey())).toBe(MAIN.id);
     expect(localStorage.getItem(branchKey())).toBe(MAIN.id);
     expect(TestBed.inject(ToastService).messages().length).toBe(1);
-  });
-
-  it('rolls back to All branches when the failed switch started from All', async () => {
-    sessionStorage.setItem(branchKey(), ALL_BRANCHES);
-    const { ctx, http } = setup();
-    await ready(ctx, http);
-    const sw = ctx.switchBranch(NORTH.id);
-    await tick();
-    http.expectOne(ME_URL).flush('boom', { status: 500, statusText: 'Server Error' });
-    expect(await sw).toBe(false);
-    expect(ctx.isAllBranches()).toBe(true);
-    expect(ctx.workingBranchId()).toBeNull();
-    expect(sessionStorage.getItem(branchKey())).toBe(ALL_BRANCHES);
+    expect(ctx.contextVersion()).toBe(v);
   });
 });

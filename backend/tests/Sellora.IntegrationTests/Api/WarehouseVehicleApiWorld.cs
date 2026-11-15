@@ -68,9 +68,10 @@ public sealed class WarehouseVehicleApiWorld
 
     public string NextCode(string prefix = "W") => prefix + Interlocked.Increment(ref _seed);
 
-    public async Task<HttpResponseMessage> SendAsync(HttpMethod method, string route, object? body = null, HttpClient? client = null)
+    public async Task<HttpResponseMessage> SendAsync(HttpMethod method, string route, object? body = null, HttpClient? client = null, Guid? branch = null)
     {
         using var request = new HttpRequestMessage(method, route);
+        if (branch is { } id) request.Headers.Add("X-Branch-Id", id.ToString());
         if (body is not null) request.Content = JsonContent.Create(body, options: ApiHost.Json);
         return await (client ?? Admin).SendAsync(request);
     }

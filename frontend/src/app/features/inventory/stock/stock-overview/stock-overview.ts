@@ -7,6 +7,9 @@ import type { DataTableColumn, DataTableRow, DataTableState } from '../../../../
 import { AuthService } from '../../../../core/auth/auth.service';
 import { StockService } from '../stock.service';
 import type { StockOverviewItem } from '../stock.models';
+import { CategoryFilter } from '../../../../shared/product-categories/category-filter';
+import type { CategorySelection } from '../../../../shared/product-categories/product-categories.models';
+import { UiCompanyViewToggle } from '../../../../shared/ui/company-view-toggle/company-view-toggle';
 
 const COLS: DataTableColumn[] = [
   { label: 'Item', align: 'left' },
@@ -34,7 +37,7 @@ export function locationText(p: StockOverviewItem): string {
 @Component({
   selector: 'app-stock-overview',
   standalone: true,
-  imports: [UiDataTable, LocationSelect],
+  imports: [UiCompanyViewToggle, UiDataTable, LocationSelect, CategoryFilter],
   templateUrl: './stock-overview.html',
   styleUrl: '../../../administration/users/user-list/user-list.scss',
 })
@@ -49,6 +52,8 @@ export class StockOverview implements OnInit {
   readonly page = signal(1);
   /** Location filter (null = all visible locations). */
   readonly locationId = signal<string | null>(null);
+  readonly categoryId = signal<string | null>(null);
+  readonly subcategoryId = signal<string | null>(null);
   readonly state = signal<DataTableState>('loading');
   readonly items = signal<StockOverviewItem[]>([]);
   readonly total = signal(0);
@@ -107,8 +112,20 @@ export class StockOverview implements OnInit {
     this.load();
   }
 
+  onCategoryChange(value: CategorySelection): void {
+    this.categoryId.set(value.categoryId);
+    this.subcategoryId.set(value.subcategoryId);
+    this.page.set(1);
+    this.load();
+  }
+
   onPageChange(page: number): void {
     this.page.set(page);
+    this.load();
+  }
+
+  onCompanyViewChange(): void {
+    this.page.set(1);
     this.load();
   }
 
@@ -118,7 +135,7 @@ export class StockOverview implements OnInit {
 
   private load(): void {
     this.state.set('loading');
-    this.stockService.overview({ search: this.search(), page: this.page(), pageSize: PAGE_SIZE, stockLocationId: this.locationId() }).subscribe({
+    this.stockService.overview({ search: this.search(), page: this.page(), pageSize: PAGE_SIZE, stockLocationId: this.locationId(), categoryId: this.categoryId(), subcategoryId: this.subcategoryId() }).subscribe({
       next: (res) => {
         this.items.set(res.items);
         this.total.set(res.total);

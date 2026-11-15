@@ -16,5 +16,5 @@ export interface GuardRequirement {
 
 export const BRANCH_KEY_PREFIX = 'sellora.branch';
 
-/** D13: the explicit "All branches" choice (persisted as the branch preference; never a branch id, which are Guids). */
-export const ALL_BRANCHES = 'all';
+/** Legacy persisted "All branches" preference (removed in FI-D11); migrated to the primary/default branch on hydrate. */
+export const ALL_BRANCHES_LEGACY = 'all';

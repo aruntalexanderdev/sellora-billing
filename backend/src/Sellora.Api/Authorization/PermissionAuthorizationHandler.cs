@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Abstractions;
 using Sellora.Infrastructure.Data;
 
@@ -12,7 +11,7 @@ namespace Sellora.Api.Authorization;
 /// scope to those branches so other branches' documents are invisible. Scoped (reads the membership context and database).
 /// </summary>
 public sealed class PermissionAuthorizationHandler(
-    IEffectivePermissionService permissions, IMembershipContext membership, BranchContext branchContext, SelloraDbContext db)
+    IEffectivePermissionService permissions, IMembershipContext membership, BranchContext branchContext)
     : AuthorizationHandler<PermissionRequirement>
 {
     protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
@@ -30,15 +29,8 @@ public sealed class PermissionAuthorizationHandler(
         }
         if (permitted.Count == 0) return;
 
-        var working = branchContext.RequestedBranchId ?? branchContext.PrimaryBranchId;
-        if (working is null)
-        {
-            var companyId = db.CompanyContext.CompanyId;
-            working = await db.Branches.IgnoreQueryFilters([CompanyQueryFilter.Name])
-                .Where(b => b.CompanyId == companyId && b.IsDefault)
-                .Select(b => (Guid?)b.Id)
-                .FirstOrDefaultAsync(ct);
-        }
+        // Active branch is resolved once by CompanyContextMiddleware (header, primary, company default).
+        var working = branchContext.ActiveBranchId;
         if (working is not { } id || !permitted.Contains(id) || !branchContext.CanAccess(id)) return;
 
         branchContext.Narrow(permitted);

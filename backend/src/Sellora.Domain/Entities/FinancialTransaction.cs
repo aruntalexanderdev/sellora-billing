@@ -20,6 +20,21 @@ public enum FinancialTransactionType
     OpeningBalance,
     /// <summary>One leg of a transfer between two accounts (out of one, into the other). Manual; has no source record.</summary>
     Transfer,
+    /// <summary>Money put into an account from outside the business's trading (capital, loan, deposit, unallocated customer receipt). Manual; In.</summary>
+    Funding,
+    /// <summary>The opposite entry of a manual entry (funding, transfer leg or opening balance) that was made in error. Manual.</summary>
+    Reversal,
+}
+
+/// <summary>Where funded money came from (Phase 07).</summary>
+public enum FundingSource
+{
+    OwnerCapital,
+    Loan,
+    CashDeposit,
+    /// <summary>An unallocated receipt from a customer: no receivable or revenue effect.</summary>
+    CustomerReceipt,
+    Other,
 }
 
 public enum MoneyDirection
@@ -82,6 +97,20 @@ public class FinancialTransaction : ICompanyOwned
 
     /// <summary>Shared by the two legs of a transfer.</summary>
     public Guid? TransferGroupId { get; set; }
+
+    /// <summary>Set exactly when <see cref="Type"/> is Funding.</summary>
+    public FundingSource? FundingSource { get; set; }
+    public string? SourceReference { get; set; }
+    public string? Counterparty { get; set; }
+
+    /// <summary>Only for CustomerReceipt funding.</summary>
+    public Guid? CustomerId { get; set; }
+
+    /// <summary>Set exactly when <see cref="Type"/> is Reversal: the entry this one cancels out. An entry is reversed at most once.</summary>
+    public Guid? ReversalOfTransactionId { get; set; }
+
+    /// <summary>Mandatory for Reversal and for Funding from Other.</summary>
+    public string? Reason { get; set; }
 
     public string? Notes { get; set; }
 

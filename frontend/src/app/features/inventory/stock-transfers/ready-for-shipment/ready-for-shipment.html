@@ -1,0 +1,35 @@
+<div class="page-head">
+  <div>
+    <h1>Ready for shipment</h1>
+    <p>Approved transfer requests with quantity still to ship.</p>
+  </div>
+  <a routerLink="/inventory/stock-transfers">All transfers</a>
+</div>
+
+<ui-company-view-toggle permission="StockTransfers.Dispatch" (changed)="onCompanyViewChange()" />
+
+<div class="report-filters">
+  <div class="report-filter-field" data-testid="source-filter">
+    <label class="report-filter-label">Source</label>
+    <app-location-select purpose="filter" label="Source" allLabel="All sources" [value]="sourceLocationId()" (valueChange)="onSourceChange($event)" />
+  </div>
+</div>
+
+<app-load-error [message]="errorMessage()" />
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search transfer no…"
+  (searchChange)="onSearch($event)"
+  emptyTitle="Nothing is waiting for shipment"
+  emptyBody="Approved requests with remaining quantity appear here."
+  (retry)="retry()"
+  [footerText]="total() + ' request' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
+/>

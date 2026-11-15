@@ -19,7 +19,7 @@ namespace Sellora.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/stock-transfers")]
-public class StockTransfersController(IStockTransferService transfers, SelloraDbContext db, BranchContext branchContext) : ControllerBase
+public class StockTransfersController(IStockTransferService transfers, SelloraDbContext db, BranchContext branchContext, IEffectivePermissionService effectivePermissions) : ControllerBase
 {
     [HttpGet]
     [Authorize(Policy = "StockTransfers.View")]
@@ -38,6 +38,14 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
             return ValidationProblem(ModelState);
         }
 
+        // Phase 01 (G7): an explicit location filter must be a visible location (one 403, no existence leak).
+        if (sourceLocationId is not null || destinationLocationId is not null)
+        {
+            var visibility = await StockVisibility.LoadAsync(db, effectivePermissions, "StockTransfers.View", ct);
+            if (visibility.DenyUnlessVisible(this, sourceLocationId) is { } deniedSource) return deniedSource;
+            if (visibility.DenyUnlessVisible(this, destinationLocationId) is { } deniedDestination) return deniedDestination;
+        }
+
         // Filters are applied to the root query before projection.
         var query = db.StockTransfers.AsNoTracking().AsQueryable();
         if (status is not null) query = query.Where(t => t.Status == status);
@@ -45,7 +53,7 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
         if (destinationLocationId is not null) query = query.Where(t => t.DestinationLocationId == destinationLocationId);
 
         // incoming/outgoing are relative to the caller's working branch; without one (company-wide, no X-Branch-Id) there is nothing to be relative to.
-        var working = branchContext.RequestedBranchId ?? branchContext.PrimaryBranchId;
+        var working = branchContext.ActiveBranchId;
         if (working is { } w)
         {
             if (dir == "incoming") query = query.Where(t => t.DestinationBranchId == w);

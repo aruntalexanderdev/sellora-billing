@@ -5,6 +5,8 @@ import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angula
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
+import { ProductCategoriesService } from '../../../../shared/product-categories/product-categories.service';
+import type { ProductCategory, ProductSubcategory } from '../../../../shared/product-categories/product-categories.models';
 import { ProductsService } from '../products.service';
 import { UnitsService } from '../../../masters/units/units.service';
 import { TaxesService } from '../../../masters/taxes/taxes.service';
@@ -34,6 +36,7 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
   private readonly fb = inject(FormBuilder);
   private readonly productsService = inject(ProductsService);
   private readonly unitsService = inject(UnitsService);
+  private readonly categoriesService = inject(ProductCategoriesService);
   private readonly taxesService = inject(TaxesService);
   private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
@@ -55,13 +58,24 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
     );
   });
   readonly taxes = signal<TaxItem[]>([]);
+  /** All categories (active and inactive); inactive ones are offered only while they are the current selection. */
+  readonly allCategories = signal<ProductCategory[]>([]);
+  private readonly selectedCategoryId = signal('');
+  private readonly selectedSubcategoryId = signal('');
+
+  readonly categoryOptions = computed(() => this.allCategories().filter((c) => c.isActive || c.id === this.selectedCategoryId()));
+  readonly subcategoryOptions = computed<ProductSubcategory[]>(() => {
+    const cat = this.allCategories().find((c) => c.id === this.selectedCategoryId());
+    return (cat?.subcategories ?? []).filter((s) => s.isActive || s.id === this.selectedSubcategoryId());
+  });
   /** Stock history or a locked unit row exists: the base unit cannot change (R9). */
   readonly isBaseUnitLocked = signal(false);
 
   readonly form = this.fb.nonNullable.group({
     sku: ['', Validators.required],
     name: ['', Validators.required],
-    category: [''],
+    categoryId: [''],
+    subcategoryId: [''],
     baseUnitId: ['', Validators.required],
     taxId: ['', Validators.required],
     reorderLevel: [0, [Validators.required, Validators.min(0)]],
@@ -82,6 +96,13 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
 
   constructor() {
     this.form.controls.baseUnitId.valueChanges.pipe(takeUntilDestroyed()).subscribe((id) => this.syncBaseRow(id));
+    this.form.controls.categoryId.valueChanges.pipe(takeUntilDestroyed()).subscribe((id) => {
+      this.selectedCategoryId.set(id);
+      // Changing the category invalidates the subcategory.
+      this.form.controls.subcategoryId.setValue('', { emitEvent: false });
+      this.selectedSubcategoryId.set('');
+    });
+    this.form.controls.subcategoryId.valueChanges.pipe(takeUntilDestroyed()).subscribe((id) => this.selectedSubcategoryId.set(id));
   }
 
   hasUnsavedChanges(): boolean {
@@ -90,6 +111,7 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
 
   ngOnInit(): void {
     this.unitsService.list().subscribe({ next: (units) => this.allUnits.set(units) });
+    this.categoriesService.list(true).subscribe({ next: (list) => this.allCategories.set(list) });
     this.taxesService.list().subscribe({ next: (taxes) => this.taxes.set(taxes.filter((t) => t.isActive)) });
 
     if (this.isEdit()) {
@@ -105,7 +127,8 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
     this.form.patchValue({
       sku: p.sku,
       name: p.name,
-      category: p.category ?? '',
+      categoryId: p.categoryId ?? '',
+      subcategoryId: p.subcategoryId ?? '',
       baseUnitId: p.baseUnitId,
       taxId: p.taxId,
       reorderLevel: p.reorderLevel,
@@ -142,7 +165,8 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
     return {
       sku: v.sku,
       name: v.name,
-      category: v.category || null,
+      categoryId: v.categoryId || null,
+      subcategoryId: v.categoryId ? v.subcategoryId || null : null,
       baseUnitId: v.baseUnitId,
       taxId: v.taxId,
       reorderLevel: v.reorderLevel,

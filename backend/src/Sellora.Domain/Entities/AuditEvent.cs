@@ -73,6 +73,15 @@ public static class AuditActions
     public const string WarehouseStatusChanged = "warehouse.status_changed";
     public const string VehicleStatusChanged = "vehicle.status_changed";
 
+    // Phase 01 (FI-D14): user administration (payloads never carry passwords or hashes).
+    public const string UserUpdated = "user.updated";
+    public const string UserStatusChanged = "user.status_changed";
+    public const string UserPasswordReset = "user.password_reset";
+
+    // Phase 07 (FI-D21): cash and bank postings.
+    public const string CashFunded = "cash.funded";
+    public const string CashTransferred = "cash.transferred";
+    public const string CashReversed = "cash.reversed";
     // Products: hard delete of a product without history (the only product change audited so far).
     public const string ProductDeleted = "product.deleted";
 }
@@ -88,5 +97,7 @@ public static class AuditTargets
     public const string Branch = "Branch";
     public const string Warehouse = "Warehouse";
     public const string Vehicle = "Vehicle";
+    public const string User = "User";
+    public const string FinancialTransaction = "FinancialTransaction";
     public const string Product = "Product";
 }

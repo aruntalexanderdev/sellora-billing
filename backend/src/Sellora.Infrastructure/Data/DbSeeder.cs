@@ -46,7 +46,8 @@ public static class DbSeeder
         var units = await SeedUnitsAsync(db, ct);
         var taxes = await SeedTaxesAsync(db, ct);
         await SeedSuppliersAsync(db, currencies, ct);
-        await SeedProductsAsync(db, units, taxes, ct);
+        var categories = await SeedProductCategoriesAsync(db, ct);
+        await SeedProductsAsync(db, units, taxes, categories, ct);
         await SeedCustomersAsync(db, ct);
         await SeedExpenseCategoriesAsync(db, ct);
         await SeedMainCashAccountAsync(db, ct);
@@ -119,6 +120,11 @@ public static class DbSeeder
         await GrantNewPermissionToExistingHoldersAsync(db, "Sales.Receive", "Sales.Create", ct);
         // Phase 7: assigning roles was part of Users.Create/Users.Edit; the migration does the same for existing databases (B4).
         await GrantNewPermissionToExistingHoldersAsync(db, PermissionCatalog.CompanyUsersAssignRoles, ["Users.Create", "Users.Edit"], ct);
+        // Phase 08: managing categories was part of Inventory.Edit (free-text Category); the migration does the same for existing databases.
+        await GrantNewPermissionToExistingHoldersAsync(db, "Inventory.Categories", "Inventory.Edit", ct);
+        // Phase 07: funding and reversal are new; existing CashBank.Manage holders keep them (the migration does the same).
+        await GrantNewPermissionToExistingHoldersAsync(db, "CashBank.Fund", "CashBank.Manage", ct);
+        await GrantNewPermissionToExistingHoldersAsync(db, "CashBank.Reverse", "CashBank.Manage", ct);
     }
 
     // Recording payments used to be covered by an edit permission, so every role holding that permission keeps
@@ -433,7 +439,37 @@ public static class DbSeeder
             [new("pc", null, 1m), new("box", "pc", 10m), new("hctn", "box", 5m), new("fctn", "hctn", 2m)]),
     ];
 
-    private static async Task SeedProductsAsync(SelloraDbContext db, Dictionary<string, Unit> units, Dictionary<decimal, Tax> taxes, CancellationToken ct)
+    /// <summary>Category masters for the demo products (idempotent, per company through the query filter); an existing category is
+    /// matched by case-insensitive name and never renamed or reactivated.</summary>
+    private static async Task<Dictionary<string, ProductCategory>> SeedProductCategoriesAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        var existing = await db.ProductCategories.ToListAsync(ct);
+        var byName = existing.ToDictionary(c => c.Name, StringComparer.OrdinalIgnoreCase);
+        var usedCodes = existing.Select(c => c.Code).ToHashSet(StringComparer.Ordinal);
+        var sortOrder = existing.Count == 0 ? 0 : existing.Max(c => c.SortOrder);
+        foreach (var name in ProductSeedData.Select(p => p.Category).Distinct().Order(StringComparer.OrdinalIgnoreCase))
+        {
+            if (byName.ContainsKey(name)) continue;
+            var baseCode = new string(name.ToUpperInvariant().Select(ch => char.IsAsciiLetterOrDigit(ch) ? ch : '-').ToArray()).Trim('-');
+            if (baseCode.Length > 20) baseCode = baseCode[..20].Trim('-');
+            if (baseCode.Length == 0) baseCode = "CAT";
+            var code = baseCode;
+            for (var n = 2; usedCodes.Contains(code); n++)
+            {
+                var suffix = "-" + n;
+                code = baseCode[..Math.Min(baseCode.Length, 20 - suffix.Length)].Trim('-') + suffix;
+            }
+            usedCodes.Add(code);
+            var category = new ProductCategory { Id = Guid.NewGuid(), Code = code, Name = name, SortOrder = ++sortOrder, CreatedAt = DateTime.UtcNow };
+            db.ProductCategories.Add(category);
+            byName[name] = category;
+        }
+        await db.SaveChangesAsync(ct);
+        return byName;
+    }
+
+    private static async Task SeedProductsAsync(SelloraDbContext db, Dictionary<string, Unit> units, Dictionary<decimal, Tax> taxes,
+        Dictionary<string, ProductCategory> categories, CancellationToken ct)
     {
         var existingSkus = await db.Products.Select(p => p.Sku).ToListAsync(ct);
         foreach (var seed in ProductSeedData)
@@ -451,7 +487,8 @@ public static class DbSeeder
                 Id = Guid.NewGuid(),
                 Sku = seed.Sku,
                 Name = seed.Name,
-                Category = seed.Category,
+                Category = categories[seed.Category].Name,
+                CategoryId = categories[seed.Category].Id,
                 BaseUnitId = units[baseSeed.UnitCode].Id,
                 TaxId = taxes[seed.TaxRate].Id,
                 ReorderLevel = seed.ReorderLevel,

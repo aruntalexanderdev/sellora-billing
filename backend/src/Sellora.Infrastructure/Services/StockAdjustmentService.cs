@@ -132,11 +132,10 @@ public class StockAdjustmentService(SelloraDbContext db, IEffectivePermissionSer
         if (!isIncrease)
         {
             // 10. Decrease: never below zero; FIFO over batches; average cost unchanged. Cost input is ignored.
-            if (baseQty > beforeQty)
-            {
-                throw new DomainValidationException("Quantity",
-                    $"Cannot remove {StockQuantity.Format(input.Quantity)} {productUnit.Unit.ShortCode} ({StockQuantity.Format(baseQty)} {baseCode}) — only {StockQuantity.Format(beforeQty)} {baseCode} is in stock.");
-            }
+            await StockAvailability.EnsureAsync(db, new Dictionary<(Guid LocationId, Guid ProductId), StockItem> { [(locationId, product.Id)] = stockItem },
+                [new StockAvailability.Requirement(locationId, product.Id, baseQty)],
+                shortage => new DomainValidationException("Quantity",
+                    $"Cannot remove {StockQuantity.Format(input.Quantity)} {productUnit.Unit.ShortCode} ({StockQuantity.Format(baseQty)} {baseCode}) — only {StockQuantity.Format(shortage.Available)} {baseCode} is in stock."), ct);
 
             consumed = await StockPosting.IssueFifoAsync(db, stockItem, baseQty,
                 shortBy => new DomainValidationException("Quantity", $"Batch stock is short by {StockQuantity.Format(shortBy)} — cannot remove {StockQuantity.Format(baseQty)} {baseCode}."), ct);

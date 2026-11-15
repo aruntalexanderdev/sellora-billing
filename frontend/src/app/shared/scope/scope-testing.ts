@@ -8,7 +8,6 @@ export interface ScopeStub {
   accessScope?: string;
   /** Number of allowed branches (default 1). */
   branches?: number;
-  allBranches?: boolean;
 }
 
 /** Spec helper: a minimal ContextService + HTTP testing providers for components that render branch/location selects. */
@@ -22,9 +21,11 @@ export function provideScopeStubs(stub: ScopeStub = {}): (Provider | Environment
       useValue: {
         accessScope: signal(stub.accessScope ?? 'AssignedBranches'),
         allowedBranches: signal(allowed),
-        isAllBranches: signal(stub.allBranches ?? false),
-        workingBranch: signal(stub.allBranches ? null : allowed[0] ?? null),
+        workingBranch: signal(allowed[0] ?? null),
         contextVersion: signal(0),
+        companyPermissions: signal(new Set<string>()),
+        companyViewActive: () => false,
+        setCompanyView: () => undefined,
         company: signal({ id: 'c1', name: 'Acme' }),
       },
     },

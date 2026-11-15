@@ -3,9 +3,14 @@
     <h1>Stock transfers</h1>
     <p>Move stock between stores, warehouses and vehicles. Dispatched goods are held in transit until received.</p>
   </div>
-  @if (canCreate()) {
-    <ui-button variant="primary" (onClick)="goToCreate()">+ New transfer</ui-button>
-  }
+  <div class="head-actions">
+    @if (canViewQueue()) {
+      <a routerLink="/inventory/stock-transfers/ready-for-shipment" data-testid="queue-link">Ready for shipment</a>
+    }
+    @if (canCreate()) {
+      <ui-button variant="primary" (onClick)="goToCreate()">+ New transfer</ui-button>
+    }
+  </div>
 </div>
 
 <div class="report-filters">
