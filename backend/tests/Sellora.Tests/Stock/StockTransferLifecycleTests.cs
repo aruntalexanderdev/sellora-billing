@@ -27,6 +27,7 @@ public class StockTransferLifecycleTests
             ["submit"] = ([StockTransferStatus.Draft], StockTransferStatus.Requested),
             ["approve"] = ([StockTransferStatus.Requested], StockTransferStatus.Approved),
             ["reject"] = ([StockTransferStatus.Requested], StockTransferStatus.Rejected),
+            ["close"] = ([StockTransferStatus.PartiallyFulfilled], StockTransferStatus.Closed),
             ["cancel"] = ([StockTransferStatus.Draft, StockTransferStatus.Requested, StockTransferStatus.Approved], StockTransferStatus.Cancelled),
             ["dispatch"] = ([StockTransferStatus.Approved], null),
             ["receive"] = ([StockTransferStatus.Dispatched, StockTransferStatus.PartiallyReceived], null),
@@ -62,6 +63,26 @@ public class StockTransferLifecycleTests
         }
         await w.ApproveAsync(t.Id);
         if (status == StockTransferStatus.Approved) return (w, await w.ReloadAsync(t.Id));
+        // Request-level fulfilment states (FI-D26) are reached through shipments in Phase 04; here the line counters are set directly
+        // (30 of 100 pc shipped; Fulfilled = everything shipped). Closed goes through the real close operation.
+        if (status is StockTransferStatus.PartiallyFulfilled or StockTransferStatus.Fulfilled or StockTransferStatus.Closed)
+        {
+            await using (var db = w.Db())
+            {
+                var row = await db.StockTransfers.Include(x => x.Lines).SingleAsync(x => x.Id == t.Id);
+                row.Status = status == StockTransferStatus.Fulfilled ? StockTransferStatus.Fulfilled : StockTransferStatus.PartiallyFulfilled;
+                var l = row.Lines.Single();
+                l.DispatchedBaseQty = status == StockTransferStatus.Fulfilled ? l.RequestedBaseQty : 30m;
+                l.AllocatedBaseQty = l.DispatchedBaseQty;
+                await db.SaveChangesAsync();
+            }
+            if (status == StockTransferStatus.Closed)
+            {
+                await using var db = w.Db();
+                await new StockTransferService(db, TransferWorld.Everything()).CloseAsync(t.Id, "short", w.W.UserId);
+            }
+            return (w, await w.ReloadAsync(t.Id));
+        }
         await w.DispatchAsRequestedAsync(t.Id);
         var line = (await w.ReloadAsync(t.Id)).Lines.Single();
         if (status == StockTransferStatus.PartiallyReceived) await w.ReceiveAsync(t.Id, line.Id, w.Box, 3m);
@@ -79,6 +100,7 @@ public class StockTransferLifecycleTests
             case "submit": return await service.SubmitAsync(t.Id, w.W.UserId);
             case "approve": return await service.ApproveAsync(t.Id, w.W.UserId);
             case "reject": return await service.RejectAsync(t.Id, "no", w.W.UserId);
+            case "close": return await service.CloseAsync(t.Id, "no more stock coming", w.W.UserId);
             case "cancel": return await service.CancelAsync(t.Id, "changed mind", w.W.UserId);
             case "dispatch": return await service.DispatchAsync(t.Id, new DispatchStockTransferInput([new DispatchStockTransferLineInput(line.Id, w.Box, 10m)]), w.W.UserId);
             case "receive": return (await service.ReceiveAsync(t.Id, new ReceiveStockTransferInput(null, [new ReceiveStockTransferLineInput(line.Id, w.Box, 1m, 0m)]), w.W.UserId))?.Transfer;
@@ -111,7 +133,7 @@ public class StockTransferLifecycleTests
             Assert.Equal(from, result!.Status);
             var after = await w.ReloadAsync(t.Id);
             // Nothing is re-stamped: the first actor/time stay.
-            Assert.Equal((before.SubmittedAt, before.ApprovedAt, before.RejectedAt, before.CancelledAt), (after.SubmittedAt, after.ApprovedAt, after.RejectedAt, after.CancelledAt));
+            Assert.Equal((before.SubmittedAt, before.ApprovedAt, before.RejectedAt, before.CancelledAt, before.ClosedAt), (after.SubmittedAt, after.ApprovedAt, after.RejectedAt, after.CancelledAt, after.ClosedAt));
             Assert.Equal(movementsBefore, (await w.MovementsAsync(t.Id)).Count);
         }
         else
@@ -128,6 +150,7 @@ public class StockTransferLifecycleTests
     [InlineData("approve")]
     [InlineData("reject")]
     [InlineData("cancel")]
+    [InlineData("close")]
     [InlineData("dispatch")]
     [InlineData("receive")]
     [InlineData("resolve")]
