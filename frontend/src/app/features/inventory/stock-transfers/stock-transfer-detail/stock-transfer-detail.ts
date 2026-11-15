@@ -12,11 +12,18 @@ import { loadErrorText, problemText } from '../../../../shared/scope/problem-tex
 import { TransferDispatchDialog } from '../transfer-dialogs/transfer-dispatch-dialog';
 import { TransferReceiveDialog } from '../transfer-dialogs/transfer-receive-dialog';
 import { TransferResolveDialog } from '../transfer-dialogs/transfer-resolve-dialog';
-import { IdempotentSubmission, availableActions, endpointLabel, formatBase, statusTone, type TransferAction } from '../stock-transfer-rules';
+import { IdempotentSubmission, availableActions, baseToUnitQty, closeProblemMessage, endpointLabel, formatBase, statusLabel, statusTone, type TransferAction } from '../stock-transfer-rules';
 import { StockTransfersService } from '../stock-transfers.service';
-import type { StockTransfer, StockTransferActor, StockTransferLine } from '../stock-transfers.models';
+import type { StockTransfer, StockTransferActor, StockTransferHistoryEntry, StockTransferLine } from '../stock-transfers.models';
 
-type Panel = 'reject' | 'cancel' | 'dispatch' | 'receive' | 'resolve';
+type Panel = 'reject' | 'cancel' | 'close' | 'dispatch' | 'receive' | 'resolve';
+
+/** Converted display of a base quantity in the line's request unit; '' when not exactly representable. */
+function lineUnitDisplay(l: StockTransferLine, baseQty: number): string {
+  if (l.conversionFactorToBase === 1) return '';
+  const qty = baseToUnitQty(baseQty, { decimalPlaces: 3, conversionFactorToBase: l.conversionFactorToBase });
+  return qty === null ? '' : `${formatQuantity(qty, 0)} ${l.unitCode}`;
+}
 
 interface TimelineEntry {
   label: string;
@@ -63,11 +70,22 @@ export class StockTransferDetail implements OnInit {
       t.dispatched ? { label: 'Dispatched', actor: t.dispatched } : null,
       t.completed ? { label: 'Completed', actor: t.completed } : null,
       t.cancelled ? { label: 'Cancelled', actor: t.cancelled, note: t.cancellationReason } : null,
+      t.closedAt ? { label: 'Closed (short)', actor: { userId: null, userName: t.closedByName, at: t.closedAt }, note: t.closureReason } : null,
     ];
     return entries.filter((e): e is TimelineEntry => e !== null);
   });
 
+  readonly history = signal<StockTransferHistoryEntry[]>([]);
+  readonly historyError = signal<string | null>(null);
+
   readonly tone = statusTone;
+  readonly statusText = statusLabel;
+  readonly cost = (n: number | null) => (n === null || n === undefined ? '—' : String(n));
+  /** Base quantity shown in the line's unit (e.g. "= 3 box") when it converts exactly; empty otherwise. */
+  readonly inLineUnit = (l: StockTransferLine, baseQty: number) => {
+    const u = lineUnitDisplay(l, baseQty);
+    return u ? `≈ ${u}` : '';
+  };
   readonly label = endpointLabel;
   readonly factor = (n: number) => formatChainQuantity(n);
   readonly base = (l: StockTransferLine, n: number) => formatBase(l, n);
@@ -90,11 +108,20 @@ export class StockTransferDetail implements OnInit {
       next: (t) => {
         this.transfer.set(t);
         this.loading.set(false);
+        this.loadHistory();
       },
       error: (err) => {
         this.loadError.set(loadErrorText(err, 'Could not load this transfer.'));
         this.loading.set(false);
       },
+    });
+  }
+
+  loadHistory(): void {
+    this.historyError.set(null);
+    this.service.history(this.route.snapshot.paramMap.get('id')!).subscribe({
+      next: (h) => this.history.set(h),
+      error: (err) => this.historyError.set(problemText(err, 'Could not load the history.')),
     });
   }
 
@@ -121,6 +148,7 @@ export class StockTransferDetail implements OnInit {
   /** A dialog or action finished: show the server's new state. */
   onUpdated(t: StockTransfer, message?: string): void {
     this.transfer.set(t);
+    this.loadHistory();
     this.panel.set(null);
     this.actionError.set(null);
     if (message) this.toast.show(message);
@@ -141,6 +169,11 @@ export class StockTransferDetail implements OnInit {
   confirmReason(kind: 'reject' | 'cancel', reason: string | null): void {
     if (!reason) return;
     this.run(kind, (id, key) => (kind === 'reject' ? this.service.reject(id, reason, key) : this.service.cancel(id, reason, key)), kind === 'reject' ? 'Transfer rejected.' : 'Transfer cancelled.');
+  }
+
+  confirmClose(reason: string | null): void {
+    if (!reason) return;
+    this.run('close', (id, key) => this.service.close(id, reason, key), 'Remaining quantity closed.');
   }
 
   /** The submission for (this transfer, action); kept for the page's lifetime so reopening a dialog replays the same key. */
@@ -172,7 +205,7 @@ export class StockTransferDetail implements OnInit {
       error: (err) => {
         this.busy.set(false);
         sub.failed(err);
-        this.actionError.set(problemText(err, problemMessage(toProblem(err))));
+        this.actionError.set((name === 'close' ? closeProblemMessage(toProblem(err)) : null) ?? problemText(err, problemMessage(toProblem(err))));
       },
     });
   }

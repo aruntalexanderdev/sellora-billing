@@ -73,6 +73,12 @@ export const INVENTORY_ROUTES: Routes = [
     data: { group: 'Inventory', page: 'Stock Transfers' },
   },
   {
+    path: 'stock-transfers/ready-for-shipment',
+    loadComponent: () => import('./stock-transfers/ready-for-shipment/ready-for-shipment').then((m) => m.ReadyForShipment),
+    canActivate: [permissionGuard('StockTransfers.Dispatch')],
+    data: { group: 'Inventory', page: 'Ready for shipment' },
+  },
+  {
     path: 'stock-transfers/new',
     loadComponent: () => import('./stock-transfers/stock-transfer-form/stock-transfer-form').then((m) => m.StockTransferForm),
     canActivate: [permissionGuard('StockTransfers.Create')],

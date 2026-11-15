@@ -2498,7 +2498,10 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex(new[] { "ProductId" }, "IX_StockItems_ProductId");
 
-                    b.ToTable("StockItems");
+                    b.ToTable("StockItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_StockItems_QuantityOnHand_NonNegative", "\"QuantityOnHand\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.StockLocation", b =>
