@@ -285,6 +285,13 @@ public static class IsolationCases
         "StockTransfersController.Receive", "StockTransfersController.Resolve",
         // Functional improvements Phase 03: TransferRequestFulfilmentApiTests.OtherCompanysTransfer_IsA404ForCloseAndHistory_AndNeverInTheReadyQueue (same IsolationWorld).
         "StockTransfersController.Close", "StockTransfersController.History", "StockTransfersController.ReadyForShipment",
+        // Functional improvements Phase 04: ShipmentsApiTests.OtherCompanysShipmentConsignmentAndReservation_Are404_ForReadsAndEveryWrite_AndNothingChanges (same IsolationWorld):
+        // the other company's shipment / consignment / reservation is never listed, its detail is a 404 and every write on it (update, cancel, vehicles, allocations, assign, load,
+        // release) is a 404; creates naming its source location / vehicle / request line are a 400 on the field.
+        "ShipmentsController.List", "ShipmentsController.Get", "ShipmentsController.Create", "ShipmentsController.Update", "ShipmentsController.Cancel",
+        "ShipmentsController.AddVehicle", "ShipmentsController.RemoveVehicle", "ShipmentsController.Allocate", "ShipmentsController.ChangeAllocation",
+        "ShipmentsController.CancelAllocation", "ShipmentsController.AssignVehicle", "ShipmentsController.CancelConsignment", "ShipmentsController.Load",
+        "ConsignmentsController.List", "ConsignmentsController.Get", "StockReservationsController.List", "StockReservationsController.Release",
         // Phase 08: category / subcategory masters - ProductCategoriesApiTests.OtherCompanysCategory_IsNeverListedAnd404OnUpdateAndStatus (never listed, 404 on every write)
         // and Product_WithAnotherCompanysCategoryOrSubcategory_Is400AndChangesNothing (product create/update naming a foreign category / subcategory is a 400).
         "ProductCategoriesController.List", "ProductCategoriesController.Create", "ProductCategoriesController.Update", "ProductCategoriesController.SetActive",
