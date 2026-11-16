@@ -283,6 +283,8 @@ public static class IsolationCases
         "StockTransfersController.List", "StockTransfersController.Get", "StockTransfersController.Create", "StockTransfersController.Update", "StockTransfersController.Submit",
         "StockTransfersController.Approve", "StockTransfersController.Reject", "StockTransfersController.Cancel", "StockTransfersController.Dispatch",
         "StockTransfersController.Receive", "StockTransfersController.Resolve",
+        // Functional improvements Phase 03: TransferRequestFulfilmentApiTests.OtherCompanysTransfer_IsA404ForCloseAndHistory_AndNeverInTheReadyQueue (same IsolationWorld).
+        "StockTransfersController.Close", "StockTransfersController.History", "StockTransfersController.ReadyForShipment",
         // Phase 08: category / subcategory masters - ProductCategoriesApiTests.OtherCompanysCategory_IsNeverListedAnd404OnUpdateAndStatus (never listed, 404 on every write)
         // and Product_WithAnotherCompanysCategoryOrSubcategory_Is400AndChangesNothing (product create/update naming a foreign category / subcategory is a 400).
         "ProductCategoriesController.List", "ProductCategoriesController.Create", "ProductCategoriesController.Update", "ProductCategoriesController.SetActive",

@@ -2708,6 +2708,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid?>("CancelledByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ClosedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClosureReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -2780,6 +2790,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("CancelledByUserId");
 
+                    b.HasIndex("ClosedByUserId");
+
                     b.HasIndex("CompletedByUserId");
 
                     b.HasIndex("CreatedByUserId");
@@ -2806,22 +2818,24 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .IsUnique();
 
                     b.HasIndex(new[] { "CompanyId", "DestinationLocationId" }, "IX_StockTransfers_Destination_Open")
-                        .HasFilter("\"Status\" NOT IN ('Completed', 'Cancelled', 'Rejected')");
+                        .HasFilter("\"Status\" NOT IN ('Completed', 'Cancelled', 'Rejected', 'Fulfilled', 'Closed')");
 
                     b.HasIndex(new[] { "CompanyId", "SourceLocationId" }, "IX_StockTransfers_Source_Open")
-                        .HasFilter("\"Status\" NOT IN ('Completed', 'Cancelled', 'Rejected')");
+                        .HasFilter("\"Status\" NOT IN ('Completed', 'Cancelled', 'Rejected', 'Fulfilled', 'Closed')");
 
                     b.ToTable("StockTransfers", t =>
                         {
-                            t.HasCheckConstraint("CK_StockTransfers_Actors_Paired", "(\"SubmittedAt\" IS NULL) = (\"SubmittedByUserId\" IS NULL) AND (\"ApprovedAt\" IS NULL) = (\"ApprovedByUserId\" IS NULL) AND (\"RejectedAt\" IS NULL) = (\"RejectedByUserId\" IS NULL) AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL) AND (\"CompletedAt\" IS NULL) = (\"CompletedByUserId\" IS NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL)");
+                            t.HasCheckConstraint("CK_StockTransfers_Actors_Paired", "(\"SubmittedAt\" IS NULL) = (\"SubmittedByUserId\" IS NULL) AND (\"ApprovedAt\" IS NULL) = (\"ApprovedByUserId\" IS NULL) AND (\"RejectedAt\" IS NULL) = (\"RejectedByUserId\" IS NULL) AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL) AND (\"CompletedAt\" IS NULL) = (\"CompletedByUserId\" IS NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL) AND (\"ClosedAt\" IS NULL) = (\"ClosedByUserId\" IS NULL)");
 
                             t.HasCheckConstraint("CK_StockTransfers_Endpoints_Differ", "\"SourceLocationId\" <> \"DestinationLocationId\"");
 
                             t.HasCheckConstraint("CK_StockTransfers_Endpoints_NotTransit", "\"SourceLocationId\" <> \"TransitLocationId\" AND \"DestinationLocationId\" <> \"TransitLocationId\"");
 
-                            t.HasCheckConstraint("CK_StockTransfers_Status_Approval", "(\"Status\" NOT IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed') OR \"ApprovedAt\" IS NOT NULL) AND (\"Status\" IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled') OR \"ApprovedAt\" IS NULL)");
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Approval", "(\"Status\" NOT IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed', 'PartiallyFulfilled', 'Fulfilled', 'Closed') OR \"ApprovedAt\" IS NOT NULL) AND (\"Status\" IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed', 'PartiallyFulfilled', 'Fulfilled', 'Closed', 'Cancelled') OR \"ApprovedAt\" IS NULL)");
 
                             t.HasCheckConstraint("CK_StockTransfers_Status_Cancellation", "(\"Status\" = 'Cancelled') = (\"CancelledAt\" IS NOT NULL) AND (\"Status\" <> 'Cancelled' OR char_length(\"CancellationReason\") > 0)");
+
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Closure", "(\"Status\" = 'Closed') = (\"ClosedAt\" IS NOT NULL) AND (\"Status\" <> 'Closed' OR COALESCE(char_length(\"ClosureReason\"), 0) > 0) AND (\"Status\" = 'Closed' OR \"ClosureReason\" IS NULL)");
 
                             t.HasCheckConstraint("CK_StockTransfers_Status_Completion", "(\"Status\" = 'Completed') = (\"CompletedAt\" IS NOT NULL)");
 
@@ -2831,7 +2845,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_StockTransfers_Status_Stamps", "(\"Status\" = 'Draft') = (\"SubmittedAt\" IS NULL) OR \"Status\" = 'Cancelled'");
 
-                            t.HasCheckConstraint("CK_StockTransfers_Status_Valid", "\"Status\" IN ('Draft', 'Requested', 'Approved', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled')");
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Valid", "\"Status\" IN ('Draft', 'Requested', 'Approved', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled', 'PartiallyFulfilled', 'Fulfilled', 'Closed')");
                         });
                 });
 
@@ -2840,6 +2854,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<decimal>("AllocatedBaseQty")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,3)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal>("ClosedBaseQty")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,3)")
+                        .HasDefaultValue(0m);
 
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
@@ -2922,6 +2946,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.ToTable("StockTransferLines", t =>
                         {
+                            t.HasCheckConstraint("CK_StockTransferLines_Allocation_Valid", "\"AllocatedBaseQty\" >= 0 AND \"ClosedBaseQty\" >= 0 AND \"AllocatedBaseQty\" + \"ClosedBaseQty\" <= \"RequestedBaseQty\"");
+
                             t.HasCheckConstraint("CK_StockTransferLines_Counters_Max", "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" <= \"DispatchedBaseQty\"");
 
                             t.HasCheckConstraint("CK_StockTransferLines_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
@@ -2932,7 +2958,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_StockTransferLines_Dispatch_Required", "\"DispatchProductUnitId\" IS NOT NULL OR (\"DispatchedBaseQty\" = 0 AND \"ReceivedBaseQty\" = 0 AND \"DamagedBaseQty\" = 0 AND \"WrittenOffBaseQty\" = 0 AND \"ReturnedBaseQty\" = 0)");
 
-                            t.HasCheckConstraint("CK_StockTransferLines_Dispatched_Max", "\"DispatchedBaseQty\" >= 0 AND \"DispatchedBaseQty\" <= \"RequestedBaseQty\"");
+                            t.HasCheckConstraint("CK_StockTransferLines_Dispatched_Max", "\"DispatchedBaseQty\" >= 0 AND \"DispatchedBaseQty\" + \"ClosedBaseQty\" <= \"RequestedBaseQty\"");
 
                             t.HasCheckConstraint("CK_StockTransferLines_LineNo_Positive", "\"LineNo\" > 0");
 
@@ -4953,6 +4979,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("CancelledByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("FK_StockTransfers_Users_CancelledBy");
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ClosedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockTransfers_Users_ClosedBy");
 
                     b.HasOne("Sellora.Domain.Entities.Company", null)
                         .WithMany()
