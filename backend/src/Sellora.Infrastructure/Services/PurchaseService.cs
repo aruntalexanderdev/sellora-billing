@@ -608,6 +608,13 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             }
         }
 
+        // FI-D32: removing the receipt must not take on-hand below what shipments have reserved (checked per product, summed over lines).
+        await StockAvailability.EnsureAsync(db, stockItems,
+            purchase.Lines.Select(l => new StockAvailability.Requirement(locationId, l.ProductId, l.BaseQty)),
+            s => new DomainValidationException("Status",
+                $"Cannot cancel — {Math.Max(0m, s.Requested - s.Available):0.###} of the {s.Requested:0.###} to remove is reserved for shipments; only {Math.Max(0m, s.Available):0.###} is unreserved. Release the reservations first."),
+            ct);
+
         foreach (var line in purchase.Lines)
         {
             var batch = line.Batch!;

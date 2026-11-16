@@ -248,11 +248,11 @@ public class ShipmentService(SelloraDbContext db, IEffectivePermissionService? p
         var shipment = await LockAndLoadAsync(id, ct);
         if (shipment is null) return null;
         await EnsureFitAsync("Shipments.Plan", await LoadSourceAsync(shipment, ct), ct);
-        EnsureStatus(shipment, ShipmentStatus.Draft, ShipmentStatus.Loading, ShipmentStatus.ReadyToDispatch);
 
         var consignment = shipment.Consignments.SingleOrDefault(c => c.Id == consignmentId)
             ?? throw new DomainValidationException("consignmentId", "This consignment is not on the shipment.");
-        if (consignment.Status == ConsignmentStatus.Cancelled) return Finish(shipment); // idempotent by state
+        if (consignment.Status == ConsignmentStatus.Cancelled) return Finish(shipment); // idempotent by state, also on a cancelled shipment
+        EnsureStatus(shipment, ShipmentStatus.Draft, ShipmentStatus.Loading, ShipmentStatus.ReadyToDispatch);
 
         var now = DateTimeOffset.UtcNow;
         var lines = consignment.Lines.Where(l => l.Status == ConsignmentLineStatus.Active).ToList();
@@ -444,6 +444,8 @@ public class ShipmentService(SelloraDbContext db, IEffectivePermissionService? p
         var unit = RequireUnit(units, line.ProductUnitId, line.ProductId, "productUnitId", requireActive: false);
         var newBase = input.Quantity == 0 ? 0m : ConvertEntered(unit, products[line.ProductId], input.Quantity, "quantity");
         var delta = newBase - line.AllocatedBaseQty;
+        // Reducing may use a since-deactivated unit; adding stock to the allocation needs an active one.
+        if (delta > 0) RequireUnit(units, line.ProductUnitId, line.ProductId, "productUnitId", requireActive: true);
 
         var now = DateTimeOffset.UtcNow;
         string action;
@@ -998,7 +1000,8 @@ public class ShipmentService(SelloraDbContext db, IEffectivePermissionService? p
             owner = await db.Vehicles.AsNoTracking().Where(v => v.CompanyId == companyId && v.StockLocationId == location.Id)
                 .Select(v => v.AssignedBranchId).SingleOrDefaultAsync(ct);
         }
-        return owner is not { } b || db.BranchContext.CanAccess(b);
+        // FI-D32 amendment: a company-level source (no owning branch) needs an all-branch membership (handled above), never a narrowed one.
+        return owner is { } b && db.BranchContext.CanAccess(b);
     }
 
     // ------------------------------------------------------------------ audit

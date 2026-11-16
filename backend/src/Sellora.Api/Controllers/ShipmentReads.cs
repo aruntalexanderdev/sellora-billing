@@ -59,12 +59,14 @@ internal static class ShipmentReads
     }
 
     /// <summary>The shipment as a DTO, or null when it does not exist or the Branch filter hides it (source branch scope).</summary>
-    public static async Task<ShipmentDto?> LoadShipmentAsync(SelloraDbContext db, Guid id, CancellationToken ct)
+    public static async Task<ShipmentDto?> LoadShipmentAsync(SelloraDbContext db, Guid id, CancellationToken ct, StockVisibility? visibility = null)
     {
         var s = await db.Shipments.AsNoTracking()
             .Include(x => x.Vehicles).Include(x => x.Consignments).ThenInclude(c => c.Lines).AsSplitQuery()
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         if (s is null) return null;
+        // FI-D32: reads (not the writer's own response) apply the source-location visibility; a hidden source is a 404.
+        if (visibility is not null && !visibility.IsShipmentSourceVisible(s.SourceLocationId)) return null;
 
         var lookups = await ShipmentLookups.LoadAsync(db, ct);
         await lookups.LoadUsersAsync(db, [s.CreatedByUserId, s.UpdatedByUserId, s.CancelledByUserId, .. s.Consignments.Select(c => c.CancelledByUserId)], ct);

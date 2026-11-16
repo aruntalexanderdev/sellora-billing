@@ -110,7 +110,7 @@ public class ShipmentServiceTests
     // ---- visibility --------------------------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task BranchFilter_ShowsAShipmentToItsSourceBranchOnly_AndCompanyLevelSourcesToEveryone()
+    public async Task BranchFilter_ShowsAShipmentToItsSourceBranchOnly_AndCompanyLevelSourcesToAllBranchMembersOnly()
     {
         var w = await ShipmentWorld.CreateAsync();
         var branchShipment = await w.CreateShipmentAsync();                                          // Main store
@@ -120,7 +120,10 @@ public class ShipmentServiceTests
         await using var blr = w.T.Db(w.Blr, new HashSet<Guid> { w.Blr });
         var visible = await blr.Shipments.Select(s => s.Id).ToListAsync();
         Assert.DoesNotContain(branchShipment.Id, visible);
-        Assert.Contains(companyShipment.Id, visible);
+        Assert.DoesNotContain(companyShipment.Id, visible);          // FI-D32 amendment: a company-level source is not a branch member's
+
+        await using var allBranches = w.T.Db(w.Blr);
+        Assert.Contains(companyShipment.Id, await allBranches.Shipments.Select(s => s.Id).ToListAsync());
 
         await using var main = w.T.Db(w.Main, new HashSet<Guid> { w.Main });
         Assert.Contains(branchShipment.Id, await main.Shipments.Select(s => s.Id).ToListAsync());

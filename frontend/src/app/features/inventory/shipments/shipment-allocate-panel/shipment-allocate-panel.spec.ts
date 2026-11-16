@@ -10,7 +10,7 @@ import { ShipmentAllocatePanel } from './shipment-allocate-panel';
 
 const unit = (id: string, code: string, factor: number, isBaseUnit = false) => ({ id, unitCode: code, displayName: code, decimalPlaces: 0, conversionFactorToBase: factor, isBaseUnit, isActive: true });
 
-function setup(allocate = vi.fn(() => of(shipment('Draft')))) {
+function setup(allocate = vi.fn(() => of(shipment('Draft'))), balance: Record<string, unknown> = { locationId: 'store', qty: 25 }) {
   const t = transfer('Approved', [line({ requestedBaseQty: 100, requestedQty: 10, allocatedBaseQty: 30, closedBaseQty: 10 })]);
   TestBed.configureTestingModule({
     imports: [ShipmentAllocatePanel],
@@ -22,7 +22,7 @@ function setup(allocate = vi.fn(() => of(shipment('Draft')))) {
           get: vi.fn(() => of(t)),
         },
       },
-      { provide: StockService, useValue: { detail: vi.fn(() => of({ locations: [{ locationId: 'store', qty: 25 }] })) } },
+      { provide: StockService, useValue: { detail: vi.fn(() => of({ locations: [balance] })) } },
       { provide: ProductUnitsLookup, useValue: { units: () => of([unit('pc', 'pc', 1, true), unit('box', 'box', 10)]) } },
       { provide: ShipmentsService, useValue: { allocate } },
     ],
@@ -47,6 +47,11 @@ describe('ShipmentAllocatePanel', () => {
     expect(el.querySelector('[data-testid="lim-requested"]')?.textContent).toContain('10 box (100 pc)');
     expect(el.querySelector('[data-testid="lim-remaining"]')?.textContent).toContain('6 box (60 pc)'); // 100 - 10 closed - 30 allocated
     expect(el.querySelector('[data-testid="lim-available"]')?.textContent?.trim()).toBe('25 pc'); // 2.5 box is not representable
+  });
+
+  it('shows available net of other shipments\' reservations (review fix)', () => {
+    const { el } = setup(undefined, { locationId: 'store', qty: 25, reservedQuantity: 15, availableQuantity: 10 });
+    expect(el.querySelector('[data-testid="lim-available"]')?.textContent).toContain('10 pc');
   });
 
   it('defaults the quantity to what fits, and refuses more than is available', () => {

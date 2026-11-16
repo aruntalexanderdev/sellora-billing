@@ -208,7 +208,8 @@ export class ShipmentAllocatePanel implements OnInit {
           this.stock.detail(l.line.productId, this.shipment().source.id).subscribe({
             next: (d) => {
               const bal = d.locations?.find((b) => b.locationId === this.shipment().source.id);
-              this.patchById(id, l.line.id, { availableBase: bal ? bal.qty : 0 });
+              // Review fix: net of other shipments' reservations (on hand - reserved), the same figure the server checks.
+              this.patchById(id, l.line.id, { availableBase: bal ? (bal.availableQuantity ?? bal.qty - (bal.reservedQuantity ?? 0)) : 0 });
               this.applyDefault(id, l.line.id);
             },
             error: () => undefined,

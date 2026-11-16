@@ -580,6 +580,79 @@ public class ShipmentsApiTests(PostgresFixture postgres)
         await AssertReservationInvariantsAsync(s, "purchase cancel with enough stock");
     }
 
+    // ---- review fixes: source visibility (FI-D32 amendment) and incoming union --------------------------------------------------------------
+
+    [Fact]
+    public async Task CompanyLevelSourceShipment_IsHiddenFromBranchAndNarrowedUsers_ListAndDetail_WithRealBranchHeaders()
+    {
+        var s = await NewSceneAsync(postgres, 0m);
+        var r = await RestrictedUserWorld.GetWorldAsync(postgres);
+        var warehouse = await SendAsync(s.W.Admin, HttpMethod.Post, "/api/v1/warehouses", new CreateWarehouseRequest("SC" + Guid.NewGuid().ToString("N")[..6], "Central shipping warehouse", null));
+        var centralLocation = (await OkAsync(warehouse)).GetProperty("stockLocationId").GetGuid();
+        var branchShipment = IdOf(await NewShipmentAsync(s));
+        var centralShipment = IdOf(await JsonAsync(await CreateShipmentAsync(s, sourceStore: centralLocation)));
+
+        var branchUser = await BranchUserAsync(r, s.Src, "Shipments.View");
+        var narrowed = await r.CreateAsync("nr", await RoleAsync(s.W, "viewer", ["Shipments.View"]), CompanyAccessScope.AssignedBranches, [s.Src], s.Src);
+        var allBranches = await r.CreateAsync("ab", await RoleAsync(s.W, "viewer", ["Shipments.View"]), CompanyAccessScope.CompanyWide);
+
+        async Task<List<Guid>> ListedAsync(HttpClient client) =>
+            (await OkAsync(await SendAsync(client, HttpMethod.Get, "/api/v1/shipments?pageSize=100", null, s.Src))).GetProperty("items").EnumerateArray().Select(IdOf).ToList();
+
+        foreach (var client in new[] { branchUser.Client, narrowed.Client })
+        {
+            Assert.Equal(HttpStatusCode.OK, (await GetShipmentAsync(s, branchShipment, client)).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await GetShipmentAsync(s, centralShipment, client)).StatusCode);
+            var listed = await ListedAsync(client);
+            Assert.Contains(branchShipment, listed);
+            Assert.DoesNotContain(centralShipment, listed);
+        }
+        foreach (var client in new[] { allBranches.Client, s.W.Admin })
+        {
+            Assert.Equal(HttpStatusCode.OK, (await GetShipmentAsync(s, centralShipment, client)).StatusCode);
+            Assert.Contains(centralShipment, await ListedAsync(client));
+        }
+        // Planning from a company-level source needs the same all-branch membership: the narrowed planner is refused, the all-branch one is not.
+        var narrowedPlanner = await r.CreateAsync("np", await RoleAsync(s.W, "planner", ["Shipments.View", "Shipments.Plan"]), CompanyAccessScope.AssignedBranches, [s.Src], s.Src);
+        var refused = await CreateShipmentAsync(s, client: narrowedPlanner.Client, sourceStore: centralLocation);
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task IncomingConsignments_UseTheUnionOfEveryHeldCodesVisibility()
+    {
+        var s = await NewSceneAsync(postgres, 10m);
+        var r = await RestrictedUserWorld.GetWorldAsync(postgres);
+        var req = await RequestAsync(s, s.BStore, 5m);
+        var sid = IdOf(await NewShipmentAsync(s));
+        var cons = ConsignmentTo(await OkAsync(await AllocateAsync(s, sid, LineOf(req), 5m)), s.BStore);
+
+        // Shipments.View only at A, StockTransfers.Receive only at B: the first held code alone (Shipments.View) never showed B's consignment.
+        var user = await r.CreateAsync("un", await RoleAsync(r.World, "harmless", ["Sales.View"]), CompanyAccessScope.AssignedBranches, [s.A, s.B], s.B);
+        foreach (var (name, codes, branch) in new[] { ("sv", new[] { "Shipments.View" }, s.A), ("rc", new[] { "StockTransfers.Receive" }, s.B) })
+        {
+            var role = await RoleAsync(r.World, "u" + name + branch, codes, RoleScope.Branch, branch);
+            Assert.Equal(HttpStatusCode.Created, (await r.World.SendAsync(HttpMethod.Post, $"/api/v1/users/{user.Id}/roles", new AssignRoleRequest(role, null))).StatusCode);
+        }
+
+        var incoming = await OkAsync(await SendAsync(user.Client, HttpMethod.Get, "/api/v1/consignments?direction=incoming&pageSize=100", null, s.B));
+        Assert.Equal([IdOf(cons)], incoming.GetProperty("items").EnumerateArray().Select(IdOf).ToList());
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(user.Client, HttpMethod.Get, $"/api/v1/consignments/{IdOf(cons)}", null, s.B)).StatusCode);
+    }
+
+    [Fact]
+    public async Task StockDetail_ExposesReservedAndAvailableQuantityPerLocation()
+    {
+        var s = await NewSceneAsync(postgres, 10m);
+        var req = await RequestAsync(s, s.AStore, 8m);
+        var sid = IdOf(await NewShipmentAsync(s));
+        await OkAsync(await AllocateAsync(s, sid, LineOf(req), 8m));
+
+        var detail = await OkAsync(await SendAsync(s.W.Admin, HttpMethod.Get, $"/api/v1/stock/{s.W.ProductId}", null, s.Src));
+        var row = detail.GetProperty("locations").EnumerateArray().Single(l => l.GetProperty("locationId").GetGuid() == s.SrcStore);
+        Assert.Equal((10m, 8m, 2m), (row.GetProperty("qty").GetDecimal(), row.GetProperty("reservedQuantity").GetDecimal(), row.GetProperty("availableQuantity").GetDecimal()));
+    }
+
     // ---- idempotency + permissions --------------------------------------------------------------------------------------------------------
 
     [Fact]

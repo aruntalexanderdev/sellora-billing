@@ -40,15 +40,15 @@ public class ConsignmentsController(SelloraDbContext db, IEffectivePermissionSer
         }
         var incoming = dir == "incoming";
 
-        var code = await PickCodeAsync(incoming ? IncomingCodes : ["Shipments.View"], ct);
-        if (code is null) return Forbid();
-        var visibility = await StockVisibility.LoadAsync(db, effectivePermissions, code, ct);
+        var visibility = await StockVisibility.LoadAnyAsync(db, effectivePermissions, incoming ? IncomingCodes : ["Shipments.View"], ct);
+        if (visibility is null) return Forbid();
         if (visibility.DenyUnlessVisible(this, incoming ? destinationLocationId : sourceLocationId) is { } denied) return denied;
 
         var shipmentsQuery = incoming
             ? db.Shipments.AsNoTracking().IgnoreQueryFilters([BranchQueryFilter.Name])
             : db.Shipments.AsNoTracking();
-        var scope = visibility.Scope(incoming ? destinationLocationId : sourceLocationId);
+        var scope = incoming ? visibility.Scope(destinationLocationId)
+            : sourceLocationId is { } onlySource ? (visibility.IsShipmentSourceVisible(onlySource) ? [onlySource] : []) : visibility.ShipmentSourceIds();
 
         var query = from c in db.Consignments.AsNoTracking()
                     join s in shipmentsQuery on c.ShipmentId equals s.Id
@@ -105,11 +105,11 @@ public class ConsignmentsController(SelloraDbContext db, IEffectivePermissionSer
         if (await PickCodeAsync(["Shipments.View"], ct) is { } outCode)
         {
             var visible = await db.Shipments.AsNoTracking().AnyAsync(s => s.Id == raw.s.Id, ct)
-                && (await StockVisibility.LoadAsync(db, effectivePermissions, outCode, ct)).IsVisible(raw.s.SourceLocationId);
+                && (await StockVisibility.LoadAsync(db, effectivePermissions, outCode, ct)).IsShipmentSourceVisible(raw.s.SourceLocationId);
             if (visible) direction = "outgoing";
         }
-        if (direction is null && await PickCodeAsync(IncomingCodes, ct) is { } inCode
-            && (await StockVisibility.LoadAsync(db, effectivePermissions, inCode, ct)).IsVisible(raw.c.DestinationLocationId))
+        if (direction is null && await StockVisibility.LoadAnyAsync(db, effectivePermissions, IncomingCodes, ct) is { } inVisibility
+            && inVisibility.IsVisible(raw.c.DestinationLocationId))
         {
             direction = "incoming";
         }

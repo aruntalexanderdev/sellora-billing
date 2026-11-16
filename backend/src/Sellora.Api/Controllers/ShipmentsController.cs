@@ -34,7 +34,8 @@ public class ShipmentsController(IShipmentService shipments, SelloraDbContext db
 
         var visibility = await StockVisibility.LoadAsync(db, effectivePermissions, "Shipments.View", ct);
         if (visibility.DenyUnlessVisible(this, sourceLocationId) is { } denied) return denied;
-        var sources = visibility.Scope(sourceLocationId);
+        if (sourceLocationId is { } asked && !visibility.IsShipmentSourceVisible(asked)) return Ok(new PagedResult<ShipmentListItemDto>([], 0, page, pageSize));
+        var sources = sourceLocationId is { } one ? [one] : visibility.ShipmentSourceIds();
 
         var query = db.Shipments.AsNoTracking().Where(s => sources.Contains(s.SourceLocationId));
         if (status is not null) query = query.Where(s => s.Status == status);
@@ -77,7 +78,8 @@ public class ShipmentsController(IShipmentService shipments, SelloraDbContext db
     [Authorize(Policy = "Shipments.View")]
     public async Task<ActionResult<ShipmentDto>> Get(Guid id, CancellationToken ct)
     {
-        var dto = await ShipmentReads.LoadShipmentAsync(db, id, ct);
+        var visibility = await StockVisibility.LoadAsync(db, effectivePermissions, "Shipments.View", ct);
+        var dto = await ShipmentReads.LoadShipmentAsync(db, id, ct, visibility);
         return dto is null ? NotFound() : Ok(dto);
     }
 
