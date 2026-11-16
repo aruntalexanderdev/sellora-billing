@@ -1,0 +1,67 @@
+<a routerLink="/inventory/consignments" class="back-link">← All consignments</a>
+
+@if (loading()) {
+  <p class="muted" data-testid="loading">Loading…</p>
+} @else if (loadError(); as e) {
+  <div class="server-error" role="alert" data-testid="load-error">{{ e }}</div>
+} @else if (consignment(); as c) {
+  <div class="page-head">
+    <div>
+      <h1>{{ c.consignmentNo }}</h1>
+      <p>{{ place(c.source) }} → {{ place(c.destination) }}</p>
+    </div>
+  </div>
+  <div class="status-row">
+    <ui-badge [text]="c.status" [tone]="tone(c.status)" />
+    <span class="muted" data-testid="direction">{{ c.direction === 'incoming' ? 'Incoming' : 'Outgoing' }}</span>
+  </div>
+
+  <div class="detail-card" data-testid="facts">
+    <div class="card-title">Transport</div>
+    <dl class="facts">
+      <div>
+        <dt>Shipment</dt>
+        <dd data-testid="shipment-no">
+          @if (shipmentLink(); as link) {
+            <a [routerLink]="link" data-testid="shipment-link">{{ c.shipmentNo }}</a>
+          } @else {
+            {{ c.shipmentNo }}
+          }
+          · {{ shipmentStatus(c.shipmentStatus) }}
+        </dd>
+      </div>
+      <div><dt>Mode</dt><dd>{{ mode(c.transportMode) }} · {{ viaLabels[c.transportVia] }}</dd></div>
+      @if (c.providerName) {
+        <div><dt>Provider</dt><dd>{{ c.providerName }}</dd></div>
+      }
+      <div><dt>{{ refLabel(c.transportMode) }}</dt><dd>{{ c.transportReference || '—' }}</dd></div>
+      <div><dt>Planned dispatch</dt><dd>{{ c.plannedDispatchDate || '—' }}</dd></div>
+      <div><dt>Loaded</dt><dd>{{ c.loadedAt ? (c.loadedAt.slice(0, 16).replace('T', ' ')) : '—' }}</dd></div>
+      @if (c.leg; as leg) {
+        <div data-testid="leg">
+          <dt>Vehicle</dt>
+          <dd>{{ leg.vehicleNumber }}{{ leg.vehicleName ? ' – ' + leg.vehicleName : '' }}<div class="sub">{{ leg.driverName }} {{ leg.driverPhone }}</div></dd>
+        </div>
+      }
+    </dl>
+  </div>
+
+  <div class="detail-card">
+    <div class="card-title">Lines</div>
+    <table>
+      <thead><tr><th>Request</th><th>Product</th><th class="num">Allocated</th><th class="num">Loaded</th></tr></thead>
+      <tbody>
+        @for (l of c.lines; track l.id) {
+          <tr data-testid="line">
+            <td>{{ l.transferNo }}</td>
+            <td>{{ l.productName }}<div class="sub">{{ l.productSku }}</div></td>
+            <td class="num">{{ qty(l.enteredQty) }} {{ l.unitCode }}<div class="sub">= {{ qty(l.allocatedBaseQty) }} {{ l.baseUnitCode }}</div></td>
+            <td class="num">{{ qty(l.loadedQty) }} {{ l.unitCode }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+} @else {
+  <p class="muted" data-testid="not-found">Consignment not found.</p>
+}

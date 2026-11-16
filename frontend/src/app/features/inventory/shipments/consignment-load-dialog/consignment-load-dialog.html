@@ -1,0 +1,33 @@
+<div class="panel" role="group" aria-label="Load consignment">
+  <h3>Load {{ consignment().consignmentNo }}</h3>
+  <p class="hint">Enter what is on the vehicle for each line, at most the allocated quantity. A lower number than before unloads the difference.</p>
+  @if (shown().form; as msg) {
+    <div class="server-error" role="alert" data-testid="load-error">{{ msg }}</div>
+  }
+  <table>
+    <thead>
+      <tr><th>Product</th><th class="num">Allocated</th><th class="num">Loaded now</th><th>Loaded</th></tr>
+    </thead>
+    <tbody>
+      @for (r of rows(); track r.lineId; let i = $index) {
+        <tr>
+          <td>{{ r.line.productName }}<div class="sub">{{ r.line.productSku }}{{ r.line.transferNo ? ' · ' + r.line.transferNo : '' }}</div></td>
+          <td class="num">{{ fmt(r.allocatedQty) }} {{ r.line.unitCode }}</td>
+          <td class="num">{{ fmt(r.line.loadedQty) }} {{ r.line.unitCode }}</td>
+          <td>
+            <input type="number" min="0" class="field-input" [attr.data-testid]="'load-qty-' + i" [step]="step(r)" [attr.max]="r.allocatedQty" [value]="r.loadedQty ?? ''" (input)="setLoaded(i, $any($event.target).value)" />
+            <span class="unit">{{ r.line.unitCode }}</span>
+            @if (shown().rows[i]; as msg) {
+              <div class="field-error" [attr.data-testid]="'load-row-error-' + i">{{ msg }}</div>
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+  <div class="actions">
+    <ui-button variant="primary" data-testid="load-submit" [disabled]="busy()" (onClick)="submit()">{{ busy() ? 'Saving…' : 'Save loading' }}</ui-button>
+    <ui-button data-testid="load-all" (onClick)="loadAll()">Load all</ui-button>
+    <ui-button (onClick)="cancelled.emit()">Cancel</ui-button>
+  </div>
+</div>

@@ -1,0 +1,36 @@
+<div class="page-head">
+  <div>
+    <h1>Consignments</h1>
+    <p>Goods grouped per destination. Incoming shows what is on its way to you; outgoing shows what your shipments carry.</p>
+  </div>
+</div>
+
+<div class="tabs" role="tablist" data-testid="tabs">
+  <button type="button" role="tab" class="tab" [class.active]="direction() === 'incoming'" [attr.aria-selected]="direction() === 'incoming'" data-testid="tab-incoming" (click)="setDirection('incoming')">Incoming</button>
+  @if (canOutgoing()) {
+    <button type="button" role="tab" class="tab" [class.active]="direction() === 'outgoing'" [attr.aria-selected]="direction() === 'outgoing'" data-testid="tab-outgoing" (click)="setDirection('outgoing')">Outgoing</button>
+  }
+</div>
+
+@if (canOutgoing()) {
+  <ui-company-view-toggle permission="Shipments.View" (changed)="onCompanyViewChange()" />
+}
+
+<app-load-error [message]="errorMessage()" />
+
+<ui-data-table
+  [cols]="cols()"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search consignment no, location…"
+  (searchChange)="onSearch($event)"
+  [emptyTitle]="direction() === 'incoming' ? 'No incoming consignments' : 'No outgoing consignments'"
+  emptyBody="Consignments appear here once requests are allocated to a shipment."
+  (retry)="retry()"
+  [footerText]="total() + ' consignment' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
+/>

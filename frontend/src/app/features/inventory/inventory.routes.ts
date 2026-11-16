@@ -98,4 +98,41 @@ export const INVENTORY_ROUTES: Routes = [
     canActivate: [permissionGuard('StockTransfers.View')],
     data: { group: 'Inventory', page: 'Transfer details' },
   },
+  {
+    path: 'shipments',
+    loadComponent: () => import('./shipments/shipment-list/shipment-list').then((m) => m.ShipmentList),
+    canActivate: [permissionGuard('Shipments.View')],
+    data: { group: 'Inventory', page: 'Shipments' },
+  },
+  {
+    path: 'shipments/new',
+    loadComponent: () => import('./shipments/shipment-form/shipment-form').then((m) => m.ShipmentForm),
+    canActivate: [permissionGuard('Shipments.Plan')],
+    canDeactivate: [unsavedChangesGuard],
+    data: { group: 'Inventory', page: 'New shipment' },
+  },
+  {
+    path: 'shipments/:id',
+    loadComponent: () => import('./shipments/shipment-detail/shipment-detail').then((m) => m.ShipmentDetail),
+    canActivate: [permissionGuard('Shipments.View')],
+    data: { group: 'Inventory', page: 'Shipment' },
+  },
+  {
+    path: 'consignments',
+    loadComponent: () => import('./consignments/consignment-list/consignment-list').then((m) => m.ConsignmentList),
+    canActivate: [permissionGuard(['Shipments.View', 'StockTransfers.Receive', 'StockTransfers.View'])],
+    data: { group: 'Inventory', page: 'Consignments' },
+  },
+  {
+    path: 'consignments/:id',
+    loadComponent: () => import('./consignments/consignment-detail/consignment-detail').then((m) => m.ConsignmentDetailPage),
+    canActivate: [permissionGuard(['Shipments.View', 'StockTransfers.Receive', 'StockTransfers.View'])],
+    data: { group: 'Inventory', page: 'Consignment' },
+  },
+  {
+    path: 'stock-reservations',
+    loadComponent: () => import('./stock-reservations/reservation-list/reservation-list').then((m) => m.ReservationList),
+    canActivate: [permissionGuard('Shipments.View')],
+    data: { group: 'Inventory', page: 'Stock reservations' },
+  },
 ];

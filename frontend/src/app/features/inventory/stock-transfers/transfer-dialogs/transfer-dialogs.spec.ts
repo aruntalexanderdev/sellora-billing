@@ -218,3 +218,13 @@ describe('TransferResolveDialog', () => {
     expect(done).not.toHaveBeenCalled();
   });
 });
+
+describe('direct dispatch while allocations are outstanding (Phase 04)', () => {
+  it('shows the server status message in the dispatch dialog banner', () => {
+    const message = 'Stock is allocated to a shipment for this request; release the allocation or dispatch through the shipment.';
+    const dispatch = vi.fn(() => throwError(() => http(400, { status: [message] })));
+    const { el, submit } = setup(TransferDispatchDialog, undefined, { dispatch });
+    submit();
+    expect(el.querySelector('[data-testid="dispatch-error"]')?.textContent).toContain(message);
+  });
+});
