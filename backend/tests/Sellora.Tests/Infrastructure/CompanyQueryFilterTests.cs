@@ -134,7 +134,7 @@ public class CompanyQueryFilterTests
     {
         // Phase 5 T2: the named "Branch" filter narrows the five documents (mandatory BranchId) and Expenses/FinancialAccounts (NULL stays visible).
         using var db = NewDb(TestCompany.Context);
-        string[] expected = ["Expense", "FinancialAccount", "PurchaseOrder", "PurchaseReturn", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockTransfer"];
+        string[] expected = ["Expense", "FinancialAccount", "PurchaseOrder", "PurchaseReturn", "SalesInvoice", "SalesReturn", "Shipment", "StockAdjustment", "StockTransfer"];
         var actual = ModelTypes(db)
             .Where(t => t.GetDeclaredQueryFilters().Any(f => f.Key == BranchQueryFilter.Name))
             .Select(t => t.ClrType.Name).Order().ToArray();

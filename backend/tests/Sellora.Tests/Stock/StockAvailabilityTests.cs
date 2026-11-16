@@ -92,6 +92,41 @@ public class StockAvailabilityTests
         }
     }
 
+    // ---- FI-D30: the real source is StockItem.ReservedQuantity ---------------------------------------------------------------------
+
+    [Fact]
+    public async Task RealReservedSource_IsTheLockedStockItemsReservedQuantity()
+    {
+        await using var db = NewDb();
+        var item = new StockItem { StockLocationId = Loc, ProductId = ProductA, QuantityOnHand = 100m, ReservedQuantity = 30m };
+        db.StockItems.Add(item);
+        await db.SaveChangesAsync();
+
+        Assert.Equal(30m, await StockAvailability.ReservedAsync(db, Loc, ProductA, null, default));
+        Assert.Equal(0m, await StockAvailability.ReservedAsync(db, Loc, ProductB, null, default));
+        Assert.Equal(70m, await StockAvailability.AvailableAsync(db, Loc, ProductA, item, default));
+
+        var items = new Dictionary<(Guid, Guid), StockItem> { [(Loc, ProductA)] = item };
+        await StockAvailability.EnsureAsync(db, items, [new(Loc, ProductA, 70m)], Short, default);
+        Assert.Equal("71>70", (await Assert.ThrowsAsync<DomainValidationException>(() =>
+            StockAvailability.EnsureAsync(db, items, [new(Loc, ProductA, 71m)], Short, default))).Message);
+    }
+
+    [Fact]
+    public async Task BatchAvailability_IsTheLowerOfTheBatchBalanceAndOnHandLessReserved()
+    {
+        await using var db = NewDb();
+        var batchId = Guid.NewGuid();
+        db.StockItems.Add(new StockItem { StockLocationId = Loc, ProductId = ProductA, QuantityOnHand = 100m, ReservedQuantity = 30m });
+        db.BatchLocationBalances.Add(new BatchLocationBalance { PurchaseBatchId = batchId, StockLocationId = Loc, ProductId = ProductA, RemainingBaseQty = 100m });
+        await db.SaveChangesAsync();
+
+        Assert.Equal(70m, await StockAvailability.AvailableInBatchAsync(db, batchId, Loc, ProductA, default));
+        await StockAvailability.EnsureInBatchAsync(db, batchId, Loc, ProductA, 70m, a => new("Lines", a.ToString()), default);
+        Assert.Equal("70", (await Assert.ThrowsAsync<DomainValidationException>(() =>
+            StockAvailability.EnsureInBatchAsync(db, batchId, Loc, ProductA, 80m, a => new("Lines", a.ToString()), default))).Message);
+    }
+
     // ---- transfer dispatch (van loading uses transfers) honours the reservation -------------------------------------------------
 
     [Fact]

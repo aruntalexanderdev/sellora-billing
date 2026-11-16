@@ -35,6 +35,9 @@ public class EndpointAuthorizationTests
         "FinancialAccountsController.Options",
         // Phase 08 (FI-D16, Q5): the category/subcategory read feeds pickers on product, stock and POS screens for any company member; writes need Inventory.Categories.
         "ProductCategoriesController.List",
+        // Phase 04 (FI-D32): a destination-branch receiver reads its own consignment with Shipments.View, StockTransfers.Receive or StockTransfers.View (no single
+        // policy fits: policies combine with AND), so the action picks the held code and answers 403 / 404 itself; outgoing needs Shipments.View.
+        "ConsignmentsController.List", "ConsignmentsController.Get",
         "UsersController.UpdateOwnUsername", "UsersController.ChangeOwnPassword",
         // Phase 7: scoped roles. A branch administrator holds Branch.Roles.* / Branch.Users.AssignRoles at ONE branch only, so a named company-level policy
         // would lock them out. These endpoints are plain [Authorize] and every action checks the caller's effective permissions at the role's scope

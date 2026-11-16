@@ -168,6 +168,11 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
             "StockTransfers.Cancel", Fit.Either, AuditActions.StockTransferCancelled, text,
             (t, now) =>
             {
+                // FI-D33: an allocation not yet dispatched holds a reservation; release it (cancel the allocation / shipment) first.
+                if (t.Lines.Any(l => l.AllocatedBaseQty > l.DispatchedBaseQty))
+                {
+                    throw new DomainValidationException("status", "Stock is allocated to a shipment for this request; release the allocation before cancelling it.");
+                }
                 t.Status = StockTransferStatus.Cancelled;
                 t.CancelledAt = now;
                 t.CancelledByUserId = userId;
@@ -257,6 +262,12 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
 
         var (source, destination) = await LoadEndpointsAsync(transfer, ct);
         await EnsureFitAsync("StockTransfers.Dispatch", Fit.Source, source, destination, ct);
+
+        // FI-D33: while any line has quantity allocated to a shipment that has not been dispatched, the shipment owns the dispatch.
+        if (transfer.Lines.Any(l => l.AllocatedBaseQty > l.DispatchedBaseQty))
+        {
+            throw new DomainValidationException("status", "Stock is allocated to a shipment for this request; release the allocation or dispatch through the shipment.");
+        }
 
         // Every line exactly once.
         var byLine = transfer.Lines.ToDictionary(l => l.Id);

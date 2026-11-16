@@ -114,6 +114,9 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
         modelBuilder.Entity<StockTransfer>().HasQueryFilter(BranchQueryFilter.Name, e => CurrentReadBranchIds == null || CurrentReadBranchIds.Contains(e.BranchId)
             || (e.SourceBranchId != null && CurrentReadBranchIds.Contains(e.SourceBranchId.Value))
             || (e.DestinationBranchId != null && CurrentReadBranchIds.Contains(e.DestinationBranchId.Value)));
+        // Phase 04 (FI-D32): a shipment is visible at its source branch only (NULL = company-level source, always visible). Destination users never read
+        // shipments: they read their consignment through the consignment endpoints, which bypass this filter explicitly.
+        modelBuilder.Entity<Shipment>().HasQueryFilter(BranchQueryFilter.Name, e => e.BranchId == null || CurrentReadBranchIds == null || CurrentReadBranchIds.Contains(e.BranchId.Value));
         modelBuilder.Entity<Expense>().HasQueryFilter(BranchQueryFilter.Name, e => e.BranchId == null || CurrentReadBranchIds == null || CurrentReadBranchIds.Contains(e.BranchId.Value));
         modelBuilder.Entity<FinancialAccount>().HasQueryFilter(BranchQueryFilter.Name, e => e.BranchId == null || CurrentReadBranchIds == null || CurrentReadBranchIds.Contains(e.BranchId.Value));
     }
