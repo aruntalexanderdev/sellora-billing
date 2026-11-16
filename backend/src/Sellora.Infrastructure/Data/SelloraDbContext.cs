@@ -86,6 +86,8 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
     public DbSet<ShipmentVehicle> ShipmentVehicles => Set<ShipmentVehicle>();
     public DbSet<Consignment> Consignments => Set<Consignment>();
     public DbSet<ConsignmentLine> ConsignmentLines => Set<ConsignmentLine>();
+    public DbSet<ConsignmentReceipt> ConsignmentReceipts => Set<ConsignmentReceipt>();
+    public DbSet<ConsignmentReceiptLine> ConsignmentReceiptLines => Set<ConsignmentReceiptLine>();
     public DbSet<StockReservation> StockReservations => Set<StockReservation>();
     public DbSet<SellingPrice> SellingPrices => Set<SellingPrice>();
 

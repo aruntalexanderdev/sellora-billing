@@ -26,6 +26,8 @@ public class Consignment : ICompanyOwned
     public Guid? UpdatedByUserId { get; set; }
     public DateTimeOffset? LoadedAt { get; set; }
     public Guid? LoadedByUserId { get; set; }
+    /// <summary>FI-D34: set iff Status is InTransit/PartiallyReceived/Received (DB CHECK).</summary>
+    public DateTimeOffset? DispatchedAt { get; set; }
     public DateTimeOffset? CancelledAt { get; set; }
     public Guid? CancelledByUserId { get; set; }
     public string? CancellationReason { get; set; }

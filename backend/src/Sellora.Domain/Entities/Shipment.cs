@@ -32,6 +32,9 @@ public class Shipment : ICompanyOwned
     public Guid CreatedByUserId { get; set; }
     public DateTimeOffset? UpdatedAt { get; set; }
     public Guid? UpdatedByUserId { get; set; }
+    /// <summary>FI-D34: stamped by dispatch; set iff Status is Dispatched/PartiallyDelivered/Delivered (DB CHECK), actor paired.</summary>
+    public DateTimeOffset? DispatchedAt { get; set; }
+    public Guid? DispatchedByUserId { get; set; }
     public DateTimeOffset? CancelledAt { get; set; }
     public Guid? CancelledByUserId { get; set; }
     public string? CancellationReason { get; set; }

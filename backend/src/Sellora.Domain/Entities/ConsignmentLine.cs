@@ -26,6 +26,16 @@ public class ConsignmentLine : ICompanyOwned
     public decimal AllocatedBaseQty { get; set; }
     public decimal LoadedBaseQty { get; set; }
 
+    /// <summary>FI-D34: moved source to Transit at dispatch (&lt;= Allocated; the unloaded remainder is released and Allocated reduced to this).</summary>
+    public decimal DispatchedBaseQty { get; set; }
+
+    // FI-D35 cumulative verified counters (Accepted + Damaged + Rejected + Missing <= Dispatched); Posted = accepted quantity already moved to the destination (<= Accepted).
+    public decimal AcceptedBaseQty { get; set; }
+    public decimal DamagedBaseQty { get; set; }
+    public decimal RejectedBaseQty { get; set; }
+    public decimal MissingBaseQty { get; set; }
+    public decimal PostedBaseQty { get; set; }
+
     public ConsignmentLineStatus Status { get; set; } = ConsignmentLineStatus.Active;
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

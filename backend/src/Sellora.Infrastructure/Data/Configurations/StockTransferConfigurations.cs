@@ -159,7 +159,10 @@ public class StockTransferLineBatchConfiguration : IEntityTypeConfiguration<Stoc
 {
     public void Configure(EntityTypeBuilder<StockTransferLineBatch> builder)
     {
-        builder.HasKey(b => new { b.LineId, b.PurchaseBatchId });
+        builder.HasKey(b => b.Id);
+        // One row per batch per request line for legacy direct dispatch; one per batch per consignment line for shipment dispatch (FI-D34).
+        builder.HasIndex(b => new { b.LineId, b.PurchaseBatchId }, "IX_StockTransferLineBatches_LineId_PurchaseBatchId_Legacy").IsUnique().HasFilter("\"ConsignmentLineId\" IS NULL");
+        builder.HasIndex(b => new { b.ConsignmentLineId, b.PurchaseBatchId }, "IX_StockTransferLineBatches_ConsignmentLineId_PurchaseBatchId").IsUnique().HasFilter("\"ConsignmentLineId\" IS NOT NULL");
         builder.Property(b => b.UnitCost).HasColumnType("numeric(18,6)");
         foreach (var p in new[] { nameof(StockTransferLineBatch.DispatchedBaseQty), nameof(StockTransferLineBatch.ReceivedBaseQty), nameof(StockTransferLineBatch.DamagedBaseQty),
                      nameof(StockTransferLineBatch.WrittenOffBaseQty), nameof(StockTransferLineBatch.ReturnedBaseQty) })
@@ -168,6 +171,7 @@ public class StockTransferLineBatchConfiguration : IEntityTypeConfiguration<Stoc
         }
 
         builder.HasIndex(b => b.PurchaseBatchId, "IX_StockTransferLineBatches_PurchaseBatchId");
+        builder.HasIndex(b => new { b.CompanyId, b.ConsignmentLineId }, "IX_StockTransferLineBatches_CompanyId_ConsignmentLineId").HasFilter("\"ConsignmentLineId\" IS NOT NULL");
         builder.HasIndex(b => new { b.CompanyId, b.LineId }, "IX_StockTransferLineBatches_CompanyId_LineId");
 
         builder.HasOne<StockTransferLine>().WithMany(l => l.Batches).HasForeignKey(b => new { b.CompanyId, b.LineId })
@@ -176,6 +180,10 @@ public class StockTransferLineBatchConfiguration : IEntityTypeConfiguration<Stoc
         builder.HasOne<PurchaseBatch>().WithMany().HasForeignKey(b => new { b.CompanyId, b.PurchaseBatchId })
             .HasPrincipalKey(p => new { p.CompanyId, p.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_StockTransferLineBatches_PurchaseBatches");
+        // MATCH SIMPLE: legacy direct dispatch (NULL ConsignmentLineId) skips the check.
+        builder.HasOne<ConsignmentLine>().WithMany().HasForeignKey(b => new { b.CompanyId, b.ConsignmentLineId })
+            .HasPrincipalKey(l => new { l.CompanyId, l.Id }).IsRequired(false).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_StockTransferLineBatches_ConsignmentLines");
 
         builder.ToTable(t =>
         {
