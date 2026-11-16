@@ -7,6 +7,7 @@ import { ScopeFilters } from '../../../shared/scope/scope-filters';
 import { injectBranchColumnVisible, placeLabel } from '../../../shared/scope/list-scope';
 import { ReportsService } from '../reports.service';
 import type { PaymentMethod, SalesReportRow } from '../reports.models';
+import { UiCompanyViewToggle } from '../../../shared/ui/company-view-toggle/company-view-toggle';
 
 const BASE_COLS: DataTableColumn[] = [
   { label: 'Invoice', align: 'left' },
@@ -27,7 +28,7 @@ const PAGE_SIZE = 20;
 @Component({
   selector: 'app-sales-report',
   standalone: true,
-  imports: [UiDataTable, ScopeFilters, LoadError],
+  imports: [UiCompanyViewToggle, UiDataTable, ScopeFilters, LoadError],
   templateUrl: './sales-report.html',
   styleUrl: '../report-list.scss',
 })
@@ -130,6 +131,11 @@ export class SalesReport implements OnInit {
 
   onPageChange(page: number): void {
     this.page.set(page);
+    this.load();
+  }
+
+  onCompanyViewChange(): void {
+    this.page.set(1);
     this.load();
   }
 

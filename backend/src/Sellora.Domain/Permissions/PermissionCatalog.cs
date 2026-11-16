@@ -89,6 +89,7 @@ public static class PermissionCatalog
         new("Inventory.Delete", "Inventory", "Delete", "Delete products that have never been used in a transaction."),
         new("Inventory.Adjust", "Inventory", "Adjust", "Post stock adjustments (damage, loss, correction, etc.)."),
         new("Inventory.Price", "Inventory", "Price", "Configure product units and prices."),
+        new("Inventory.Categories", "Inventory", "Manage categories", "Create, edit, activate and deactivate product categories and subcategories."),
         new("StockLocations.View", "Inventory", "View locations", "View stock locations (branch stores, warehouses, vehicles, in-transit)."),
         new("StockTransfers.View", "Inventory", "View transfers", "View stock transfers."),
         new("StockTransfers.Create", "Inventory", "Create transfers", "Create, edit and submit stock transfer requests."),
@@ -144,6 +145,8 @@ public static class PermissionCatalog
         new("CashBank.Manage", "Accounts", "Manage", "Create, edit and deactivate cash and bank accounts."),
         new("CashBank.Transfer", "Accounts", "Transfer", "Transfer money between accounts, including cash deposits and withdrawals."),
         new("CashBank.Reconcile", "Accounts", "Reconcile", "Reconcile account transactions against statements."),
+        new("CashBank.Fund", "Accounts", "Fund", "Record funding (capital, loan, deposit, customer receipt) into cash and bank accounts."),
+        new("CashBank.Reverse", "Accounts", "Reverse", "Reverse funding, transfers and opening balances posted in error."),
 
         // Reports
         new("Reports.Stock", "Reports", "View", "View the current stock report."),

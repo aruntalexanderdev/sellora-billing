@@ -3,13 +3,15 @@ import { RouterLink } from '@angular/router';
 import { AccountsReportsService } from '../accounts-reports.service';
 import { ReportDateFilter } from '../report-date-filter/report-date-filter';
 import type { CashBankReport as CashBankReportModel } from '../accounts-reports.models';
+import { UiCompanyViewToggle } from '../../../../shared/ui/company-view-toggle/company-view-toggle';
+import { HIDDEN_BALANCE_HINT } from '../../cash-bank/cash-bank.models';
 
 const money = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 @Component({
   selector: 'app-cash-bank-report',
   standalone: true,
-  imports: [RouterLink, ReportDateFilter],
+  imports: [UiCompanyViewToggle, RouterLink, ReportDateFilter],
   templateUrl: './cash-bank-report.html',
   styleUrl: '../accounts-report.scss',
 })
@@ -23,7 +25,8 @@ export class CashBankReport implements OnInit {
   readonly report = signal<CashBankReportModel | null>(null);
 
   readonly symbol = computed(() => this.report()?.baseCurrency.symbol ?? '₹');
-  readonly fmt = (n: number) => this.symbol() + money(n);
+  readonly fmt = (n: number | null) => (n === null ? '—' : this.symbol() + money(n));
+  readonly hiddenHint = HIDDEN_BALANCE_HINT;
 
   ngOnInit(): void {
     this.load();
@@ -37,6 +40,10 @@ export class CashBankReport implements OnInit {
 
   print(): void {
     window.print();
+  }
+
+  onCompanyViewChange(): void {
+    this.load();
   }
 
   load(): void {

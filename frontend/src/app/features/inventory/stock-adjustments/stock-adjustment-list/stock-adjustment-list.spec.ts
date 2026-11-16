@@ -139,7 +139,6 @@ describe('StockAdjustmentList', () => {
     it.each([
       ['company-wide', { accessScope: 'CompanyWide' }],
       ['multi-branch', { branches: 2 }],
-      ['all-branches mode', { branches: 1, allBranches: true }],
     ] as [string, ScopeStub][])('shows the Branch column for a %s user, with each row\'s branch', (_label, scope) => {
       const { el } = setup({}, ['Inventory.View'], scope);
 

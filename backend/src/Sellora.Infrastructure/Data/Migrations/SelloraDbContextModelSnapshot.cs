@@ -666,6 +666,11 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
 
+                    b.Property<decimal>("OverdraftLimit")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,2)")
+                        .HasDefaultValue(0m);
+
                     b.Property<string>("Reference")
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
@@ -679,7 +684,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex(new[] { "CompanyId", "Name" }, "IX_FinancialAccounts_CompanyId_Name")
                         .IsUnique();
 
-                    b.ToTable("FinancialAccounts");
+                    b.ToTable("FinancialAccounts", t =>
+                        {
+                            t.HasCheckConstraint("CK_FinancialAccounts_Overdraft", "\"OverdraftLimit\" >= 0 AND (\"Kind\" <> 'Cash' OR \"OverdraftLimit\" = 0)");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.FinancialTransaction", b =>
@@ -700,6 +708,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Counterparty")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -707,6 +719,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CustomerId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Direction")
@@ -720,6 +735,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid?>("ExpenseId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("FundingSource")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -732,14 +751,25 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid?>("PurchasePaymentId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Reason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
                     b.Property<DateTimeOffset?>("ReconciledAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("ReconciledByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("ReversalOfTransactionId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("SalesPaymentId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("SourceReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -771,12 +801,18 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("ReconciledByUserId");
 
+                    b.HasIndex("ReversalOfTransactionId")
+                        .IsUnique()
+                        .HasFilter("\"ReversalOfTransactionId\" IS NOT NULL");
+
                     b.HasIndex("SalesPaymentId")
                         .IsUnique();
 
                     b.HasIndex("AccountId", "TransactionDate");
 
                     b.HasIndex("CompanyId", "AccountId");
+
+                    b.HasIndex("CompanyId", "CustomerId");
 
                     b.HasIndex("TransactionDate", "CreatedAt");
 
@@ -786,9 +822,17 @@ namespace Sellora.Infrastructure.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_FinancialTransactions_Amount_Positive", "\"Amount\" > 0");
 
-                            t.HasCheckConstraint("CK_FinancialTransactions_ManualHasAccount", "\"Type\" NOT IN ('OpeningBalance', 'Transfer') OR \"AccountId\" IS NOT NULL");
+                            t.HasCheckConstraint("CK_FinancialTransactions_CustomerReceipt", "(\"FundingSource\" IS DISTINCT FROM 'CustomerReceipt' OR (\"CustomerId\" IS NOT NULL AND \"SourceReference\" IS NOT NULL)) AND (\"CustomerId\" IS NULL OR \"FundingSource\" = 'CustomerReceipt')");
 
-                            t.HasCheckConstraint("CK_FinancialTransactions_Source", "(CASE WHEN \"PurchasePaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"SalesPaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"ExpenseId\" IS NULL THEN 0 ELSE 1 END) = CASE WHEN \"Type\" IN ('OpeningBalance', 'Transfer') THEN 0 ELSE 1 END");
+                            t.HasCheckConstraint("CK_FinancialTransactions_Funding", "(\"Type\" = 'Funding') = (\"FundingSource\" IS NOT NULL) AND (\"Type\" <> 'Funding' OR \"Direction\" = 'In')");
+
+                            t.HasCheckConstraint("CK_FinancialTransactions_ManualHasAccount", "\"Type\" NOT IN ('OpeningBalance', 'Transfer', 'Funding', 'Reversal') OR \"AccountId\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_FinancialTransactions_OtherReason", "\"FundingSource\" IS DISTINCT FROM 'Other' OR \"Reason\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_FinancialTransactions_Reversal", "(\"Type\" = 'Reversal') = (\"ReversalOfTransactionId\" IS NOT NULL) AND (\"Type\" <> 'Reversal' OR \"Reason\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_FinancialTransactions_Source", "(CASE WHEN \"PurchasePaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"SalesPaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"ExpenseId\" IS NULL THEN 0 ELSE 1 END) = CASE WHEN \"Type\" IN ('OpeningBalance', 'Transfer', 'Funding', 'Reversal') THEN 0 ELSE 1 END");
                         });
                 });
 
@@ -1036,6 +1080,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
 
+                    b.Property<Guid?>("CategoryId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -1055,6 +1102,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<Guid?>("SubcategoryId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("TaxId")
                         .HasColumnType("uuid");
 
@@ -1066,10 +1116,106 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("CompanyId", "TaxId");
 
+                    b.HasIndex("CompanyId", "CategoryId", "SubcategoryId");
+
+                    b.HasIndex(new[] { "CompanyId", "CategoryId" }, "IX_Products_CompanyId_CategoryId");
+
                     b.HasIndex(new[] { "CompanyId", "Sku" }, "IX_Products_CompanyId_Sku")
                         .IsUnique();
 
-                    b.ToTable("Products");
+                    b.HasIndex(new[] { "CompanyId", "SubcategoryId" }, "IX_Products_CompanyId_SubcategoryId");
+
+                    b.ToTable("Products", t =>
+                        {
+                            t.HasCheckConstraint("CK_Products_Subcategory_Requires_Category", "\"SubcategoryId\" IS NULL OR \"CategoryId\" IS NOT NULL");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ProductCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "CompanyId", "Code" }, "IX_ProductCategories_CompanyId_Code")
+                        .IsUnique();
+
+                    b.ToTable("ProductCategories", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProductCategories_Code_Format", "\"Code\" ~ '^[A-Z0-9][A-Z0-9-]{0,19}$'");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ProductSubcategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "CompanyId", "CategoryId", "Code" }, "IX_ProductSubcategories_CompanyId_CategoryId_Code")
+                        .IsUnique();
+
+                    b.ToTable("ProductSubcategories", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProductSubcategories_Code_Format", "\"Code\" ~ '^[A-Z0-9][A-Z0-9-]{0,19}$'");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.ProductUnit", b =>
@@ -2352,7 +2498,10 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex(new[] { "ProductId" }, "IX_StockItems_ProductId");
 
-                    b.ToTable("StockItems");
+                    b.ToTable("StockItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_StockItems_QuantityOnHand_NonNegative", "\"QuantityOnHand\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.StockLocation", b =>
@@ -2559,6 +2708,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid?>("CancelledByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ClosedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClosureReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -2631,6 +2790,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("CancelledByUserId");
 
+                    b.HasIndex("ClosedByUserId");
+
                     b.HasIndex("CompletedByUserId");
 
                     b.HasIndex("CreatedByUserId");
@@ -2657,22 +2818,24 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .IsUnique();
 
                     b.HasIndex(new[] { "CompanyId", "DestinationLocationId" }, "IX_StockTransfers_Destination_Open")
-                        .HasFilter("\"Status\" NOT IN ('Completed', 'Cancelled', 'Rejected')");
+                        .HasFilter("\"Status\" NOT IN ('Completed', 'Cancelled', 'Rejected', 'Fulfilled', 'Closed')");
 
                     b.HasIndex(new[] { "CompanyId", "SourceLocationId" }, "IX_StockTransfers_Source_Open")
-                        .HasFilter("\"Status\" NOT IN ('Completed', 'Cancelled', 'Rejected')");
+                        .HasFilter("\"Status\" NOT IN ('Completed', 'Cancelled', 'Rejected', 'Fulfilled', 'Closed')");
 
                     b.ToTable("StockTransfers", t =>
                         {
-                            t.HasCheckConstraint("CK_StockTransfers_Actors_Paired", "(\"SubmittedAt\" IS NULL) = (\"SubmittedByUserId\" IS NULL) AND (\"ApprovedAt\" IS NULL) = (\"ApprovedByUserId\" IS NULL) AND (\"RejectedAt\" IS NULL) = (\"RejectedByUserId\" IS NULL) AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL) AND (\"CompletedAt\" IS NULL) = (\"CompletedByUserId\" IS NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL)");
+                            t.HasCheckConstraint("CK_StockTransfers_Actors_Paired", "(\"SubmittedAt\" IS NULL) = (\"SubmittedByUserId\" IS NULL) AND (\"ApprovedAt\" IS NULL) = (\"ApprovedByUserId\" IS NULL) AND (\"RejectedAt\" IS NULL) = (\"RejectedByUserId\" IS NULL) AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL) AND (\"CompletedAt\" IS NULL) = (\"CompletedByUserId\" IS NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL) AND (\"ClosedAt\" IS NULL) = (\"ClosedByUserId\" IS NULL)");
 
                             t.HasCheckConstraint("CK_StockTransfers_Endpoints_Differ", "\"SourceLocationId\" <> \"DestinationLocationId\"");
 
                             t.HasCheckConstraint("CK_StockTransfers_Endpoints_NotTransit", "\"SourceLocationId\" <> \"TransitLocationId\" AND \"DestinationLocationId\" <> \"TransitLocationId\"");
 
-                            t.HasCheckConstraint("CK_StockTransfers_Status_Approval", "(\"Status\" NOT IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed') OR \"ApprovedAt\" IS NOT NULL) AND (\"Status\" IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled') OR \"ApprovedAt\" IS NULL)");
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Approval", "(\"Status\" NOT IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed', 'PartiallyFulfilled', 'Fulfilled', 'Closed') OR \"ApprovedAt\" IS NOT NULL) AND (\"Status\" IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed', 'PartiallyFulfilled', 'Fulfilled', 'Closed', 'Cancelled') OR \"ApprovedAt\" IS NULL)");
 
                             t.HasCheckConstraint("CK_StockTransfers_Status_Cancellation", "(\"Status\" = 'Cancelled') = (\"CancelledAt\" IS NOT NULL) AND (\"Status\" <> 'Cancelled' OR char_length(\"CancellationReason\") > 0)");
+
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Closure", "(\"Status\" = 'Closed') = (\"ClosedAt\" IS NOT NULL) AND (\"Status\" <> 'Closed' OR COALESCE(char_length(\"ClosureReason\"), 0) > 0) AND (\"Status\" = 'Closed' OR \"ClosureReason\" IS NULL)");
 
                             t.HasCheckConstraint("CK_StockTransfers_Status_Completion", "(\"Status\" = 'Completed') = (\"CompletedAt\" IS NOT NULL)");
 
@@ -2682,7 +2845,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_StockTransfers_Status_Stamps", "(\"Status\" = 'Draft') = (\"SubmittedAt\" IS NULL) OR \"Status\" = 'Cancelled'");
 
-                            t.HasCheckConstraint("CK_StockTransfers_Status_Valid", "\"Status\" IN ('Draft', 'Requested', 'Approved', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled')");
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Valid", "\"Status\" IN ('Draft', 'Requested', 'Approved', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled', 'PartiallyFulfilled', 'Fulfilled', 'Closed')");
                         });
                 });
 
@@ -2691,6 +2854,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<decimal>("AllocatedBaseQty")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,3)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal>("ClosedBaseQty")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,3)")
+                        .HasDefaultValue(0m);
 
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
@@ -2773,6 +2946,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.ToTable("StockTransferLines", t =>
                         {
+                            t.HasCheckConstraint("CK_StockTransferLines_Allocation_Valid", "\"AllocatedBaseQty\" >= 0 AND \"ClosedBaseQty\" >= 0 AND \"AllocatedBaseQty\" + \"ClosedBaseQty\" <= \"RequestedBaseQty\"");
+
                             t.HasCheckConstraint("CK_StockTransferLines_Counters_Max", "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" <= \"DispatchedBaseQty\"");
 
                             t.HasCheckConstraint("CK_StockTransferLines_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
@@ -2783,7 +2958,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_StockTransferLines_Dispatch_Required", "\"DispatchProductUnitId\" IS NOT NULL OR (\"DispatchedBaseQty\" = 0 AND \"ReceivedBaseQty\" = 0 AND \"DamagedBaseQty\" = 0 AND \"WrittenOffBaseQty\" = 0 AND \"ReturnedBaseQty\" = 0)");
 
-                            t.HasCheckConstraint("CK_StockTransferLines_Dispatched_Max", "\"DispatchedBaseQty\" >= 0 AND \"DispatchedBaseQty\" <= \"RequestedBaseQty\"");
+                            t.HasCheckConstraint("CK_StockTransferLines_Dispatched_Max", "\"DispatchedBaseQty\" >= 0 AND \"DispatchedBaseQty\" + \"ClosedBaseQty\" <= \"RequestedBaseQty\"");
 
                             t.HasCheckConstraint("CK_StockTransferLines_LineNo_Positive", "\"LineNo\" > 0");
 
@@ -3783,6 +3958,11 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("ReconciledByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Sellora.Domain.Entities.FinancialTransaction", null)
+                        .WithMany()
+                        .HasForeignKey("ReversalOfTransactionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Sellora.Domain.Entities.SalesPayment", "SalesPayment")
                         .WithMany()
                         .HasForeignKey("SalesPaymentId")
@@ -3791,6 +3971,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasOne("Sellora.Domain.Entities.FinancialAccount", null)
                         .WithMany()
                         .HasForeignKey("CompanyId", "AccountId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CustomerId")
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
@@ -3905,6 +4091,13 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.ProductCategory", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CategoryId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Products_ProductCategories_CompanyId_CategoryId");
+
                     b.HasOne("Sellora.Domain.Entities.Tax", null)
                         .WithMany()
                         .HasForeignKey("CompanyId", "TaxId")
@@ -3912,9 +4105,44 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.ProductSubcategory", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CategoryId", "SubcategoryId")
+                        .HasPrincipalKey("CompanyId", "CategoryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Products_ProductSubcategories_CompanyId_CategoryId_SubcategoryId");
+
                     b.Navigation("BaseUnit");
 
                     b.Navigation("Tax");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ProductCategory", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ProductSubcategory", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.ProductCategory", "Category")
+                        .WithMany("Subcategories")
+                        .HasForeignKey("CompanyId", "CategoryId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_ProductSubcategories_ProductCategories_CompanyId_CategoryId");
+
+                    b.Navigation("Category");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.ProductUnit", b =>
@@ -4752,6 +4980,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("FK_StockTransfers_Users_CancelledBy");
 
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ClosedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_StockTransfers_Users_ClosedBy");
+
                     b.HasOne("Sellora.Domain.Entities.Company", null)
                         .WithMany()
                         .HasForeignKey("CompanyId")
@@ -5208,6 +5442,11 @@ namespace Sellora.Infrastructure.Data.Migrations
             modelBuilder.Entity("Sellora.Domain.Entities.Product", b =>
                 {
                     b.Navigation("Units");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ProductCategory", b =>
+                {
+                    b.Navigation("Subcategories");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrder", b =>

@@ -15,6 +15,8 @@ const BASE_URL = `${environment.apiBaseUrl}/products`;
 
 export interface ProductListQuery {
   search?: string;
+  categoryId?: string | null;
+  subcategoryId?: string | null;
   page?: number;
   pageSize?: number;
 }
@@ -26,6 +28,8 @@ export class ProductsService {
   list(query: ProductListQuery = {}): Observable<PagedResult<ProductListItem>> {
     const params: Record<string, string> = { page: String(query.page ?? 1), pageSize: String(query.pageSize ?? 100) };
     if (query.search) params['search'] = query.search;
+    if (query.categoryId) params['categoryId'] = query.categoryId;
+    if (query.subcategoryId) params['subcategoryId'] = query.subcategoryId;
     return this.http.get<PagedResult<ProductListItem>>(BASE_URL, { params });
   }
 

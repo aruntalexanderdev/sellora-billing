@@ -22,6 +22,18 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
         // Same-company guarantee: a product's tax belongs to the product's company.
         builder.HasOne<Tax>().WithMany().HasForeignKey(p => new { p.CompanyId, p.TaxId })
             .HasPrincipalKey(t => new { t.CompanyId, t.Id }).OnDelete(DeleteBehavior.Restrict);
+
+        // Phase 08 category masters. Navigation-less; both FKs are MATCH SIMPLE so a NULL CategoryId/SubcategoryId skips the check.
+        builder.HasOne<ProductCategory>().WithMany().HasForeignKey(p => new { p.CompanyId, p.CategoryId })
+            .HasPrincipalKey(c => new { c.CompanyId, c.Id }).IsRequired(false).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_Products_ProductCategories_CompanyId_CategoryId");
+        // (CompanyId, CategoryId, SubcategoryId) -> (CompanyId, CategoryId, Id): the subcategory must belong to the product's category.
+        builder.HasOne<ProductSubcategory>().WithMany().HasForeignKey(p => new { p.CompanyId, p.CategoryId, p.SubcategoryId })
+            .HasPrincipalKey(s => new { s.CompanyId, s.CategoryId, s.Id }).IsRequired(false).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_Products_ProductSubcategories_CompanyId_CategoryId_SubcategoryId");
+        builder.HasIndex(p => new { p.CompanyId, p.CategoryId }, "IX_Products_CompanyId_CategoryId");
+        builder.HasIndex(p => new { p.CompanyId, p.SubcategoryId }, "IX_Products_CompanyId_SubcategoryId");
+        builder.ToTable(t => t.HasCheckConstraint("CK_Products_Subcategory_Requires_Category", "\"SubcategoryId\" IS NULL OR \"CategoryId\" IS NOT NULL"));
     }
 }
 

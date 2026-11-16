@@ -19,6 +19,7 @@ namespace Sellora.Infrastructure.Services;
 public class StockTransferService(SelloraDbContext db, IEffectivePermissionService? permissions = null) : IStockTransferService
 {
     private const int MaxText = 300;
+    private const int MaxCloseReason = 500;
     private const string LocationField = "stockLocationId";
     private const string InvalidLocation = "Select a valid, active stock location.";
 
@@ -174,6 +175,34 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
             }, ct);
     }
 
+    public Task<StockTransfer?> CloseAsync(Guid id, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default)
+    {
+        var text = Text(reason, "reason", required: true, MaxCloseReason)!;
+        return TransitionAsync(id, userId, correlationId, StockTransferStatus.Closed, [StockTransferStatus.Approved, StockTransferStatus.PartiallyFulfilled],
+            "StockTransfers.Approve", Fit.Source, AuditActions.StockTransferClosed, text,
+            (t, now) =>
+            {
+                // FI-D26/FI-D27: closing is only meaningful once something shipped, and never while an allocation is still outstanding.
+                if (!t.Lines.Any(l => l.DispatchedBaseQty > 0))
+                {
+                    throw new DomainValidationException("status", "Nothing has been dispatched on this transfer yet; cancel it instead of closing it.");
+                }
+                if (!t.Lines.Any(l => l.RequestedBaseQty - l.ClosedBaseQty - l.DispatchedBaseQty > 0))
+                {
+                    throw new DomainValidationException("status", "Nothing remains to be closed on this transfer.");
+                }
+                if (t.Lines.Any(l => l.AllocatedBaseQty > l.DispatchedBaseQty))
+                {
+                    throw new DomainValidationException("status", "Some allocated quantity has not been dispatched yet; dispatch or release the allocation before closing.");
+                }
+                foreach (var line in t.Lines) line.ClosedBaseQty = line.RequestedBaseQty - line.DispatchedBaseQty;
+                t.Status = StockTransferStatus.Closed;
+                t.ClosedAt = now;
+                t.ClosedByUserId = userId;
+                t.ClosureReason = text;
+            }, ct);
+    }
+
     // Header lock → reload → transition + fit check → stamp. No stock is touched, so no stock locks.
     private async Task<StockTransfer?> TransitionAsync(
         Guid id, Guid userId, string? correlationId, StockTransferStatus target, StockTransferStatus[] allowedFrom, string permissionCode, Fit fit,
@@ -273,18 +302,15 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
             shipping.SelectMany(p => new[] { (transfer.SourceLocationId, p.Line.ProductId), (transfer.TransitLocationId, p.Line.ProductId) }), ct);
 
         // Availability per product across all lines (mixed units) before anything moves; no negative stock.
-        foreach (var group in shipping.GroupBy(p => p.Line.ProductId))
-        {
-            var sourceItem = items[(transfer.SourceLocationId, group.Key)];
-            var total = group.Sum(p => p.BaseQty);
-            if (total > sourceItem.QuantityOnHand)
+        await StockAvailability.EnsureAsync(db, items,
+            shipping.Select(p => new StockAvailability.Requirement(transfer.SourceLocationId, p.Line.ProductId, p.BaseQty)),
+            shortage =>
             {
-                var first = group.First();
-                var baseCode = products[group.Key].BaseUnit.ShortCode;
-                throw new DomainValidationException($"lines[{first.Index}].quantity",
-                    $"Cannot dispatch {StockQuantity.Format(total)} {baseCode} of {products[group.Key].Name} — only {StockQuantity.Format(sourceItem.QuantityOnHand)} {baseCode} is in stock at the source.");
-            }
-        }
+                var first = shipping.First(p => p.Line.ProductId == shortage.ProductId);
+                var baseCode = products[shortage.ProductId].BaseUnit.ShortCode;
+                return new DomainValidationException($"lines[{first.Index}].quantity",
+                    $"Cannot dispatch {StockQuantity.Format(shortage.Requested)} {baseCode} of {products[shortage.ProductId].Name} — only {StockQuantity.Format(shortage.Available)} {baseCode} is in stock at the source.");
+            }, ct);
 
         var now = DateTimeOffset.UtcNow;
         foreach (var (line, index, unit, qty, baseQty) in prepared)
@@ -694,11 +720,11 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
         }
     }
 
-    private static string? Text(string? value, string field, bool required)
+    private static string? Text(string? value, string field, bool required, int max = MaxText)
     {
         var text = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         if (text is null && required) throw new DomainValidationException(field, "Enter a reason.");
-        if (text is { Length: > MaxText }) throw new DomainValidationException(field, $"Use at most {MaxText} characters.");
+        if (text is { } t && t.Length > max) throw new DomainValidationException(field, $"Use at most {max} characters.");
         return text;
     }
 

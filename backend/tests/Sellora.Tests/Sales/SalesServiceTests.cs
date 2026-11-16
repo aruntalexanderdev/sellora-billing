@@ -574,4 +574,85 @@ public class SalesServiceTests
 
         Assert.Equal(1365m, (await f.Db.FinancialTransactions.SingleAsync()).BaseAmount); // change is not money received
     }
+
+    // ---- FI-D7: availability = on hand - reserved ------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task CreateSaleAsync_ReservationReducesAvailability_RefusesWhatOnHandAloneWouldCover()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 3, 580); // 30 kg
+
+        using (StockAvailability.UseReservedSource((_, _, _, _, _) => Task.FromResult(25m)))
+        {
+            var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreateSaleAsync(BuildInput(f, 10, 65), f.UserId));
+            Assert.Equal("Lines", ex.Field);
+            Assert.Contains("Only 5 kg", ex.Message);
+        }
+
+        Assert.Equal(30m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
+    }
+
+    // ---- FI-D24 Q1a: per-line rounding to the base currency precision (AwayFromZero) --------------------------------------------
+
+    [Theory]
+    [InlineData("1", "0.10", "0", "0.10", "0.01", "0.11")]   // tax 0.005 rounds up (banker's rounding would give 0.00)
+    [InlineData("3", "0.335", "0", "1.01", "0.05", "1.06")]  // gross 1.005 rounds up; tax 0.0505 -> 0.05
+    [InlineData("3", "0.335", "0.005", "1.00", "0.05", "1.05")] // discount 0.005 -> 0.01
+    public void SaleMoney_Line_RoundsHalfAwayFromZero(string qty, string price, string discount, string taxable, string tax, string total)
+    {
+        var a = SaleMoney.Line(decimal.Parse(qty), decimal.Parse(price), decimal.Parse(discount), 5m, 2);
+
+        Assert.Equal((decimal.Parse(taxable), decimal.Parse(tax), decimal.Parse(total)), (a.Taxable, a.Tax, a.LineTotal));
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_RoundsEachLine_HeaderIsTheSumOfRoundedLines()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 30, 580);
+
+        var sale = await f.Service.CreateSaleAsync(
+            new CreateSaleInput(f.Customer.Id, new DateOnly(2026, 9, 18), PaymentMethod.Cash, 0,
+                [new SaleLineInput(f.Product.Id, f.LooseKg.Id, 3, 0.335m, 0), new SaleLineInput(f.Product.Id, f.Bag.Id, 1, 3.35m, 0)]),
+            f.UserId);
+
+        Assert.Equal([1.01m, 3.35m], sale.Lines.Select(l => l.TaxableValue));
+        Assert.Equal([0.05m, 0.17m], sale.Lines.Select(l => l.TaxAmount));
+        Assert.Equal([1.06m, 3.52m], sale.Lines.Select(l => l.LineTotal));
+        Assert.Equal((4.36m, 0.22m, 0m, 4.58m), (sale.Subtotal, sale.TaxTotal, sale.DiscountTotal, sale.GrandTotal));
+        Assert.Equal(sale.Lines.Sum(l => l.LineTotal), sale.GrandTotal);
+        Assert.Equal(sale.Lines.Sum(l => l.TaxAmount), sale.TaxTotal);
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_GrandTotalEqualsSumOfRoundedLineTotals_WithDiscounts()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 30, 580);
+
+        var sale = await f.Service.CreateSaleAsync(
+            new CreateSaleInput(f.Customer.Id, new DateOnly(2026, 9, 18), PaymentMethod.Cash, 0,
+                // FI-D24: discounts have at most the currency's decimals; the gross (7 x 1.115 = 7.805) and the taxes still need half-up rounding.
+                [new SaleLineInput(f.Product.Id, f.LooseKg.Id, 7, 1.115m, 0.01m), new SaleLineInput(f.Product.Id, f.Bag.Id, 3, 11.15m, 0.05m)]),
+            f.UserId);
+
+        Assert.Equal(sale.Lines.Sum(l => l.LineTotal), sale.GrandTotal);
+        Assert.Equal(sale.Subtotal - sale.DiscountTotal + sale.TaxTotal, sale.GrandTotal);
+        Assert.All(sale.Lines, l => Assert.Equal(Math.Round(l.LineTotal, 2), l.LineTotal));
+    }
+
+    [Fact]
+    public async Task CreateSaleAsync_PaidIsComparedWithTheRoundedGrandTotal()
+    {
+        var f = await SeedAsync();
+        await PurchaseAsync(f, 30, 580);
+
+        // Rounded total 0.11 (unrounded 0.105): paying exactly 0.11 settles it; paying more is change.
+        var exact = await f.Service.CreateSaleAsync(BuildInput(f, 1, 0.10m) with { PaidAmount = 0.11m }, f.UserId);
+        var over = await f.Service.CreateSaleAsync(BuildInput(f, 1, 0.10m) with { PaidAmount = 5m }, f.UserId);
+
+        Assert.Equal((0.11m, 0m), (exact.GrandTotal, exact.DueAmount));
+        Assert.Equal((0.11m, 0.11m, 0m), (over.GrandTotal, over.PaidAmount, over.DueAmount));
+    }
 }

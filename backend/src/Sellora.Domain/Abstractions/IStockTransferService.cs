@@ -24,6 +24,13 @@ public interface IStockTransferService
     Task<StockTransfer?> RejectAsync(Guid id, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default);
     Task<StockTransfer?> CancelAsync(Guid id, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default);
 
+    /// <summary>
+    /// FI-D26: Approved / PartiallyFulfilled with something already dispatched and no outstanding allocation: closes the remainder
+    /// (ClosedBaseQty = Requested - Dispatched per line) and sets Closed. Reason required (field "reason", at most 500 characters).
+    /// Idempotent by state like the other transitions.
+    /// </summary>
+    Task<StockTransfer?> CloseAsync(Guid id, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default);
+
     /// <summary>Approved only; exactly once: source to Transit, FIFO at the source, batch identity and cost preserved.</summary>
     Task<StockTransfer?> DispatchAsync(Guid id, DispatchStockTransferInput input, Guid userId, string? correlationId = null, CancellationToken ct = default);
 

@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { of } from 'rxjs';
 import { ProductForm } from './product-form';
+import { ProductCategoriesService } from '../../../../shared/product-categories/product-categories.service';
 import { ProductsService } from '../products.service';
 import { UnitsService } from '../../../masters/units/units.service';
 import { TaxesService } from '../../../masters/taxes/taxes.service';
@@ -34,7 +35,7 @@ function pu(overrides: Partial<ProductUnit>): ProductUnit {
 
 function product(baseUnitId: string, extra: Partial<ProductDetail> = {}): ProductDetail {
   return {
-    id: 'p1', sku: 'SKU', name: 'Legacy', category: null, baseUnitId, baseUnitLabel: baseUnitId,
+    id: 'p1', sku: 'SKU', name: 'Legacy', category: null, categoryId: null, categoryName: null, subcategoryId: null, subcategoryName: null, baseUnitId, baseUnitLabel: baseUnitId,
     taxId: 't1', taxLabel: 'GST 5%', taxRatePercent: 5, reorderLevel: 0, isActive: true,
     isBaseUnitLocked: false, units: [pu({ unitId: baseUnitId })],
     ...extra,
@@ -46,6 +47,7 @@ function setup(id: string | null, baseUnitId = 'kg', detail: ProductDetail = pro
     imports: [ProductForm],
     providers: [
       { provide: UnitsService, useValue: { list: () => of(UNITS) } },
+      { provide: ProductCategoriesService, useValue: { list: () => of([]) } },
       { provide: TaxesService, useValue: { list: () => of([{ id: 't1', name: 'GST 5%', ratePercent: 5, isActive: true }]) } },
       { provide: ProductsService, useValue: { get: () => of(detail) } },
       { provide: Router, useValue: { navigateByUrl: vi.fn() } },
@@ -161,5 +163,52 @@ describe('ProductForm units', () => {
     expect(component.unitRows.errors?.['server']).toBe('Only one default sales unit.');
     expect(component.form.controls.baseUnitId.errors?.['server']).toBe('Base unit cannot change.');
     expect(component.serverError()).toBe('Unmapped.');
+  });
+});
+
+describe('ProductForm category mapping', () => {
+  const cats = [
+    { id: 'c1', code: 'A', name: 'Grains', sortOrder: 0, isActive: true, productCount: 1, subcategories: [
+      { id: 's1', categoryId: 'c1', code: 'R', name: 'Rice', sortOrder: 0, isActive: true, productCount: 1 },
+      { id: 's2', categoryId: 'c1', code: 'O', name: 'Old', sortOrder: 1, isActive: false, productCount: 0 },
+    ] },
+    { id: 'c2', code: 'B', name: 'Retired', sortOrder: 1, isActive: false, productCount: 0, subcategories: [] },
+  ];
+
+  function withCategories(detail: ProductDetail, id: string | null = 'p1') {
+    const c = setup(id, 'kg', detail);
+    c.allCategories.set(cats);
+    return c;
+  }
+
+  it('lists active categories only, plus the current inactive one', () => {
+    expect(withCategories(product('kg'), null).categoryOptions().map((x) => x.id)).toEqual(['c1']);
+    TestBed.resetTestingModule();
+    const c = withCategories(product('kg', { categoryId: 'c2', categoryName: 'Retired' }));
+    expect(c.categoryOptions().map((x) => x.id)).toEqual(['c1', 'c2']);
+  });
+
+  it('subcategory options follow the category and keep a current inactive subcategory', () => {
+    const c = withCategories(product('kg', { categoryId: 'c1', subcategoryId: 's2' }));
+    expect(c.subcategoryOptions().map((x) => x.id)).toEqual(['s1', 's2']);
+    c.form.controls.categoryId.setValue('c2');
+    expect(c.form.controls.subcategoryId.value).toBe('');
+    expect(c.subcategoryOptions()).toEqual([]);
+  });
+
+  it('buildRequest sends ids (null when empty) and no legacy category', () => {
+    const c = withCategories(product('kg', { categoryId: 'c1', subcategoryId: 's1' }));
+    expect(c.buildRequest()).toMatchObject({ categoryId: 'c1', subcategoryId: 's1' });
+    expect('category' in c.buildRequest()).toBe(false);
+    c.form.controls.categoryId.setValue('');
+    expect(c.buildRequest()).toMatchObject({ categoryId: null, subcategoryId: null });
+  });
+
+  it('maps server field errors onto the category controls', () => {
+    const c = withCategories(product('kg'));
+    c.applyServerErrors({ errors: { categoryId: ['Category is inactive.'], subcategoryId: ['Does not belong to the category.'] } });
+    expect(c.form.controls.categoryId.errors?.['server']).toBe('Category is inactive.');
+    expect(c.form.controls.subcategoryId.errors?.['server']).toBe('Does not belong to the category.');
+    expect(c.serverError()).toBeNull();
   });
 });

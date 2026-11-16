@@ -33,7 +33,7 @@ const nonBase = (id: string, code: string, name: string, factor: number, extra: 
 
 // Pen: pc base, Box 10, Full Carton 100 (default purchase unit), plus an inactive old box.
 const PEN: ProductDetail = {
-  id: 'pen', sku: 'PEN-1', name: 'Pen', category: null, baseUnitId: 'pc', baseUnitLabel: 'pc',
+  id: 'pen', sku: 'PEN-1', name: 'Pen', category: null, categoryId: null, categoryName: null, subcategoryId: null, subcategoryName: null, baseUnitId: 'pc', baseUnitLabel: 'pc',
   taxId: 't1', taxLabel: 'GST 5%', taxRatePercent: 5, reorderLevel: 0, isActive: true, isBaseUnitLocked: false,
   units: [
     pu({}),

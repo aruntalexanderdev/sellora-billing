@@ -17,9 +17,9 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
     private static Guid IdOf(JsonElement e) => e.GetProperty("id").GetGuid();
     private static string Str(JsonElement e, string name) => e.GetProperty(name).GetString()!;
 
-    private static async Task<List<JsonElement>> ListAsync(WarehouseVehicleApiWorld w, string route, HttpClient? client = null)
+    private static async Task<List<JsonElement>> ListAsync(WarehouseVehicleApiWorld w, string route, HttpClient? client = null, Guid? branch = null)
     {
-        var response = await w.SendAsync(HttpMethod.Get, route, client: client);
+        var response = await w.SendAsync(HttpMethod.Get, route, branch: branch, client: client);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return (await JsonAsync(response)).EnumerateArray().ToList();
     }
@@ -185,7 +185,7 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
 
         Assert.All(await ListAsync(w, Wh + "?ownership=Company"), x => Assert.Equal("Company", Str(x, "ownership")));
         Assert.All(await ListAsync(w, Wh + "?ownership=branch"), x => Assert.Equal("Branch", Str(x, "ownership")));
-        Assert.Equal(new[] { IdOf(branchA1), IdOf(branchA2) }.Order(), (await ListAsync(w, $"{Wh}?branchId={b1}")).Select(IdOf).Order());
+        Assert.Equal(new[] { IdOf(branchA1), IdOf(branchA2) }.Order(), (await ListAsync(w, $"{Wh}?branchId={b1}", branch: b1)).Select(IdOf).Order()); // FI-D11: the filter names the active branch
         await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Get, Wh + "?ownership=Both"), "ownership");
         var denied = await w.SendAsync(HttpMethod.Get, $"{Wh}?branchId={Guid.NewGuid()}");
         Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
@@ -290,12 +290,12 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
         var off = await w.NewVehicleAsync(branch, w.NextCode("VD"));
         await w.SendAsync(HttpMethod.Post, $"{Veh}/{IdOf(off)}/status", new SetStatusRequest(false, "test"));
 
-        var assigned = await ListAsync(w, $"{Veh}?assignedBranchId={branch}");
+        var assigned = await ListAsync(w, $"{Veh}?assignedBranchId={branch}", branch: branch); // FI-D11: assignedBranchId must be the active branch
         Assert.Equal(new[] { IdOf(assignedVan), IdOf(assignedTruck) }, assigned.Select(IdOf)); // by number: VA.. before VB..
-        Assert.Equal(new[] { IdOf(assignedTruck) }, (await ListAsync(w, $"{Veh}?assignedBranchId={branch}&vehicleType=truck")).Select(IdOf));
+        Assert.Equal(new[] { IdOf(assignedTruck) }, (await ListAsync(w, $"{Veh}?assignedBranchId={branch}&vehicleType=truck", branch: branch)).Select(IdOf));
         Assert.Contains(await ListAsync(w, $"{Veh}?unassigned=true"), x => IdOf(x) == IdOf(free));
         Assert.All(await ListAsync(w, $"{Veh}?unassigned=true"), x => Assert.Equal(JsonValueKind.Null, x.GetProperty("assignedBranchId").ValueKind));
-        Assert.Contains(await ListAsync(w, $"{Veh}?assignedBranchId={branch}&includeInactive=true"), x => IdOf(x) == IdOf(off));
+        Assert.Contains(await ListAsync(w, $"{Veh}?assignedBranchId={branch}&includeInactive=true", branch: branch), x => IdOf(x) == IdOf(off));
         await AssertBadRequestOnAsync(await w.SendAsync(HttpMethod.Get, Veh + "?vehicleType=Boat"), "vehicleType");
         Assert.Equal(HttpStatusCode.Forbidden, (await w.SendAsync(HttpMethod.Get, $"{Veh}?assignedBranchId={Guid.NewGuid()}")).StatusCode);
     }
@@ -387,16 +387,19 @@ public class WarehousesVehiclesApiTests(PostgresFixture postgres)
         var (branch, _) = await w.NewBranchAsync();
         var branchWh = await w.NewWarehouseAsync(branch);
         var companyWh = await w.NewWarehouseAsync();
-        var vehicle = await w.NewVehicleAsync(branch); // vehicles are company-visible even when assigned
+        var vehicle = await w.NewVehicleAsync(branch); // FI-D11/G5: a vehicle assigned to a branch the member cannot access is hidden
+        var centralVehicle = await w.NewVehicleAsync(); // unassigned (central) vehicles stay company-visible
 
         var warehouses = (await ListAsync(w, Wh, w.Restricted)).Select(IdOf).ToList();
         var vehicles = (await ListAsync(w, Veh, w.Restricted)).Select(IdOf).ToList();
 
         Assert.Contains(IdOf(companyWh), warehouses);
         Assert.DoesNotContain(IdOf(branchWh), warehouses);
-        Assert.Contains(IdOf(vehicle), vehicles);
+        Assert.DoesNotContain(IdOf(vehicle), vehicles);
+        Assert.Contains(IdOf(centralVehicle), vehicles);
         Assert.Equal(HttpStatusCode.OK, (await w.SendAsync(HttpMethod.Get, $"{Wh}/{IdOf(companyWh)}", client: w.Restricted)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await w.SendAsync(HttpMethod.Get, $"{Veh}/{IdOf(vehicle)}", client: w.Restricted)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await w.SendAsync(HttpMethod.Get, $"{Veh}/{IdOf(vehicle)}", client: w.Restricted)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await w.SendAsync(HttpMethod.Get, $"{Veh}/{IdOf(centralVehicle)}", client: w.Restricted)).StatusCode);
         Assert.DoesNotContain(await ListAsync(w, "/api/v1/stock-locations", w.Restricted), l => l.GetProperty("id").GetGuid() == branchWh.GetProperty("stockLocationId").GetGuid());
     }
 

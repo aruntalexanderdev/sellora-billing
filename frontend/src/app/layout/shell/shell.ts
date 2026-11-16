@@ -5,7 +5,6 @@ import { Header } from '../header/header';
 import { UiToastHost } from '../../shared/ui/toast/toast-host';
 import { UiConfirmDialogHost } from '../../shared/ui/confirm-dialog/confirm-dialog-host';
 import { AuthService } from '../../core/auth/auth.service';
-import { ALL_BRANCHES } from '../../core/context/context.models';
 import { ContextService } from '../../core/context/context.service';
 import { ToastService } from '../../shared/ui/toast/toast.service';
 import { problemMessage, toProblem } from '../../core/http/api-errors';
@@ -61,11 +60,10 @@ export class Shell {
 
   readonly companyName = computed(() => this.context.company()?.name ?? this.currentUser()?.companyName ?? '');
   readonly companyId = computed(() => this.context.company()?.id ?? '');
-  readonly branchName = computed(() => (this.context.isAllBranches() ? 'All branches' : (this.context.workingBranch()?.name ?? '')));
-  readonly canChooseAll = this.context.canChooseAll;
+  readonly branchName = computed(() => (this.context.workingBranch()?.name ?? ''));
   readonly companies = this.context.companies;
   readonly allowedBranches = this.context.allowedBranches;
-  readonly workingBranchId = computed(() => (this.context.isAllBranches() ? ALL_BRANCHES : (this.context.workingBranch()?.id ?? '')));
+  readonly workingBranchId = computed(() => (this.context.workingBranch()?.id ?? ''));
   /** Changes on branch switch: the routed component is re-created, so every screen re-fetches for the new branch. */
   readonly contextKey = computed(() => [this.context.contextVersion()]);
 

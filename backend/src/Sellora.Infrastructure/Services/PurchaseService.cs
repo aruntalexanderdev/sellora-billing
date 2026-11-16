@@ -482,11 +482,8 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             {
                 throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(returnableBase)} {baseUnit.ShortCode} of {line.Product.Name} can still be returned.");
             }
-            var inStock = await StockPosting.BalanceAsync(db, batch.Id, locationId, ct);
-            if (baseQty > inStock)
-            {
-                throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(inStock)} {baseUnit.ShortCode} of {line.Product.Name} from this purchase is still in stock to return.");
-            }
+            await StockAvailability.EnsureInBatchAsync(db, batch.Id, locationId, line.ProductId, baseQty,
+                inStock => new DomainValidationException("Lines", $"Only {StockQuantity.Format(inStock)} {baseUnit.ShortCode} of {line.Product.Name} from this purchase is still in stock to return."), ct);
 
             // Returning whatever is left takes the exact remainder, so per-line rounding can never leave a stray
             // paisa of credit unissued (or issue one too many) once an item is fully returned. Credit is prorated

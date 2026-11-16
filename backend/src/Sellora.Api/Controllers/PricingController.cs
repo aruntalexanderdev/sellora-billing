@@ -11,7 +11,7 @@ namespace Sellora.Api.Controllers;
 [ApiController]
 [Route("api/v1/pricing")]
 [Authorize(Policy = "Inventory.Price")]
-public class PricingController(SelloraDbContext db, IPricingService pricingService) : ControllerBase
+public class PricingController(SelloraDbContext db, IPricingService pricingService, IEffectivePermissionService effectivePermissions) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<PricingRowDto>>> List([FromQuery] string? search, CancellationToken ct)
@@ -38,8 +38,10 @@ public class PricingController(SelloraDbContext db, IPricingService pricingServi
             .ToDictionaryAsync(p => p.ProductUnitId, p => p.Price, ct);
 
         // Phase 8: company weighted average over the per-location rows: sum(qty x avg) / sum(qty); with nothing on hand, the highest stored average.
+        // Phase 01 (G4): cost is derived only from the locations the caller may see (branch access + Inventory.View scope + company-level locations).
+        var visibleLocations = (await StockVisibility.LoadAsync(db, effectivePermissions, "Inventory.View", ct)).Ids.ToList();
         var stockRows = await db.StockItems
-            .Where(s => productIds.Contains(s.ProductId))
+            .Where(s => productIds.Contains(s.ProductId) && visibleLocations.Contains(s.StockLocationId))
             .Select(s => new { s.ProductId, s.QuantityOnHand, s.AverageCost })
             .ToListAsync(ct);
         var avgCosts = stockRows.GroupBy(s => s.ProductId).ToDictionary(

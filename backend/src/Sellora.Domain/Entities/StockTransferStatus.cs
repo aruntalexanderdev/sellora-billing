@@ -11,4 +11,8 @@ public enum StockTransferStatus
     PartiallyReceived,
     Completed,
     Cancelled,
+    // FI-D2/FI-D26 (Phase 03): request-level fulfilment states, appended so existing string values are unchanged.
+    PartiallyFulfilled,
+    Fulfilled,
+    Closed,
 }

@@ -1,0 +1,76 @@
+@use '../../../shared/styles/page-head';
+@use '../../../shared/styles/form-fields';
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 18px;
+  max-width: 860px;
+}
+
+.toggle {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.editor {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 14px;
+  margin-bottom: 16px;
+
+  h2 {
+    font-size: 14px;
+    margin: 0 0 12px;
+  }
+}
+
+.editor-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.cat-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+
+  td {
+    padding: 10px 4px;
+    border-top: 1px solid var(--color-border);
+  }
+  .strong {
+    font-weight: 600;
+  }
+  .code {
+    margin-left: 8px;
+    font-size: 12px;
+  }
+  .indent {
+    padding-left: 28px;
+  }
+  .sub-row {
+    background: rgba(0, 0, 0, 0.02);
+  }
+  .row-actions {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .link {
+    margin-left: 14px;
+    font-weight: 600;
+    color: var(--color-primary, #2563eb);
+    cursor: pointer;
+  }
+  .caret {
+    margin: 0 8px 0 0;
+  }
+}
+
+.muted {
+  color: var(--color-text-muted);
+}

@@ -72,6 +72,16 @@ describe('StockTransferForm (create)', () => {
     expect((service.create.mock.calls[0] as unknown as [{ submit: boolean }])[0].submit).toBe(true);
   });
 
+  it('refuses a zero or negative quantity (must be > 0)', () => {
+    const { component, service, fill } = setup();
+    for (const qty of [0, -1]) {
+      fill({ qty });
+      component.submit();
+      expect(component.form.controls.lines.at(0).controls.quantity.errors?.['min']).toBeTruthy();
+    }
+    expect(service.create).not.toHaveBeenCalled();
+  });
+
   it('refuses identical source and destination, and a fractional quantity of a whole-number unit', () => {
     const { component, service, fill } = setup();
     fill({ source: 'store', destination: 'store' });

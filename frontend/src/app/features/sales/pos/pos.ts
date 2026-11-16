@@ -11,7 +11,9 @@ import { splitLocationError } from '../../../shared/locations/location-errors';
 import { ConfirmDialogService } from '../../../shared/ui/confirm-dialog/confirm-dialog.service';
 import { ContextService } from '../../../core/context/context.service';
 import { problemMessage } from '../../../core/http/api-errors';
+import { UiBadge } from '../../../shared/ui/badge/badge';
 import { UiButton } from '../../../shared/ui/button/button';
+import { BASE_CURRENCY_DECIMALS, discountExceedsGross, discountFromPercent, discountWithinGross, hasTooManyDecimals, isValidPercent, lineAmounts, roundMoney } from '../../../shared/money/money';
 import { ToastService } from '../../../shared/ui/toast/toast.service';
 import { SalesService } from '../sales.service';
 import { CustomersService } from '../customers/customers.service';
@@ -34,6 +36,8 @@ type LineGroup = FormGroup<{
   qty: FormControl<number>;
   unitPrice: FormControl<number>;
   discount: FormControl<number>;
+  /** Optional % entry (0-100); only converts to `discount`, never sent. */
+  discountPercent: FormControl<number | null>;
 }>;
 
 interface LinePreview {
@@ -61,7 +65,7 @@ const EMPTY_PREVIEW: LinePreview = {
 @Component({
   selector: 'app-pos',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton, LocationSelect],
+  imports: [ReactiveFormsModule, RouterLink, UiButton, UiBadge, LocationSelect],
   templateUrl: './pos.html',
   styleUrl: './pos.scss',
 })
@@ -151,8 +155,10 @@ export class Pos implements OnInit, HasUnsavedChanges {
       const unit = product?.units.find((u) => u.productUnitId === row?.productUnitId);
       if (!product || !unit || !row?.qty || !productId) return EMPTY_PREVIEW;
 
-      const taxableValue = row.qty * (row.unitPrice ?? 0) - (row.discount ?? 0);
-      const taxAmount = (taxableValue * product.taxRatePercent) / 100;
+      // Same per-line rounding as the server: taxable, tax and total each rounded (half away from zero).
+      const amounts = lineAmounts(row.qty, row.unitPrice, row.discount, product.taxRatePercent);
+      const taxableValue = amounts.taxable;
+      const taxAmount = amounts.tax;
       const totalRequested = requestedByProduct.get(productId) ?? 0;
 
       return {
@@ -161,7 +167,7 @@ export class Pos implements OnInit, HasUnsavedChanges {
         taxRatePercent: product.taxRatePercent,
         taxableValue,
         taxAmount,
-        lineTotal: taxableValue + taxAmount,
+        lineTotal: amounts.total,
         availableOnHand: product.quantityOnHand,
         exceedsStock: totalRequested > product.quantityOnHand,
       };
@@ -178,6 +184,9 @@ export class Pos implements OnInit, HasUnsavedChanges {
       const unit = catalog.find((p) => p.productId === row?.productId)?.units.find((u) => u.productUnitId === row?.productUnitId);
       if (!unit) return null;
       if (!isPriced(unit)) return `${unit.displayName} has no price — set it in Pricing.`;
+      if (hasTooManyDecimals(row.discount)) return `Discount can have at most ${BASE_CURRENCY_DECIMALS} decimal places.`;
+      if (discountExceedsGross(row.qty, row.unitPrice, row.discount)) return 'Discount cannot be more than quantity × unit price.';
+      if (row.discountPercent != null && !isValidPercent(row.discountPercent)) return 'Discount % must be between 0 and 100.';
       if (!canOverride && needsPriceOverride(row.unitPrice, unit.currentPrice, row.discount)) {
         return 'You are not allowed to change the price or give a discount.';
       }
@@ -197,17 +206,20 @@ export class Pos implements OnInit, HasUnsavedChanges {
     const previews = this.previews();
     let subtotal = 0,
       discount = 0,
-      tax = 0;
+      tax = 0,
+      grandTotal = 0;
     rows.forEach((row, i) => {
-      subtotal += (row?.qty ?? 0) * (row?.unitPrice ?? 0);
-      discount += row?.discount ?? 0;
+      subtotal += roundMoney((row?.qty ?? 0) * (row?.unitPrice ?? 0));
+      discount += roundMoney(row?.discount ?? 0);
       tax += previews[i]?.taxAmount ?? 0;
+      grandTotal += previews[i]?.lineTotal ?? 0;
     });
-    return { subtotal, discount, tax, grandTotal: subtotal - discount + tax };
+    // Invoice totals are sums of the rounded lines.
+    return { subtotal: roundMoney(subtotal), discount: roundMoney(discount), tax: roundMoney(tax), grandTotal: roundMoney(grandTotal) };
   });
 
-  readonly dueAmount = computed(() => Math.max(0, this.totals().grandTotal - (this.paidAmountValue() ?? 0)));
-  readonly changeAmount = computed(() => Math.max(0, (this.paidAmountValue() ?? 0) - this.totals().grandTotal));
+  readonly dueAmount = computed(() => Math.max(0, roundMoney(this.totals().grandTotal - (this.paidAmountValue() ?? 0))));
+  readonly changeAmount = computed(() => Math.max(0, roundMoney((this.paidAmountValue() ?? 0) - this.totals().grandTotal)));
 
   readonly saving = signal(false);
   readonly serverError = signal<string | null>(null);
@@ -322,13 +334,17 @@ export class Pos implements OnInit, HasUnsavedChanges {
       return;
     }
     this.lines.push(
-      this.fb.nonNullable.group({
-        productId: [product.productId, Validators.required],
-        productUnitId: [unit.productUnitId, Validators.required],
-        qty: [1, quantityValidators(unit.decimalPlaces)],
-        unitPrice: [unit.currentPrice ?? 0, [Validators.required, Validators.min(0)]],
-        discount: [0, [Validators.min(0)]],
-      }),
+      this.fb.group(
+        {
+          productId: this.fb.nonNullable.control(product.productId, Validators.required),
+          productUnitId: this.fb.nonNullable.control(unit.productUnitId, Validators.required),
+          qty: this.fb.nonNullable.control(1, quantityValidators(unit.decimalPlaces)),
+          unitPrice: this.fb.nonNullable.control(unit.currentPrice ?? 0, [Validators.required, Validators.min(0)]),
+          discount: this.fb.nonNullable.control(0, [Validators.min(0)]),
+          discountPercent: new FormControl<number | null>(null, [Validators.min(0), Validators.max(100)]),
+        },
+        { validators: discountWithinGross },
+      ) as LineGroup,
     );
   }
 
@@ -373,6 +389,28 @@ export class Pos implements OnInit, HasUnsavedChanges {
   /** List price of a line's selected unit (null when unpriced). */
   listPriceFor(row: LineGroup): number | null {
     return this.selectedUnit(row)?.currentPrice ?? null;
+  }
+
+  /** Free item: unit price 0 (needs Sales.PriceOverride like any price change). */
+  isFree(row: LineGroup): boolean {
+    return row.controls.unitPrice.value === 0;
+  }
+
+  /** The % box was edited: convert to the discount amount (rounded, never above the gross). */
+  onPercentInput(row: LineGroup): void {
+    const pct = row.controls.discountPercent.value;
+    if (pct == null) return;
+    row.controls.discount.setValue(discountFromPercent(row.controls.qty.value, row.controls.unitPrice.value, pct));
+  }
+
+  /** Qty or price changed while a % is entered: keep the amount in step with the percentage. */
+  onGrossInput(row: LineGroup): void {
+    this.onPercentInput(row);
+  }
+
+  /** The amount was typed directly: it replaces any % entry. */
+  onDiscountAmountInput(row: LineGroup): void {
+    row.controls.discountPercent.setValue(null);
   }
 
   isOverride(row: LineGroup): boolean {

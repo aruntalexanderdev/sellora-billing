@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { environment } from '../../../environments/environment';
+import { ContextService } from '../../core/context/context.service';
 import { ReportsService } from './reports.service';
 
 describe('ReportsService (branch/location scope)', () => {
@@ -52,5 +53,25 @@ describe('ReportsService (branch/location scope)', () => {
     const s = http.expectOne((r) => r.url === url('sales'));
     expect(s.request.params.has('branchId')).toBe(false);
     s.flush(page);
+  });
+
+  it('adds scope=company only when the Company view is on and the page permission is held company-level (FI-D11)', () => {
+    const ctx = TestBed.inject(ContextService);
+    ctx.setCompanyView(true);
+    service.sales({}).subscribe(); // no companyPermissions loaded: the view cannot be active
+    const off = http.expectOne((r) => r.url === url('sales'));
+    expect(off.request.params.has('scope')).toBe(false);
+    off.flush(page);
+
+    vi.spyOn(ctx, 'companyViewActive').mockImplementation((code) => code === 'Reports.Sales');
+    service.sales({}).subscribe();
+    const on = http.expectOne((r) => r.url === url('sales'));
+    expect(on.request.params.get('scope')).toBe('company');
+    on.flush(page);
+
+    service.purchases({}).subscribe(); // a different permission is not held company-level
+    const other = http.expectOne((r) => r.url === url('purchases'));
+    expect(other.request.params.has('scope')).toBe(false);
+    other.flush(page);
   });
 });

@@ -205,6 +205,9 @@
               </td>
               <td class="num">
                 {{ INR(line.unitPrice) }}
+                @if (line.unitPrice === 0) {
+                  <div><ui-badge text="Free" tone="good" data-testid="free-badge" /></div>
+                }
                 @if (line.priceOverridden) {
                   <div><ui-badge text="Override" tone="warn" /><span class="muted"> (list {{ line.listUnitPrice === null ? 'not recorded' : INR(line.listUnitPrice) }})</span></div>
                 }

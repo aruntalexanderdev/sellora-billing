@@ -36,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<IPricingService, PricingService>();
         services.AddScoped<ISalesService, SalesService>();
         services.AddScoped<IProductService, ProductService>();
+        services.AddScoped<IProductCategoryService, ProductCategoryService>();
         services.AddScoped<IUnitService, UnitService>();
         services.AddScoped<ICurrencyService, CurrencyService>();
         services.AddScoped<IExchangeRateService, ExchangeRateService>();

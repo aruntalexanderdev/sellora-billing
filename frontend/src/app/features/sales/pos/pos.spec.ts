@@ -310,3 +310,88 @@ describe('POS location', () => {
     expect(component.accountOptions().map((a) => a.id)).toEqual(['a-co', 'a-b1']);
   });
 });
+
+describe('POS money rules (FI-D24)', () => {
+  const OVERRIDE = { permissions: ['Sales.PriceOverride'] };
+
+  it('blocks completion and shows an inline error when discount exceeds qty x price', () => {
+    const { component, fixture, el, create } = setup(OVERRIDE);
+    component.addToCart(PEN); // default unit Box at 90
+    const row = component.lines.at(0);
+    row.controls.discount.setValue(90.01); // gross is 90 (1 x 90)
+    fixture.detectChanges();
+    expect(row.errors?.['discountExceedsGross']).toBe(true);
+    expect(component.lineErrors()[0]).toMatch(/Discount cannot be more/);
+    expect(component.completeSaleDisabledReason()).toBeTruthy();
+    expect(el.textContent).toContain('Discount cannot be more than quantity');
+    component.submit();
+    expect(create).not.toHaveBeenCalled();
+    row.controls.discount.setValue(90);
+    expect(component.lineErrors()[0]).toBeNull();
+  });
+
+  it('converts a % entry to a rounded amount, capped at the gross, and sends the amount only', () => {
+    const { component, create } = setup(OVERRIDE);
+    component.addToCart(RICE); // 60 / kg
+    const row = component.lines.at(0);
+    row.controls.qty.setValue(1.5); // gross 90
+    row.controls.discountPercent.setValue(12.345);
+    component.onPercentInput(row);
+    expect(row.controls.discount.value).toBe(11.11); // 11.1105
+    row.controls.discountPercent.setValue(100);
+    component.onPercentInput(row);
+    expect(row.controls.discount.value).toBe(90);
+    // qty change keeps the amount in step with the %
+    row.controls.qty.setValue(2);
+    component.onGrossInput(row);
+    expect(row.controls.discount.value).toBe(120);
+    component.submit();
+    const sent = sentLine(create);
+    expect(sent['discount']).toBe(120);
+    expect(sent).not.toHaveProperty('discountPercent');
+  });
+
+  it('rejects a % below 0 or above 100 with an error and blocks submit', () => {
+    const { component, create } = setup(OVERRIDE);
+    component.addToCart(PEN);
+    const row = component.lines.at(0);
+    for (const pct of [-5, 101]) {
+      row.controls.discountPercent.setValue(pct);
+      component.onPercentInput(row);
+      expect(row.controls.discountPercent.errors).toBeTruthy();
+      expect(component.lineErrors()[0]).toMatch(/between 0 and 100/);
+      expect(row.controls.discount.value).toBe(0);
+    }
+    component.submit();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('typing an amount clears the % entry', () => {
+    const { component } = setup(OVERRIDE);
+    component.addToCart(PEN);
+    const row = component.lines.at(0);
+    row.controls.discountPercent.setValue(10);
+    component.onDiscountAmountInput(row);
+    expect(row.controls.discountPercent.value).toBeNull();
+  });
+
+  it('previews per-line rounded tax and totals', () => {
+    const taxed: SaleCatalogProduct = { ...PEN, taxRatePercent: 5, units: [unit({ currentPrice: 3.335 })] };
+    const { component } = setup(OVERRIDE);
+    component.catalog.set([taxed]);
+    component.addToCart(taxed);
+    component.lines.at(0).controls.qty.setValue(3);
+    expect(component.previews()[0]).toMatchObject({ taxableValue: 10.01, taxAmount: 0.5, lineTotal: 10.51 });
+    expect(component.totals().grandTotal).toBe(10.51);
+  });
+
+  it('shows a Free badge on a price-0 line only', () => {
+    const { component, fixture, el } = setup(OVERRIDE);
+    component.addToCart(PEN);
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="free-badge"]')).toBeNull();
+    component.lines.at(0).controls.unitPrice.setValue(0);
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="free-badge"]')?.textContent).toContain('Free');
+  });
+});

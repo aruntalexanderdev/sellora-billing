@@ -18,7 +18,7 @@ namespace Sellora.Api.Authorization;
 /// (<c>AllowedBranchIds</c> null); an AssignedBranches one only its active allocations (none: 403 <c>branch_required</c> unless the endpoint is <c>[AllowWithoutBranch]</c>). The optional
 /// <c>X-Branch-Id</c> header is validated for every authenticated request: malformed → 400 <c>branch_header_invalid</c>;
 /// unknown, foreign, inactive or not accessible → 403 <c>branch_access_denied</c> (one answer for all, no existence leak).
-/// Without the header the working branch is resolved by the services (primary branch, else the company's default branch).</para>
+/// Without the header the working branch is resolved by the services (primary branch, else the company's default branch). Phase 01: the middleware also resolves <c>ActiveBranchId</c> (header, primary, company default, deterministic fallback) which is the default read scope.</para>
 /// </summary>
 public sealed class CompanyContextMiddleware(RequestDelegate next)
 {
@@ -135,7 +135,25 @@ public sealed class CompanyContextMiddleware(RequestDelegate next)
             requested = headerBranchId;
         }
 
-        branchContext.Set(requested, allowed, primary);
+        // Phase 01 (FI-D11/Q3a): the active branch = header, else primary, else the company default branch (CompanyWide members too).
+        // AssignedBranches without a primary: the default branch when allowed, else the first allowed branch by (active first, Code, Id) - deterministic.
+        var active = requested ?? primary;
+        if (active is null)
+        {
+            var candidates = db.Branches.AsNoTracking().Where(b => b.CompanyId == companyId);
+            if (allowed is not null) candidates = candidates.Where(b => allowed.Contains(b.Id));
+            active = await candidates
+                .OrderByDescending(b => b.IsActive).ThenByDescending(b => b.IsDefault).ThenBy(b => b.Code).ThenBy(b => b.Id)
+                .Select(b => (Guid?)b.Id)
+                .FirstOrDefaultAsync(context.RequestAborted);
+        }
+
+        branchContext.Set(requested, allowed, primary, active);
+        // FI-D11: Active Branch Only governs reads; writes still validate against (and may load documents of) every allowed branch.
+        if (!HttpMethods.IsGet(context.Request.Method) && !HttpMethods.IsHead(context.Request.Method) && !HttpMethods.IsOptions(context.Request.Method))
+        {
+            branchContext.UseWriteScope();
+        }
         await next(context);
     }
 

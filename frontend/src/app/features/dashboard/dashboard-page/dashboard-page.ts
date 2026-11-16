@@ -7,13 +7,14 @@ import { UiBadge } from '../../../shared/ui/badge/badge';
 import { AuthService } from '../../../core/auth/auth.service';
 import { DashboardService } from '../dashboard.service';
 import type { Dashboard } from '../dashboard.models';
+import { UiCompanyViewToggle } from '../../../shared/ui/company-view-toggle/company-view-toggle';
 
 const INR = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
 
 @Component({
   selector: 'app-dashboard-page',
   standalone: true,
-  imports: [RouterLink, UiCard, UiButton, UiBadge, QuantityPipe],
+  imports: [UiCompanyViewToggle, RouterLink, UiCard, UiButton, UiBadge, QuantityPipe],
   templateUrl: './dashboard-page.html',
   styleUrl: './dashboard-page.scss',
 })
@@ -37,6 +38,10 @@ export class DashboardPage implements OnInit {
   });
 
   ngOnInit(): void {
+    this.load();
+  }
+
+  onCompanyViewChange(): void {
     this.load();
   }
 
