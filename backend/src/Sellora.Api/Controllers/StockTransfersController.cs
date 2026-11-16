@@ -150,6 +150,14 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
         return Ok(new PagedResult<ReadyForShipmentItemDto>(items, total, page, pageSize));
     }
 
+    private static int LifecycleRank(string action) => action switch
+    {
+        AuditActions.StockTransferCreated => 0,
+        AuditActions.StockTransferUpdated => 1,
+        AuditActions.StockTransferSubmitted => 2,
+        _ => 3,
+    };
+
     /// <summary>Status transitions of one transfer from the audit trail; visible exactly when the detail is (otherwise 404).</summary>
     [HttpGet("{id:guid}/history")]
     [Authorize(Policy = "StockTransfers.View")]
@@ -160,7 +168,9 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
         var events = (await db.AuditEvents.AsNoTracking()
             .Where(e => e.TargetType == AuditTargets.StockTransfer && e.TargetId == id)
             .Select(e => new { e.OccurredAt, e.Action, e.ActorUserId, e.Reason, e.Before, e.After })
-            .ToListAsync(ct)).OrderBy(e => e.OccurredAt).ToList();
+            .ToListAsync(ct))
+            // Review fix: events written in one transaction (create + submit) can share a timestamp; break ties by lifecycle order.
+            .OrderBy(e => e.OccurredAt).ThenBy(e => LifecycleRank(e.Action)).ToList();
 
         var actorIds = events.Where(e => e.ActorUserId is not null).Select(e => e.ActorUserId!.Value).Distinct().ToList();
         var users = await db.Users.AsNoTracking()
@@ -373,7 +383,10 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
             .ToDictionaryAsync(p => p.Id, ct);
 
         // FI-D28: the batch cost is the source branch's information; a reader who cannot access that branch (e.g. destination only) gets null.
-        var showCost = t.SourceBranchId is not { } sourceBranch || branchContext.CanAccess(sourceBranch);
+        // Review amendment: a company-level source (central warehouse, unassigned vehicle) is company information - shown only to a company-level reader.
+        var showCost = t.SourceBranchId is { } sourceBranch
+            ? branchContext.CanAccess(sourceBranch)
+            : branchContext.AllowedBranchIds is null && (await effectivePermissions.GetCurrentAsync(ct)).PermittedBranches("StockTransfers.View") is null;
 
         var batchIds = t.Lines.SelectMany(l => l.Batches).Select(b => b.PurchaseBatchId).Distinct().ToList();
         var batchSeq = await db.PurchaseBatches.AsNoTracking()

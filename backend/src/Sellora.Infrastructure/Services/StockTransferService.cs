@@ -187,6 +187,10 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
                 {
                     throw new DomainValidationException("status", "Nothing has been dispatched on this transfer yet; cancel it instead of closing it.");
                 }
+                if (!t.Lines.Any(l => l.RequestedBaseQty - l.ClosedBaseQty - l.DispatchedBaseQty > 0))
+                {
+                    throw new DomainValidationException("status", "Nothing remains to be closed on this transfer.");
+                }
                 if (t.Lines.Any(l => l.AllocatedBaseQty > l.DispatchedBaseQty))
                 {
                     throw new DomainValidationException("status", "Some allocated quantity has not been dispatched yet; dispatch or release the allocation before closing.");

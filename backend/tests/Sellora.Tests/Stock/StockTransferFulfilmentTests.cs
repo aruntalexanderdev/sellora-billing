@@ -98,6 +98,16 @@ public class StockTransferFulfilmentTests
     }
 
     [Fact]
+    public async Task Close_WhenNothingRemains_IsRefusedOnStatus()
+    {
+        // Review fix: every line fully dispatched (10 boxes = 100 base) - closing would close nothing.
+        var (w, t) = await PartialAsync(dispatched: 100m, allocated: 100m);
+
+        Assert.Equal("status", await LocationWorld.FieldAsync(() => CloseAsync(w, t.Id, "x")));
+        Assert.Equal(StockTransferStatus.PartiallyFulfilled, (await w.ReloadAsync(t.Id)).Status);
+    }
+
+    [Fact]
     public async Task Close_FromApproved_WhenSomethingWasDispatched_IsAllowed()
     {
         var (w, t) = await PartialAsync(status: StockTransferStatus.Approved);
@@ -350,6 +360,22 @@ public class StockTransferFulfilmentTests
 
         var (sourceDb, source) = Controller(w, w.Main, new HashSet<Guid> { w.Main }, TransferWorld.Everything());
         await using (sourceDb) Assert.All(Ok(await source.Get(t.Id, default)).Lines.Single().Batches, b => Assert.Equal(5m, b.UnitCost));
+
+        var (companyDb, company) = Controller(w, w.Blr, null, TransferWorld.Everything());
+        await using (companyDb) Assert.All(Ok(await company.Get(t.Id, default)).Lines.Single().Batches, b => Assert.Equal(5m, b.UnitCost));
+    }
+
+    [Fact]
+    public async Task Detail_BatchCost_FromACompanyLevelSource_IsShownOnlyToACompanyLevelReader()
+    {
+        // Review amendment (FI-D28): a central warehouse has no source branch; its costs are company information.
+        var w = await TransferWorld.CreateAsync();
+        await w.StockPenAsync(w.L.CompanyWarehouse, 100m, cost: 5m);
+        var t = await w.ApprovedAsync(w.L.CompanyWarehouse, w.L.BlrStore, w.Pen(w.Box, 4m));
+        await w.DispatchAsRequestedAsync(t.Id);
+
+        var (destDb, destination) = Controller(w, w.Blr, new HashSet<Guid> { w.Blr }, TransferWorld.Everything());
+        await using (destDb) Assert.All(Ok(await destination.Get(t.Id, default)).Lines.Single().Batches, b => Assert.Null(b.UnitCost));
 
         var (companyDb, company) = Controller(w, w.Blr, null, TransferWorld.Everything());
         await using (companyDb) Assert.All(Ok(await company.Get(t.Id, default)).Lines.Single().Batches, b => Assert.Equal(5m, b.UnitCost));
