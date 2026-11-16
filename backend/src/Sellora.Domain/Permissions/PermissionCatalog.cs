@@ -19,6 +19,7 @@ public static class PermissionCatalog
         "Purchase.View", "Purchase.Create", "Purchase.Edit", "Purchase.Pay", "Purchase.Return", "Purchase.Refund", "Purchase.Cancel",
         "Inventory.Adjust", "StockLocations.View", "Inventory.View",
         "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.Cancel",
+        "Shipments.View", "Shipments.Plan", "Shipments.Load", // FI-D31 (Reservations.Release stays company-only)
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
         "Customers.View", // Phase 11 D15: branch cashiers pick named customers at POS (customers stay company master data)
         "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",
@@ -98,6 +99,10 @@ public static class PermissionCatalog
         new("StockTransfers.Receive", "Inventory", "Receive transfers", "Receive dispatched stock transfers at the destination location."),
         new("StockTransfers.Cancel", "Inventory", "Cancel transfers", "Cancel stock transfers before they are dispatched."),
         new("StockTransfers.Resolve", "Inventory", "Resolve transfers", "Resolve in-transit shortages by writing them off or returning them to the source (company-wide only)."),
+        new("Shipments.View", "Inventory", "View shipments", "View shipments, consignments and their allocations."),
+        new("Shipments.Plan", "Inventory", "Plan shipments", "Create, edit, allocate stock to, assign vehicles to and cancel shipments and consignments."),
+        new("Shipments.Load", "Inventory", "Load shipments", "Record loading of consignments and mark shipments ready to dispatch."),
+        new("Reservations.Release", "Inventory", "Release reservations", "Release stock reservations that are no longer needed (company-wide only)."),
 
         // Purchase — Suppliers
         new("Suppliers.View", "Purchase", "View", "View the supplier list."),

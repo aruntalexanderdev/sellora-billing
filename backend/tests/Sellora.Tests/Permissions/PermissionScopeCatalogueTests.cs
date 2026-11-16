@@ -11,6 +11,7 @@ public class PermissionScopeCatalogueTests
         "Purchase.View", "Purchase.Create", "Purchase.Edit", "Purchase.Pay", "Purchase.Return", "Purchase.Refund", "Purchase.Cancel",
         "Inventory.Adjust", "StockLocations.View", "Inventory.View",
         "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.Cancel",
+        "Shipments.View", "Shipments.Plan", "Shipments.Load",
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
         "Customers.View",
         "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",

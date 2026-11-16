@@ -125,6 +125,10 @@ public static class DbSeeder
         // Phase 07: funding and reversal are new; existing CashBank.Manage holders keep them (the migration does the same).
         await GrantNewPermissionToExistingHoldersAsync(db, "CashBank.Fund", "CashBank.Manage", ct);
         await GrantNewPermissionToExistingHoldersAsync(db, "CashBank.Reverse", "CashBank.Manage", ct);
+        // Phase 04 (FI-D31): viewing shipments goes to dispatchers and approvers; planning and loading to dispatchers. Reservations.Release is granted to nobody (Administrator only).
+        await GrantNewPermissionToExistingHoldersAsync(db, "Shipments.View", ["StockTransfers.Dispatch", "StockTransfers.Approve"], ct);
+        await GrantNewPermissionToExistingHoldersAsync(db, "Shipments.Plan", "StockTransfers.Dispatch", ct);
+        await GrantNewPermissionToExistingHoldersAsync(db, "Shipments.Load", "StockTransfers.Dispatch", ct);
     }
 
     // Recording payments used to be covered by an edit permission, so every role holding that permission keeps

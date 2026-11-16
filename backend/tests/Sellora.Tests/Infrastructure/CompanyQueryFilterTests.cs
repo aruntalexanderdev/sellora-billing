@@ -73,9 +73,9 @@ public class CompanyQueryFilterTests
         var owned = ModelTypes(db).Select(t => t.ClrType).Where(t => typeof(ICompanyOwned).IsAssignableFrom(t)).Select(t => t.Name).Order().ToArray();
         string[] expected =
         [
-            "AuditEvent", "BatchLocationBalance", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
+            "AuditEvent", "BatchLocationBalance", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Consignment", "ConsignmentLine", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
             "FinancialTransaction", "GovernanceMemberPermission", "IdempotencyKey", "Product", "ProductCategory", "ProductSubcategory", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
-            "Role", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "StockTransfer", "StockTransferLine", "StockTransferLineBatch", "StockTransferReceipt", "StockTransferReceiptLine", "Supplier", "Tax", "UserBranchAssignment", "UserRoleAssignment", "Vehicle", "Warehouse",
+            "Role", "SalesInvoice", "SalesReturn", "Shipment", "ShipmentVehicle", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "StockReservation", "StockTransfer", "StockTransferLine", "StockTransferLineBatch", "StockTransferReceipt", "StockTransferReceiptLine", "Supplier", "Tax", "UserBranchAssignment", "UserRoleAssignment", "Vehicle", "Warehouse",
         ];
         Assert.Equal(expected, owned);
     }
@@ -87,7 +87,8 @@ public class CompanyQueryFilterTests
         using var db = NewDb(TestCompany.Context);
         // Phase 9: StockTransfer.BranchId is the creating branch (mandatory); its Source/DestinationBranchId are differently named snapshots.
         string[] required = ["PurchaseOrder", "PurchaseReturn", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockTransfer"];
-        string[] optional = ["Expense", "FinancialAccount"];
+        // Phase 04: Shipment.BranchId is the owning/source branch, NULL for a company-level source location.
+        string[] optional = ["Expense", "FinancialAccount", "Shipment"];
         // DocumentSequence.BranchId is nullable too: NULL = company-level series (EXP); it is a counter scope, not a document tag.
         string[] counterScope = ["DocumentSequence"];
         // Phase 3: StockLocation.BranchId is optional (store/warehouse require it by CHECK; Transit/Vehicle/CompanyWarehouse are company-level).
