@@ -30,6 +30,9 @@ public record UpdateStockTransferRequest(
 /// <summary>Reject / cancel.</summary>
 public record StockTransferReasonRequest([Required, MaxLength(300)] string Reason);
 
+/// <summary>Close the remainder of an approved request (FI-D26).</summary>
+public record CloseStockTransferRequest([Required, MaxLength(500)] string Reason);
+
 /// <summary>0 &lt;= <see cref="Quantity"/> &lt;= requested; every line of the transfer must appear once.</summary>
 public record DispatchStockTransferLineRequest(
     [Required] Guid? LineId,
@@ -76,18 +79,19 @@ public record StockTransferActorDto(Guid? UserId, string? UserName, DateTimeOffs
 
 /// <summary>Where one line's dispatched quantity came from: the per-transfer batch identity with its cost and settled counters (base units).</summary>
 public record StockTransferLineBatchDto(
-    Guid PurchaseBatchId, string InternalBatchNo, decimal UnitCost,
+    Guid PurchaseBatchId, string InternalBatchNo, decimal? UnitCost,
     decimal DispatchedBaseQty, decimal ReceivedBaseQty, decimal DamagedBaseQty, decimal WrittenOffBaseQty, decimal ReturnedBaseQty,
     decimal OutstandingBaseQty);
 
 /// <summary>Request snapshot, dispatch snapshot (null until dispatch) and settlement counters of one line. Quantities per line are in the
-/// line's product base unit.</summary>
+/// line's product base unit. <see cref="RemainingBaseQty"/> = Requested - Closed - Dispatched (FI-D27).</summary>
 public record StockTransferLineDto(
     Guid Id, int LineNo, Guid ProductId, string? ProductName, string? Sku, string? BaseUnitCode, short? BaseDecimalPlaces,
     Guid ProductUnitId, string UnitCode, decimal ConversionFactorToBase, decimal RequestedQty, decimal RequestedBaseQty,
     Guid? DispatchProductUnitId, string? DispatchUnitCode, decimal? DispatchFactor, decimal? DispatchedQty, decimal DispatchedBaseQty,
     decimal ReceivedBaseQty, decimal DamagedBaseQty, decimal WrittenOffBaseQty, decimal ReturnedBaseQty,
     decimal OutstandingBaseQty,
+    decimal AllocatedBaseQty, decimal ClosedBaseQty, decimal RemainingBaseQty,
     IReadOnlyList<StockTransferLineBatchDto> Batches);
 
 public record StockTransferReceiptLineDto(
@@ -110,8 +114,19 @@ public record StockTransferDto(
     StockTransferActorDto? Rejected, string? RejectionReason,
     StockTransferActorDto? Dispatched, StockTransferActorDto? Completed,
     StockTransferActorDto? Cancelled, string? CancellationReason,
+    DateTimeOffset? ClosedAt, string? ClosedByName, string? ClosureReason,
     IReadOnlyList<StockTransferLineDto> Lines,
     IReadOnlyList<StockTransferReceiptDto> Receipts);
+
+/// <summary>Ready-for-shipment queue row (FI-D28): an Approved / PartiallyFulfilled request with quantity still to ship.</summary>
+public record ReadyForShipmentItemDto(
+    Guid Id, string TransferNo, StockTransferStatus Status,
+    Guid SourceLocationId, string? SourceLocationName, Guid DestinationLocationId, string? DestinationLocationName,
+    string? DestinationBranchName, DateTimeOffset? ApprovedAt, int LineCount, int RemainingLineCount);
+
+/// <summary>One status transition of a transfer, read from the audit trail (Action is the audit action code).</summary>
+public record StockTransferHistoryEntryDto(
+    DateTimeOffset At, string Action, StockTransferStatus? FromStatus, StockTransferStatus? ToStatus, string? ActorName, string? Reason);
 
 /// <summary>Response of POST receipts / resolve: the id of the receipt it created, and the transfer after posting.</summary>
 public record StockTransferReceiptResultDto(Guid ReceiptId, StockTransferDto Transfer);

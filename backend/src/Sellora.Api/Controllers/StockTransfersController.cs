@@ -2,6 +2,8 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Api.Validation;
 using Sellora.Domain.Abstractions;
@@ -98,6 +100,105 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
         return Ok(new PagedResult<StockTransferListItemDto>(items, total, page, pageSize));
     }
 
+    /// <summary>FI-D28: Approved / PartiallyFulfilled requests with quantity left to ship whose source location the caller may read (active
+    /// branch, or the company scope under ?scope=company), oldest approval first.</summary>
+    [HttpGet("ready-for-shipment")]
+    [Authorize(Policy = "StockTransfers.Dispatch")]
+    [CompanyScopeRead]
+    public async Task<ActionResult<PagedResult<ReadyForShipmentItemDto>>> ReadyForShipment(
+        [FromQuery] Guid? sourceLocationId, [FromQuery] string? search,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var visibility = await StockVisibility.LoadAsync(db, effectivePermissions, "StockTransfers.Dispatch", ct);
+        if (visibility.DenyUnlessVisible(this, sourceLocationId) is { } denied) return denied;
+        var sources = visibility.Scope(sourceLocationId);
+
+        var query = db.StockTransfers.AsNoTracking()
+            .Where(t => (t.Status == StockTransferStatus.Approved || t.Status == StockTransferStatus.PartiallyFulfilled)
+                && sources.Contains(t.SourceLocationId)
+                && t.Lines.Any(l => l.RequestedBaseQty - l.ClosedBaseQty - l.DispatchedBaseQty > 0));
+
+        var locations = await LocationLookup.LoadAsync(db, ct);
+        var term = search?.Trim();
+        if (!string.IsNullOrEmpty(term))
+        {
+            var matching = locations.IdsMatching(term);
+            query = query.Where(t => t.TransferNo.ToLower().Contains(term.ToLower())
+                || matching.Contains(t.SourceLocationId) || matching.Contains(t.DestinationLocationId));
+        }
+
+        var total = await query.CountAsync(ct);
+        var rows = await query
+            .OrderBy(t => t.ApprovedAt).ThenBy(t => t.TransferNo)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(t => new
+            {
+                t.Id, t.TransferNo, t.Status, t.SourceLocationId, t.DestinationLocationId, t.DestinationBranchId, t.ApprovedAt,
+                LineCount = t.Lines.Count,
+                RemainingLineCount = t.Lines.Count(l => l.RequestedBaseQty - l.ClosedBaseQty - l.DispatchedBaseQty > 0),
+            })
+            .ToListAsync(ct);
+
+        var branches = await BranchLabels.LoadAsync(db, ct);
+        var items = rows.Select(r => new ReadyForShipmentItemDto(
+            r.Id, r.TransferNo, r.Status,
+            r.SourceLocationId, locations.Dto(r.SourceLocationId).Name, r.DestinationLocationId, locations.Dto(r.DestinationLocationId).Name,
+            branches.Name(r.DestinationBranchId), r.ApprovedAt, r.LineCount, r.RemainingLineCount)).ToList();
+        return Ok(new PagedResult<ReadyForShipmentItemDto>(items, total, page, pageSize));
+    }
+
+    private static int LifecycleRank(string action) => action switch
+    {
+        AuditActions.StockTransferCreated => 0,
+        AuditActions.StockTransferUpdated => 1,
+        AuditActions.StockTransferSubmitted => 2,
+        _ => 3,
+    };
+
+    /// <summary>Status transitions of one transfer from the audit trail; visible exactly when the detail is (otherwise 404).</summary>
+    [HttpGet("{id:guid}/history")]
+    [Authorize(Policy = "StockTransfers.View")]
+    public async Task<ActionResult<IReadOnlyList<StockTransferHistoryEntryDto>>> History(Guid id, CancellationToken ct)
+    {
+        if (!await db.StockTransfers.AsNoTracking().AnyAsync(t => t.Id == id, ct)) return NotFound();
+
+        var events = (await db.AuditEvents.AsNoTracking()
+            .Where(e => e.TargetType == AuditTargets.StockTransfer && e.TargetId == id)
+            .Select(e => new { e.OccurredAt, e.Action, e.ActorUserId, e.Reason, e.Before, e.After })
+            .ToListAsync(ct))
+            // Review fix: events written in one transaction (create + submit) can share a timestamp; break ties by lifecycle order.
+            .OrderBy(e => e.OccurredAt).ThenBy(e => LifecycleRank(e.Action)).ToList();
+
+        var actorIds = events.Where(e => e.ActorUserId is not null).Select(e => e.ActorUserId!.Value).Distinct().ToList();
+        var users = await db.Users.AsNoTracking()
+            .Where(u => actorIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.FirstName, u.LastName })
+            .ToDictionaryAsync(u => u.Id, u => (u.FirstName + " " + u.LastName).Trim(), ct);
+
+        var entries = events.Select(e => new StockTransferHistoryEntryDto(
+            e.OccurredAt, e.Action, StatusOf(e.Before), StatusOf(e.After),
+            e.ActorUserId is { } a && users.TryGetValue(a, out var name) ? name : null, e.Reason)).ToList();
+        return Ok(entries);
+    }
+
+    private static StockTransferStatus? StatusOf(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("status", out var s) && s.ValueKind == JsonValueKind.String
+                && Enum.TryParse<StockTransferStatus>(s.GetString(), out var status) ? status : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     [HttpGet("{id:guid}")]
     [Authorize(Policy = "StockTransfers.View")]
     public async Task<ActionResult<StockTransferDto>> Get(Guid id, CancellationToken ct)
@@ -156,6 +257,15 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
         return await RunAsync(async () =>
             await RespondAsync(await transfers.RejectAsync(id, request.Reason.Trim(), UserId(), HttpContext.TraceIdentifier, ct), ct));
+    }
+
+    [HttpPost("{id:guid}/close")]
+    [Authorize(Policy = "StockTransfers.Approve")]
+    public async Task<ActionResult<StockTransferDto>> Close(Guid id, CloseStockTransferRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+        return await RunAsync(async () =>
+            await RespondAsync(await transfers.CloseAsync(id, request.Reason.Trim(), UserId(), HttpContext.TraceIdentifier, ct), ct));
     }
 
     [HttpPost("{id:guid}/cancel")]
@@ -272,6 +382,12 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
             .Select(p => new { p.Id, p.Name, p.Sku, BaseUnitCode = p.BaseUnit.ShortCode, BaseDecimalPlaces = p.BaseUnit.DecimalPlaces })
             .ToDictionaryAsync(p => p.Id, ct);
 
+        // FI-D28: the batch cost is the source branch's information; a reader who cannot access that branch (e.g. destination only) gets null.
+        // Review amendment: a company-level source (central warehouse, unassigned vehicle) is company information - shown only to a company-level reader.
+        var showCost = t.SourceBranchId is { } sourceBranch
+            ? branchContext.CanAccess(sourceBranch)
+            : branchContext.AllowedBranchIds is null && (await effectivePermissions.GetCurrentAsync(ct)).PermittedBranches("StockTransfers.View") is null;
+
         var batchIds = t.Lines.SelectMany(l => l.Batches).Select(b => b.PurchaseBatchId).Distinct().ToList();
         var batchSeq = await db.PurchaseBatches.AsNoTracking()
             .Where(b => batchIds.Contains(b.Id))
@@ -279,7 +395,7 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
             .ToDictionaryAsync(b => b.Id, b => b.BatchSequence, ct);
 
         var userIds = new HashSet<Guid> { t.CreatedByUserId };
-        foreach (var u in new[] { t.SubmittedByUserId, t.ApprovedByUserId, t.RejectedByUserId, t.DispatchedByUserId, t.CompletedByUserId, t.CancelledByUserId })
+        foreach (var u in new[] { t.SubmittedByUserId, t.ApprovedByUserId, t.RejectedByUserId, t.DispatchedByUserId, t.CompletedByUserId, t.CancelledByUserId, t.ClosedByUserId })
         {
             if (u is { } uid) userIds.Add(uid);
         }
@@ -301,7 +417,7 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
                 .Select(b => new StockTransferLineBatchDto(
                     b.PurchaseBatchId,
                     batchSeq.TryGetValue(b.PurchaseBatchId, out var seq) ? PurchaseBatch.FormatInternalBatchNo(seq) : "",
-                    b.UnitCost, b.DispatchedBaseQty, b.ReceivedBaseQty, b.DamagedBaseQty, b.WrittenOffBaseQty, b.ReturnedBaseQty,
+                    showCost ? b.UnitCost : null, b.DispatchedBaseQty, b.ReceivedBaseQty, b.DamagedBaseQty, b.WrittenOffBaseQty, b.ReturnedBaseQty,
                     b.DispatchedBaseQty - b.ReceivedBaseQty - b.DamagedBaseQty - b.WrittenOffBaseQty - b.ReturnedBaseQty))
                 .ToList();
             return new StockTransferLineDto(
@@ -310,6 +426,7 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
                 l.DispatchProductUnitId, l.DispatchUnitCode, l.DispatchFactor, l.DispatchedQty, l.DispatchedBaseQty,
                 l.ReceivedBaseQty, l.DamagedBaseQty, l.WrittenOffBaseQty, l.ReturnedBaseQty,
                 l.DispatchedBaseQty - l.ReceivedBaseQty - l.DamagedBaseQty - l.WrittenOffBaseQty - l.ReturnedBaseQty,
+                l.AllocatedBaseQty, l.ClosedBaseQty, l.RequestedBaseQty - l.ClosedBaseQty - l.DispatchedBaseQty,
                 batches);
         }).ToList();
 
@@ -329,6 +446,7 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
             Actor(t.RejectedByUserId, t.RejectedAt), t.RejectionReason,
             Actor(t.DispatchedByUserId, t.DispatchedAt), Actor(t.CompletedByUserId, t.CompletedAt),
             Actor(t.CancelledByUserId, t.CancelledAt), t.CancellationReason,
+            t.ClosedAt, UserName(t.ClosedByUserId), t.ClosureReason,
             lines, receipts);
     }
 
@@ -348,6 +466,10 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
                 .ToListAsync(ct);
             return new LocationLookup(rows.ToDictionary(l => l.Id, l => new StockTransferLocationDto(l.Id, l.Code, l.Name, l.LocationType.ToString())));
         }
+
+        public HashSet<Guid> IdsMatching(string term) => _byId.Values
+            .Where(l => (l.Name?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) || (l.Code?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false))
+            .Select(l => l.Id).ToHashSet();
 
         public StockTransferLocationDto Dto(Guid id) => _byId.TryGetValue(id, out var d) ? d : new StockTransferLocationDto(id, null, null, null);
     }

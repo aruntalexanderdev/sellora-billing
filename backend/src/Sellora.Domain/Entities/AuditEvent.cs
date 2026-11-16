@@ -67,6 +67,8 @@ public static class AuditActions
     public const string StockTransferDispatched = "stock_transfer.dispatched";
     public const string StockTransferReceived = "stock_transfer.received";
     public const string StockTransferResolved = "stock_transfer.resolved";
+    // Phase 03 (FI-D26): the unfulfilled remainder of an approved request is closed (reason required).
+    public const string StockTransferClosed = "stock_transfer.closed";
 
     // Phase 11a: location status changes (reason required).
     public const string BranchStatusChanged = "branch.status_changed";

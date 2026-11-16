@@ -35,6 +35,12 @@ public class StockTransferLine : ICompanyOwned
     /// <summary>Base quantity dispatched (0 until dispatch).</summary>
     public decimal DispatchedBaseQty { get; set; }
 
+    /// <summary>FI-D27: base quantity allocated to shipments (maintained by Phase 04). Default 0.</summary>
+    public decimal AllocatedBaseQty { get; set; }
+
+    /// <summary>FI-D27: base quantity of the request closed without dispatch. Remaining = Requested - Closed - Dispatched. Default 0.</summary>
+    public decimal ClosedBaseQty { get; set; }
+
     public decimal ReceivedBaseQty { get; set; }
     public decimal DamagedBaseQty { get; set; }
     public decimal WrittenOffBaseQty { get; set; }
