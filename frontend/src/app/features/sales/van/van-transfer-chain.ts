@@ -18,17 +18,22 @@ export type ChainStep = 'create' | 'submit' | 'approve' | 'shipment' | 'allocate
 
 /**
  * Keys of one wizard run. create/submit/approve use one IdempotentSubmission each; every shipment-leg step derives a stable key from the run key
- * (`<run>:<step>[:<id>]`, <= 100 chars), so a resumed run replays instead of repeating a step. The shipment id is remembered once known.
+ * (`<scope>:<step>[:<id>]`, <= 100 chars; scope = run key, then the transfer id), so a resumed run replays instead of repeating a step. The shipment id is remembered once known.
  */
 export class ChainKeys {
   readonly run = newIdempotencyKey();
+  /**
+   * Prefix of every shipment-leg key. The chain sets it to the transfer id as soon as the transfer is known, so a resumed run with fresh
+   * ChainKeys (page reload, a new wizard on the same request) replays the same keys instead of creating a second shipment.
+   */
+  scope: string = this.run;
   readonly create = new IdempotentSubmission();
   readonly submit = new IdempotentSubmission();
   readonly approve = new IdempotentSubmission();
   shipmentId: string | null = null;
 
   step(name: string, id?: string): string {
-    return id ? `${this.run}:${name}:${id}` : `${this.run}:${name}`;
+    return id ? `${this.scope}:${name}:${id}` : `${this.scope}:${name}`;
   }
 }
 
@@ -60,7 +65,7 @@ export interface ChainOptions {
   vehicleLocationId: string;
 }
 
-const PERM = { plan: 'Shipments.Plan', load: 'Shipments.Load', dispatch: 'StockTransfers.Dispatch', receive: 'StockTransfers.Receive' } as const;
+const PERM = { vehicles: 'Company.Vehicles.View', plan: 'Shipments.Plan', load: 'Shipments.Load', dispatch: 'StockTransfers.Dispatch', receive: 'StockTransfers.Receive' } as const;
 
 function stop(transfer: StockTransfer | null, completed: ChainStep[], step: ChainStep, reason: ChainResult['reason'], extra: Partial<ChainResult> = {}): ChainResult {
   return { transfer, completed, stoppedAt: step, reason, missingPermission: null, error: null, ...extra };
@@ -100,6 +105,22 @@ export async function runVanChain(
   const isStop = <T>(r: { value: T } | ChainResult): r is ChainResult => !('value' in r);
   const needs = (name: ChainStep, code: string): ChainResult | null => (has(code) ? null : stop(t, completed, name, 'permission', { missingPermission: code }));
 
+  // ---- before any write: when this run will reach the shipment step, the van's vehicle must be readable and exist ----
+  let vehicleId: string | null = null;
+  const reachesShipment = has(PERM.plan) && (has(actionPermission('approve')) || (!!t && t.status !== 'Draft' && t.status !== 'Requested'));
+  if (reachesShipment) {
+    const blockedUpFront = needs(t ? 'shipment' : 'create', PERM.vehicles);
+    if (blockedUpFront) return blockedUpFront;
+    step = 'shipment';
+    try {
+      vehicleId = (await firstValueFrom(svc.vehicles.list({}))).find((v) => v.stockLocationId === options.vehicleLocationId && v.isActive)?.id ?? null;
+    } catch (error) {
+      return stop(t, completed, 'shipment', 'error', { error });
+    }
+    if (!vehicleId) return stop(t, completed, 'shipment', 'vehicle');
+    step = 'create';
+  }
+
   // ---- create / submit / approve ----
   if (!t) {
     const blocked = needs('create', actionPermission('submit'));
@@ -130,6 +151,7 @@ export async function runVanChain(
   if (t.status === 'Completed' && !keys.shipmentId) return { transfer: t, completed, stoppedAt: null, reason: null, missingPermission: null, error: null };
   if (t.status === 'Rejected' || t.status === 'Cancelled' || t.status === 'Draft' || t.status === 'Requested') return stop(t, completed, step, 'status');
   const transfer: StockTransfer = t;
+  keys.scope = transfer.id;
   const refreshTransfer = async () => {
     t = await firstValueFrom(svc.transfers.get(transfer.id));
   };
@@ -142,7 +164,7 @@ export async function runVanChain(
     const r = await attempt('shipment', null, async () =>
       keys.shipmentId
         ? firstValueFrom(svc.shipments.get(keys.shipmentId))
-        // Replaying the same key returns the shipment an earlier (interrupted) attempt created.
+        // The key derives from the transfer id: replaying it returns the shipment an earlier run (any page session) created.
         : firstValueFrom(svc.shipments.create({
             sourceLocationId: transfer.from.id, transportMode: 'Road', transportVia: 'OwnFleet', providerName: null, providerContact: null,
             transportReference: null, plannedDispatchDate: null, notes: transfer.transferNo,
@@ -155,14 +177,11 @@ export async function runVanChain(
   if (shipment.status === 'Cancelled') return stop(t, completed, 'shipment', 'status');
 
   const open = shipment.status === 'Draft' || shipment.status === 'Loading' || shipment.status === 'ReadyToDispatch';
-  if (open && shipment.vehicles.length === 0) {
-    const r = await attempt('shipment', null, async () => {
-      const vehicle = (await firstValueFrom(svc.vehicles.list({}))).find((v) => v.stockLocationId === options.vehicleLocationId && v.isActive);
-      if (!vehicle) return null;
-      return firstValueFrom(svc.shipments.addVehicle(shipment.id, { vehicleId: vehicle.id, externalVehicleNumber: null, externalDescription: null, driverName: null, driverPhone: null }));
-    });
+  if (open && shipment.vehicles.length === 0 && vehicleId) {
+    const r = await attempt('shipment', null, () =>
+      firstValueFrom(svc.shipments.addVehicle(shipment.id, { vehicleId, externalVehicleNumber: null, externalDescription: null, driverName: null, driverPhone: null })),
+    );
     if (isStop(r)) return r;
-    if (!r.value) return stop(t, completed, 'shipment', 'vehicle');
     shipment = r.value;
   }
 

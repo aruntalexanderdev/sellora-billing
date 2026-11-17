@@ -5,7 +5,7 @@ import type { ConsignmentReceipt, Shipment } from '../../inventory/shipments/shi
 import { dispatchedLine, line, transfer } from '../../inventory/stock-transfers/test-fixtures';
 import { ChainKeys, runVanChain, type ChainServices } from './van-transfer-chain';
 
-const ALL = ['StockTransfers.Create', 'StockTransfers.Approve', 'Shipments.Plan', 'Shipments.Load', 'StockTransfers.Dispatch', 'StockTransfers.Receive'];
+const ALL = ['Company.Vehicles.View', 'StockTransfers.Create', 'StockTransfers.Approve', 'Shipments.Plan', 'Shipments.Load', 'StockTransfers.Dispatch', 'StockTransfers.Receive'];
 const has = (perms: string[]) => (c: string) => perms.includes(c);
 const request = { sourceLocationId: 'store', destinationLocationId: 'van', notes: null, lines: [{ productId: 'pen', productUnitId: 'box', quantity: 5 }] };
 const options = { vehicleLocationId: 'van' };
@@ -17,13 +17,18 @@ function fake(vehicles = [{ id: 'v1', stockLocationId: 'van', isActive: true }])
   const approved = transfer('Approved', [line()]);
   const completed = transfer('Completed', [dispatchedLine({ outstandingBaseQty: 0, receivedBaseQty: 50 })]);
   const state = { shipment: null as Shipment | null, receipts: [] as ConsignmentReceipt[] };
+  const created = new Map<string, Shipment>();
   const set = (s: Shipment) => (state.shipment = s);
   const cur = () => state.shipment!;
   const withCons = (fn: (c: ReturnType<typeof consignment>) => ReturnType<typeof consignment>, over: Partial<Shipment> = {}) =>
     set({ ...cur(), ...over, consignments: cur().consignments.map(fn) });
 
   const shipments = {
-    create: vi.fn((_r: unknown, _k: string) => of(set(shipmentFixture('Draft', { consignments: [], vehicles: [] })))),
+    // Idempotent like the server: a key seen before replays the shipment it created.
+    create: vi.fn((_r: unknown, k: string) => {
+      if (!created.has(k)) created.set(k, set(shipmentFixture('Draft', { consignments: [], vehicles: [] })));
+      return of(cur());
+    }),
     get: vi.fn((_id: string) => of(cur())),
     addVehicle: vi.fn((_id: string, _r: unknown) =>
       of(set({ ...cur(), vehicles: [{ id: 'sv1', sequence: 1, vehicleId: 'v1', vehicleNumber: 'V1', vehicleName: null, externalVehicleNumber: null, externalDescription: null, driverName: null, driverPhone: null }] }))),
@@ -95,7 +100,8 @@ describe('runVanChain', () => {
     ];
     expect(new Set(used).size).toBe(used.length);
     for (const k of used.slice(2) as string[]) {
-      expect(k.startsWith(keys.run)).toBe(true);
+      expect(k.startsWith('t1:')).toBe(true); // scope = the transfer id
+      expect(keys.scope).toBe('t1');
       expect(k.length).toBeLessThanOrEqual(100);
     }
   });
@@ -106,6 +112,9 @@ describe('runVanChain', () => {
     await runVanChain(f.svc, request, null, has(ALL), first, options);
     const second = new ChainKeys();
     expect(second.run).not.toBe(first.run);
+    // A second van operation is a new transfer, so its derived keys differ.
+    f.transfers.create.mockReturnValueOnce(of(transfer('Requested', [line()], { id: 't2' })));
+    f.transfers.approve.mockReturnValueOnce(of(transfer('Approved', [line()], { id: 't2' })));
     await runVanChain(f.svc, request, null, has(ALL), second, options);
     expect(f.shipments.create.mock.calls[1][1]).not.toBe(f.shipments.create.mock.calls[0][1]);
     expect(f.shipments.dispatch.mock.calls[1][1]).not.toBe(f.shipments.dispatch.mock.calls[0][1]);
@@ -123,9 +132,9 @@ describe('runVanChain', () => {
 
   it.each([
     ['shipment', 'Shipments.Plan', ['StockTransfers.Create', 'StockTransfers.Approve']],
-    ['load', 'Shipments.Load', ['StockTransfers.Create', 'StockTransfers.Approve', 'Shipments.Plan']],
-    ['dispatch', 'StockTransfers.Dispatch', ['StockTransfers.Create', 'StockTransfers.Approve', 'Shipments.Plan', 'Shipments.Load']],
-    ['receive', 'StockTransfers.Receive', ['StockTransfers.Create', 'StockTransfers.Approve', 'Shipments.Plan', 'Shipments.Load', 'StockTransfers.Dispatch']],
+    ['load', 'Shipments.Load', ['Company.Vehicles.View', 'StockTransfers.Create', 'StockTransfers.Approve', 'Shipments.Plan']],
+    ['dispatch', 'StockTransfers.Dispatch', ['Company.Vehicles.View', 'StockTransfers.Create', 'StockTransfers.Approve', 'Shipments.Plan', 'Shipments.Load']],
+    ['receive', 'StockTransfers.Receive', ['Company.Vehicles.View', 'StockTransfers.Create', 'StockTransfers.Approve', 'Shipments.Plan', 'Shipments.Load', 'StockTransfers.Dispatch']],
   ])('does not skip a missing permission: stops before %s without %s', async (stoppedAt, missing, perms) => {
     const f = fake();
     const res = await runVanChain(f.svc, request, null, has(perms), new ChainKeys(), options);
@@ -146,6 +155,41 @@ describe('runVanChain', () => {
     const res = await runVanChain(f.svc, request, null, has(ALL), new ChainKeys(), options);
     expect(res).toMatchObject({ stoppedAt: 'shipment', reason: 'vehicle' });
     expect(f.shipments.allocate).not.toHaveBeenCalled();
+    // Resolved before the first write: nothing was created, submitted or approved.
+    expect(f.transfers.create).not.toHaveBeenCalled();
+    expect(f.shipments.create).not.toHaveBeenCalled();
+  });
+
+  it('stops before any write when the user may ship but cannot read vehicles', async () => {
+    const f = fake();
+    const res = await runVanChain(f.svc, request, null, has(ALL.filter((p) => p !== 'Company.Vehicles.View')), new ChainKeys(), options);
+    expect(res).toMatchObject({ stoppedAt: 'create', reason: 'permission', missingPermission: 'Company.Vehicles.View', transfer: null });
+    expect(f.vehicles.list).not.toHaveBeenCalled();
+    expect(f.transfers.create).not.toHaveBeenCalled();
+  });
+
+  it('does not need vehicle access for a user who stops before the shipment anyway (create only)', async () => {
+    const f = fake();
+    const res = await runVanChain(f.svc, request, null, has(['StockTransfers.Create']), new ChainKeys(), options);
+    expect(res.completed).toEqual(['create']);
+    expect(f.vehicles.list).not.toHaveBeenCalled();
+  });
+
+  it('resume with FRESH keys (reload / new wizard) on an already-shipped request creates no second shipment', async () => {
+    const f = fake();
+    f.shipments.dispatch.mockReturnValueOnce(throwError(net));
+    const first = await runVanChain(f.svc, request, null, has(ALL), new ChainKeys(), options);
+    expect(first).toMatchObject({ stoppedAt: 'dispatch', reason: 'error' });
+
+    const second = await runVanChain(f.svc, null, f.approved, has(ALL), new ChainKeys(), options);
+    expect(second.stoppedAt).toBeNull();
+    // Same transfer-derived create key: the server replays the existing shipment; no extra allocation, vehicle or load either.
+    expect(f.shipments.create.mock.calls[1][1]).toBe(f.shipments.create.mock.calls[0][1]);
+    expect(f.state.shipment!.id).toBe('s1');
+    expect(f.shipments.allocate).toHaveBeenCalledTimes(1);
+    expect(f.shipments.addVehicle).toHaveBeenCalledTimes(1);
+    expect(f.shipments.load).toHaveBeenCalledTimes(1);
+    expect(f.shipments.dispatch.mock.calls[1][1]).toBe(f.shipments.dispatch.mock.calls[0][1]);
   });
 
   it('stops on a server rejection and links the transfer as it stands', async () => {

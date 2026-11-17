@@ -654,7 +654,6 @@ public class ShipmentService(SelloraDbContext db, IEffectivePermissionService? p
                 // Reservation: shrink to the loaded quantity and consume it; the remainder is released (StockItem and request allocation).
                 item.ReservedQuantity -= allocated;
                 requestLine.AllocatedBaseQty -= remainder;
-                reservation.BaseQty = loaded;
                 ctx.Reservations.Remove(line.Id);
 
                 if (loaded == 0)
@@ -672,6 +671,14 @@ public class ShipmentService(SelloraDbContext db, IEffectivePermissionService? p
                     continue;
                 }
 
+                // Defensive: the API only marks a consignment Loaded when every line is fully loaded (RecomputeConsignment), so a partial
+                // load cannot reach here today. If it ever does, the loaded quantity must be whole in the line's unit — never round it.
+                if (loaded != allocated && loaded % line.ConversionFactorToBase != 0)
+                {
+                    throw new DomainValidationException("status", $"Loaded quantity {StockQuantity.Format(loaded)} for {line.UnitCode} line {line.Id} is not a whole number of {line.UnitCode}.");
+                }
+
+                reservation.BaseQty = loaded; // shrink to the loaded quantity before consuming (stays > 0: CK_StockReservations_BaseQty_Positive)
                 reservation.Status = StockReservationStatus.Consumed;
                 reservation.ConsumedAt = now;
 

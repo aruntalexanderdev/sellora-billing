@@ -20,7 +20,7 @@ const loc = (id: string, name: string, locationType: StockLocation['locationType
 });
 const unit = (id: string, unitCode: string, factor: number, isBaseUnit = false) => ({ id, unitCode, displayName: unitCode, decimalPlaces: 0, conversionFactorToBase: factor, isBaseUnit, isActive: true });
 
-const ALL_PERMS = ['StockTransfers.Create', 'StockTransfers.Approve', 'Shipments.Plan', 'Shipments.Load', 'StockTransfers.Dispatch', 'StockTransfers.Receive', 'StockTransfers.View'];
+const ALL_PERMS = ['Company.Vehicles.View', 'StockTransfers.Create', 'StockTransfers.Approve', 'Shipments.Plan', 'Shipments.Load', 'StockTransfers.Dispatch', 'StockTransfers.Receive', 'StockTransfers.View'];
 
 function setup(mode: VanTransferMode, permissions: string[]) {
   const service = {
@@ -45,7 +45,7 @@ function setup(mode: VanTransferMode, permissions: string[]) {
       { provide: StockTransfersService, useValue: service },
       { provide: ShipmentsService, useValue: shipments },
       { provide: ConsignmentsService, useValue: { receipts: () => of([]) } },
-      { provide: VehiclesService, useValue: { list: () => of([]) } },
+      { provide: VehiclesService, useValue: { list: () => of([{ id: 'v1', stockLocationId: 'van', isActive: true }]) } },
       { provide: StockLocationsService, useValue: { list: () => of([loc('store', 'Main Store', 'BranchStore'), loc('van', 'Van 1', 'Vehicle'), loc('transit', 'Transit', 'Transit'), loc('wh', 'Warehouse', 'BranchWarehouse')]) } },
       { provide: ProductsService, useValue: { list: () => of({ items: [{ id: 'pen', name: 'Pen', sku: 'P', isActive: true }], total: 1, page: 1, pageSize: 100 }), get: () => of({ id: 'pen', units: [unit('pc', 'pc', 1, true), unit('box', 'box', 10)] }) } },
       { provide: AuthService, useValue: { hasPermission: (c: string) => permissions.includes(c) } },
@@ -132,6 +132,8 @@ describe('VanTransferWizard', () => {
   it('a fresh run after a completed chain uses new keys', async () => {
     const { component, service, shipments } = setup('load', ALL_PERMS);
     await component.run();
+    service.create.mockReturnValueOnce(of(transfer('Requested', [line()], { id: 't2' })));
+    service.approve.mockReturnValueOnce(of(transfer('Approved', [line()], { id: 't2' })));
     await component.run();
     const key = (i: number) => (service.create.mock.calls[i] as unknown as unknown[])[1];
     expect(key(1)).not.toBe(key(0));

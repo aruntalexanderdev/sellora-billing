@@ -43,6 +43,9 @@ export class ReceiptDialog implements OnInit {
   readonly rows = signal<Row[]>([]);
   readonly notes = signal('');
   readonly busy = signal(false);
+  /** Unit decimals are known only once every line's units lookup returned; nothing is validated or submitted before. */
+  readonly unitsReady = signal(false);
+  readonly unitsError = signal<string | null>(null);
   readonly touched = signal(false);
   readonly server = signal<LoadErrors>({ rows: {}, form: null });
   readonly live = computed(() => (this.touched() ? validateReceipt(this.rows()) : { rows: {}, form: null }));
@@ -70,12 +73,17 @@ export class ReceiptDialog implements OnInit {
         missing: null,
       })),
     );
+    let pending = lines.length;
+    if (pending === 0) this.unitsReady.set(true);
     lines.forEach((line, i) =>
       this.lookup.units(line.productId).subscribe({
         next: (all) => {
           const unit = all.find((u) => u.id === line.productUnitId);
           if (unit) this.patch(i, { decimalPlaces: unit.decimalPlaces });
+          else this.unitsError.set('Could not read the unit precision of a line; reload and try again.');
+          if (--pending === 0 && !this.unitsError()) this.unitsReady.set(true);
         },
+        error: () => this.unitsError.set('Could not load unit precision; reload and try again.'),
       }),
     );
   }
@@ -90,6 +98,7 @@ export class ReceiptDialog implements OnInit {
 
   /** Everything still outstanding is accepted (clears the other quantities). */
   acceptAll(): void {
+    if (!this.unitsReady()) return;
     this.rows.update((rows) =>
       rows.map((r) => ({ ...r, accepted: remainingInUnit(r), damaged: null, rejected: null, missing: null })),
     );
@@ -102,6 +111,7 @@ export class ReceiptDialog implements OnInit {
   }
 
   submit(): void {
+    if (!this.unitsReady()) return;
     this.touched.set(true);
     if (hasLoadErrors(validateReceipt(this.rows()))) return;
     this.busy.set(true);

@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 import { IdempotentSubmission } from '../../../../core/idempotency';
 import type { ConsignmentDetail, ConsignmentDetailLine, ConsignmentReceipt } from '../../shipments/shipments.models';
 import { ProductUnitsLookup } from '../../stock-transfers/product-units-lookup';
@@ -23,12 +23,12 @@ const consignment = (lines: ConsignmentDetailLine[]): ConsignmentDetail => ({
 });
 const receipt = { id: 'r1', sequence: 1, status: 'Verified' } as ConsignmentReceipt;
 
-function setup(recordReceipt: ReturnType<typeof vi.fn>, lines = [line(), line({ id: 'cl2', productName: 'Done', acceptedBaseQty: 50 })], submission?: IdempotentSubmission) {
+function setup(recordReceipt: ReturnType<typeof vi.fn>, lines = [line(), line({ id: 'cl2', productName: 'Done', acceptedBaseQty: 50 })], submission?: IdempotentSubmission, units$: unknown = of([BOX])) {
   TestBed.configureTestingModule({
     imports: [ReceiptDialog],
     providers: [
       { provide: ConsignmentsService, useValue: { recordReceipt } },
-      { provide: ProductUnitsLookup, useValue: { units: () => of([BOX]) } },
+      { provide: ProductUnitsLookup, useValue: { units: () => units$ } },
     ],
   });
   const fixture = TestBed.createComponent(ReceiptDialog);
@@ -138,5 +138,34 @@ describe('ReceiptDialog', () => {
     expect(el.querySelector('[data-testid="receipt-error"]')?.textContent).toContain('Not in transit.');
     click('receipt-submit');
     expect(keys[2]).not.toBe(keys[1]);
+  });
+
+  it('does not validate or submit until the unit decimals are known (submit disabled while loading)', () => {
+    const units$ = new Subject<unknown[]>();
+    const record = vi.fn((_id: string, _body: unknown, _key: string) => of(receipt));
+    const { fixture, el, component, type, click } = setup(record, undefined, undefined, units$);
+    expect(component.unitsReady()).toBe(false);
+    expect((el.querySelector('[data-testid="receipt-submit"] button') as HTMLButtonElement).disabled).toBe(true);
+    type('receipt-accepted-0', '1.5'); // would be refused for a whole-number unit, but must not be judged with the 3-decimal default
+    click('receipt-submit');
+    expect(record).not.toHaveBeenCalled();
+    expect(el.querySelector('[data-testid="receipt-row-error-0"]')).toBeNull();
+
+    units$.next([BOX]);
+    fixture.detectChanges();
+    expect(component.unitsReady()).toBe(true);
+    expect((el.querySelector('[data-testid="receipt-submit"] button') as HTMLButtonElement).disabled).toBe(false);
+    click('receipt-submit');
+    expect(el.querySelector('[data-testid="receipt-row-error-0"]')?.textContent).toMatch(/whole numbers/i);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('stays blocked and says so when the units lookup fails', () => {
+    const units$ = new Subject<unknown[]>();
+    const { fixture, el, component } = setup(vi.fn(), undefined, undefined, units$);
+    units$.error(new Error('x'));
+    fixture.detectChanges();
+    expect(component.unitsReady()).toBe(false);
+    expect(el.querySelector('[data-testid="units-error"]')).not.toBeNull();
   });
 });

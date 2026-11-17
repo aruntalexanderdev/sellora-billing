@@ -5,6 +5,9 @@
   @if (shown().form; as msg) {
     <div class="server-error" role="alert" data-testid="receipt-error">{{ msg }}</div>
   }
+  @if (unitsError(); as msg) {
+    <div class="server-error" role="alert" data-testid="units-error">{{ msg }}</div>
+  }
   @if (rows().length === 0) {
     <p class="hint" data-testid="nothing-left">Every dispatched quantity is already accounted for.</p>
   }
@@ -34,8 +37,8 @@
     <textarea class="field-input" rows="2" maxlength="500" data-testid="receipt-notes" [value]="notes()" (input)="notes.set($any($event.target).value)"></textarea>
   </label>
   <div class="actions">
-    <ui-button variant="primary" data-testid="receipt-submit" [disabled]="busy() || rows().length === 0" (onClick)="submit()">{{ busy() ? 'Saving…' : 'Record receipt' }}</ui-button>
-    <ui-button data-testid="receipt-accept-all" (onClick)="acceptAll()">Accept all remaining</ui-button>
+    <ui-button variant="primary" data-testid="receipt-submit" [disabled]="busy() || !unitsReady() || rows().length === 0" (onClick)="submit()">{{ busy() ? 'Saving…' : 'Record receipt' }}</ui-button>
+    <ui-button data-testid="receipt-accept-all" [disabled]="!unitsReady()" (onClick)="acceptAll()">Accept all remaining</ui-button>
     <ui-button (onClick)="cancelled.emit()">Cancel</ui-button>
   </div>
 </div>

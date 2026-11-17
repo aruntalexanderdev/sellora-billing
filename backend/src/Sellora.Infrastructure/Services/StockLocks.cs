@@ -208,9 +208,8 @@ internal static class StockLocks
     }
 
     /// <summary>
-    /// Phase 07 (FI-D20): FOR UPDATE on the given financial accounts (distinct, id order) so postings that compute a balance and then write against it
-    /// (transfers, fundings, reversals) cannot interleave. Callers must be inside a transaction; takes no lock under the in-memory provider.
-    /// Returns the ids that exist in the company.
+    /// Phase 05 (FI-D35): FOR UPDATE on one consignment, taken after the shipment lock and before transfers/products/locations/stock items.
+    /// Returns false when it does not exist in the company; takes no lock under the in-memory provider.
     /// </summary>
     public static async Task<bool> LockConsignmentAsync(SelloraDbContext db, Guid consignmentId, CancellationToken ct)
     {
@@ -223,6 +222,11 @@ internal static class StockLocks
         return rows.Count > 0;
     }
 
+    /// <summary>
+    /// Phase 07 (FI-D20): FOR UPDATE on the given financial accounts (distinct, id order) so postings that compute a balance and then write against it
+    /// (transfers, fundings, reversals) cannot interleave. Callers must be inside a transaction; takes no lock under the in-memory provider.
+    /// Returns the ids that exist in the company.
+    /// </summary>
     public static async Task<IReadOnlyList<Guid>> LockFinancialAccountsAsync(SelloraDbContext db, IEnumerable<Guid> accountIds, CancellationToken ct)
     {
         var ids = accountIds.Distinct().Order().ToArray();
