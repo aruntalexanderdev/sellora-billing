@@ -16,7 +16,8 @@ function detail(over: Partial<ConsignmentDetail> = {}): ConsignmentDetail {
     transportMode: 'Road', transportVia: 'OwnFleet', providerName: null, transportReference: null, plannedDispatchDate: null,
     source: loc('store', 'Main Store'), destination: loc('van', 'Van 1'), destinationBranch: { id: 'b2', code: 'B2', name: 'Branch 2' },
     leg: { vehicleNumber: 'KA-01', vehicleName: 'Tempo', driverName: 'Ravi', driverPhone: '999' }, loadedAt: null, dispatchedAt: null, receiptCount: 0,
-    lines: [{ id: 'l1', transferNo: 'TRF-1', productId: 'p', productSku: 'PEN', productName: 'Pen', baseUnitCode: 'pc', productUnitId: 'box', unitCode: 'box', enteredQty: 5, allocatedBaseQty: 50, loadedBaseQty: 20, loadedQty: 2, dispatchedBaseQty: 0, acceptedBaseQty: 0, damagedBaseQty: 0, rejectedBaseQty: 0, missingBaseQty: 0, postedBaseQty: 0, conversionFactorToBase: 10 }],
+    lines: [{ id: 'l1', transferNo: 'TRF-1', productId: 'p', productSku: 'PEN', productName: 'Pen', baseUnitCode: 'pc', productUnitId: 'box', unitCode: 'box', enteredQty: 5, allocatedBaseQty: 50, loadedBaseQty: 20, loadedQty: 2, dispatchedBaseQty: 0, acceptedBaseQty: 0, damagedBaseQty: 0, rejectedBaseQty: 0, missingBaseQty: 0, postedBaseQty: 0, conversionFactorToBase: 10, dispositionedDamagedBaseQty: 0, dispositionedRejectedBaseQty: 0, dispositionedMissingBaseQty: 0, openDiscrepancyBaseQty: 0 }],
+    dispositionCount: 0, hasOpenDiscrepancy: false,
     ...over,
   };
 }
@@ -25,6 +26,7 @@ const actor = { userId: 'u', userName: 'dest', at: '2026-11-16T12:00:00Z' };
 const rcpt = (over: Partial<ConsignmentReceipt> = {}): ConsignmentReceipt => ({
   id: 'r1', consignmentId: 'c1', consignmentNo: 'CON-0001', consignmentStatus: 'PartiallyReceived', shipmentStatus: 'PartiallyDelivered', sequence: 1,
   status: 'Verified', verified: actor, posted: null, notes: null,
+  policyMode: 'Direct', requireSeparation: false, rejected: null, rejectionReason: null, approvedBy: null,
   lines: [{ consignmentLineId: 'l1', productId: 'p', productSku: 'PEN', productName: 'Pen', baseUnitCode: 'pc', productUnitId: 'box', unitCode: 'box', conversionFactorToBase: 10,
     acceptedQty: 3, acceptedBaseQty: 30, damagedQty: 1, damagedBaseQty: 10, rejectedQty: 0, rejectedBaseQty: 0, missingQty: 0, missingBaseQty: 0 }],
   ...over,

@@ -297,6 +297,8 @@ public static class IsolationCases
         // ShipmentDispatchApiTests covers the in-company destination / source isolation of the same endpoints.
         "ShipmentsController.Dispatch", "ConsignmentsController.RecordReceipt", "ConsignmentsController.PostReceipt", "ConsignmentsController.ListReceipts",
         "ConsignmentsController.GetReceipt", "TransitController.List",
+        // Functional improvements Phase 06: the same ShipmentsApiTests isolation test also covers receipt approve / reject and the dispositions (record / list): the other company's consignment is a 404.
+        "ConsignmentsController.ApproveReceipt", "ConsignmentsController.RejectReceipt", "ConsignmentsController.RecordDisposition", "ConsignmentsController.ListDispositions",
         // Phase 08: category / subcategory masters - ProductCategoriesApiTests.OtherCompanysCategory_IsNeverListedAnd404OnUpdateAndStatus (never listed, 404 on every write)
         // and Product_WithAnotherCompanysCategoryOrSubcategory_Is400AndChangesNothing (product create/update naming a foreign category / subcategory is a 400).
         "ProductCategoriesController.List", "ProductCategoriesController.Create", "ProductCategoriesController.Update", "ProductCategoriesController.SetActive",

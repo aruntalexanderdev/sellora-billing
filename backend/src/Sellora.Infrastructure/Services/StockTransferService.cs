@@ -517,10 +517,10 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
     // ------------------------------------------------------------------ shared helpers
 
     private static decimal Outstanding(StockTransferLine l) =>
-        l.DispatchedBaseQty - l.ReceivedBaseQty - l.DamagedBaseQty - l.WrittenOffBaseQty - l.ReturnedBaseQty;
+        l.DispatchedBaseQty - l.ReceivedBaseQty - l.DamagedBaseQty - l.WrittenOffBaseQty - l.ReturnedBaseQty - l.AcceptedCorrectionBaseQty;
 
     private static decimal Outstanding(StockTransferLineBatch b) =>
-        b.DispatchedBaseQty - b.ReceivedBaseQty - b.DamagedBaseQty - b.WrittenOffBaseQty - b.ReturnedBaseQty;
+        b.DispatchedBaseQty - b.ReceivedBaseQty - b.DamagedBaseQty - b.WrittenOffBaseQty - b.ReturnedBaseQty - b.AcceptedCorrectionBaseQty;
 
     // Draws from the line's own batch rows outstanding in dispatch (FIFO) order - never from the shared Transit balance, so
     // concurrent transfers of the same product cannot swap batches. Plans only; the caller bumps the counters after posting.

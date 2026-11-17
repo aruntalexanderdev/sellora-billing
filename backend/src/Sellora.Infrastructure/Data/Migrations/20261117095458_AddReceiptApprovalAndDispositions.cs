@@ -10,7 +10,7 @@ namespace Sellora.Infrastructure.Data.Migrations
     {
         // Phase 06 (FI-D39..D41). Additive: BusinessSettings.ReceiptPostingMode (NOT NULL DEFAULT 'Direct') + ReceiptSeparationOfDuties (DEFAULT false); ConsignmentReceipts.PolicyMode/RequireSeparation
         // (same defaults = the Direct / no-separation snapshot of every existing receipt) + RejectedAt/RejectedByUserId/RejectionReason (Posted stamps double as approval stamps);
-        // ConsignmentLines.Dispositioned{Damaged,Rejected,Missing}BaseQty (DEFAULT 0); StockTransferLineBatches.AcceptedCorrectionBaseQty (DEFAULT 0, added to the Counters_Max sum so
+        // ConsignmentLines.Dispositioned{Damaged,Rejected,Missing}BaseQty (DEFAULT 0); StockTransferLineBatches + StockTransferLines.AcceptedCorrectionBaseQty (DEFAULT 0, added to the Counters_Max sums (and the line NonNegative CHECK, recreated) so
         // Received + Damaged + WrittenOff + Returned + AcceptedCorrection <= Dispatched); new append-only tables ConsignmentDispositions + ConsignmentDispositionLines.
         // Widened CHECKs: Shipments.Status (+Completed), Consignments.Status (+Reconciled), ConsignmentReceipts.Status (+PendingApproval, RejectedForCorrection; column widened varchar(20) -> varchar(30) for RejectedForCorrection); every existing value stays valid.
         // Backfill (end of Up, after the widened CHECKs): Received consignments with no damaged/rejected/missing quantity on any line -> Reconciled; Delivered shipments with >= 1 non-cancelled consignment, all Reconciled -> Completed.
@@ -21,7 +21,8 @@ namespace Sellora.Infrastructure.Data.Migrations
         //   SELECT COUNT(*) FROM "Consignments" c WHERE c."Status" = 'Reconciled' AND EXISTS (SELECT 1 FROM "ConsignmentLines" l WHERE l."ConsignmentId" = c."Id" AND l."DamagedBaseQty" + l."RejectedBaseQty" + l."MissingBaseQty" > 0);  -- 0
         //   SELECT COUNT(*) FROM "Consignments" c WHERE c."Status" = 'Received' AND NOT EXISTS (SELECT 1 FROM "ConsignmentLines" l WHERE l."ConsignmentId" = c."Id" AND l."DamagedBaseQty" + l."RejectedBaseQty" + l."MissingBaseQty" > 0);  -- 0
         //   SELECT COUNT(*) FROM "Shipments" s WHERE s."Status" = 'Completed' AND EXISTS (SELECT 1 FROM "Consignments" c WHERE c."ShipmentId" = s."Id" AND c."Status" NOT IN ('Cancelled', 'Reconciled'));  -- 0
-        //   SELECT COUNT(*) FROM "StockTransferLineBatches" WHERE "AcceptedCorrectionBaseQty" <> 0;  SELECT COUNT(*) FROM "ConsignmentLines" WHERE "DispositionedDamagedBaseQty" + "DispositionedRejectedBaseQty" + "DispositionedMissingBaseQty" <> 0;  -- 0, 0
+        //   SELECT COUNT(*) FROM "StockTransferLineBatches" WHERE "AcceptedCorrectionBaseQty" <> 0;  SELECT COUNT(*) FROM "StockTransferLines" WHERE "AcceptedCorrectionBaseQty" <> 0;  SELECT COUNT(*) FROM "ConsignmentLines" WHERE "DispositionedDamagedBaseQty" + "DispositionedRejectedBaseQty" + "DispositionedMissingBaseQty" <> 0;  -- 0, 0, 0
+        //   SELECT "Code" FROM "Permissions" WHERE "Code" = 'StockTransfers.ApproveReceipt';  -- 1 row
         //   Ongoing: scripts/sql/transit-reconciliation.sql (queries 7-9 cover dispositions).
         // Down refuses when any disposition, PendingApproval/RejectedForCorrection receipt, rejection stamp, non-default receipt policy snapshot, non-default BusinessSettings policy, disposition counter or
         // AcceptedCorrection quantity exists; otherwise it reverses the backfill (Reconciled -> Received, Completed -> Delivered) and drops the additions.
@@ -37,6 +38,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                 oldClrType: typeof(string),
                 oldType: "character varying(20)",
                 oldMaxLength: 20);
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_StockTransferLines_Counters_Max",
+                table: "StockTransferLines");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_StockTransferLines_Counters_NonNegative",
+                table: "StockTransferLines");
 
             migrationBuilder.DropCheckConstraint(
                 name: "CK_StockTransferLineBatches_Counters_Max",
@@ -69,6 +78,13 @@ namespace Sellora.Infrastructure.Data.Migrations
             migrationBuilder.AddColumn<decimal>(
                 name: "AcceptedCorrectionBaseQty",
                 table: "StockTransferLineBatches",
+                type: "numeric(18,3)",
+                nullable: false,
+                defaultValue: 0m);
+
+            migrationBuilder.AddColumn<decimal>(
+                name: "AcceptedCorrectionBaseQty",
+                table: "StockTransferLines",
                 type: "numeric(18,3)",
                 nullable: false,
                 defaultValue: 0m);
@@ -247,6 +263,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                 });
 
             migrationBuilder.AddCheckConstraint(
+                name: "CK_StockTransferLines_Counters_Max",
+                table: "StockTransferLines",
+                sql: "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" + \"AcceptedCorrectionBaseQty\" <= \"DispatchedBaseQty\"");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_StockTransferLines_Counters_NonNegative",
+                table: "StockTransferLines",
+                sql: "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0 AND \"AcceptedCorrectionBaseQty\" >= 0");
+
+            migrationBuilder.AddCheckConstraint(
                 name: "CK_StockTransferLineBatches_Counters_Max",
                 table: "StockTransferLineBatches",
                 sql: "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" + \"AcceptedCorrectionBaseQty\" <= \"DispatchedBaseQty\"");
@@ -394,6 +420,20 @@ namespace Sellora.Infrastructure.Data.Migrations
                   AND EXISTS (SELECT 1 FROM "Consignments" c WHERE c."ShipmentId" = s."Id" AND c."Status" <> 'Cancelled')
                   AND NOT EXISTS (SELECT 1 FROM "Consignments" c WHERE c."ShipmentId" = s."Id" AND c."Status" NOT IN ('Cancelled', 'Reconciled'));
                 """);
+
+            // FI-D39: new permission for existing databases (DbSeeder covers fresh ones); granted to roles that already approve transfers.
+            migrationBuilder.Sql("""
+                INSERT INTO "Permissions" ("Id", "Code", "Module", "Action", "Description") VALUES
+                  (md5('perm:StockTransfers.ApproveReceipt')::uuid, 'StockTransfers.ApproveReceipt', 'Inventory', 'Approve receipts', 'Approve or reject recorded consignment receipts at the destination when the company requires supervisor approval.')
+                ON CONFLICT ("Code") DO NOTHING;
+
+                INSERT INTO "RolePermissions" ("RoleId", "PermissionId", "GrantedAt")
+                SELECT DISTINCT rp."RoleId", np."Id", now()
+                FROM "RolePermissions" rp
+                JOIN "Permissions" ep ON ep."Id" = rp."PermissionId" AND ep."Code" = 'StockTransfers.Approve'
+                CROSS JOIN (SELECT "Id" FROM "Permissions" WHERE "Code" = 'StockTransfers.ApproveReceipt') np
+                ON CONFLICT DO NOTHING;
+                """);
         }
 
         /// <inheritdoc />
@@ -401,7 +441,7 @@ namespace Sellora.Infrastructure.Data.Migrations
         {
             migrationBuilder.Sql("""
                 DO $g$
-                DECLARE dp bigint; rc bigint; pol bigint; st bigint; cl bigint; bt bigint;
+                DECLARE dp bigint; rc bigint; pol bigint; st bigint; cl bigint; bt bigint; tl bigint;
                 BEGIN
                     SELECT COUNT(*) INTO dp FROM "ConsignmentDispositions";
                     SELECT COUNT(*) INTO rc FROM "ConsignmentReceipts" WHERE "Status" IN ('PendingApproval', 'RejectedForCorrection') OR "RejectedAt" IS NOT NULL;
@@ -409,11 +449,17 @@ namespace Sellora.Infrastructure.Data.Migrations
                     SELECT COUNT(*) INTO st FROM "BusinessSettings" WHERE "ReceiptPostingMode" <> 'Direct' OR "ReceiptSeparationOfDuties";
                     SELECT COUNT(*) INTO cl FROM "ConsignmentLines" WHERE "DispositionedDamagedBaseQty" <> 0 OR "DispositionedRejectedBaseQty" <> 0 OR "DispositionedMissingBaseQty" <> 0;
                     SELECT COUNT(*) INTO bt FROM "StockTransferLineBatches" WHERE "AcceptedCorrectionBaseQty" <> 0;
-                    IF dp > 0 OR rc > 0 OR pol > 0 OR st > 0 OR cl > 0 OR bt > 0 THEN
-                        RAISE EXCEPTION 'AddReceiptApprovalAndDispositions cannot be reverted: % disposition(s), % pending/rejected receipt(s), % receipt(s) with a non-default policy snapshot, % company setting(s) using supervisor approval or separation of duties, % consignment line(s) with disposition counters and % batch row(s) with accepted-correction quantity exist. Reverting would lose data.', dp, rc, pol, st, cl, bt;
+                    SELECT COUNT(*) INTO tl FROM "StockTransferLines" WHERE "AcceptedCorrectionBaseQty" <> 0;
+                    IF dp > 0 OR rc > 0 OR pol > 0 OR st > 0 OR cl > 0 OR bt > 0 OR tl > 0 THEN
+                        RAISE EXCEPTION 'AddReceiptApprovalAndDispositions cannot be reverted: % disposition(s), % pending/rejected receipt(s), % receipt(s) with a non-default policy snapshot, % company setting(s) using supervisor approval or separation of duties, % consignment line(s) with disposition counters and % batch row(s) and % request line(s) with accepted-correction quantity exist. Reverting would lose data.', dp, rc, pol, st, cl, bt, tl;
                     END IF;
                 END
                 $g$;
+                """);
+
+            migrationBuilder.Sql("""
+                DELETE FROM "RolePermissions" WHERE "PermissionId" IN (SELECT "Id" FROM "Permissions" WHERE "Code" = 'StockTransfers.ApproveReceipt');
+                DELETE FROM "Permissions" WHERE "Code" = 'StockTransfers.ApproveReceipt';
                 """);
 
             // Reverse the backfill while the widened CHECKs are still in place.
@@ -439,6 +485,14 @@ namespace Sellora.Infrastructure.Data.Migrations
 
             migrationBuilder.DropTable(
                 name: "ConsignmentDispositions");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_StockTransferLines_Counters_Max",
+                table: "StockTransferLines");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_StockTransferLines_Counters_NonNegative",
+                table: "StockTransferLines");
 
             migrationBuilder.DropCheckConstraint(
                 name: "CK_StockTransferLineBatches_Counters_Max",
@@ -505,6 +559,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                 table: "StockTransferLineBatches");
 
             migrationBuilder.DropColumn(
+                name: "AcceptedCorrectionBaseQty",
+                table: "StockTransferLines");
+
+            migrationBuilder.DropColumn(
                 name: "PolicyMode",
                 table: "ConsignmentReceipts");
 
@@ -543,6 +601,16 @@ namespace Sellora.Infrastructure.Data.Migrations
             migrationBuilder.DropColumn(
                 name: "ReceiptSeparationOfDuties",
                 table: "BusinessSettings");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_StockTransferLines_Counters_Max",
+                table: "StockTransferLines",
+                sql: "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" <= \"DispatchedBaseQty\"");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_StockTransferLines_Counters_NonNegative",
+                table: "StockTransferLines",
+                sql: "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
 
             migrationBuilder.AddCheckConstraint(
                 name: "CK_StockTransferLineBatches_Counters_Max",

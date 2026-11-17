@@ -51,6 +51,7 @@ FROM (VALUES
   ('StockTransfers.Approve', 'Inventory', 'Approve transfers', 'Approve or reject stock transfer requests.'),
   ('StockTransfers.Dispatch', 'Inventory', 'Dispatch transfers', 'Dispatch approved stock transfers from the source location.'),
   ('StockTransfers.Receive', 'Inventory', 'Receive transfers', 'Receive dispatched stock transfers at the destination location.'),
+  ('StockTransfers.ApproveReceipt', 'Inventory', 'Approve receipts', 'Approve or reject recorded consignment receipts at the destination when the company requires supervisor approval.'),
   ('StockTransfers.Cancel', 'Inventory', 'Cancel transfers', 'Cancel stock transfers before they are dispatched.'),
   ('StockTransfers.Resolve', 'Inventory', 'Resolve transfers', 'Resolve in-transit shortages by writing them off or returning them to the source (company-wide only).'),
   ('Shipments.View', 'Inventory', 'View shipments', 'View shipments, consignments and their allocations.'),

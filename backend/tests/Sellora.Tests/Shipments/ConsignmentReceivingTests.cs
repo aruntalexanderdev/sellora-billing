@@ -281,7 +281,7 @@ public class ConsignmentReceivingTests
         var r1 = await w.RecordAsync(toBlr.Id, toBlr.Lines.Single().Id, accepted: 3m);
         await w.PostAsync(toBlr.Id, r1!.Id);
         var mid = await w.ReloadAsync(s.Id);
-        Assert.Equal(ConsignmentStatus.Received, mid.Consignments.Single(c => c.Id == toBlr.Id).Status);
+        Assert.Equal(ConsignmentStatus.Reconciled, mid.Consignments.Single(c => c.Id == toBlr.Id).Status); // FI-D41: no discrepancy, so straight to Reconciled at the last post
         Assert.Equal(ConsignmentStatus.InTransit, mid.Consignments.Single(c => c.Id == toCompany.Id).Status);
         Assert.Equal(ShipmentStatus.PartiallyDelivered, mid.Status);                         // open: the other stop is outstanding
         await AssertAsync(w, "first stop");

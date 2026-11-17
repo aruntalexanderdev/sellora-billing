@@ -13,7 +13,7 @@ const item = (over: Partial<TransitItem> = {}): TransitItem => ({
   dispatchedAt: '2026-11-16T10:00:00Z', receiptCount: 2, unpostedReceiptCount: 1, hasDiscrepancy: true,
   lines: [{
     consignmentLineId: 'cl1', productId: 'p', productSku: 'PEN', productName: 'Pen', baseUnitCode: 'pc', unitCode: 'box', dispatchedBaseQty: 50, acceptedBaseQty: 30,
-    damagedBaseQty: 5, rejectedBaseQty: 0, missingBaseQty: 5, postedBaseQty: 20, outstandingBaseQty: 10, inTransitBaseQty: 30,
+    damagedBaseQty: 5, rejectedBaseQty: 0, missingBaseQty: 5, postedBaseQty: 20, outstandingBaseQty: 10, inTransitBaseQty: 30, dispositionedDamagedBaseQty: 0, dispositionedRejectedBaseQty: 0, dispositionedMissingBaseQty: 0, openDiscrepancyBaseQty: 0,
   }],
   ...over,
 });

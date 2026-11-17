@@ -101,6 +101,11 @@ public static class AuditActions
     public const string ShipmentDispatched = "shipment.dispatched";
     public const string ConsignmentReceiptVerified = "consignment.receipt_verified";
     public const string ConsignmentReceiptPosted = "consignment.receipt_posted";
+    // Phase 06 (FI-D39/D40).
+    public const string ConsignmentReceiptApproved = "consignment.receipt_approved";
+    public const string ConsignmentReceiptRejected = "consignment.receipt_rejected";
+    public const string ConsignmentDispositioned = "consignment.dispositioned";
+    public const string ReceiptPolicyChanged = "settings.receipt_policy_changed";
     // Products: hard delete of a product without history (the only product change audited so far).
     public const string ProductDeleted = "product.deleted";
 }
@@ -122,4 +127,5 @@ public static class AuditTargets
     public const string Shipment = "Shipment";
     public const string Consignment = "Consignment";
     public const string StockReservation = "StockReservation";
+    public const string BusinessSettings = "BusinessSettings";
 }

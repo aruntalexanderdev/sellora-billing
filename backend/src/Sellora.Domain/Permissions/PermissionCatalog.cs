@@ -18,7 +18,7 @@ public static class PermissionCatalog
         "Sales.View", "Sales.Create", "Sales.PriceOverride", "Sales.Edit", "Sales.Receive", "Sales.Return", "Sales.Refund", "Sales.Cancel",
         "Purchase.View", "Purchase.Create", "Purchase.Edit", "Purchase.Pay", "Purchase.Return", "Purchase.Refund", "Purchase.Cancel",
         "Inventory.Adjust", "StockLocations.View", "Inventory.View",
-        "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.Cancel",
+        "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.ApproveReceipt", "StockTransfers.Cancel",
         "Shipments.View", "Shipments.Plan", "Shipments.Load", // FI-D31 (Reservations.Release stays company-only)
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
         "Customers.View", // Phase 11 D15: branch cashiers pick named customers at POS (customers stay company master data)
@@ -97,6 +97,7 @@ public static class PermissionCatalog
         new("StockTransfers.Approve", "Inventory", "Approve transfers", "Approve or reject stock transfer requests."),
         new("StockTransfers.Dispatch", "Inventory", "Dispatch transfers", "Dispatch approved stock transfers from the source location."),
         new("StockTransfers.Receive", "Inventory", "Receive transfers", "Receive dispatched stock transfers at the destination location."),
+        new("StockTransfers.ApproveReceipt", "Inventory", "Approve receipts", "Approve or reject recorded consignment receipts at the destination when the company requires supervisor approval."),
         new("StockTransfers.Cancel", "Inventory", "Cancel transfers", "Cancel stock transfers before they are dispatched."),
         new("StockTransfers.Resolve", "Inventory", "Resolve transfers", "Resolve in-transit shortages by writing them off or returning them to the source (company-wide only)."),
         new("Shipments.View", "Inventory", "View shipments", "View shipments, consignments and their allocations."),

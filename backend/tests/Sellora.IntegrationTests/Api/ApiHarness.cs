@@ -24,8 +24,12 @@ public sealed class SelloraApiFactory(string connectionString, IReadOnlyDictiona
     public const string Audience = "sellora-test";
     public static readonly string SigningKey = Convert.ToBase64String(Enumerable.Range(1, 32).Select(i => (byte)i).ToArray());
 
+    /// <summary>Error-level log entries of the hosted API (unhandled exceptions behind a 500), so a test that sees a 500 can say why.</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<string> ServerErrors { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.ConfigureLogging(logging => Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(logging.Services, Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<Microsoft.Extensions.Logging.ILoggerProvider>(new ErrorCaptureProvider(ServerErrors))));
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:SelloraDb", connectionString);
         builder.UseSetting("Jwt:Issuer", Issuer);
@@ -35,6 +39,25 @@ public sealed class SelloraApiFactory(string connectionString, IReadOnlyDictiona
         builder.UseSetting("Jwt:RefreshTokenDays", "14");
         builder.UseSetting("Database:ApplyMigrationsOnStartup", "true");
         foreach (var (key, value) in settings ?? new Dictionary<string, string>()) builder.UseSetting(key, value);
+    }
+}
+
+internal sealed class ErrorCaptureProvider(System.Collections.Concurrent.ConcurrentQueue<string> sink) : Microsoft.Extensions.Logging.ILoggerProvider
+{
+    public Microsoft.Extensions.Logging.ILogger CreateLogger(string categoryName) => new Capture(categoryName, sink);
+    public void Dispose() { }
+
+    private sealed class Capture(string category, System.Collections.Concurrent.ConcurrentQueue<string> sink) : Microsoft.Extensions.Logging.ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => logLevel >= Microsoft.Extensions.Logging.LogLevel.Error;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (!IsEnabled(logLevel)) return;
+            var text = category + ": " + formatter(state, exception) + (exception is null ? "" : " :: " + exception);
+            sink.Enqueue(text.Length > 3000 ? text[..3000] : text);
+            while (sink.Count > 50) sink.TryDequeue(out _);
+        }
     }
 }
 

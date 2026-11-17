@@ -6,7 +6,7 @@ import type { PagedResult } from '../../../core/api.models';
 import { ContextService } from '../../../core/context/context.service';
 import { idempotencyHeaders } from '../../../core/idempotency';
 import { primaryLoad } from '../../../core/http/request-context';
-import type { ConsignmentDetail, ConsignmentListItem, ConsignmentListQuery, ConsignmentReceipt, RecordReceiptRequest } from '../shipments/shipments.models';
+import type { ConsignmentDetail, ConsignmentListItem, ConsignmentListQuery, ConsignmentDisposition, ConsignmentReceipt, RecordDispositionRequest, RecordReceiptRequest } from '../shipments/shipments.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/consignments`;
 
@@ -51,5 +51,24 @@ export class ConsignmentsService {
   /** Posts a Verified receipt (accepted quantity Transit to destination); idempotent. */
   postReceipt(id: string, receiptId: string, idempotencyKey: string): Observable<ConsignmentReceipt> {
     return this.http.post<ConsignmentReceipt>(`${BASE_URL}/${id}/receipts/${receiptId}/post`, null, { headers: idempotencyHeaders(idempotencyKey) });
+  }
+
+  /** Supervisor policy only (StockTransfers.ApproveReceipt): approves a PendingApproval receipt, which posts it. No body. */
+  approveReceipt(id: string, receiptId: string, idempotencyKey: string): Observable<ConsignmentReceipt> {
+    return this.http.post<ConsignmentReceipt>(`${BASE_URL}/${id}/receipts/${receiptId}/approve`, null, { headers: idempotencyHeaders(idempotencyKey) });
+  }
+
+  /** Rejects an unposted receipt for correction; its quantities become recordable again. */
+  rejectReceipt(id: string, receiptId: string, reason: string, idempotencyKey: string): Observable<ConsignmentReceipt> {
+    return this.http.post<ConsignmentReceipt>(`${BASE_URL}/${id}/receipts/${receiptId}/reject`, { reason }, { headers: idempotencyHeaders(idempotencyKey) });
+  }
+
+  dispositions(id: string): Observable<ConsignmentDisposition[]> {
+    return this.http.get<ConsignmentDisposition[]>(`${BASE_URL}/${id}/dispositions`);
+  }
+
+  /** Resolves damaged / rejected / missing quantities of posted receipts (company-level StockTransfers.Resolve). */
+  recordDisposition(id: string, request: RecordDispositionRequest, idempotencyKey: string): Observable<ConsignmentDisposition> {
+    return this.http.post<ConsignmentDisposition>(`${BASE_URL}/${id}/dispositions`, request, { headers: idempotencyHeaders(idempotencyKey) });
   }
 }

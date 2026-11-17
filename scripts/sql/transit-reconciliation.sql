@@ -9,9 +9,12 @@ LEFT JOIN (SELECT "ConsignmentLineId", SUM("BaseQty") q FROM "StockReservations"
 WHERE l."DispatchedBaseQty" <> COALESCE(r.q, 0);
 
 -- 2. Receipt lines sum to the consignment line's cumulative counters.
+--    FI-D39: a RejectedForCorrection receipt keeps its lines (audit) but its quantities were subtracted from the counters, so it is excluded.
 SELECT l."Id", l."AcceptedBaseQty", l."DamagedBaseQty", l."RejectedBaseQty", l."MissingBaseQty"
 FROM "ConsignmentLines" l
-LEFT JOIN (SELECT "ConsignmentLineId", SUM("AcceptedBaseQty") a, SUM("DamagedBaseQty") d, SUM("RejectedBaseQty") j, SUM("MissingBaseQty") m FROM "ConsignmentReceiptLines" GROUP BY 1) x ON x."ConsignmentLineId" = l."Id"
+LEFT JOIN (SELECT rl."ConsignmentLineId", SUM(rl."AcceptedBaseQty") a, SUM(rl."DamagedBaseQty") d, SUM(rl."RejectedBaseQty") j, SUM(rl."MissingBaseQty") m
+           FROM "ConsignmentReceiptLines" rl JOIN "ConsignmentReceipts" r ON r."Id" = rl."ReceiptId" AND r."Status" <> 'RejectedForCorrection'
+           GROUP BY 1) x ON x."ConsignmentLineId" = l."Id"
 WHERE (l."AcceptedBaseQty", l."DamagedBaseQty", l."RejectedBaseQty", l."MissingBaseQty") IS DISTINCT FROM (COALESCE(x.a, 0), COALESCE(x.d, 0), COALESCE(x.j, 0), COALESCE(x.m, 0));
 
 -- 3. PostedBaseQty = accepted quantity of Posted receipts.

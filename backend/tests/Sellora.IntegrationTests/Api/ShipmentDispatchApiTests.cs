@@ -164,11 +164,12 @@ public class ShipmentDispatchApiTests(PostgresFixture postgres)
         Assert.Equal("PartiallyReceived", await StatusAsync(s.W, "Consignments", IdOfConsignment(consB)));
         Assert.Equal("PartiallyDelivered", await StatusAsync(s.W, "Shipments", sid));
         await OkAsync(await PostAsync(readerB.Client, s.B, IdOfConsignment(consB), b1));
-        Assert.Equal(("Received", "Delivered"), (await StatusAsync(s.W, "Consignments", IdOfConsignment(consB)), await StatusAsync(s.W, "Shipments", sid)));
+        // FI-D41: B has no discrepancy so it goes straight to Reconciled; A keeps 10 pc of damaged + missing open, so the shipment is Delivered, not Completed.
+        Assert.Equal(("Reconciled", "Delivered"), (await StatusAsync(s.W, "Consignments", IdOfConsignment(consB)), await StatusAsync(s.W, "Shipments", sid)));
         Assert.Equal((20m, transitBefore + 10m), (await QohAsync(s, s.BStore), await TransitQohAsync(s)));
 
         var completed = (await TransitAsync(s.W.Admin, s.Src, "completed")).Select(i => i.GetProperty("consignmentId").GetGuid()).ToList();
-        Assert.Contains(IdOfConsignment(consA), completed);
+        Assert.DoesNotContain(IdOfConsignment(consA), completed);   // completed = Reconciled; A still has open discrepancies
         Assert.Contains(IdOfConsignment(consB), completed);
         Assert.DoesNotContain(IdOfConsignment(consA), (await TransitAsync(s.W.Admin, s.Src, "current")).Select(i => i.GetProperty("consignmentId").GetGuid()));
         Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(s.W.Admin, HttpMethod.Get, "/api/v1/transit?view=nonsense", null, s.Src)).StatusCode);

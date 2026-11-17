@@ -13,13 +13,13 @@ const BOX = { id: 'box', unitCode: 'box', displayName: 'Box', decimalPlaces: 0, 
 const line = (over: Partial<ConsignmentDetailLine> = {}): ConsignmentDetailLine => ({
   id: 'cl1', transferNo: 'TRF-1', productId: 'pen', productSku: 'PEN', productName: 'Pen', baseUnitCode: 'pc', productUnitId: 'box', unitCode: 'box',
   enteredQty: 5, allocatedBaseQty: 50, loadedBaseQty: 50, loadedQty: 5, dispatchedBaseQty: 50, acceptedBaseQty: 0, damagedBaseQty: 0, rejectedBaseQty: 0,
-  missingBaseQty: 0, postedBaseQty: 0, conversionFactorToBase: 10, ...over,
+  missingBaseQty: 0, postedBaseQty: 0, conversionFactorToBase: 10, dispositionedDamagedBaseQty: 0, dispositionedRejectedBaseQty: 0, dispositionedMissingBaseQty: 0, openDiscrepancyBaseQty: 0, ...over,
 });
 const consignment = (lines: ConsignmentDetailLine[]): ConsignmentDetail => ({
   id: 'c1', consignmentNo: 'CON-1', status: 'InTransit', direction: 'incoming', shipmentId: null, shipmentNo: 'SHP-1', shipmentStatus: 'Dispatched',
   transportMode: 'Road', transportVia: 'OwnFleet', providerName: null, transportReference: null, plannedDispatchDate: null,
   source: loc('store'), destination: loc('van'), destinationBranch: { id: 'b', code: 'B', name: 'B' }, leg: null, loadedAt: null,
-  lines, dispatchedAt: '2026-11-16T10:00:00Z', receiptCount: 0,
+  lines, dispatchedAt: '2026-11-16T10:00:00Z', receiptCount: 0, dispositionCount: 0, hasOpenDiscrepancy: false,
 });
 const receipt = { id: 'r1', sequence: 1, status: 'Verified' } as ConsignmentReceipt;
 

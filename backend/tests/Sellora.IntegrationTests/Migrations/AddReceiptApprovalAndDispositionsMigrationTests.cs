@@ -5,13 +5,13 @@ namespace Sellora.IntegrationTests.Migrations;
 
 /// <summary>
 /// Phase 06 <c>AddReceiptApprovalAndDispositions</c> (FI-D39..D41): the Reconciled/Completed backfill, the Direct/no-separation receipt snapshot of existing receipts, the widened status CHECKs,
-/// the receipt stamp/policy/separation CHECKs, the disposition tables, the disposition counters, the batch AcceptedCorrection arithmetic, the guarded Down and transit-reconciliation.sql queries 7-9.
+/// the receipt stamp/policy/separation CHECKs, the disposition tables, the disposition counters, the batch and request-line AcceptedCorrection arithmetic, the guarded Down and transit-reconciliation.sql queries 7-9.
 /// </summary>
 [Collection(PostgresCollection.Name)]
 public class AddReceiptApprovalAndDispositionsMigrationTests(PostgresFixture postgres)
 {
     private const string Previous = "20261116081256_AddShipmentDispatchAndReceiving";
-    private const string This = "20261117050937_AddReceiptApprovalAndDispositions";
+    private const string This = "20261117095458_AddReceiptApprovalAndDispositions";
 
     private static string G(int n) => $"00000000-0000-0000-0000-{n:x12}";
     private static readonly string User = G(12), Pen = G(20), PenUnit = G(30), Unit = G(1), Store = DefaultStore;
@@ -290,6 +290,26 @@ public class AddReceiptApprovalAndDispositionsMigrationTests(PostgresFixture pos
         await AssertRaisesAsync(() => ExecuteAsync(database, """UPDATE "StockTransferLineBatches" SET "AcceptedCorrectionBaseQty" = 2"""), "CK_StockTransferLineBatches_Counters_Max");
     }
 
+    private const string DispatchSnapshot = "\"DispatchProductUnitId\" = '{0}', \"DispatchUnitId\" = '{1}', \"DispatchUnitCode\" = 'pc', \"DispatchedQty\" = 5, \"DispatchFactor\" = 1";
+
+    [Fact]
+    public async Task StockTransferLines_AcceptedCorrection_DefaultsToZero_AndJoinsTheArithmeticConstraints()
+    {
+        await using var database = await SeededAtPreviousAsync();
+        await MigrateToAsync(database, This);
+        Assert.Equal(0m, await ScalarAsync<decimal>(database, $"""SELECT "AcceptedCorrectionBaseQty" FROM "StockTransferLines" WHERE "Id" = '{TrfLine}'"""));
+        Assert.Equal("numeric", await ScalarAsync<string>(database, """SELECT data_type FROM information_schema.columns WHERE table_name = 'StockTransferLines' AND column_name = 'AcceptedCorrectionBaseQty'"""));
+
+        string Set(string counters) => $"""UPDATE "StockTransferLines" SET "DispatchedBaseQty" = 5, {string.Format(DispatchSnapshot, PenUnit, Unit)}, {counters} WHERE "Id" = '{TrfLine}'""";
+        // Received + Damaged + WrittenOff + Returned + AcceptedCorrection <= Dispatched, every counter non-negative.
+        await AssertRaisesAsync(() => ExecuteAsync(database, Set("\"ReceivedBaseQty\" = 2, \"WrittenOffBaseQty\" = 1, \"ReturnedBaseQty\" = 1, \"AcceptedCorrectionBaseQty\" = 2")), "CK_StockTransferLines_Counters_Max");
+        await AssertRaisesAsync(() => ExecuteAsync(database, Set("\"AcceptedCorrectionBaseQty\" = -1")), "CK_StockTransferLines_Counters_NonNegative");
+        await ExecuteAsync(database, Set("\"ReceivedBaseQty\" = 2, \"WrittenOffBaseQty\" = 1, \"ReturnedBaseQty\" = 1, \"AcceptedCorrectionBaseQty\" = 1"));
+        await AssertRaisesAsync(() => ExecuteAsync(database, """UPDATE "StockTransferLines" SET "AcceptedCorrectionBaseQty" = 2"""), "CK_StockTransferLines_Counters_Max");
+        // Nothing may be settled on a line that was never dispatched.
+        await AssertRaisesAsync(() => ExecuteAsync(database, $"""UPDATE "StockTransferLines" SET "DispatchedBaseQty" = 0 WHERE "Id" = '{TrfLine}'"""), "CK_StockTransferLines_");
+    }
+
     [Fact]
     public async Task TransitReconciliationScript_DispositionQueries_AreCleanWhenConsistent_AndFlagDrift()
     {
@@ -302,7 +322,7 @@ public class AddReceiptApprovalAndDispositionsMigrationTests(PostgresFixture pos
         await SeedDispatchedWithDiscrepanciesAsync(database);
         await ExecuteAsync(database, $"""
             UPDATE "ConsignmentLines" SET "DispositionedDamagedBaseQty" = 2, "DispositionedMissingBaseQty" = 1 WHERE "Id" = '{CL1}';
-            UPDATE "StockTransferLines" SET "DispatchedBaseQty" = 5, "ReceivedBaseQty" = 2, "WrittenOffBaseQty" = 1, "ReturnedBaseQty" = 1, "DispatchProductUnitId" = '{PenUnit}', "DispatchUnitId" = '{Unit}', "DispatchUnitCode" = 'pc', "DispatchedQty" = 5, "DispatchFactor" = 1 WHERE "Id" = '{TrfLine}';
+            UPDATE "StockTransferLines" SET "DispatchedBaseQty" = 5, "ReceivedBaseQty" = 2, "WrittenOffBaseQty" = 1, "ReturnedBaseQty" = 1, "AcceptedCorrectionBaseQty" = 1, "DispatchProductUnitId" = '{PenUnit}', "DispatchUnitId" = '{Unit}', "DispatchUnitCode" = 'pc', "DispatchedQty" = 5, "DispatchFactor" = 1 WHERE "Id" = '{TrfLine}';
             INSERT INTO "StockTransferLineBatches" ("Id", "CompanyId", "LineId", "PurchaseBatchId", "DispatchedBaseQty", "UnitCost", "ReceivedBaseQty", "DamagedBaseQty", "WrittenOffBaseQty", "ReturnedBaseQty", "AcceptedCorrectionBaseQty", "ConsignmentLineId")
             VALUES (gen_random_uuid(), '{DefaultCompany}', '{TrfLine}', '{G(60)}', 5, 10, 2, 0, 1, 1, 1, '{CL1}');
             """ + DispositionSql(G(0x2001), 1) + DispositionLineSql(G(0x2101), G(0x2001), bucket: "Damaged", action: "WriteOff", entered: "1")
@@ -346,6 +366,7 @@ public class AddReceiptApprovalAndDispositionsMigrationTests(PostgresFixture pos
         await WithAsync("""UPDATE "BusinessSettings" SET "ReceiptPostingMode" = 'SupervisorApproval'""");
         await WithAsync("""UPDATE "BusinessSettings" SET "ReceiptSeparationOfDuties" = true""");
         await WithAsync($"""UPDATE "ConsignmentLines" SET "DispositionedMissingBaseQty" = 1 WHERE "Id" = '{CL1}'""");
+        await WithAsync($"""UPDATE "StockTransferLines" SET "DispatchedBaseQty" = 5, {string.Format(DispatchSnapshot, PenUnit, Unit)}, "AcceptedCorrectionBaseQty" = 1 WHERE "Id" = '{TrfLine}'""");
         await WithAsync($"""
             INSERT INTO "StockTransferLineBatches" ("Id", "CompanyId", "LineId", "PurchaseBatchId", "DispatchedBaseQty", "UnitCost", "ReceivedBaseQty", "DamagedBaseQty", "WrittenOffBaseQty", "ReturnedBaseQty", "AcceptedCorrectionBaseQty", "ConsignmentLineId")
             VALUES (gen_random_uuid(), '{DefaultCompany}', '{TrfLine}', '{G(60)}', 5, 10, 0, 0, 0, 0, 1, '{CL1}');

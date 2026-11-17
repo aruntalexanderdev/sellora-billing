@@ -5,8 +5,8 @@ namespace Sellora.Domain.Entities;
 /// <summary>
 /// One product on a <see cref="StockTransfer"/>. Request snapshot (unit, code, factor, qty, base qty) is written at create; the
 /// dispatch snapshot (all-or-none, DB CHECK) at dispatch, in any active unit of the product. Base quantities are never rounded:
-/// entered qty x factor = base qty exactly (DB CHECK). The four counters are base quantities settled out of the dispatched quantity;
-/// outstanding = DispatchedBaseQty - Received - Damaged - WrittenOff - Returned.
+/// entered qty x factor = base qty exactly (DB CHECK). The five counters are base quantities settled out of the dispatched quantity;
+/// outstanding = DispatchedBaseQty - Received - Damaged - WrittenOff - Returned - AcceptedCorrection.
 /// </summary>
 public class StockTransferLine : ICompanyOwned
 {
@@ -45,6 +45,9 @@ public class StockTransferLine : ICompanyOwned
     public decimal DamagedBaseQty { get; set; }
     public decimal WrittenOffBaseQty { get; set; }
     public decimal ReturnedBaseQty { get; set; }
+
+    /// <summary>FI-D40: base quantity accepted into the destination by a disposition (AcceptToDestination), mirroring the batch rows' counter. Distinct from ReceivedBaseQty (posted-receipt accepted quantity).</summary>
+    public decimal AcceptedCorrectionBaseQty { get; set; }
 
     public List<StockTransferLineBatch> Batches { get; set; } = [];
 }

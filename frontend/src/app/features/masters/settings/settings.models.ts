@@ -1,3 +1,6 @@
+/** Mirrors Domain ReceiptPostingMode (string enum). */
+export type ReceiptPostingMode = 'Direct' | 'SupervisorApproval';
+
 export interface BusinessSettings {
   id: string;
   businessName: string;
@@ -11,6 +14,9 @@ export interface BusinessSettings {
   baseCurrencyId: string;
   baseCurrencyCode: string;
   baseCurrencySymbol: string;
+  companyId: string;
+  receiptPostingMode: ReceiptPostingMode;
+  receiptSeparationOfDuties: boolean;
 }
 
 export interface UpdateBusinessSettingsRequest {
@@ -23,4 +29,7 @@ export interface UpdateBusinessSettingsRequest {
   email?: string | null;
   invoicePrefix: string;
   baseCurrencyId: string;
+  /** Omitted = unchanged. Applies only to receipts recorded afterwards. */
+  receiptPostingMode?: ReceiptPostingMode;
+  receiptSeparationOfDuties?: boolean;
 }

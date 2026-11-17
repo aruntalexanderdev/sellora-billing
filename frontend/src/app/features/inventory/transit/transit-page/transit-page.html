@@ -57,7 +57,7 @@
                   <thead>
                     <tr>
                       <th>Product</th><th class="num">Dispatched</th><th class="num">Accepted</th><th class="num">Damaged</th><th class="num">Rejected</th>
-                      <th class="num">Missing</th><th class="num">Posted</th><th class="num">Outstanding</th><th class="num">In transit</th>
+                      <th class="num">Missing</th><th class="num">Posted</th><th class="num">Outstanding</th><th class="num">In transit</th><th class="num">Open discrepancy</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -72,6 +72,7 @@
                         <td class="num">{{ qty(l.postedBaseQty) }}</td>
                         <td class="num">{{ qty(l.outstandingBaseQty) }}</td>
                         <td class="num">{{ qty(l.inTransitBaseQty) }}</td>
+                        <td class="num" data-testid="open-discrepancy">{{ qty(l.openDiscrepancyBaseQty) }}@if (l.dispositionedDamagedBaseQty + l.dispositionedRejectedBaseQty + l.dispositionedMissingBaseQty > 0) {<div class="sub">resolved {{ qty(l.dispositionedDamagedBaseQty + l.dispositionedRejectedBaseQty + l.dispositionedMissingBaseQty) }}</div>}</td>
                       </tr>
                     }
                   </tbody>

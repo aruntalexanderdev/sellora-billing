@@ -129,6 +129,8 @@ public static class DbSeeder
         await GrantNewPermissionToExistingHoldersAsync(db, "Shipments.View", ["StockTransfers.Dispatch", "StockTransfers.Approve"], ct);
         await GrantNewPermissionToExistingHoldersAsync(db, "Shipments.Plan", "StockTransfers.Dispatch", ct);
         await GrantNewPermissionToExistingHoldersAsync(db, "Shipments.Load", "StockTransfers.Dispatch", ct);
+        // Phase 06 (FI-D39): approving receipts goes to existing approvers (supervisors); the default policy is Direct, so nothing changes until a company opts in.
+        await GrantNewPermissionToExistingHoldersAsync(db, "StockTransfers.ApproveReceipt", "StockTransfers.Approve", ct);
     }
 
     // Recording payments used to be covered by an edit permission, so every role holding that permission keeps

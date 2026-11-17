@@ -110,6 +110,7 @@ public class StockTransferLineConfiguration : IEntityTypeConfiguration<StockTran
             builder.Property(p).HasColumnType("numeric(18,3)");
         }
         builder.Property(l => l.AllocatedBaseQty).HasDefaultValue(0m);
+        builder.Property(l => l.AcceptedCorrectionBaseQty).HasColumnType("numeric(18,3)").HasDefaultValue(0m);
         builder.Property(l => l.ClosedBaseQty).HasDefaultValue(0m);
 
         builder.HasIndex(l => new { l.CompanyId, l.TransferId, l.LineNo }, "IX_StockTransferLines_CompanyId_TransferId_LineNo").IsUnique();
@@ -148,9 +149,9 @@ public class StockTransferLineConfiguration : IEntityTypeConfiguration<StockTran
             t.HasCheckConstraint("CK_StockTransferLines_Dispatch_Required", "\"DispatchProductUnitId\" IS NOT NULL OR (\"DispatchedBaseQty\" = 0 AND \"ReceivedBaseQty\" = 0 AND \"DamagedBaseQty\" = 0 AND \"WrittenOffBaseQty\" = 0 AND \"ReturnedBaseQty\" = 0)");
             t.HasCheckConstraint("CK_StockTransferLines_Dispatched_Max", "\"DispatchedBaseQty\" >= 0 AND \"DispatchedBaseQty\" + \"ClosedBaseQty\" <= \"RequestedBaseQty\"");
             t.HasCheckConstraint("CK_StockTransferLines_Allocation_Valid", "\"AllocatedBaseQty\" >= 0 AND \"ClosedBaseQty\" >= 0 AND \"AllocatedBaseQty\" + \"ClosedBaseQty\" <= \"RequestedBaseQty\"");
-            t.HasCheckConstraint("CK_StockTransferLines_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
+            t.HasCheckConstraint("CK_StockTransferLines_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0 AND \"AcceptedCorrectionBaseQty\" >= 0");
             t.HasCheckConstraint("CK_StockTransferLines_Counters_Max",
-                "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" <= \"DispatchedBaseQty\"");
+                "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" + \"AcceptedCorrectionBaseQty\" <= \"DispatchedBaseQty\"");
         });
     }
 }

@@ -14,7 +14,7 @@ namespace Sellora.Tests.TestData;
 /// </summary>
 public sealed class ShipmentWorld
 {
-    public static readonly string[] Codes = [.. TransferWorld.AllCodes, "Shipments.View", "Shipments.Plan", "Shipments.Load", "Reservations.Release"];
+    public static readonly string[] Codes = [.. TransferWorld.AllCodes, "Shipments.View", "Shipments.Plan", "Shipments.Load", "Reservations.Release", "StockTransfers.ApproveReceipt"];
 
     public required TransferWorld T { get; init; }
     public LocationWorld L => T.L;
@@ -111,11 +111,52 @@ public sealed class ShipmentWorld
     }
 
     public Task<ConsignmentReceipt?> RecordAsync(Guid consignmentId, Guid consignmentLineId, decimal accepted, decimal damaged = 0m, decimal rejected = 0m, decimal missing = 0m,
-        string? key = null, Guid? branch = null, IEffectivePermissionService? permissions = null) =>
-        ReceiveRunAsync(r => r.RecordAsync(consignmentId, new RecordReceiptInput([new ReceiptLineInput(consignmentLineId, accepted, damaged, rejected, missing)], "n", key), UserId), branch, permissions);
+        string? key = null, Guid? branch = null, IEffectivePermissionService? permissions = null, Guid? user = null) =>
+        ReceiveRunAsync(r => r.RecordAsync(consignmentId, new RecordReceiptInput([new ReceiptLineInput(consignmentLineId, accepted, damaged, rejected, missing)], "n", key), user ?? UserId), branch, permissions);
 
-    public Task<ConsignmentReceipt?> PostAsync(Guid consignmentId, Guid receiptId, string? key = null, Guid? branch = null, IEffectivePermissionService? permissions = null) =>
-        ReceiveRunAsync(r => r.PostAsync(consignmentId, receiptId, new PostReceiptInput(key), UserId), branch, permissions);
+    public Task<ConsignmentReceipt?> PostAsync(Guid consignmentId, Guid receiptId, string? key = null, Guid? branch = null, IEffectivePermissionService? permissions = null, Guid? user = null) =>
+        ReceiveRunAsync(r => r.PostAsync(consignmentId, receiptId, new PostReceiptInput(key), user ?? UserId), branch, permissions);
+
+    // ---- Phase 06: policy, approve, reject, dispositions ----
+
+    /// <summary>Sets the company receipt policy (creating the settings row when the fixture has none).</summary>
+    public async Task SetPolicyAsync(ReceiptPostingMode mode, bool separation)
+    {
+        await using var db = T.Db();
+        var settings = await db.BusinessSettings.SingleOrDefaultAsync();
+        if (settings is null)
+        {
+            var currency = await db.Currencies.FirstOrDefaultAsync() ?? new Currency { Id = Guid.NewGuid(), Code = "INR", Name = "Indian Rupee", Symbol = "R" };
+            settings = new BusinessSettings { Id = Guid.NewGuid(), BusinessName = "Test", InvoicePrefix = "T", BaseCurrencyId = currency.Id, BaseCurrency = currency };
+            db.BusinessSettings.Add(settings);
+        }
+        settings.ReceiptPostingMode = mode;
+        settings.ReceiptSeparationOfDuties = separation;
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>Company-wide permissions: the receiver (Receive, no approval) and the approver (ApproveReceipt, no Receive).</summary>
+    public static IEffectivePermissionService ReceiverOnly() => LocationWorld.Company(Codes.Where(c => c != "StockTransfers.ApproveReceipt").ToArray());
+    public static IEffectivePermissionService ApproverOnly() => LocationWorld.Company("StockTransfers.ApproveReceipt");
+
+    public Task<ConsignmentReceipt?> ApproveAsync(Guid consignmentId, Guid receiptId, string? key = null, Guid? branch = null, IEffectivePermissionService? permissions = null, Guid? user = null) =>
+        ReceiveRunAsync(r => r.ApproveAsync(consignmentId, receiptId, new ApproveReceiptInput(key), user ?? UserId), branch, permissions);
+
+    public Task<ConsignmentReceipt?> RejectAsync(Guid consignmentId, Guid receiptId, string? reason = "wrong count", string? key = null, Guid? branch = null, IEffectivePermissionService? permissions = null, Guid? user = null) =>
+        ReceiveRunAsync(r => r.RejectAsync(consignmentId, receiptId, new RejectReceiptInput(reason, key), user ?? UserId), branch, permissions);
+
+    public Task<ConsignmentDisposition?> DispositionAsync(Guid consignmentId, Guid lineId, DispositionBucket bucket, DispositionAction action, decimal quantity,
+        string? reason = "resolved", string? key = null, IEffectivePermissionService? permissions = null) =>
+        DispositionAsync(consignmentId, [new DispositionLineInput(lineId, bucket, action, quantity)], reason, key, permissions);
+
+    public Task<ConsignmentDisposition?> DispositionAsync(Guid consignmentId, IReadOnlyList<DispositionLineInput> lines, string? reason = "resolved", string? key = null, IEffectivePermissionService? permissions = null) =>
+        ReceiveRunAsync(r => r.DispositionAsync(consignmentId, new RecordDispositionInput(reason, lines, key), UserId), Main, permissions);
+
+    public async Task<List<ConsignmentDisposition>> DispositionsAsync(Guid consignmentId)
+    {
+        await using var db = T.Db();
+        return await db.ConsignmentDispositions.AsNoTracking().Include(d => d.Lines).Where(d => d.ConsignmentId == consignmentId).OrderBy(d => d.Sequence).ToListAsync();
+    }
 
     public async Task<List<ConsignmentReceipt>> ReceiptsAsync(Guid consignmentId)
     {

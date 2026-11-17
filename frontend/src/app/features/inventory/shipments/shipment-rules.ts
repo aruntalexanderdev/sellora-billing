@@ -3,7 +3,8 @@ import { problemMessage } from '../../../core/http/api-errors';
 import { convert, formatQuantity, hasAtMostDecimals, round10 } from '../../../shared/units/unit-conversion';
 import type { BadgeTone } from '../../../shared/ui/badge/badge';
 import type {
-  Consignment, ConsignmentDetailLine, ConsignmentLine, ConsignmentStatus, LoadConsignmentRequest, RecordReceiptRequest, ShipmentStatus, StockReservationStatus, TransportMode, TransportVia,
+  Consignment, ConsignmentDetailLine, ConsignmentLine, ConsignmentReceipt, ConsignmentReceiptStatus, ConsignmentStatus, DispositionAction, DispositionBucket,
+  LoadConsignmentRequest, RecordDispositionRequest, RecordReceiptRequest, ShipmentStatus, StockReservationStatus, TransportMode, TransportVia,
 } from './shipments.models';
 
 // ---- Labels ----
@@ -15,6 +16,7 @@ export const SHIPMENT_STATUS_LABELS: Record<ShipmentStatus, string> = {
   Dispatched: 'Dispatched',
   PartiallyDelivered: 'Partially delivered',
   Delivered: 'Delivered',
+  Completed: 'Completed',
   Cancelled: 'Cancelled',
 };
 
@@ -43,7 +45,7 @@ export const referenceLabel = (m: TransportMode): string => REFERENCE_LABELS[m] 
 
 export function shipmentStatusTone(s: ShipmentStatus): BadgeTone {
   switch (s) {
-    case 'ReadyToDispatch': case 'Delivered': return 'good';
+    case 'ReadyToDispatch': case 'Delivered': case 'Completed': return 'good';
     case 'Loading': case 'PartiallyDelivered': return 'warn';
     case 'Dispatched': return 'info';
     case 'Cancelled': return 'bad';
@@ -53,7 +55,7 @@ export function shipmentStatusTone(s: ShipmentStatus): BadgeTone {
 
 export function consignmentStatusTone(s: ConsignmentStatus): BadgeTone {
   switch (s) {
-    case 'Loaded': case 'Received': return 'good';
+    case 'Loaded': case 'Received': case 'Reconciled': return 'good';
     case 'PartiallyReceived': return 'warn';
     case 'Cancelled': return 'bad';
     default: return 'info';
@@ -405,4 +407,166 @@ export function mapReceiptProblem(problem: ApiProblem | null | undefined, rows: 
 }
 
 export const RECEIPT_SHORTFALL_NOTE =
-  'Damaged, rejected and missing quantities are recorded but stay in transit until they are resolved (Phase 06). Only accepted quantity reaches stock when the receipt is posted.';
+  'Damaged, rejected and missing quantities are recorded but stay in transit (never sellable) until they are resolved. Only accepted quantity reaches stock when the receipt is posted.';
+
+// ---- Receipt policy gating (Phase 06, FI-D39). The server stays authoritative; this only decides what to offer. ----
+
+export const RECEIPT_STATUS_LABELS: Record<ConsignmentReceiptStatus, string> = {
+  Verified: 'Verified',
+  PendingApproval: 'Pending approval',
+  RejectedForCorrection: 'Rejected for correction',
+  Posted: 'Posted',
+};
+
+export function receiptStatusTone(s: ConsignmentReceiptStatus): BadgeTone {
+  switch (s) {
+    case 'Posted': return 'good';
+    case 'RejectedForCorrection': return 'bad';
+    default: return 'warn';
+  }
+}
+
+export const isUnpostedReceipt = (r: Pick<ConsignmentReceipt, 'status'>): boolean => r.status === 'Verified' || r.status === 'PendingApproval';
+
+/** hidden = not offered; blocked = shown disabled with `reason`; enabled = offered. */
+export interface ReceiptActionState {
+  state: 'hidden' | 'blocked' | 'enabled';
+  reason: string | null;
+}
+
+export interface ReceiptActions {
+  post: ReceiptActionState;
+  approve: ReceiptActionState;
+  reject: ReceiptActionState;
+}
+
+export const SEPARATION_POST_REASON = 'Separation of duties: the person who recorded this receipt cannot post it.';
+export const SEPARATION_APPROVE_REASON = 'Separation of duties: the person who recorded this receipt cannot approve it.';
+
+const HIDDEN: ReceiptActionState = { state: 'hidden', reason: null };
+const ENABLED: ReceiptActionState = { state: 'enabled', reason: null };
+
+/**
+ * Post: Verified (Direct policy) + StockTransfers.Receive. Approve: PendingApproval + StockTransfers.ApproveReceipt.
+ * Reject: any unposted receipt, permission follows the receipt's snapshotted policy (Direct = Receive, Supervisor = ApproveReceipt).
+ * Separation of duties (snapshotted on the receipt) blocks post / approve for the user who recorded it.
+ */
+export function receiptActions(r: ConsignmentReceipt, hasPermission: (code: string) => boolean, currentUserId: string | null): ReceiptActions {
+  const recorder = r.requireSeparation && !!currentUserId && r.verified.userId === currentUserId;
+  const post: ReceiptActionState = r.status === 'Verified' && hasPermission('StockTransfers.Receive')
+    ? (recorder ? { state: 'blocked', reason: SEPARATION_POST_REASON } : ENABLED) : HIDDEN;
+  const approve: ReceiptActionState = r.status === 'PendingApproval' && hasPermission('StockTransfers.ApproveReceipt')
+    ? (recorder ? { state: 'blocked', reason: SEPARATION_APPROVE_REASON } : ENABLED) : HIDDEN;
+  const rejectPermission = r.policyMode === 'SupervisorApproval' ? 'StockTransfers.ApproveReceipt' : 'StockTransfers.Receive';
+  const reject: ReceiptActionState = isUnpostedReceipt(r) && hasPermission(rejectPermission) ? ENABLED : HIDDEN;
+  return { post, approve, reject };
+}
+
+export const RECEIPT_REJECT_REASON_MAX = 500;
+
+export function validateRejectReason(reason: string | null | undefined): string | null {
+  const t = (reason ?? '').trim();
+  if (!t) return 'Enter a reason.';
+  if (t.length > RECEIPT_REJECT_REASON_MAX) return `Use at most ${RECEIPT_REJECT_REASON_MAX} characters.`;
+  return null;
+}
+
+// ---- Dispositions (Phase 06, FI-D40) ----
+
+export const DISPOSITION_BUCKETS: readonly DispositionBucket[] = ['Damaged', 'Rejected', 'Missing'];
+export const DISPOSITION_ACTIONS: readonly DispositionAction[] = ['WriteOff', 'ReturnToSource', 'AcceptToDestination'];
+export const DISPOSITION_ACTION_LABELS: Record<DispositionAction, string> = {
+  WriteOff: 'Write off',
+  ReturnToSource: 'Return to source',
+  AcceptToDestination: 'Accept to destination',
+};
+export const DISPOSITION_REASON_MAX = 500;
+export const DISPOSITION_NOTE =
+  'Only quantity from posted receipts can be resolved. Record and post a receipt first for anything still unverified (for example as missing).';
+
+type LineQty = Pick<ConsignmentDetailLine,
+  'damagedBaseQty' | 'rejectedBaseQty' | 'missingBaseQty' | 'dispositionedDamagedBaseQty' | 'dispositionedRejectedBaseQty' | 'dispositionedMissingBaseQty'>;
+
+export const bucketBase = (l: LineQty, b: DispositionBucket): number =>
+  b === 'Damaged' ? l.damagedBaseQty : b === 'Rejected' ? l.rejectedBaseQty : l.missingBaseQty;
+export const bucketDispositionedBase = (l: LineQty, b: DispositionBucket): number =>
+  b === 'Damaged' ? l.dispositionedDamagedBaseQty : b === 'Rejected' ? l.dispositionedRejectedBaseQty : l.dispositionedMissingBaseQty;
+export const bucketOpenBase = (l: LineQty, b: DispositionBucket): number => Math.max(0, round10(bucketBase(l, b) - bucketDispositionedBase(l, b)));
+
+/** Base quantity of a bucket on POSTED receipts for one line (only this is dispositionable). */
+export function postedBucketBase(receipts: readonly ConsignmentReceipt[], lineId: string, b: DispositionBucket): number {
+  let sum = 0;
+  for (const r of receipts) {
+    if (r.status !== 'Posted') continue;
+    for (const l of r.lines) {
+      if (l.consignmentLineId === lineId) sum += b === 'Damaged' ? l.damagedBaseQty : b === 'Rejected' ? l.rejectedBaseQty : l.missingBaseQty;
+    }
+  }
+  return round10(sum);
+}
+
+/** Open and posted: what a disposition may still take for one line and bucket, base units. */
+export const dispositionableBase = (l: LineQty & { id: string }, receipts: readonly ConsignmentReceipt[], b: DispositionBucket): number =>
+  Math.max(0, round10(postedBucketBase(receipts, l.id, b) - bucketDispositionedBase(l, b)));
+
+export interface DispositionRow {
+  lineId: string;
+  bucket: DispositionBucket;
+  unitCode: string;
+  /** conversionFactorToBase of the consignment line. */
+  factor: number;
+  decimalPlaces: number;
+  /** Base units that may still be dispositioned in this bucket (posted minus already dispositioned). */
+  openBase: number;
+  action: DispositionAction;
+  quantity: number | null;
+}
+
+export const dispositionOpenInUnit = (r: Pick<DispositionRow, 'openBase' | 'factor'>): number => convert(r.openBase, 1, r.factor);
+
+/** Rows with a quantity > 0 are submitted; each must be within the unit's decimals and <= the open bucket quantity; a reason is required. */
+export function validateDisposition(rows: readonly DispositionRow[], reason: string | null | undefined): LoadErrors {
+  const out: LoadErrors = { rows: {}, form: null };
+  rows.forEach((r, i) => {
+    const q = r.quantity;
+    if (q === null) return;
+    if (!Number.isFinite(q) || q < 0) out.rows[i] = 'Quantity cannot be negative.';
+    else if (!hasAtMostDecimals(q, r.decimalPlaces)) out.rows[i] = r.decimalPlaces === 0 ? 'Whole numbers only.' : `At most ${r.decimalPlaces} decimal places.`;
+    else if (baseOf(q, { conversionFactorToBase: r.factor }) > r.openBase) {
+      out.rows[i] = `More than the ${formatQuantity(dispositionOpenInUnit(r), r.decimalPlaces)} ${r.unitCode} ${r.bucket.toLowerCase()} still open to resolve.`;
+    }
+  });
+  const reasonText = (reason ?? '').trim();
+  if (rows.length === 0) out.form = 'Nothing posted is open to resolve.';
+  else if (!reasonText) out.form = 'Enter a reason.';
+  else if (reasonText.length > DISPOSITION_REASON_MAX) out.form = `Use at most ${DISPOSITION_REASON_MAX} characters for the reason.`;
+  else if (Object.keys(out.rows).length === 0 && !rows.some((r) => (r.quantity ?? 0) > 0)) out.form = 'Enter at least one quantity.';
+  return out;
+}
+
+export function buildDispositionRequest(rows: readonly DispositionRow[], reason: string): RecordDispositionRequest {
+  return {
+    reason: reason.trim(),
+    lines: rows.filter((r) => (r.quantity ?? 0) > 0).map((r) => ({ consignmentLineId: r.lineId, bucket: r.bucket, action: r.action, quantity: r.quantity! })),
+  };
+}
+
+/** `lines[i]` errors (index of the SUBMITTED lines) mapped back onto dialog rows. */
+export function mapDispositionProblem(problem: ApiProblem | null | undefined, rows: readonly DispositionRow[]): LoadErrors {
+  const raw = mapLoadProblem(problem);
+  const sent = rows.map((r, i) => ({ r, i })).filter((x) => (x.r.quantity ?? 0) > 0).map((x) => x.i);
+  const mapped: LoadErrors = { rows: {}, form: raw.form };
+  for (const [k, v] of Object.entries(raw.rows)) mapped.rows[sent[Number(k)] ?? Number(k)] = v;
+  return mapped;
+}
+
+/** Posted damaged / rejected / missing quantity still open to a disposition on any line (unposted receipt quantity does not count). */
+export const hasDispositionable = (lines: readonly (LineQty & { id: string })[], receipts: readonly ConsignmentReceipt[]): boolean =>
+  lines.some((l) => DISPOSITION_BUCKETS.some((b) => dispositionableBase(l, receipts, b) > 0));
+
+/**
+ * Resolve is offered only with COMPANY-LEVEL StockTransfers.Resolve (FI-D40; a branch-level grant gets 404 from the API)
+ * and only while some posted quantity is still open to a disposition.
+ */
+export const canResolve = (hasDispositionableQty: boolean, hasCompanyPermission: (code: string) => boolean): boolean =>
+  hasDispositionableQty && hasCompanyPermission('StockTransfers.Resolve');

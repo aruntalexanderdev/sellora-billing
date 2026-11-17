@@ -1,15 +1,19 @@
 import type { StockTransferActor, StockTransferBranch, StockTransferLocation } from '../stock-transfers/stock-transfers.models';
 
 /** Mirrors Domain/Entities/ShipmentEnums.cs (string enums). */
-export type ShipmentStatus = 'Draft' | 'Loading' | 'ReadyToDispatch' | 'Dispatched' | 'PartiallyDelivered' | 'Delivered' | 'Cancelled';
+export type ShipmentStatus = 'Draft' | 'Loading' | 'ReadyToDispatch' | 'Dispatched' | 'PartiallyDelivered' | 'Delivered' | 'Completed' | 'Cancelled';
 export type TransportMode = 'Road' | 'Air' | 'Sea' | 'Rail' | 'Courier' | 'HandCarry';
 export type TransportVia = 'OwnFleet' | 'ExternalProvider';
-export type ConsignmentStatus = 'Planned' | 'Loaded' | 'InTransit' | 'PartiallyReceived' | 'Received' | 'Cancelled';
-export type ConsignmentReceiptStatus = 'Verified' | 'Posted';
+export type ConsignmentStatus = 'Planned' | 'Loaded' | 'InTransit' | 'PartiallyReceived' | 'Received' | 'Reconciled' | 'Cancelled';
+/** Phase 06 (FI-D39): PendingApproval under SupervisorApproval; RejectedForCorrection = rejected before posting (quantities released). */
+export type ConsignmentReceiptStatus = 'Verified' | 'PendingApproval' | 'RejectedForCorrection' | 'Posted';
+export type ReceiptPostingMode = 'Direct' | 'SupervisorApproval';
+export type DispositionBucket = 'Damaged' | 'Rejected' | 'Missing';
+export type DispositionAction = 'WriteOff' | 'ReturnToSource' | 'AcceptToDestination';
 export type ConsignmentLineStatus = 'Active' | 'Cancelled';
 export type StockReservationStatus = 'Active' | 'Released' | 'Consumed';
 
-export const SHIPMENT_STATUSES: ShipmentStatus[] = ['Draft', 'Loading', 'ReadyToDispatch', 'Dispatched', 'PartiallyDelivered', 'Delivered', 'Cancelled'];
+export const SHIPMENT_STATUSES: ShipmentStatus[] = ['Draft', 'Loading', 'ReadyToDispatch', 'Dispatched', 'PartiallyDelivered', 'Delivered', 'Completed', 'Cancelled'];
 export const TRANSPORT_MODES: TransportMode[] = ['Road', 'Air', 'Sea', 'Rail', 'Courier', 'HandCarry'];
 export const RESERVATION_STATUSES: StockReservationStatus[] = ['Active', 'Released', 'Consumed'];
 
@@ -116,6 +120,10 @@ export interface ConsignmentLine {
   rejectedBaseQty: number;
   missingBaseQty: number;
   postedBaseQty: number;
+  dispositionedDamagedBaseQty: number;
+  dispositionedRejectedBaseQty: number;
+  dispositionedMissingBaseQty: number;
+  openDiscrepancyBaseQty: number;
 }
 
 export interface Consignment {
@@ -206,6 +214,10 @@ export interface ConsignmentDetailLine {
   missingBaseQty: number;
   postedBaseQty: number;
   conversionFactorToBase: number;
+  dispositionedDamagedBaseQty: number;
+  dispositionedRejectedBaseQty: number;
+  dispositionedMissingBaseQty: number;
+  openDiscrepancyBaseQty: number;
 }
 
 export interface ConsignmentLeg {
@@ -237,6 +249,8 @@ export interface ConsignmentDetail {
   lines: ConsignmentDetailLine[];
   dispatchedAt: string | null;
   receiptCount: number;
+  dispositionCount: number;
+  hasOpenDiscrepancy: boolean;
 }
 
 export interface ConsignmentListQuery {
@@ -332,6 +346,59 @@ export interface ConsignmentReceipt {
   posted: StockTransferActor | null;
   notes: string | null;
   lines: ConsignmentReceiptLine[];
+  /** Policy snapshotted when the receipt was recorded; later settings changes never alter it. */
+  policyMode: ReceiptPostingMode;
+  requireSeparation: boolean;
+  rejected: StockTransferActor | null;
+  rejectionReason: string | null;
+  /** Supervisor receipts only: who approved (= posted) it. */
+  approvedBy: StockTransferActor | null;
+}
+
+export interface RejectReceiptRequest {
+  reason: string;
+}
+
+// ---- Dispositions (Phase 06, FI-D40) ----
+
+/** Quantity is in the consignment line's own unit. */
+export interface DispositionLineRequest {
+  consignmentLineId: string;
+  bucket: DispositionBucket;
+  action: DispositionAction;
+  quantity: number;
+}
+
+export interface RecordDispositionRequest {
+  reason: string;
+  lines: DispositionLineRequest[];
+}
+
+export interface ConsignmentDispositionLine {
+  consignmentLineId: string;
+  productId: string;
+  productSku: string | null;
+  productName: string | null;
+  baseUnitCode: string | null;
+  productUnitId: string;
+  unitCode: string;
+  conversionFactorToBase: number;
+  bucket: DispositionBucket;
+  action: DispositionAction;
+  quantity: number;
+  baseQty: number;
+}
+
+export interface ConsignmentDisposition {
+  id: string;
+  consignmentId: string;
+  consignmentNo: string;
+  consignmentStatus: ConsignmentStatus;
+  shipmentStatus: ShipmentStatus;
+  sequence: number;
+  reason: string;
+  by: StockTransferActor;
+  lines: ConsignmentDispositionLine[];
 }
 
 // ---- Transit (Phase 05, FI-D37) ----
@@ -354,6 +421,10 @@ export interface TransitLine {
   postedBaseQty: number;
   outstandingBaseQty: number;
   inTransitBaseQty: number;
+  dispositionedDamagedBaseQty: number;
+  dispositionedRejectedBaseQty: number;
+  dispositionedMissingBaseQty: number;
+  openDiscrepancyBaseQty: number;
 }
 
 export interface TransitItem {

@@ -115,7 +115,8 @@ internal static class ShipmentReads
                 l.ProductUnitId, l.UnitCode, l.ConversionFactorToBase, l.EnteredQty, l.AllocatedBaseQty, l.LoadedBaseQty,
                 l.ConversionFactorToBase > 0 ? l.LoadedBaseQty / l.ConversionFactorToBase : 0,
                 l.Status, request, res?.Id, res?.BaseQty ?? 0,
-                l.DispatchedBaseQty, l.AcceptedBaseQty, l.DamagedBaseQty, l.RejectedBaseQty, l.MissingBaseQty, l.PostedBaseQty);
+                l.DispatchedBaseQty, l.AcceptedBaseQty, l.DamagedBaseQty, l.RejectedBaseQty, l.MissingBaseQty, l.PostedBaseQty,
+                l.DispositionedDamagedBaseQty, l.DispositionedRejectedBaseQty, l.DispositionedMissingBaseQty, OpenDiscrepancy(l));
         }
 
         var consignments = s.Consignments.OrderBy(c => c.ConsignmentNo, StringComparer.Ordinal).Select(c => new ConsignmentDto(
@@ -144,7 +145,7 @@ internal static class ShipmentReads
         if (receipts.Count == 0) return [];
 
         var lookups = await ShipmentLookups.LoadAsync(db, ct);
-        await lookups.LoadUsersAsync(db, receipts.SelectMany(r => new[] { (Guid?)r.VerifiedByUserId, r.PostedByUserId }), ct);
+        await lookups.LoadUsersAsync(db, receipts.SelectMany(r => new[] { (Guid?)r.VerifiedByUserId, r.PostedByUserId, r.RejectedByUserId }), ct);
         var products = await ProductsAsync(db, receipts.SelectMany(r => r.Lines).Select(l => l.ProductId), ct);
 
         return receipts.Select(r => new ConsignmentReceiptDto(
@@ -157,6 +158,38 @@ internal static class ShipmentReads
                     l.ConsignmentLineId, l.ProductId, p?.Sku, p?.Name, p?.BaseUnitCode, l.ProductUnitId, l.UnitCode, l.ConversionFactorToBase,
                     l.AcceptedEnteredQty, l.AcceptedBaseQty, l.DamagedEnteredQty, l.DamagedBaseQty,
                     l.RejectedEnteredQty, l.RejectedBaseQty, l.MissingEnteredQty, l.MissingBaseQty);
+            }).ToList(),
+            r.PolicyMode, r.RequireSeparation,
+            r.RejectedAt is null ? null : lookups.Actor(r.RejectedByUserId, r.RejectedAt), r.RejectionReason,
+            r.PolicyMode == ReceiptPostingMode.SupervisorApproval && r.PostedAt is not null ? lookups.Actor(r.PostedByUserId, r.PostedAt) : null)).ToList();
+    }
+
+    /// <summary>FI-D41: damaged + rejected + missing not yet dispositioned (counters include unposted receipts), base units of this line's product only.</summary>
+    public static decimal OpenDiscrepancy(ConsignmentLine l) =>
+        l.DamagedBaseQty + l.RejectedBaseQty + l.MissingBaseQty - l.DispositionedDamagedBaseQty - l.DispositionedRejectedBaseQty - l.DispositionedMissingBaseQty;
+
+    /// <summary>Disposition events of one consignment, oldest first (or just one), with the consignment's and its shipment's current status.</summary>
+    public static async Task<List<ConsignmentDispositionDto>> LoadDispositionsAsync(SelloraDbContext db, Guid consignmentId, Guid? dispositionId, CancellationToken ct)
+    {
+        var consignment = await db.Consignments.AsNoTracking().Where(c => c.Id == consignmentId).Select(c => new { c.ConsignmentNo, c.Status, c.ShipmentId }).SingleOrDefaultAsync(ct);
+        if (consignment is null) return [];
+        var shipmentStatus = await db.Shipments.AsNoTracking().IgnoreQueryFilters([BranchQueryFilter.Name]).Where(s => s.Id == consignment.ShipmentId).Select(s => s.Status).SingleAsync(ct);
+
+        var dispositions = await db.ConsignmentDispositions.AsNoTracking().Include(d => d.Lines)
+            .Where(d => d.ConsignmentId == consignmentId && (dispositionId == null || d.Id == dispositionId)).OrderBy(d => d.Sequence).ToListAsync(ct);
+        if (dispositions.Count == 0) return [];
+
+        var lookups = await ShipmentLookups.LoadAsync(db, ct);
+        await lookups.LoadUsersAsync(db, dispositions.Select(d => (Guid?)d.ByUserId), ct);
+        var products = await ProductsAsync(db, dispositions.SelectMany(d => d.Lines).Select(l => l.ProductId), ct);
+
+        return dispositions.Select(d => new ConsignmentDispositionDto(
+            d.Id, d.ConsignmentId, consignment.ConsignmentNo, consignment.Status, shipmentStatus, d.Sequence, d.Reason, lookups.Actor(d.ByUserId, d.At)!,
+            d.Lines.OrderBy(l => l.ProductId).ThenBy(l => l.ConsignmentLineId).ThenBy(l => l.Bucket).ThenBy(l => l.Action).Select(l =>
+            {
+                products.TryGetValue(l.ProductId, out var p);
+                return new ConsignmentDispositionLineDto(l.ConsignmentLineId, l.ProductId, p?.Sku, p?.Name, p?.BaseUnitCode, l.ProductUnitId, l.UnitCode,
+                    l.ConversionFactorToBase, l.Bucket, l.Action, l.EnteredQty, l.BaseQty);
             }).ToList())).ToList();
     }
 }

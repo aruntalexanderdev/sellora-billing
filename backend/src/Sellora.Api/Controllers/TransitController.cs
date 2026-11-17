@@ -51,7 +51,7 @@ public class TransitController(SelloraDbContext db, IEffectivePermissionService 
             : (await StockVisibility.LoadAsync(db, effectivePermissions, "Shipments.View", ct)).ShipmentSourceIds();
 
         var inFlight = new[] { ConsignmentStatus.InTransit, ConsignmentStatus.PartiallyReceived };
-        var flown = new[] { ConsignmentStatus.InTransit, ConsignmentStatus.PartiallyReceived, ConsignmentStatus.Received };
+        var flown = new[] { ConsignmentStatus.InTransit, ConsignmentStatus.PartiallyReceived, ConsignmentStatus.Received, ConsignmentStatus.Reconciled };
 
         // The shipment's source-branch filter is bypassed on purpose (a destination reader is not the source branch); the id lists above are the scope.
         var query = from c in db.Consignments.AsNoTracking()
@@ -63,11 +63,10 @@ public class TransitController(SelloraDbContext db, IEffectivePermissionService 
         {
             "incoming" => query.Where(x => inFlight.Contains(x.c.Status) && destinations.Contains(x.c.DestinationLocationId)),
             "outgoing" => query.Where(x => inFlight.Contains(x.c.Status) && sources.Contains(x.s.SourceLocationId)),
-            "completed" => query.Where(x => x.c.Status == ConsignmentStatus.Received && (destinations.Contains(x.c.DestinationLocationId) || sources.Contains(x.s.SourceLocationId))),
+            "completed" => query.Where(x => x.c.Status == ConsignmentStatus.Reconciled && (destinations.Contains(x.c.DestinationLocationId) || sources.Contains(x.s.SourceLocationId))),
             "discrepancies" => query.Where(x => (destinations.Contains(x.c.DestinationLocationId) || sources.Contains(x.s.SourceLocationId))
                 && x.c.Lines.Any(l => l.Status == ConsignmentLineStatus.Active
-                    && (l.DamagedBaseQty > 0 || l.RejectedBaseQty > 0 || l.MissingBaseQty > 0
-                        || (x.c.Status == ConsignmentStatus.Received && l.PostedBaseQty < l.DispatchedBaseQty)))),
+                    && l.DamagedBaseQty + l.RejectedBaseQty + l.MissingBaseQty - l.DispositionedDamagedBaseQty - l.DispositionedRejectedBaseQty - l.DispositionedMissingBaseQty > 0)),
             _ => query.Where(x => inFlight.Contains(x.c.Status) && (destinations.Contains(x.c.DestinationLocationId) || sources.Contains(x.s.SourceLocationId))),
         };
 
@@ -107,20 +106,21 @@ public class TransitController(SelloraDbContext db, IEffectivePermissionService 
         {
             var consignmentLines = linesByConsignment[r.Id].ToList();
             var outgoing = sources.Contains(r.SourceLocationId);
-            var hasDiscrepancy = consignmentLines.Any(l => l.DamagedBaseQty > 0 || l.RejectedBaseQty > 0 || l.MissingBaseQty > 0
-                || (r.Status == ConsignmentStatus.Received && l.PostedBaseQty < l.DispatchedBaseQty));
+            var hasDiscrepancy = consignmentLines.Any(l => ShipmentReads.OpenDiscrepancy(l) > 0);
             var own = receipts[r.Id].ToList();
             return new TransitItemDto(
                 r.Id, r.ConsignmentNo, r.Status, outgoing ? "outgoing" : "incoming", outgoing ? r.ShipmentId : null, r.ShipmentNo, r.ShipmentStatus,
                 r.TransportMode, r.TransportReference, lookups.Location(r.SourceLocationId), lookups.Location(r.DestinationLocationId), lookups.Branch(r.DestinationBranchId),
-                r.DispatchedAt, own.Count, own.Count(x => x.Status == ConsignmentReceiptStatus.Verified), hasDiscrepancy,
+                r.DispatchedAt, own.Count, own.Count(x => x.Status is ConsignmentReceiptStatus.Verified or ConsignmentReceiptStatus.PendingApproval), hasDiscrepancy,
                 consignmentLines.Select(l =>
                 {
                     products.TryGetValue(l.ProductId, out var p);
                     var accounted = l.AcceptedBaseQty + l.DamagedBaseQty + l.RejectedBaseQty + l.MissingBaseQty;
                     return new TransitLineDto(l.Id, l.ProductId, p?.Sku, p?.Name, p?.BaseUnitCode, l.UnitCode,
                         l.DispatchedBaseQty, l.AcceptedBaseQty, l.DamagedBaseQty, l.RejectedBaseQty, l.MissingBaseQty, l.PostedBaseQty,
-                        l.DispatchedBaseQty - accounted, l.DispatchedBaseQty - l.PostedBaseQty);
+                        l.DispatchedBaseQty - accounted,
+                        l.DispatchedBaseQty - l.PostedBaseQty - l.DispositionedDamagedBaseQty - l.DispositionedRejectedBaseQty - l.DispositionedMissingBaseQty,
+                        l.DispositionedDamagedBaseQty, l.DispositionedRejectedBaseQty, l.DispositionedMissingBaseQty, ShipmentReads.OpenDiscrepancy(l));
                 }).ToList());
         }).ToList();
         return Ok(new PagedResult<TransitItemDto>(items, total, page, pageSize));

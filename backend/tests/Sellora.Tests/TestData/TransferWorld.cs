@@ -208,7 +208,7 @@ public sealed class TransferWorld
         await using var db = Db();
         var balances = await db.BatchLocationBalances.AsNoTracking().Where(b => b.StockLocationId == L.Transit).ToListAsync();
         var rows = await db.StockTransferLineBatches.AsNoTracking().ToListAsync();
-        var outstanding = rows.GroupBy(r => r.PurchaseBatchId).ToDictionary(g => g.Key, g => g.Sum(r => r.DispatchedBaseQty - r.ReceivedBaseQty - r.DamagedBaseQty - r.WrittenOffBaseQty - r.ReturnedBaseQty));
+        var outstanding = rows.GroupBy(r => r.PurchaseBatchId).ToDictionary(g => g.Key, g => g.Sum(r => r.DispatchedBaseQty - r.ReceivedBaseQty - r.DamagedBaseQty - r.WrittenOffBaseQty - r.ReturnedBaseQty - r.AcceptedCorrectionBaseQty));
         foreach (var batchId in balances.Select(b => b.PurchaseBatchId).Concat(outstanding.Keys).Distinct())
         {
             Assert.True(balances.Where(b => b.PurchaseBatchId == batchId).Sum(b => b.RemainingBaseQty) == outstanding.GetValueOrDefault(batchId), $"{step}: Transit vs outstanding for batch {batchId}");

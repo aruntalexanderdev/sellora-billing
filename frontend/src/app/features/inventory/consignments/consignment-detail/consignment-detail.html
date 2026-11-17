@@ -12,7 +12,7 @@
     </div>
   </div>
   <div class="status-row">
-    <ui-badge [text]="c.status" [tone]="tone(c.status)" />
+    <ui-badge [text]="c.status" [tone]="tone(c.status)" data-testid="consignment-status" />
     <span class="muted" data-testid="direction">{{ c.direction === 'incoming' ? 'Incoming' : 'Outgoing' }}</span>
   </div>
 
@@ -27,7 +27,7 @@
           } @else {
             {{ c.shipmentNo }}
           }
-          · {{ shipmentStatus(c.shipmentStatus) }}
+          · <span data-testid="shipment-status">{{ shipmentStatus(c.shipmentStatus) }}</span>
         </dd>
       </div>
       <div><dt>Mode</dt><dd>{{ mode(c.transportMode) }} · {{ viaLabels[c.transportVia] }}</dd></div>
@@ -56,8 +56,20 @@
       <ui-button variant="primary" data-testid="act-receipt" [disabled]="!hasRemaining()" (onClick)="openReceipt()">Record receipt</ui-button>
     </div>
     @if (receiptOpen()) {
-      <app-receipt-dialog [consignment]="c" [submission]="submissionForReceipt()" (done)="onReceiptRecorded()" (cancelled)="closeReceipt()" />
+      <app-receipt-dialog [consignment]="c" [submission]="submissionForReceipt()" (done)="onReceiptRecorded($event)" (cancelled)="closeReceipt()" />
     }
+  }
+
+  @if (resolvable()) {
+    <div class="action-bar" data-testid="resolve-actions">
+      <ui-button variant="primary" data-testid="act-resolve" (onClick)="openResolve()">Resolve discrepancy</ui-button>
+    </div>
+  }
+  @if (dispositionOpen()) {
+    <app-disposition-dialog [consignment]="c" [receipts]="receipts()" [submission]="submissionForDisposition()" (done)="onDispositionRecorded()" (cancelled)="closeResolve()" />
+  }
+  @if (rejecting(); as rr) {
+    <app-receipt-reject-dialog [receipt]="rr" [submission]="submissionForReject(rr)" (done)="onRejected()" (cancelled)="closeReject()" />
   }
 
   <div class="detail-card">
@@ -97,6 +109,59 @@
     }
   </div>
 
+  @if (hasDiscrepancyData()) {
+    <div class="detail-card" data-testid="discrepancies">
+      <div class="card-title">Discrepancies</div>
+      @if (c.hasOpenDiscrepancy) {
+        <p class="sub" data-testid="discrepancy-open">Damaged, rejected and missing quantities stay in transit (never sellable) until they are resolved. {{ disclaimer }}</p>
+      }
+      <table>
+        <thead>
+          <tr><th>Product</th>@for (b of buckets; track b) {<th class="num">{{ b }}</th>}<th class="num">Open</th></tr>
+        </thead>
+        <tbody>
+          @for (l of c.lines; track l.id) {
+            <tr data-testid="discrepancy-line">
+              <td>{{ l.productName }}<div class="sub">{{ l.productSku }} · {{ l.baseUnitCode }}</div></td>
+              @for (b of buckets; track b) {
+                <td class="num" [attr.data-testid]="'d-' + b.toLowerCase()">
+                  {{ base(bucketTotal(l, b)) }}
+                  <div class="sub">resolved {{ base(bucketDone(l, b)) }} · open {{ base(bucketOpen(l, b)) }}</div>
+                </td>
+              }
+              <td class="num" data-testid="d-open">{{ base(l.openDiscrepancyBaseQty) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+      @if (dispositions().length > 0) {
+        <div class="card-title" style="margin-top: 14px">Resolutions</div>
+        @for (d of dispositions(); track d.id) {
+          <div class="receipt" [attr.data-testid]="'disposition-' + d.sequence">
+            <div class="receipt-head">
+              <strong>Resolution #{{ d.sequence }}</strong>
+              <span class="sub">{{ d.by.userName }} · {{ d.by.at | date: 'medium' }}</span>
+            </div>
+            <div class="sub">{{ d.reason }}</div>
+            <table>
+              <thead><tr><th>Product</th><th>Bucket</th><th>Action</th><th class="num">Quantity</th></tr></thead>
+              <tbody>
+                @for (l of d.lines; track l.consignmentLineId + l.bucket + l.action) {
+                  <tr>
+                    <td>{{ l.productName }}<div class="sub">{{ l.productSku }}</div></td>
+                    <td>{{ l.bucket }}</td>
+                    <td>{{ actionLabels[l.action] }}</td>
+                    <td class="num">{{ l.quantity }} {{ l.unitCode }}<div class="sub">= {{ l.baseQty }} {{ l.baseUnitCode }}</div></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      }
+    </div>
+  }
+
   @if (receipts().length > 0) {
     <div class="detail-card" data-testid="receipts">
       <div class="card-title">Receipts</div>
@@ -104,15 +169,34 @@
         <div class="receipt" [attr.data-testid]="'receipt-' + r.sequence">
           <div class="receipt-head">
             <strong>Receipt #{{ r.sequence }}</strong>
-            <ui-badge [text]="r.status" [tone]="r.status === 'Posted' ? 'good' : 'warn'" />
+            <ui-badge [text]="receiptStatusLabels[r.status]" [tone]="receiptTone(r.status)" [attr.data-testid]="'receipt-status-' + r.sequence" />
             <span class="sub">Verified by {{ r.verified.userName }} · {{ r.verified.at | date: 'medium' }}</span>
             @if (r.posted; as p) {
               <span class="sub">Posted by {{ p.userName }} · {{ p.at | date: 'medium' }}</span>
             }
-            @if (canPost(r)) {
-              <ui-button variant="primary" [attr.data-testid]="'post-' + r.sequence" [disabled]="busyReceiptId() === r.id" (onClick)="post(r)">{{ busyReceiptId() === r.id ? 'Posting…' : 'Post' }}</ui-button>
+            @if (r.approvedBy; as a) {
+              <span class="sub" [attr.data-testid]="'approved-by-' + r.sequence">Approved by {{ a.userName }} · {{ a.at | date: 'medium' }}</span>
+            }
+            @if (actions(r); as act) {
+              @if (act.post.state !== 'hidden') {
+                <ui-button variant="primary" [attr.data-testid]="'post-' + r.sequence" [disabled]="!isEnabled(act.post) || busyReceiptId() === r.id" [disabledReason]="act.post.reason" (onClick)="post(r)">{{ busyReceiptId() === r.id ? 'Posting…' : 'Post' }}</ui-button>
+              }
+              @if (act.approve.state !== 'hidden') {
+                <ui-button variant="primary" [attr.data-testid]="'approve-' + r.sequence" [disabled]="!isEnabled(act.approve) || busyReceiptId() === r.id" [disabledReason]="act.approve.reason" (onClick)="approve(r)">{{ busyReceiptId() === r.id ? 'Approving…' : 'Approve' }}</ui-button>
+              }
+              @if (act.reject.state !== 'hidden') {
+                <ui-button [attr.data-testid]="'reject-' + r.sequence" [disabled]="busyReceiptId() === r.id" (onClick)="openReject(r)">Reject</ui-button>
+              }
             }
           </div>
+          @if (r.status === 'PendingApproval') {
+            <div class="sub" [attr.data-testid]="'pending-note-' + r.sequence">Awaiting supervisor approval. Nothing is posted to stock until it is approved.</div>
+          }
+          @if (r.status === 'RejectedForCorrection') {
+            <div class="sub" [attr.data-testid]="'rejected-' + r.sequence">
+              Rejected{{ r.rejected?.userName ? ' by ' + r.rejected?.userName : '' }}{{ r.rejected?.at ? ' · ' + (r.rejected?.at | date: 'medium') : '' }}: {{ r.rejectionReason }}
+            </div>
+          }
           @if (r.notes) {
             <div class="sub">{{ r.notes }}</div>
           }

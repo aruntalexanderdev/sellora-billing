@@ -200,17 +200,21 @@ public static class TransferValidation
         return Path.Combine(dir!.FullName, "scripts", "sql", "stock-transfers-validation.sql");
     }
 
-    public static List<string> Statements()
+    /// <summary>The script's statements. Lines tagged <c>-- [P06: text]</c> use schema that exists only from Phase 06: <paramref name="phase06Schema"/> false replaces each tagged line with its text (older-schema migration tests).</summary>
+    public static List<string> Statements(bool phase06Schema = true)
     {
-        var sql = string.Join('\n', File.ReadAllLines(ScriptPath()).Where(l => !l.TrimStart().StartsWith("--")));
+        var lines = File.ReadAllLines(ScriptPath()).Where(l => !l.TrimStart().StartsWith("--"))
+            .Select(l => System.Text.RegularExpressions.Regex.Match(l, @"--\s*\[P06:(?<text>.*)\]\s*$") is { Success: true } m && !phase06Schema ? m.Groups["text"].Value.Trim() : l);
+        var sql = string.Join('\n', lines);
         return sql.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(s => s.Length > 0).ToList();
     }
 
     public static async Task AssertCleanAsync(TestDatabase database, string step)
     {
-        var statements = Statements();
-        Assert.Equal(9, statements.Count); // V1 V2 V3 V4 V5 V6a V6b V7 V8
         await using var db = database.CreateDbContext();
+        var phase06 = await db.Database.SqlQueryRaw<int>("""SELECT COUNT(*)::int AS "Value" FROM information_schema.columns WHERE table_name = 'StockTransferLines' AND column_name = 'AcceptedCorrectionBaseQty'""").SingleAsync() > 0;
+        var statements = Statements(phase06);
+        Assert.Equal(9, statements.Count); // V1 V2 V3 V4 V5 V6a V6b V7 V8
         foreach (var statement in statements)
         {
             var connection = db.Database.GetDbConnection();

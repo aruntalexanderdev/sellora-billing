@@ -29,9 +29,9 @@ public static class ShipmentHttp
     public static Task<JsonElement> OkAsync(HttpResponseMessage response) => RestrictedUserWorld.JsonOkAsync(response);
     public static Guid IdOf(JsonElement e) => e.GetProperty("id").GetGuid();
 
-    public static async Task<ShipScene> NewSceneAsync(PostgresFixture postgres, decimal stock = 10m)
+    public static async Task<ShipScene> NewSceneAsync(PostgresFixture postgres, decimal stock = 10m, BranchApiWorld? world = null)
     {
-        var w = await BranchApiWorld.GetAsync(postgres);
+        var w = world ?? await BranchApiWorld.GetAsync(postgres);
         var (src, _) = await w.NewBranchAsync(); var (a, _) = await w.NewBranchAsync(); var (b, _) = await w.NewBranchAsync();
         if (stock > 0m) await w.EnsureBranchStockAsync(src, stock);
         await using var db = w.Host.Database.CreateDbContext(w.CompanyId);
@@ -156,9 +156,9 @@ public static class ShipmentHttp
             [new PurchaseReturnLineRequest(purchase.GetProperty("lines")[0].GetProperty("id").GetGuid(), s.Pc, pieces)]), s.Src);
 
     /// <summary>A fresh scene stocked with <paramref name="stock"/> pieces whose source has one ReadyToDispatch shipment of <paramref name="pieces"/> (reserved, loaded in full) to destination A.</summary>
-    public static async Task<(ShipScene S, Guid ShipmentId, JsonElement Request)> ReadySceneAsync(PostgresFixture postgres, decimal stock, decimal pieces)
+    public static async Task<(ShipScene S, Guid ShipmentId, JsonElement Request)> ReadySceneAsync(PostgresFixture postgres, decimal stock, decimal pieces, BranchApiWorld? world = null)
     {
-        var s = await NewSceneAsync(postgres, stock);
+        var s = await NewSceneAsync(postgres, stock, world);
         var request = await RequestAsync(s, s.AStore, pieces);
         var ready = await ReadyShipmentAsync(s, (request, pieces));
         return (s, IdOf(ready), request);

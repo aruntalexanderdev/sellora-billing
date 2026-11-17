@@ -263,3 +263,108 @@ describe('runVanChain', () => {
     expect(f.shipments.create).not.toHaveBeenCalled();
   });
 });
+
+describe('runVanChain under SupervisorApproval (FI-D39)', () => {
+  const pending = (over: Partial<ConsignmentReceipt> = {}) => ({ id: 'r1', sequence: 1, status: 'PendingApproval', policyMode: 'SupervisorApproval', ...over }) as ConsignmentReceipt;
+
+  /** The server records a PendingApproval receipt; nothing is posted until a supervisor approves (which posts it). */
+  function supervisorFake() {
+    const f = fake();
+    f.consignments.recordReceipt.mockImplementation((_id: string, _b: unknown, _k: string) => {
+      const r = pending();
+      f.state.receipts = [r];
+      f.state.shipment = { ...f.state.shipment!, consignments: f.state.shipment!.consignments.map((c) => ({ ...c, lines: c.lines.map((l) => ({ ...l, acceptedBaseQty: l.dispatchedBaseQty })) })) };
+      return of(r);
+    });
+    return f;
+  }
+
+  it('stops with reason "approval" after recording, without calling post and without an error', async () => {
+    const f = supervisorFake();
+    const res = await runVanChain(f.svc, request, null, has(ALL), new ChainKeys(), options);
+
+    expect(res).toMatchObject({ stoppedAt: 'post', reason: 'approval', error: null });
+    expect(res.completed).toEqual(expect.arrayContaining(['dispatch', 'receive']));
+    expect(res.completed).not.toContain('post');
+    expect(f.consignments.postReceipt).not.toHaveBeenCalled();
+    expect(res.transfer).not.toBeNull();
+  });
+
+  it('does not stop on a permission error: a user without Receive is stopped at receive, not at approval', async () => {
+    const f = supervisorFake();
+    const noReceive = ALL.filter((p) => p !== 'StockTransfers.Receive');
+    const res = await runVanChain(f.svc, request, null, has(noReceive), new ChainKeys(), options);
+    expect(res).toMatchObject({ stoppedAt: 'receive', reason: 'permission' });
+  });
+
+  it('resumes: while still pending it stops again without a second receipt; once approved (Posted) it completes', async () => {
+    const f = supervisorFake();
+    const keys = new ChainKeys();
+    const first = await runVanChain(f.svc, request, null, has(ALL), keys, options);
+    expect(first.reason).toBe('approval');
+
+    const again = await runVanChain(f.svc, null, first.transfer, has(ALL), keys, options);
+    expect(again).toMatchObject({ stoppedAt: 'post', reason: 'approval' });
+    expect(f.consignments.recordReceipt).toHaveBeenCalledTimes(1);
+    expect(f.shipments.dispatch).toHaveBeenCalledTimes(1);
+
+    // A supervisor approves: the receipt is now Posted.
+    f.state.receipts = f.state.receipts.map((r) => ({ ...r, status: 'Posted' as const }));
+    const done = await runVanChain(f.svc, null, first.transfer, has(ALL), keys, options);
+    expect(done).toMatchObject({ stoppedAt: null, reason: null });
+    expect(f.consignments.recordReceipt).toHaveBeenCalledTimes(1);
+    expect(f.consignments.postReceipt).not.toHaveBeenCalled();
+    expect(done.transfer!.status).toBe('Completed');
+  });
+
+  it('under Direct policy the chain still posts a Verified receipt (unchanged)', async () => {
+    const f = fake();
+    const res = await runVanChain(f.svc, request, null, has(ALL), new ChainKeys(), options);
+    expect(res.stoppedAt).toBeNull();
+    expect(f.consignments.postReceipt).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runVanChain under Direct with separation of duties (FI-D39)', () => {
+  const sepOptions = { vehicleLocationId: 'van', currentUserId: 'rec' };
+
+  /** Direct policy; the receipt snapshots requireSeparation and is recorded by user "rec". */
+  function separationFake() {
+    const f = fake();
+    f.consignments.recordReceipt.mockImplementation((_id: string, _b: unknown, _k: string) => {
+      const r = { id: 'r1', sequence: 1, status: 'Verified', policyMode: 'Direct', requireSeparation: true, verified: { userId: 'rec', userName: 'rec', at: actor.at } } as ConsignmentReceipt;
+      f.state.receipts = [r];
+      f.state.shipment = { ...f.state.shipment!, consignments: f.state.shipment!.consignments.map((c) => ({ ...c, lines: c.lines.map((l) => ({ ...l, acceptedBaseQty: l.dispatchedBaseQty })) })) };
+      return of(r);
+    });
+    return f;
+  }
+
+  it('stops with reason "separation" before posting, without an error', async () => {
+    const f = separationFake();
+    const res = await runVanChain(f.svc, request, null, has(ALL), new ChainKeys(), sepOptions);
+    expect(res).toMatchObject({ stoppedAt: 'post', reason: 'separation', error: null });
+    expect(f.consignments.postReceipt).not.toHaveBeenCalled();
+  });
+
+  it('resumes: still stops while unposted; completes once someone else posted, without a second receipt', async () => {
+    const f = separationFake();
+    const keys = new ChainKeys();
+    const first = await runVanChain(f.svc, request, null, has(ALL), keys, sepOptions);
+    expect(first.reason).toBe('separation');
+    expect((await runVanChain(f.svc, null, first.transfer, has(ALL), keys, sepOptions)).reason).toBe('separation');
+
+    f.state.receipts = f.state.receipts.map((r) => ({ ...r, status: 'Posted' as const }));
+    const done = await runVanChain(f.svc, null, first.transfer, has(ALL), keys, sepOptions);
+    expect(done).toMatchObject({ stoppedAt: null, reason: null });
+    expect(f.consignments.recordReceipt).toHaveBeenCalledTimes(1);
+    expect(f.consignments.postReceipt).not.toHaveBeenCalled();
+  });
+
+  it('a different user (or no snapshot) still posts', async () => {
+    const f = separationFake();
+    const res = await runVanChain(f.svc, request, null, has(ALL), new ChainKeys(), { vehicleLocationId: 'van', currentUserId: 'other' });
+    expect(res.stoppedAt).toBeNull();
+    expect(f.consignments.postReceipt).toHaveBeenCalledTimes(1);
+  });
+});

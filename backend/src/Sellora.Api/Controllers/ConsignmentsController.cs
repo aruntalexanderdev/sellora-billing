@@ -108,6 +108,7 @@ public class ConsignmentsController(SelloraDbContext db, IEffectivePermissionSer
 
         var lookups = await ShipmentLookups.LoadAsync(db, ct);
         var receiptCount = await db.ConsignmentReceipts.AsNoTracking().CountAsync(r => r.ConsignmentId == id, ct);
+        var dispositionCount = await db.ConsignmentDispositions.AsNoTracking().CountAsync(d => d.ConsignmentId == id, ct);
         var lines = await db.ConsignmentLines.AsNoTracking().Where(l => l.ConsignmentId == id && l.Status == ConsignmentLineStatus.Active)
             .OrderBy(l => l.CreatedAt).ToListAsync(ct);
         var products = await ShipmentReads.ProductsAsync(db, lines.Select(l => l.ProductId), ct);
@@ -135,14 +136,16 @@ public class ConsignmentsController(SelloraDbContext db, IEffectivePermissionSer
             return new ConsignmentDetailLineDto(l.Id, transferNos.GetValueOrDefault(l.StockTransferId), l.ProductId, p?.Sku, p?.Name, p?.BaseUnitCode,
                 l.ProductUnitId, l.UnitCode, l.EnteredQty, l.AllocatedBaseQty, l.LoadedBaseQty,
                 l.ConversionFactorToBase > 0 ? l.LoadedBaseQty / l.ConversionFactorToBase : 0,
-                l.DispatchedBaseQty, l.AcceptedBaseQty, l.DamagedBaseQty, l.RejectedBaseQty, l.MissingBaseQty, l.PostedBaseQty, l.ConversionFactorToBase);
+                l.DispatchedBaseQty, l.AcceptedBaseQty, l.DamagedBaseQty, l.RejectedBaseQty, l.MissingBaseQty, l.PostedBaseQty, l.ConversionFactorToBase,
+                l.DispositionedDamagedBaseQty, l.DispositionedRejectedBaseQty, l.DispositionedMissingBaseQty, ShipmentReads.OpenDiscrepancy(l));
         }).ToList();
 
         return Ok(new ConsignmentDetailDto(
             raw.c.Id, raw.c.ConsignmentNo, raw.c.Status, direction, direction == "outgoing" ? raw.s.Id : null, raw.s.ShipmentNo, raw.s.Status,
             raw.s.TransportMode, raw.s.TransportVia, raw.s.ProviderName, raw.s.TransportReference, raw.s.PlannedDispatchDate,
             lookups.Location(raw.s.SourceLocationId), lookups.Location(raw.c.DestinationLocationId), lookups.Branch(raw.c.DestinationBranchId),
-            leg, raw.c.LoadedAt, detailLines, raw.c.DispatchedAt, receiptCount));
+            leg, raw.c.LoadedAt, detailLines, raw.c.DispatchedAt, receiptCount,
+            dispositionCount, lines.Any(l => ShipmentReads.OpenDiscrepancy(l) > 0)));
     }
 
     // ---- receipts (FI-D35) ----
@@ -171,7 +174,7 @@ public class ConsignmentsController(SelloraDbContext db, IEffectivePermissionSer
         }
     }
 
-    /// <summary>Posts a Verified receipt: its accepted quantity moves Transit to the destination, exactly once (a repeat is a no-op). Header key: Idempotency-Key.</summary>
+    /// <summary>Posts a Verified receipt (Direct policy only; a SupervisorApproval receipt is refused with 400, use approve): its accepted quantity moves Transit to the destination, exactly once (a repeat is a no-op). Separation of duties applies when the receipt snapshotted it. Header key: Idempotency-Key.</summary>
     [HttpPost("{id:guid}/receipts/{receiptId:guid}/post")]
     [Authorize(Policy = "StockTransfers.Receive")]
     public async Task<ActionResult<ConsignmentReceiptDto>> PostReceipt(Guid id, Guid receiptId, CancellationToken ct)
@@ -189,6 +192,82 @@ public class ConsignmentsController(SelloraDbContext db, IEffectivePermissionSer
             ModelState.AddModelError(ex.Field, ex.Message);
             return ValidationProblem(ModelState);
         }
+    }
+
+    /// <summary>Approves a PendingApproval receipt (SupervisorApproval policy): posts it exactly like post does. StockTransfers.ApproveReceipt at the destination, otherwise 404. Header key: Idempotency-Key.</summary>
+    [HttpPost("{id:guid}/receipts/{receiptId:guid}/approve")]
+    [Authorize(Policy = "StockTransfers.ApproveReceipt")]
+    public async Task<ActionResult<ConsignmentReceiptDto>> ApproveReceipt(Guid id, Guid receiptId, CancellationToken ct)
+    {
+        if (!IdempotencyHeader.TryRead(Request, out var key)) return IdempotencyHeader.Invalid(this);
+        try
+        {
+            var receipt = await receiving.ApproveAsync(id, receiptId, new ApproveReceiptInput(key), UserId(), HttpContext.TraceIdentifier, ct);
+            if (receipt is null) return NotFound();
+            var dto = (await ShipmentReads.LoadReceiptsAsync(db, id, receipt.Id, ct)).SingleOrDefault();
+            return dto is null ? NotFound() : Ok(dto);
+        }
+        catch (DomainValidationException ex)
+        {
+            ModelState.AddModelError(ex.Field, ex.Message);
+            return ValidationProblem(ModelState);
+        }
+    }
+
+    /// <summary>Rejects an unposted receipt for correction (reason required): its quantities stop counting as accounted. Direct policy needs Receive, SupervisorApproval needs ApproveReceipt at the destination (otherwise 404). Header key: Idempotency-Key.</summary>
+    [HttpPost("{id:guid}/receipts/{receiptId:guid}/reject")]
+    [Authorize(Policy = "StockTransfers.Receive|StockTransfers.ApproveReceipt")] // any-of; the service then checks the code the receipt's snapshotted policy needs, at the destination (404 otherwise)
+    public async Task<ActionResult<ConsignmentReceiptDto>> RejectReceipt(Guid id, Guid receiptId, RejectReceiptRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+        if (!IdempotencyHeader.TryRead(Request, out var key)) return IdempotencyHeader.Invalid(this);
+        try
+        {
+            var receipt = await receiving.RejectAsync(id, receiptId, new RejectReceiptInput(request.Reason, key), UserId(), HttpContext.TraceIdentifier, ct);
+            if (receipt is null) return NotFound();
+            var dto = (await ShipmentReads.LoadReceiptsAsync(db, id, receipt.Id, ct)).SingleOrDefault();
+            return dto is null ? NotFound() : Ok(dto);
+        }
+        catch (DomainValidationException ex)
+        {
+            ModelState.AddModelError(ex.Field, ex.Message);
+            return ValidationProblem(ModelState);
+        }
+    }
+
+    // ---- dispositions (FI-D40) ----
+
+    /// <summary>Resolves damaged / rejected / missing quantity of POSTED receipts: write off, return to the shipment source, or accept to the destination. Company-level StockTransfers.Resolve. Header key: Idempotency-Key.</summary>
+    [HttpPost("{id:guid}/dispositions")]
+    [Authorize(Policy = "StockTransfers.Resolve")]
+    public async Task<ActionResult<ConsignmentDispositionDto>> RecordDisposition(Guid id, RecordDispositionRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+        if (!IdempotencyHeader.TryRead(Request, out var key)) return IdempotencyHeader.Invalid(this);
+        var input = new RecordDispositionInput(
+            request.Reason,
+            request.Lines.Select(l => new DispositionLineInput(l.ConsignmentLineId!.Value, l.Bucket!.Value, l.Action!.Value, l.Quantity)).ToList(),
+            key);
+        try
+        {
+            var disposition = await receiving.DispositionAsync(id, input, UserId(), HttpContext.TraceIdentifier, ct);
+            if (disposition is null) return NotFound();
+            var dto = (await ShipmentReads.LoadDispositionsAsync(db, id, disposition.Id, ct)).SingleOrDefault();
+            return dto is null ? NotFound() : CreatedAtAction(nameof(ListDispositions), new { id }, dto);
+        }
+        catch (DomainValidationException ex)
+        {
+            ModelState.AddModelError(ex.Field, ex.Message);
+            return ValidationProblem(ModelState);
+        }
+    }
+
+    /// <summary>Dispositions of a consignment, oldest first. Readable by whoever may read the consignment.</summary>
+    [HttpGet("{id:guid}/dispositions")]
+    public async Task<ActionResult<IReadOnlyList<ConsignmentDispositionDto>>> ListDispositions(Guid id, CancellationToken ct)
+    {
+        if (!await CanReadAsync(id, ct)) return NotFound();
+        return Ok(await ShipmentReads.LoadDispositionsAsync(db, id, null, ct));
     }
 
     /// <summary>Receipts of a consignment, oldest first. Readable by whoever may read the consignment (source or destination side).</summary>

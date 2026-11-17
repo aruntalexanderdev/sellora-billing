@@ -134,6 +134,8 @@ export interface StockTransferLineBatch {
   damagedBaseQty: number;
   writtenOffBaseQty: number;
   returnedBaseQty: number;
+  /** Phase 06 (FI-D40): accepted into the destination by a disposition; already subtracted from outstandingBaseQty. Absent on older payloads. */
+  acceptedCorrectionBaseQty?: number;
   outstandingBaseQty: number;
 }
 
@@ -159,6 +161,7 @@ export interface StockTransferLine {
   damagedBaseQty: number;
   writtenOffBaseQty: number;
   returnedBaseQty: number;
+  acceptedCorrectionBaseQty?: number;
   outstandingBaseQty: number;
   allocatedBaseQty: number;
   closedBaseQty: number;

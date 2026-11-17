@@ -44,7 +44,8 @@ export interface ChainResult {
   completed: ChainStep[];
   /** Step the chain stopped before / at; null = everything done. */
   stoppedAt: ChainStep | null;
-  reason: 'permission' | 'error' | 'status' | 'vehicle' | null;
+  /** `approval`: a receipt is PendingApproval (SupervisorApproval policy); stock moves only once a supervisor approves it. Run the chain again afterwards. */
+  reason: 'permission' | 'error' | 'status' | 'vehicle' | 'approval' | 'separation' | null;
   /** Permission code the user lacks (reason = permission). */
   missingPermission: string | null;
   /** Raw HTTP error (reason = error). */
@@ -63,6 +64,8 @@ export interface ChainServices {
 export interface ChainOptions {
   /** The van's stock location (the vehicle record is found through it). */
   vehicleLocationId: string;
+  /** Current user; with a receipt's `requireSeparation` snapshot it stops the chain before a post the server would refuse (reason `separation`). */
+  currentUserId?: string | null;
 }
 
 const PERM = { vehicles: 'Company.Vehicles.View', plan: 'Shipments.Plan', load: 'Shipments.Load', dispatch: 'StockTransfers.Dispatch', receive: 'StockTransfers.Receive' } as const;
@@ -230,13 +233,15 @@ export async function runVanChain(
     return stop(t, completed, 'dispatch', 'status'); // loading is not complete (Draft / Loading)
   }
 
-  // ---- receive: everything dispatched is accepted, then the receipt is posted ----
+  // ---- receive: everything dispatched is accepted, then the receipt is posted (Direct) or left for a supervisor (SupervisorApproval) ----
+  let awaitingApproval = false;
+  let awaitingSeparation = false;
   for (const c of live(shipment)) {
     const r = await attempt('receive', null, () => firstValueFrom(svc.consignments.receipts(c.id)));
     if (isStop(r)) return r;
     let receipts: ConsignmentReceipt[] = r.value;
     const open2 = c.lines.filter((l) => l.status === 'Active' && remainingToAccountBase(l) > 0);
-    if (open2.length > 0 && !receipts.some((x) => x.status === 'Verified')) {
+    if (open2.length > 0 && !receipts.some((x) => x.status === 'Verified' || x.status === 'PendingApproval')) {
       blocked = needs('receive', PERM.receive);
       if (blocked) return blocked;
       const body = {
@@ -250,7 +255,14 @@ export async function runVanChain(
       if (isStop(rec)) return rec;
       receipts = [...receipts, rec.value];
     }
+    // A PendingApproval receipt cannot be posted by the chain (post returns 400); approving it posts it. Rejected receipts are ignored.
+    if (receipts.some((x) => x.status === 'PendingApproval')) awaitingApproval = true;
     for (const rc of receipts.filter((x) => x.status === 'Verified')) {
+      // Separation of duties: the recorder may not post. Leave it for another user instead of provoking a 400.
+      if (rc.requireSeparation && !!options.currentUserId && rc.verified?.userId === options.currentUserId) {
+        awaitingSeparation = true;
+        continue;
+      }
       blocked = needs('post', PERM.receive);
       if (blocked) return blocked;
       const p = await attempt('post', null, () => firstValueFrom(svc.consignments.postReceipt(c.id, rc.id, keys.step('post', rc.id))));
@@ -263,5 +275,7 @@ export async function runVanChain(
   } catch (error) {
     return stop(t, completed, 'post', 'error', { error });
   }
+  if (awaitingApproval) return stop(t, completed, 'post', 'approval');
+  if (awaitingSeparation) return stop(t, completed, 'post', 'separation');
   return { transfer: t, completed, stoppedAt: null, reason: null, missingPermission: null, error: null };
 }

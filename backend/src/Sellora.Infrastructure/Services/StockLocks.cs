@@ -109,6 +109,9 @@ internal static class Idempotency
     public const string ShipmentDispatch = "shipment-dispatch";
     public const string ConsignmentReceipt = "consignment-receipt";
     public const string ConsignmentReceiptPost = "consignment-receipt-post";
+    public const string ConsignmentReceiptApprove = "consignment-receipt-approve";
+    public const string ConsignmentReceiptReject = "consignment-receipt-reject";
+    public const string ConsignmentDisposition = "consignment-disposition";
 
     /// <summary>The document an earlier request with this key created, or null if the key is new. Concurrent
     /// requests with the same key queue on an advisory lock, so the second one sees the first's committed record

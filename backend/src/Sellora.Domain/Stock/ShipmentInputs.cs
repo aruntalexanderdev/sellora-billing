@@ -52,3 +52,14 @@ public sealed record ReceiptLineInput(Guid ConsignmentLineId, decimal AcceptedQu
 public sealed record RecordReceiptInput(IReadOnlyList<ReceiptLineInput> Lines, string? Notes, string? IdempotencyKey = null);
 
 public sealed record PostReceiptInput(string? IdempotencyKey = null);
+
+/// <summary>Phase 06 (FI-D39): approving a PendingApproval receipt posts it (same effect as a direct post).</summary>
+public sealed record ApproveReceiptInput(string? IdempotencyKey = null);
+
+/// <summary>Phase 06 (FI-D39): rejecting an unposted receipt for correction; the reason is mandatory.</summary>
+public sealed record RejectReceiptInput(string? Reason, string? IdempotencyKey = null);
+
+/// <summary>Phase 06 (FI-D40): <see cref="Quantity"/> is in the consignment line's own unit.</summary>
+public sealed record DispositionLineInput(Guid ConsignmentLineId, DispositionBucket Bucket, DispositionAction Action, decimal Quantity);
+
+public sealed record RecordDispositionInput(string? Reason, IReadOnlyList<DispositionLineInput> Lines, string? IdempotencyKey = null);

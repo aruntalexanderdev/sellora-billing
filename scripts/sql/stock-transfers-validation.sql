@@ -26,31 +26,46 @@ LEFT JOIN (SELECT "CompanyId", "PurchaseBatchId", SUM("RemainingBaseQty") q FROM
 WHERE pb."RemainingBaseQty" <> COALESCE(b.q, 0);
 
 -- V4 Transit holds exactly the in-transit quantity, per batch.
+-- Lines tagged "-- [P06: <text>]" exist only from AddReceiptApprovalAndDispositions on (AcceptedCorrection / ConsignmentLines): the test harness runs this script
+-- against older schemas by replacing each tagged line with <text>. A plain psql run (the supported use) just treats the tag as a comment.
 SELECT 'V4' AS chk, COALESCE(t."PurchaseBatchId", o."PurchaseBatchId") FROM
  (SELECT bl."CompanyId", bl."PurchaseBatchId", bl."RemainingBaseQty" q FROM "BatchLocationBalances" bl
     JOIN "StockLocations" l ON l."CompanyId" = bl."CompanyId" AND l."Id" = bl."StockLocationId" AND l."LocationType" = 'Transit') t
- FULL JOIN (SELECT "CompanyId", "PurchaseBatchId", SUM("DispatchedBaseQty" - "ReceivedBaseQty" - "DamagedBaseQty" - "WrittenOffBaseQty" - "ReturnedBaseQty") q
+ FULL JOIN (SELECT "CompanyId", "PurchaseBatchId", SUM("DispatchedBaseQty" - "ReceivedBaseQty" - "DamagedBaseQty" - "WrittenOffBaseQty" - "ReturnedBaseQty"
+      - "AcceptedCorrectionBaseQty" -- [P06: - 0]
+      ) q
     FROM "StockTransferLineBatches" GROUP BY 1, 2) o USING ("PurchaseBatchId")
  WHERE COALESCE(t.q, 0) <> COALESCE(o.q, 0);
 
 -- V5 line counters = SUM(LineBatches) = SUM(receipt lines), per line and counter.
+-- AcceptedCorrection (FI-D40, accepted to destination by a disposition) exists on line and batch rows only: it has no receipt-line side.
+-- The receipt-line comparison applies to LEGACY lines (direct dispatch and receive: StockTransferReceiptLines carry every counter). A SHIPMENT-flow line
+-- (referenced by a ConsignmentLine) is settled by consignment receipts and dispositions, which write no StockTransferReceiptLines, so for it only the
+-- line-vs-batches comparison applies (its consignment-side identities are in transit-reconciliation.sql).
 SELECT 'V5' AS chk, l."Id" FROM "StockTransferLines" l
 LEFT JOIN (SELECT "CompanyId", "LineId", SUM("DispatchedBaseQty") d, SUM("ReceivedBaseQty") r, SUM("DamagedBaseQty") m, SUM("WrittenOffBaseQty") w, SUM("ReturnedBaseQty") t
+           , SUM("AcceptedCorrectionBaseQty") a -- [P06: , 0 a]
            FROM "StockTransferLineBatches" GROUP BY 1, 2) b ON b."CompanyId" = l."CompanyId" AND b."LineId" = l."Id"
 LEFT JOIN (SELECT "CompanyId", "TransferLineId", SUM("AcceptedBaseQty") r, SUM("DamagedBaseQty") m, SUM("WrittenOffBaseQty") w, SUM("ReturnedBaseQty") t
            FROM "StockTransferReceiptLines" GROUP BY 1, 2) rl ON rl."CompanyId" = l."CompanyId" AND rl."TransferLineId" = l."Id"
 WHERE l."DispatchedBaseQty" <> COALESCE(b.d, 0) OR l."ReceivedBaseQty" <> COALESCE(b.r, 0) OR l."DamagedBaseQty" <> COALESCE(b.m, 0)
    OR l."WrittenOffBaseQty" <> COALESCE(b.w, 0) OR l."ReturnedBaseQty" <> COALESCE(b.t, 0)
-   OR l."ReceivedBaseQty" <> COALESCE(rl.r, 0) OR l."DamagedBaseQty" <> COALESCE(rl.m, 0)
-   OR l."WrittenOffBaseQty" <> COALESCE(rl.w, 0) OR l."ReturnedBaseQty" <> COALESCE(rl.t, 0);
+   OR l."AcceptedCorrectionBaseQty" <> COALESCE(b.a, 0) -- [P06: OR FALSE]
+   OR (TRUE
+       AND NOT EXISTS (SELECT 1 FROM "ConsignmentLines" cl WHERE cl."CompanyId" = l."CompanyId" AND cl."StockTransferLineId" = l."Id") -- [P06: AND TRUE]
+       AND (l."ReceivedBaseQty" <> COALESCE(rl.r, 0) OR l."DamagedBaseQty" <> COALESCE(rl.m, 0)
+         OR l."WrittenOffBaseQty" <> COALESCE(rl.w, 0) OR l."ReturnedBaseQty" <> COALESCE(rl.t, 0)));
 
 -- V6a Completed => outstanding = 0 on every line.
 SELECT 'V6a' AS chk, t."Id" FROM "StockTransfers" t JOIN "StockTransferLines" l ON l."CompanyId" = t."CompanyId" AND l."TransferId" = t."Id"
 WHERE t."Status" = 'Completed'
-  AND l."DispatchedBaseQty" - l."ReceivedBaseQty" - l."DamagedBaseQty" - l."WrittenOffBaseQty" - l."ReturnedBaseQty" <> 0;
--- V6b Status outside {Dispatched, PartiallyReceived, Completed} => no LineBatches and no movements.
+  AND l."DispatchedBaseQty" - l."ReceivedBaseQty" - l."DamagedBaseQty" - l."WrittenOffBaseQty" - l."ReturnedBaseQty"
+      - l."AcceptedCorrectionBaseQty" -- [P06: - 0]
+      <> 0;
+-- V6b Status outside {Dispatched, PartiallyReceived, Completed} => no LineBatches and no movements. Shipment-flow transfers (Phase 03-05) carry batches and movements
+-- from their first dispatch on: PartiallyFulfilled / Fulfilled, and Closed (a request closed after a partial dispatch) are dispatched states too.
 SELECT 'V6b' AS chk, t."Id" FROM "StockTransfers" t
-WHERE t."Status" NOT IN ('Dispatched', 'PartiallyReceived', 'Completed')
+WHERE t."Status" NOT IN ('Dispatched', 'PartiallyReceived', 'Completed', 'PartiallyFulfilled', 'Fulfilled', 'Closed')
   AND (EXISTS (SELECT 1 FROM "StockTransferLines" l JOIN "StockTransferLineBatches" b ON b."CompanyId" = l."CompanyId" AND b."LineId" = l."Id"
                WHERE l."CompanyId" = t."CompanyId" AND l."TransferId" = t."Id")
     OR EXISTS (SELECT 1 FROM "StockMovements" m WHERE m."CompanyId" = t."CompanyId" AND m."ReferenceType" = 'StockTransfer' AND m."ReferenceId" = t."Id"));

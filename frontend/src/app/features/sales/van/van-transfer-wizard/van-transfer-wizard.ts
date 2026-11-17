@@ -124,7 +124,7 @@ export class VanTransferWizard implements OnInit {
     this.running.set(true);
     const res = await runVanChain(
       { transfers: this.service, shipments: this.shipments, consignments: this.consignments, vehicles: this.vehicles },
-      request, existing, (c) => this.auth.hasPermission(c), this.keys, { vehicleLocationId: this.vehicle().id },
+      request, existing, (c) => this.auth.hasPermission(c), this.keys, { vehicleLocationId: this.vehicle().id, currentUserId: this.auth.currentUser?.()?.id ?? null },
     );
     this.running.set(false);
     // Create refused with a validation problem: show the field errors on the form, nothing was created.

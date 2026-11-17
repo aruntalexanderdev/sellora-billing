@@ -795,6 +795,11 @@ public class ShipmentsApiTests(PostgresFixture postgres)
             (HttpMethod.Post, $"/api/v1/consignments/{cid}/receipts/{Guid.NewGuid()}/post", null),
             (HttpMethod.Get, $"/api/v1/consignments/{cid}/receipts", null),
             (HttpMethod.Get, $"/api/v1/consignments/{cid}/receipts/{Guid.NewGuid()}", null),
+            // Phase 06: approve, reject, dispositions (record, list) naming A's consignment / line.
+            (HttpMethod.Post, $"/api/v1/consignments/{cid}/receipts/{Guid.NewGuid()}/approve", null),
+            (HttpMethod.Post, $"/api/v1/consignments/{cid}/receipts/{Guid.NewGuid()}/reject", new RejectReceiptRequest("hijack")),
+            (HttpMethod.Post, $"/api/v1/consignments/{cid}/dispositions", new RecordDispositionRequest("hijack", [new DispositionLineRequest(lid, DispositionBucket.Damaged, DispositionAction.WriteOff, 1m)])),
+            (HttpMethod.Get, $"/api/v1/consignments/{cid}/dispositions", null),
         })
         {
             var response = await SendAsync(b, method, route, body);

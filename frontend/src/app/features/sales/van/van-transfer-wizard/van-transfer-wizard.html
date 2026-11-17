@@ -21,6 +21,10 @@
         </div>
       } @else if (r.reason === 'error') {
         <div class="stop" data-testid="wizard-stopped-error">The “{{ r.stoppedAt }}” step failed. {{ r.transfer?.transferNo }} is {{ r.transfer?.status }}.</div>
+      } @else if (r.reason === 'approval') {
+        <div class="stop" data-testid="wizard-stopped-approval">Receipt awaiting supervisor approval. {{ r.transfer?.transferNo }} is {{ r.transfer?.status }}; stock moves once a supervisor approves the receipt. Then use “Check again” to finish.</div>
+      } @else if (r.reason === 'separation') {
+        <div class="stop" data-testid="wizard-stopped-separation">Receipt recorded — company policy requires a different user to post it. {{ r.transfer?.transferNo }} is {{ r.transfer?.status }}. Once another user has posted it, use “Check again” to finish.</div>
       } @else if (r.reason === 'vehicle') {
         <div class="stop" data-testid="wizard-stopped-vehicle">No active vehicle record exists for this van, so a shipment cannot carry it. {{ r.transfer?.transferNo }} is {{ r.transfer?.status }}.</div>
       } @else {
@@ -32,6 +36,9 @@
         }
         @if (r.reason === 'error') {
           <ui-button variant="primary" [disabled]="running()" (onClick)="retry()">Retry</ui-button>
+        }
+        @if (r.reason === 'approval' || r.reason === 'separation') {
+          <ui-button variant="primary" [disabled]="running()" data-testid="wizard-recheck" (onClick)="retry()">Check again</ui-button>
         }
         <ui-button (onClick)="close()">Close</ui-button>
       </div>

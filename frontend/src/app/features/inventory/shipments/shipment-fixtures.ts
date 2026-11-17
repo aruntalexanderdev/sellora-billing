@@ -11,7 +11,8 @@ export function consignmentLine(over: Partial<ConsignmentLine> = {}): Consignmen
     status: 'Active',
     request: { requestedBaseQty: 100, closedBaseQty: 0, dispatchedBaseQty: 0, allocatedBaseQty: 50, remainingUnallocatedBaseQty: 50 },
     reservationId: 'r1', reservedBaseQty: 50,
-    dispatchedBaseQty: 0, acceptedBaseQty: 0, damagedBaseQty: 0, rejectedBaseQty: 0, missingBaseQty: 0, postedBaseQty: 0, ...over,
+    dispatchedBaseQty: 0, acceptedBaseQty: 0, damagedBaseQty: 0, rejectedBaseQty: 0, missingBaseQty: 0, postedBaseQty: 0,
+    dispositionedDamagedBaseQty: 0, dispositionedRejectedBaseQty: 0, dispositionedMissingBaseQty: 0, openDiscrepancyBaseQty: 0, ...over,
   };
 }
 

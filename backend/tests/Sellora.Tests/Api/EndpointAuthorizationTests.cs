@@ -38,6 +38,7 @@ public class EndpointAuthorizationTests
         // Phase 04 (FI-D32): a destination-branch receiver reads its own consignment with Shipments.View, StockTransfers.Receive or StockTransfers.View (no single
         // policy fits: policies combine with AND), so the action picks the held code and answers 403 / 404 itself; outgoing needs Shipments.View.
         "ConsignmentsController.List", "ConsignmentsController.Get", "ConsignmentsController.ListReceipts", "ConsignmentsController.GetReceipt", "TransitController.List", // Phase 05: same any-of rule (FI-D35 reads, FI-D37 transit views).
+        "ConsignmentsController.ListDispositions", // Phase 06: same any-of read rule as the receipts.
         "UsersController.UpdateOwnUsername", "UsersController.ChangeOwnPassword",
         // Phase 7: scoped roles. A branch administrator holds Branch.Roles.* / Branch.Users.AssignRoles at ONE branch only, so a named company-level policy
         // would lock them out. These endpoints are plain [Authorize] and every action checks the caller's effective permissions at the role's scope
@@ -53,6 +54,20 @@ public class EndpointAuthorizationTests
         "POST RoleAssignmentsController.Assign", "POST RoleAssignmentsController.End", "POST RolesController.Create", "POST RolesController.Duplicate",
         "POST RolesController.SetActive", "PUT RolesController.Update",
     ];
+
+    [Fact]
+    public async Task RejectReceipt_NeedsReceiveOrApproveReceipt_AsAnAnyOfPolicy()
+    {
+        var policies = Policies(typeof(ConsignmentsController), typeof(ConsignmentsController).GetMethod("RejectReceipt")!).Where(p => p.Length > 0).ToArray();
+        Assert.Equal(["StockTransfers.Receive|StockTransfers.ApproveReceipt"], policies);
+
+        var provider = new Sellora.Api.Authorization.PermissionPolicyProvider(Microsoft.Extensions.Options.Options.Create(new AuthorizationOptions()));
+        var policy = await provider.GetPolicyAsync(policies[0]);
+        var requirement = Assert.Single(policy!.Requirements.OfType<Sellora.Api.Authorization.PermissionRequirement>());
+        Assert.Equal(["StockTransfers.Receive", "StockTransfers.ApproveReceipt"], requirement.PermissionCodes);
+        // An any-of name only resolves when every part is a real permission code.
+        Assert.Null(await provider.GetPolicyAsync("StockTransfers.Receive|Nope.Nothing"));
+    }
 
     [Fact]
     public void RoleEndpoints_AreExactlyTheServiceCheckedRoutes_AllBehindSignIn()
