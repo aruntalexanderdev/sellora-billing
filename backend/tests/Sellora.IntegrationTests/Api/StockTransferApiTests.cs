@@ -4,7 +4,9 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Stock;
 using Sellora.IntegrationTests.Infrastructure;
+using Sellora.IntegrationTests.TestData;
 using static Sellora.IntegrationTests.Api.BranchApiWorld;
 using static Sellora.IntegrationTests.TestData.CompanyMigrations;
 
@@ -76,6 +78,20 @@ public class StockTransferApiTests(PostgresFixture postgres)
     private static object DispatchBody(JsonElement transfer, Guid unit, decimal qty) =>
         new DispatchStockTransferRequest(transfer.GetProperty("lines").EnumerateArray().Select(l => new DispatchStockTransferLineRequest(l.GetProperty("id").GetGuid(), unit, qty)).ToList());
 
+    /// <summary>FI-D3 (Phase 05): production no longer dispatches a request directly, so the legacy-dispatched state (what transfers dispatched before the cut-over look like) is seeded
+    /// with the fixture, and the transfer is read back as the API shows it.</summary>
+    private static async Task<JsonElement> SeedDispatchedAsync(BranchApiWorld w, JsonElement transfer, Guid unit, decimal qty, Guid branch)
+    {
+        await using (var db = w.Host.Database.CreateDbContext(w.CompanyId))
+        {
+            var lines = transfer.GetProperty("lines").EnumerateArray().Select(l => new DispatchStockTransferLineInput(l.GetProperty("id").GetGuid(), unit, qty)).ToList();
+            await LegacyTransferSeed.DispatchAsync(db, w.AdminId, IdIn(transfer), lines);
+        }
+        return await OkAsync(await SendAsync(w.Admin, HttpMethod.Get, $"/api/v1/stock-transfers/{IdIn(transfer)}", null, branch));
+    }
+
+    private static Guid IdIn(JsonElement transfer) => transfer.GetProperty("id").GetGuid();
+
     private static object ReceiveBody(JsonElement transfer, Guid unit, decimal accepted, decimal damaged = 0m) =>
         new ReceiveStockTransferRequest(null, transfer.GetProperty("lines").EnumerateArray().Select(l => new ReceiveStockTransferLineRequest(l.GetProperty("id").GetGuid(), unit, accepted, damaged)).ToList());
 
@@ -102,7 +118,7 @@ public class StockTransferApiTests(PostgresFixture postgres)
 
         var approved = await OkAsync(await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/approve", null, y));
         Assert.Equal("Approved", approved.GetProperty("status").GetString());
-        var dispatched = await OkAsync(await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/dispatch", DispatchBody(approved, box, 10m), y));
+        var dispatched = await SeedDispatchedAsync(w, approved, box, 10m, y);
         Assert.Equal("Dispatched", dispatched.GetProperty("status").GetString());
         var dispatchedLine = dispatched.GetProperty("lines")[0];
         Assert.Equal((100m, "box"), (dispatchedLine.GetProperty("dispatchedBaseQty").GetDecimal(), dispatchedLine.GetProperty("dispatchUnitCode").GetString()));
@@ -143,7 +159,7 @@ public class StockTransferApiTests(PostgresFixture postgres)
     // ---- 400 field mapping --------------------------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task Create_And_Dispatch_InvalidInput_Is400_WithNestedFieldNames()
+    public async Task Create_InvalidInput_Is400_WithNestedFieldNames_AndLegacyDispatchIsAlways400OnStatus()
     {
         var w = await BranchApiWorld.GetAsync(postgres);
         var (x, _) = await w.NewBranchAsync();
@@ -172,9 +188,9 @@ public class StockTransferApiTests(PostgresFixture postgres)
         await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(t)}/approve", null, x);
         var tooMuch = await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(t)}/dispatch", DispatchBody(t, box, 3m), x);
         Assert.Equal(HttpStatusCode.BadRequest, tooMuch.StatusCode);
-        Assert.Contains("lines[0].quantity", await ErrorFieldsAsync(tooMuch));
+        Assert.Contains("status", await ErrorFieldsAsync(tooMuch)); // FI-D3: whatever the body, dispatch goes through a shipment
         var notApproved = await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(await CreateOkAsync(w, w.Admin, xStore, main, box, 1m, x))}/dispatch", DispatchBody(t, box, 1m), x);
-        Assert.Equal(HttpStatusCode.BadRequest, notApproved.StatusCode); // a Requested transfer cannot be dispatched yet
+        Assert.Equal(HttpStatusCode.BadRequest, notApproved.StatusCode);
         Assert.Contains("status", await ErrorFieldsAsync(notApproved));
     }
 
@@ -206,7 +222,7 @@ public class StockTransferApiTests(PostgresFixture postgres)
     // ---- idempotent replay --------------------------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task Create_Dispatch_AndReceipt_ReplayedWithTheSameKey_ReturnTheStoredResult_AndPostOnce()
+    public async Task Create_AndReceipt_ReplayedWithTheSameKey_ReturnTheStoredResult_AndPostOnce()
     {
         var w = await BranchApiWorld.GetAsync(postgres);
         var (x, _) = await w.NewBranchAsync(); var (y, _) = await w.NewBranchAsync();
@@ -223,15 +239,12 @@ public class StockTransferApiTests(PostgresFixture postgres)
 
         var id = IdOf(first);
         var approved = await OkAsync(await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/approve", null, y));
-        var d1 = await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/dispatch", DispatchBody(approved, box, 5m), y, key + "d");
-        var d2 = await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/dispatch", DispatchBody(approved, box, 5m), y, key + "d");
-        Assert.Equal((HttpStatusCode.OK, HttpStatusCode.OK), (d1.StatusCode, d2.StatusCode));
+        // The legacy dispatch is refused even with a key (FI-D3); the receipt replay below runs on the seeded legacy-dispatched state.
+        var refused = await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/dispatch", DispatchBody(approved, box, 5m), y, key + "d");
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Contains("status", await ErrorFieldsAsync(refused));
+        approved = await SeedDispatchedAsync(w, approved, box, 5m, y);
         Assert.Equal(250m, await QohAsync(w, yStore));
-        var other = await CreateOkAsync(w, w.Admin, yStore, xStore, box, 1m, y);
-        await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(other)}/approve", null, y);
-        var clash = await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(other)}/dispatch", DispatchBody(other, box, 1m), y, key + "d");
-        Assert.Equal(HttpStatusCode.BadRequest, clash.StatusCode);
-        Assert.Contains("idempotencykey", await ErrorFieldsAsync(clash));
 
         var r1 = await OkAsync(await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/receipts", ReceiveBody(approved, box, 5m), x, key + "r"));
         var r2 = await OkAsync(await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/receipts", ReceiveBody(approved, box, 5m), x, key + "r"));
@@ -407,7 +420,7 @@ public class StockTransferApiTests(PostgresFixture postgres)
         // x -> y created by x's user (source fits), approved and dispatched by x's user (source fits); y's store is not x's, so x cannot receive.
         var t = await CreateOkAsync(w, userX.Client, xStore, yStore, box, 2m, x);
         var approved = await OkAsync(await SendAsync(userX.Client, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(t)}/approve", null, x));
-        var dispatched = await OkAsync(await SendAsync(userX.Client, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(t)}/dispatch", DispatchBody(approved, box, 2m), x));
+        var dispatched = await SeedDispatchedAsync(w, approved, box, 2m, x); // legacy-dispatched state (FI-D3): the dispatch itself is a shipment concern now
         Assert.Equal("Dispatched", dispatched.GetProperty("status").GetString());
         var receive = await SendAsync(userX.Client, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(t)}/receipts", ReceiveBody(dispatched, box, 2m), x);
         Assert.Equal(HttpStatusCode.BadRequest, receive.StatusCode);
@@ -435,7 +448,7 @@ public class StockTransferApiTests(PostgresFixture postgres)
         var transit = await TransitAsync(w);
         var t = await CreateOkAsync(w, w.Admin, yStore, xStore, box, 3m, y);
         var approved = await OkAsync(await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(t)}/approve", null, y));
-        await OkAsync(await SendAsync(w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(t)}/dispatch", DispatchBody(approved, box, 3m), y));
+        await SeedDispatchedAsync(w, approved, box, 3m, y);
         var user = await BranchUserAsync(r, x, "Inventory.View"); // Inventory.View held at branch x only
 
         // FI-D11: goods in flight (Transit) appear only in the explicit company view (?scope=company); the default active-branch read never shows them.
@@ -503,7 +516,6 @@ public class StockTransferApiTests(PostgresFixture postgres)
             (HttpMethod.Put, $"/api/v1/stock-transfers/{id}", new UpdateStockTransferRequest(iso.B.LocationId, bWarehouse, null, [new StockTransferLineRequest(iso.B.ProductId, iso.B.ProductUnitId, 1m)])),
             (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/submit", null), (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/approve", null),
             (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/reject", new StockTransferReasonRequest("x")), (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/cancel", new StockTransferReasonRequest("x")),
-            (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/dispatch", new DispatchStockTransferRequest([new DispatchStockTransferLineRequest(line, iso.B.ProductUnitId, 1m)])),
             (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/receipts", new ReceiveStockTransferRequest(null, [new ReceiveStockTransferLineRequest(line, iso.B.ProductUnitId, 1m, 0m)])),
             (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/resolve", new ResolveStockTransferRequest("x", [new ResolveStockTransferLineRequest(line, Sellora.Domain.Stock.StockTransferResolution.WriteOff)])),
         })
@@ -511,6 +523,10 @@ public class StockTransferApiTests(PostgresFixture postgres)
             var response = await SendAsync(b, method, route, body);
             Assert.True(response.StatusCode == HttpStatusCode.NotFound, $"{method} {route}: {(int)response.StatusCode}");
         }
+
+        // The legacy dispatch is a constant 400 (FI-D3) whoever asks and whichever transfer it names: it reveals nothing about the other company's transfer.
+        var legacy = await SendAsync(b, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/dispatch", new DispatchStockTransferRequest([new DispatchStockTransferLineRequest(line, iso.B.ProductUnitId, 1m)]));
+        Assert.Equal(HttpStatusCode.BadRequest, legacy.StatusCode);
 
         // Creates naming the other company's locations / products are 400 on the field, and create nothing.
         var count = await ScalarAsync<long>(iso.Host.Database, """SELECT COUNT(*) FROM "StockTransfers" """);

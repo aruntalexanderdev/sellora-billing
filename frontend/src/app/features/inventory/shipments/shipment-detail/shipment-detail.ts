@@ -7,6 +7,7 @@ import { IdempotentSubmission } from '../../../../core/idempotency';
 import { loadErrorText } from '../../../../shared/scope/problem-text';
 import { UiBadge } from '../../../../shared/ui/badge/badge';
 import { UiButton } from '../../../../shared/ui/button/button';
+import { ConfirmDialogService } from '../../../../shared/ui/confirm-dialog/confirm-dialog.service';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { formatQuantity } from '../../../../shared/units/unit-conversion';
 import { ReasonPrompt } from '../../../administration/access-ui/reason-prompt';
@@ -39,6 +40,7 @@ export class ShipmentDetail implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly toast = inject(ToastService);
   private readonly lookup = inject(ProductUnitsLookup);
+  private readonly confirm = inject(ConfirmDialogService);
   private readonly submissions = new Map<string, IdempotentSubmission>();
 
   readonly shipment = signal<Shipment | null>(null);
@@ -152,6 +154,29 @@ export class ShipmentDetail implements OnInit {
   }
 
   // ---- actions ----
+
+  /** Dispatch (FI-D34): confirm, then one idempotent POST; the server moves the loaded stock to Transit and consumes the reservations. */
+  async dispatch(): Promise<void> {
+    const s = this.shipment();
+    if (!s || !this.caps().dispatch || this.busy()) return;
+    const ok = await this.confirm.ask({
+      title: `Dispatch ${s.shipmentNo}`,
+      body: 'The loaded stock leaves the source location and moves to Transit. Reservations are consumed and the shipment can no longer be cancelled or edited.',
+      confirmLabel: 'Dispatch',
+    });
+    if (!ok) return;
+    const sub = this.submissionFor('dispatch');
+    this.busy.set(true);
+    this.actionError.set(null);
+    this.service.dispatch(s.id, sub.key).subscribe({
+      next: (u) => {
+        this.busy.set(false);
+        sub.succeeded();
+        this.onUpdated(u, 'Shipment dispatched; the goods are in transit.');
+      },
+      error: (err) => this.fail(err, sub),
+    });
+  }
 
   cancelShipment(reason: string | null): void {
     const s = this.shipment();

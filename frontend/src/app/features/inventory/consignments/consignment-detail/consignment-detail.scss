@@ -19,3 +19,6 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th { text-align: left; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--color-text-fainter); padding: 6px 8px; }
 td { padding: 8px; border-top: 1px solid var(--color-border); vertical-align: top; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+.action-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.receipt { padding: 10px 0; border-top: 1px solid var(--color-border); &:first-of-type { border-top: 0; } }
+.receipt-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 6px; }

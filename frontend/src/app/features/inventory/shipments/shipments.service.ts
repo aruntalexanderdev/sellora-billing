@@ -86,4 +86,9 @@ export class ShipmentsService {
   load(id: string, consignmentId: string, request: LoadConsignmentRequest, idempotencyKey: string): Observable<Shipment> {
     return this.http.post<Shipment>(`${BASE_URL}/${id}/consignments/${consignmentId}/load`, request, { headers: idempotencyHeaders(idempotencyKey) });
   }
+
+  /** Phase 05 (FI-D34): ReadyToDispatch only; moves the loaded stock to Transit. Requires an Idempotency-Key. */
+  dispatch(id: string, idempotencyKey: string): Observable<Shipment> {
+    return this.http.post<Shipment>(`${BASE_URL}/${id}/dispatch`, null, { headers: idempotencyHeaders(idempotencyKey) });
+  }
 }

@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
@@ -7,6 +8,7 @@ using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
 using Sellora.IntegrationTests.Infrastructure;
 using Sellora.IntegrationTests.TestData;
+using H = Sellora.IntegrationTests.TestData.ShipmentHttp;
 
 namespace Sellora.IntegrationTests.Concurrency;
 
@@ -171,50 +173,53 @@ public class ReturnLocationRaceTests(PostgresFixture postgres)
     private static string Gate(Guid location, Guid product) =>
         $"""SELECT "QuantityOnHand" AS "Value" FROM "StockItems" WHERE "StockLocationId" = '{location}' AND "ProductId" = '{product}' FOR UPDATE""";
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task PurchaseReturnAtB_AndDispatchOfTheSameBatchAtB_ExactlyOneTakesIt_NeverNegative(bool dispatchQueuesFirst)
+    // ---- purchase return vs a SHIPMENT dispatch of the same batch (FI-D34, FI-D38 e: replaces PurchaseReturnAtB_AndDispatchOfTheSameBatchAtB) -----------------------
+
+    [Fact]
+    public async Task PurchaseReturnVsShipmentDispatch_OfTheSameOldestBatch_NeverNegative_ReturnEitherFitsOrIsACleanRefusal()
     {
-        await using var database = await postgres.CreateDatabaseAsync();
-        var t = await TransferScenario.CreateAsync(database);
-        var (a, b, bStore) = (t.Main, t.Blr, t.BlrStore);
-        var purchase = await t.BuyAsync(null, t.MainStore, t.Pc, 100m, 8m);
-        await t.MoveAsync(t.MainStore, bStore, 40m, a, b); // the whole batch quantity at B is 40
-        var transfer = await t.ApprovedAtAsync(b, bStore, t.L.BlrWarehouse, t.Pen(t.Pc, 40m));
-        var loaded = await t.ReloadAsync(transfer.Id);
-        var input = new DispatchStockTransferInput(loaded.Lines.OrderBy(l => l.LineNo).Select(l => new DispatchStockTransferLineInput(l.Id, l.ProductUnitId, l.RequestedQty)).ToList(), null);
-        var permissions = new FakePermissions("Purchase.Return");
-
-        await using var race = await LockRace.BeginAsync(database, async gate =>
+        for (var round = 0; round < 3; round++)
         {
-            var rows = await gate.Database.SqlQueryRaw<decimal>(Gate(bStore, t.PenId)).ToListAsync();
-            Assert.Single(rows);
-        });
-        Func<Task<LockRace.Writer>> dispatch = () => race.StartAsync("dispatch", db => new StockTransferService(db, null).DispatchAsync(transfer.Id, input, t.UserId), branchId: b);
-        Func<Task<LockRace.Writer>> purchaseReturn = () => race.StartAsync("purchase return", async db =>
-            await new PurchaseService(db, new ExchangeRateService(db), permissions).CreateReturnAsync(
-                new Sellora.Domain.Purchasing.CreatePurchaseReturnInput(purchase.Id, VanOps.Day, "race", [new(purchase.Lines.Single().Id, t.Pc, 40m)], null, bStore), t.UserId), branchId: a);
-        var (first, second) = dispatchQueuesFirst ? (dispatch, purchaseReturn) : (purchaseReturn, dispatch);
-        var w1 = await first();
-        await race.WaitBlockedAsync(w1, """%"StockItems"%""");
-        var w2 = await second();
-        await race.WaitBlockedAsync(w2, """%"StockItems"%""");
-        var outcomes = await race.ReleaseAsync();
+            // Two batches at the source: 6 (oldest) and 4. The shipment of 6 draws FIFO from the oldest; the return wants 4 of that same oldest batch.
+            var s = await H.NewSceneAsync(postgres, 0m);
+            var oldest = await H.BuyAsync(s, 6m);
+            await H.BuyAsync(s, 4m);
+            var request = await H.RequestAsync(s, s.AStore, 6m);
+            var sid = H.IdOf(await H.ReadyShipmentAsync(s, (request, 6m)));
+            var transitBefore = await H.TransitQohAsync(s);
 
-        AssertNoDeadlock(outcomes);
-        Assert.Null(outcomes[0]); // the first in the queue wins
-        Assert.IsType<DomainValidationException>(outcomes[1]); // the second finds the batch gone from B
-        var (dispatched, returned) = dispatchQueuesFirst ? (outcomes[0] is null, outcomes[1] is null) : (outcomes[1] is null, outcomes[0] is null);
-        Assert.NotEqual(dispatched, returned);
-        Assert.Equal(0m, await t.QohAsync(bStore));
-        await using (var check = t.Db())
-        {
-            Assert.Empty(await check.StockItems.AsNoTracking().Where(i => i.QuantityOnHand < 0).ToListAsync());
-            Assert.Empty(await check.BatchLocationBalances.AsNoTracking().Where(x => x.RemainingBaseQty < 0).ToListAsync());
-            Assert.Equal(returned ? 1 : 0, await check.PurchaseReturns.CountAsync());
+            var responses = await H.ParallelAsync(() => H.DispatchShipmentAsync(s, sid), () => H.PurchaseReturnAsync(s, oldest, 4m));
+
+            await H.AssertNo500Async($"round {round}: purchase return vs dispatch", responses);
+            Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+            // Return first: the oldest batch keeps 2 and the dispatch tops up from the next batch. Dispatch first: the oldest batch is gone and the return is refused.
+            var returned = responses[1].IsSuccessStatusCode;
+            if (!returned) Assert.Equal(HttpStatusCode.BadRequest, responses[1].StatusCode);
+            Assert.Equal((returned ? 0m : 4m, 0m, transitBefore + 6m), (await H.QohAsync(s), await H.ReservedAsync(s), await H.TransitQohAsync(s)));
+            await H.AssertNothingNegativeAsync(s, $"round {round}: purchase return vs dispatch (returned: {returned})");
         }
-        Assert.Equal(dispatched ? 40m : 0m, await t.QohAsync(t.Transit));
-        await t.AssertAllAsync($"purchase return vs dispatch (dispatch first: {dispatchQueuesFirst})");
+    }
+
+    [Theory]
+    [InlineData(4, true)]
+    [InlineData(5, false)]
+    public async Task PurchaseReturnVsShipmentDispatch_OfASingleBatch_OnlyTheUnreservedRemainderCanGoBack(int pieces, bool fits)
+    {
+        for (var round = 0; round < 3; round++)
+        {
+            var s = await H.NewSceneAsync(postgres, 0m);
+            var purchase = await H.BuyAsync(s, 10m);
+            var request = await H.RequestAsync(s, s.AStore, 6m);
+            var sid = H.IdOf(await H.ReadyShipmentAsync(s, (request, 6m)));
+
+            var responses = await H.ParallelAsync(() => H.DispatchShipmentAsync(s, sid), () => H.PurchaseReturnAsync(s, purchase, pieces));
+
+            await H.AssertNo500Async($"round {round}: single-batch return vs dispatch", responses);
+            Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+            Assert.Equal(fits, responses[1].IsSuccessStatusCode);
+            if (!fits) Assert.Equal(HttpStatusCode.BadRequest, responses[1].StatusCode);
+            Assert.Equal((fits ? 0m : 4m, 0m), (await H.QohAsync(s), await H.ReservedAsync(s)));
+            await H.AssertNothingNegativeAsync(s, $"round {round}: return {pieces} vs dispatch");
+        }
     }
 }

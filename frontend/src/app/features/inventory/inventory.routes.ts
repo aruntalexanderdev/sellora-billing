@@ -130,6 +130,12 @@ export const INVENTORY_ROUTES: Routes = [
     data: { group: 'Inventory', page: 'Consignment' },
   },
   {
+    path: 'transit',
+    loadComponent: () => import('./transit/transit-page/transit-page').then((m) => m.TransitPage),
+    canActivate: [permissionGuard(['Shipments.View', 'StockTransfers.Receive', 'StockTransfers.View'])],
+    data: { group: 'Inventory', page: 'Transit' },
+  },
+  {
     path: 'stock-reservations',
     loadComponent: () => import('./stock-reservations/reservation-list/reservation-list').then((m) => m.ReservationList),
     canActivate: [permissionGuard('Shipments.View')],

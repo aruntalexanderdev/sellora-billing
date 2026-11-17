@@ -509,7 +509,7 @@ public class ShipmentsApiTests(PostgresFixture postgres)
     // ---- 5. legacy interplay -----------------------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task LegacyDispatch_AndCancelOfTheRequest_AreRefusedWhileAnAllocationIsOutstanding_AndWorkAfterRelease()
+    public async Task LegacyDispatch_IsAlwaysRefused_AndCancelOfTheRequest_IsRefusedWhileAnAllocationIsOutstanding()
     {
         var s = await NewSceneAsync(postgres, 10m);
         var req = await RequestAsync(s, s.AStore, 10m);
@@ -526,11 +526,13 @@ public class ShipmentsApiTests(PostgresFixture postgres)
         await AssertReservationInvariantsAsync(s, "legacy refused");
 
         await OkAsync(await CancelShipmentAsync(s, sid));
+        // FI-D3 (Phase 05): even with nothing allocated any more, dispatch happens only through a shipment.
         var ok = await SendAsync(s.W.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{transferId}/dispatch",
             new DispatchStockTransferRequest([new DispatchStockTransferLineRequest(LineOf(req), s.Pc, 10m)]), s.Src);
-        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
-        Assert.Equal((0m, 0m), (await QohAsync(s), await ReservedAsync(s)));
-        await AssertReservationInvariantsAsync(s, "legacy dispatch after release");
+        await AssertRefusedAsync(ok, "status");
+        Assert.Equal((10m, 0m), (await QohAsync(s), await ReservedAsync(s)));
+        Assert.Equal("Approved", await ScalarAsync<string>(s.W.Host.Database, $"""SELECT "Status" FROM "StockTransfers" WHERE "Id" = '{transferId}'"""));
+        await AssertReservationInvariantsAsync(s, "legacy dispatch refused after release");
 
         var second = await RequestAsync(s, s.BStore, 2m);                                   // cancelling an unallocated approved request still works
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(s.W.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(second)}/cancel", new StockTransferReasonRequest("fine"), s.Src)).StatusCode);
@@ -762,6 +764,10 @@ public class ShipmentsApiTests(PostgresFixture postgres)
         {
             Assert.DoesNotContain(cid, (await OkAsync(await SendAsync(b, HttpMethod.Get, $"/api/v1/consignments?direction={direction}&pageSize=100&scope=company"))).GetProperty("items").EnumerateArray().Select(IdOf));
         }
+        foreach (var view in new[] { "current", "incoming", "outgoing", "completed", "discrepancies" })
+        {
+            Assert.DoesNotContain(cid, (await OkAsync(await SendAsync(b, HttpMethod.Get, $"/api/v1/transit?view={view}&pageSize=100&scope=company"))).GetProperty("items").EnumerateArray().Select(x => x.GetProperty("consignmentId").GetGuid()));
+        }
         Assert.DoesNotContain(rid, (await OkAsync(await SendAsync(b, HttpMethod.Get, "/api/v1/stock-reservations?pageSize=100&scope=company"))).GetProperty("items").EnumerateArray().Select(IdOf));
         Assert.Contains(rid, (await OkAsync(await SendAsync(a, HttpMethod.Get, "/api/v1/stock-reservations?pageSize=100&scope=company"))).GetProperty("items").EnumerateArray().Select(IdOf));
 
@@ -783,6 +789,12 @@ public class ShipmentsApiTests(PostgresFixture postgres)
             (HttpMethod.Post, $"/api/v1/shipments/{sid}/consignments/{cid}/cancel", new ShipmentReasonRequest("hijack")),
             (HttpMethod.Post, $"/api/v1/shipments/{sid}/consignments/{cid}/load", load),
             (HttpMethod.Post, $"/api/v1/stock-reservations/{rid}/release", new ReleaseStockReservationRequest("hijack")),
+            // Phase 05: dispatch, receipts (record, post, list, get) naming A's shipment / consignment / line.
+            (HttpMethod.Post, $"/api/v1/shipments/{sid}/dispatch", null),
+            (HttpMethod.Post, $"/api/v1/consignments/{cid}/receipts", new RecordReceiptRequest([new ReceiptLineRequest(lid, 1m, 0m, 0m, 0m)], "hijack")),
+            (HttpMethod.Post, $"/api/v1/consignments/{cid}/receipts/{Guid.NewGuid()}/post", null),
+            (HttpMethod.Get, $"/api/v1/consignments/{cid}/receipts", null),
+            (HttpMethod.Get, $"/api/v1/consignments/{cid}/receipts/{Guid.NewGuid()}", null),
         })
         {
             var response = await SendAsync(b, method, route, body);

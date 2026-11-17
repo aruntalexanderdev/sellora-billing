@@ -216,6 +216,7 @@ public class ShipmentService(SelloraDbContext db, IEffectivePermissionService? p
         var source = await LoadSourceAsync(shipment, ct);
         await EnsureFitAsync("Shipments.Plan", source, ct);
         if (shipment.Status == ShipmentStatus.Cancelled) return Finish(shipment); // idempotent by state
+        EnsureStatus(shipment, ShipmentStatus.Draft, ShipmentStatus.Loading, ShipmentStatus.ReadyToDispatch); // a dispatched shipment's stock is in Transit: nothing to release
 
         var now = DateTimeOffset.UtcNow;
         var before = Snapshot(shipment);
@@ -587,6 +588,168 @@ public class ShipmentService(SelloraDbContext db, IEffectivePermissionService? p
         return Finish(shipment);
     }
 
+    // ------------------------------------------------------------------ dispatch (FI-D34)
+
+    public async Task<Shipment?> DispatchAsync(Guid id, DispatchShipmentInput input, Guid userId, string? correlationId = null, CancellationToken ct = default)
+    {
+        await using var transaction = await StockLocks.BeginAsync(db, ct);
+
+        if (await Idempotency.FindAsync(db, userId, Idempotency.ShipmentDispatch, input.IdempotencyKey, ct) is { } existingId)
+        {
+            if (existingId != id) throw new DomainValidationException("IdempotencyKey", "This key was already used for a different shipment.");
+            return await LoadGraphAsync(id, ct) ?? throw ReplayHidden();
+        }
+
+        var shipment = await LockAndLoadAsync(id, ct);
+        if (shipment is null) return null;
+        EnsureStatus(shipment, ShipmentStatus.ReadyToDispatch);
+        await EnsureFitAsync("StockTransfers.Dispatch", await LoadSourceAsync(shipment, ct), ct);
+
+        var consignments = shipment.Consignments.Where(c => c.Status == ConsignmentStatus.Loaded).OrderBy(c => c.ConsignmentNo, StringComparer.Ordinal).ToList();
+        var lines = consignments.SelectMany(c => c.Lines.Where(l => l.Status == ConsignmentLineStatus.Active).OrderBy(l => l.CreatedAt)).ToList();
+        if (lines.Count == 0) throw new DomainValidationException("status", "Nothing is loaded on this shipment.");
+
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var transit = await db.StockLocations.AsNoTracking().SingleOrDefaultAsync(l => l.CompanyId == companyId && l.LocationType == StockLocationType.Transit, ct)
+            ?? throw new InvalidOperationException("The company has no Transit location.");
+        var ctx = await PrepareAsync(shipment, lines.Select(l => l.StockTransferId), lines.Select(l => l.ProductId), lines.Select(l => l.Id), ct, transitLocationId: transit.Id);
+
+        // Re-read under the location lock: a deactivation committed in between is seen here.
+        if (!(await LoadSourceAsync(shipment, ct)).IsActive) throw new DomainValidationException(SourceField, InvalidLocation);
+        foreach (var transfer in ctx.Transfers.Values)
+        {
+            if (transfer.Status is not (StockTransferStatus.Approved or StockTransferStatus.PartiallyFulfilled))
+            {
+                throw new DomainValidationException("status", $"Request {transfer.TransferNo} is {transfer.Status}; it can no longer be dispatched.");
+            }
+        }
+
+        // The request line's single dispatch snapshot is kept in BASE units (factor 1) so DispatchedQty x DispatchFactor = DispatchedBaseQty holds across shipments in different units.
+        var productIds = lines.Select(l => l.ProductId).Distinct().ToList();
+        var baseUnits = await db.ProductUnits.Include(u => u.Unit).Where(u => productIds.Contains(u.ProductId) && u.IsBaseUnit).ToDictionaryAsync(u => u.ProductId, ct);
+
+        var now = DateTimeOffset.UtcNow;
+        var before = Snapshot(shipment);
+        var dispatched = new List<object>();
+
+        foreach (var consignment in consignments)
+        {
+            foreach (var line in consignment.Lines.Where(l => l.Status == ConsignmentLineStatus.Active).OrderBy(l => l.CreatedAt).ToList())
+            {
+                var transfer = ctx.Transfers[line.StockTransferId];
+                var requestLine = transfer.Lines.Single(l => l.Id == line.StockTransferLineId);
+                var item = ctx.Items[(shipment.SourceLocationId, line.ProductId)];
+                var transitItem = ctx.Items[(transit.Id, line.ProductId)];
+                var reservation = ctx.Reservations.GetValueOrDefault(line.Id)
+                    ?? throw new InvalidOperationException($"Consignment line {line.Id} has no active reservation.");
+
+                var allocated = line.AllocatedBaseQty;
+                var loaded = line.LoadedBaseQty;
+                var remainder = allocated - loaded;
+                if (loaded > allocated || allocated > item.ReservedQuantity || remainder > requestLine.AllocatedBaseQty)
+                {
+                    throw new InvalidOperationException($"Reservation bookkeeping for consignment line {line.Id} is inconsistent (reserved {item.ReservedQuantity}, request allocated {requestLine.AllocatedBaseQty}, allocated {allocated}, loaded {loaded}).");
+                }
+
+                // Reservation: shrink to the loaded quantity and consume it; the remainder is released (StockItem and request allocation).
+                item.ReservedQuantity -= allocated;
+                requestLine.AllocatedBaseQty -= remainder;
+                reservation.BaseQty = loaded;
+                ctx.Reservations.Remove(line.Id);
+
+                if (loaded == 0)
+                {
+                    reservation.Status = StockReservationStatus.Released;
+                    reservation.ReleasedAt = now;
+                    reservation.ReleasedByUserId = userId;
+                    reservation.ReleaseReason = "Not loaded at dispatch.";
+                    line.Status = ConsignmentLineStatus.Cancelled;
+                    line.CancelledAt = now;
+                    line.EnteredQty = 0;
+                    line.AllocatedBaseQty = 0;
+                    line.UpdatedAt = now;
+                    dispatched.Add(new { consignmentLineId = line.Id, line.ProductId, dispatchedBaseQty = 0m, releasedBaseQty = remainder });
+                    continue;
+                }
+
+                reservation.Status = StockReservationStatus.Consumed;
+                reservation.ConsumedAt = now;
+
+                var enteredQty = loaded == allocated ? line.EnteredQty : loaded / line.ConversionFactorToBase;
+                var draws = await StockPosting.MoveFifoAsync(db, item, transitItem, loaded,
+                    shortBy => new DomainValidationException("status", $"Batch stock is short by {StockQuantity.Format(shortBy)} at the source for {line.UnitCode} line {line.Id}."), ct);
+                foreach (var draw in draws)
+                {
+                    db.StockTransferLineBatches.Add(new StockTransferLineBatch
+                    {
+                        CompanyId = shipment.CompanyId,
+                        Id = Guid.NewGuid(),
+                        LineId = requestLine.Id,
+                        ConsignmentLineId = line.Id,
+                        PurchaseBatchId = draw.Batch.Id,
+                        DispatchedBaseQty = draw.QtyBaseUnits,
+                        UnitCost = draw.UnitCost,
+                    });
+                    var entered = draws.Count == 1 ? enteredQty : (decimal?)null;
+                    db.StockMovements.Add(LedgerRow(userId, shipment, consignment, transfer, requestLine, line, StockMovementType.TransferOut, shipment.SourceLocationId, draw.Batch.Id, -draw.QtyBaseUnits, entered));
+                    db.StockMovements.Add(LedgerRow(userId, shipment, consignment, transfer, requestLine, line, StockMovementType.TransferIn, transit.Id, draw.Batch.Id, draw.QtyBaseUnits, entered));
+                }
+
+                requestLine.DispatchedBaseQty += loaded;
+                var baseUnit = baseUnits[line.ProductId];
+                requestLine.DispatchProductUnitId = baseUnit.Id;
+                requestLine.DispatchUnitId = baseUnit.UnitId;
+                requestLine.DispatchUnitCode = baseUnit.Unit.ShortCode;
+                requestLine.DispatchFactor = baseUnit.ConversionFactorToBase;
+                requestLine.DispatchedQty = requestLine.DispatchedBaseQty / baseUnit.ConversionFactorToBase;
+                line.EnteredQty = enteredQty;
+                line.AllocatedBaseQty = loaded;
+                line.LoadedBaseQty = loaded;
+                line.DispatchedBaseQty = loaded;
+                line.UpdatedAt = now;
+                dispatched.Add(new { consignmentLineId = line.Id, line.ProductId, dispatchedBaseQty = loaded, releasedBaseQty = remainder });
+            }
+
+            consignment.Status = ConsignmentStatus.InTransit;
+            consignment.DispatchedAt = now;
+            Touch(consignment, userId, now);
+        }
+
+        // Request status (separate from the shipment): Fulfilled once Dispatched + Closed covers every line.
+        foreach (var transfer in ctx.Transfers.Values)
+        {
+            transfer.Status = transfer.Lines.All(l => l.DispatchedBaseQty + l.ClosedBaseQty >= l.RequestedBaseQty)
+                ? StockTransferStatus.Fulfilled
+                : StockTransferStatus.PartiallyFulfilled;
+            // The request's DispatchedAt / DispatchedByUserId belong to the legacy Dispatched status only (CK_StockTransfers_Status_Dispatch); shipment dispatch stamps live on the shipment.
+        }
+
+        shipment.Status = ShipmentStatus.Dispatched;
+        shipment.DispatchedAt = now;
+        shipment.DispatchedByUserId = userId;
+        Touch(shipment, userId, now);
+        Audit(userId, correlationId, AuditActions.ShipmentDispatched, AuditTargets.Shipment, shipment.Id, null, before, new
+        {
+            shipmentNo = shipment.ShipmentNo, status = shipment.Status.ToString(), transitLocationId = transit.Id,
+            requests = ctx.Transfers.Values.Select(t => new { t.Id, t.TransferNo, status = t.Status.ToString() }).ToList(),
+            lines = dispatched,
+        });
+
+        Idempotency.Record(db, userId, Idempotency.ShipmentDispatch, input.IdempotencyKey, shipment.Id);
+        await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
+        return Finish(shipment);
+    }
+
+    private static StockMovement LedgerRow(
+        Guid userId, Shipment shipment, Consignment consignment, StockTransfer transfer, StockTransferLine requestLine, ConsignmentLine line,
+        StockMovementType type, Guid locationId, Guid batchId, decimal signedQty, decimal? entered)
+    {
+        var movement = StockTransferService.Movement(userId, transfer, requestLine, type, locationId, batchId, signedQty, line.ProductUnitId, line.UnitCode, line.ConversionFactorToBase, entered, null);
+        movement.Notes = $"{shipment.ShipmentNo} / {consignment.ConsignmentNo}";
+        return movement;
+    }
+
     // ------------------------------------------------------------------ reservation release
 
     public async Task<StockReservation?> ReleaseReservationAsync(Guid reservationId, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default)
@@ -643,7 +806,7 @@ public class ShipmentService(SelloraDbContext db, IEffectivePermissionService? p
 
     private async Task<Ctx> PrepareAsync(
         Shipment shipment, IEnumerable<Guid> transferIds, IEnumerable<Guid> productIds, IEnumerable<Guid> lineIds, CancellationToken ct,
-        IEnumerable<Guid>? extraLocations = null)
+        IEnumerable<Guid>? extraLocations = null, Guid? transitLocationId = null)
     {
         var tids = transferIds.Distinct().Order().ToList();
         foreach (var tid in tids) await StockLocks.LockTransferAsync(db, tid, ct);
@@ -654,8 +817,10 @@ public class ShipmentService(SelloraDbContext db, IEffectivePermissionService? p
 
         var pids = productIds.Distinct().ToList();
         await StockLocks.LockProductsKeyShareAsync(db, pids, ct);
-        await StockLocks.LockLocationsKeyShareAsync(db, [shipment.SourceLocationId, .. extraLocations ?? []], ct);
-        var items = await StockLocks.EnsureAndLockStockItemsAsync(db, pids.Select(p => (shipment.SourceLocationId, p)), ct);
+        await StockLocks.LockLocationsKeyShareAsync(db, [shipment.SourceLocationId, .. extraLocations ?? [], .. transitLocationId is { } t ? new[] { t } : []], ct);
+        var keys = pids.Select(p => (shipment.SourceLocationId, p)).ToList();
+        if (transitLocationId is { } transit) keys.AddRange(pids.Select(p => (transit, p)));
+        var items = await StockLocks.EnsureAndLockStockItemsAsync(db, keys, ct);
 
         var lids = lineIds.Distinct().ToList();
         var reservations = lids.Count == 0

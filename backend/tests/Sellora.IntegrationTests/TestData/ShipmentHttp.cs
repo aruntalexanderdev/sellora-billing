@@ -96,6 +96,90 @@ public static class ShipmentHttp
         return (shipment, id);
     }
 
+    /// <summary>Plans a shipment (external courier: no vehicle needed) to ReadyToDispatch: allocates every (request, pieces) pair and loads each consignment line in full. Returns the shipment detail.</summary>
+    public static async Task<JsonElement> ReadyShipmentAsync(ShipScene s, params (JsonElement Request, decimal Pieces)[] allocations)
+    {
+        var shipment = await NewShipmentAsync(s, TransportMode.Courier, TransportVia.ExternalProvider, "DHL", "AWB-" + Guid.NewGuid().ToString("N")[..8]);
+        var id = IdOf(shipment);
+        var current = shipment;
+        foreach (var (request, pieces) in allocations) current = await OkAsync(await AllocateAsync(s, id, LineOf(request), pieces));
+        foreach (var consignment in current.GetProperty("consignments").EnumerateArray())
+        {
+            var lines = consignment.GetProperty("lines").EnumerateArray()
+                .Select(l => new LoadConsignmentLineRequest(l.GetProperty("id").GetGuid(), l.GetProperty("enteredQty").GetDecimal())).ToList();
+            current = await OkAsync(await SendAsync(s.W.Admin, HttpMethod.Post, $"/api/v1/shipments/{id}/consignments/{IdOf(consignment)}/load", new LoadConsignmentRequest(lines), s.Src));
+        }
+        Assert.Equal("ReadyToDispatch", current.GetProperty("status").GetString());
+        return current;
+    }
+
+    /// <summary>The FI-D34..D37 transit reconciliation script (every query must return no rows). Query 4 compares Transit per product company-wide, so it is only meaningful while no other test leaves hand-built transit counters behind.</summary>
+    public static async Task AssertTransitReconciliationCleanAsync(TestDatabase database, string when)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "scripts", "sql", "transit-reconciliation.sql"))) dir = dir.Parent;
+        var text = File.ReadAllText(Path.Combine(dir!.FullName, "scripts", "sql", "transit-reconciliation.sql"));
+        var code = string.Join('\n', text.Split('\n').Where(l => !l.TrimStart().StartsWith("--", StringComparison.Ordinal)));
+        var statements = code.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => x.StartsWith("SELECT", StringComparison.Ordinal) || x.StartsWith("WITH", StringComparison.Ordinal)).ToList();
+        Assert.True(statements.Count >= 6, "transit reconciliation script must contain its six queries");
+        for (var i = 0; i < statements.Count; i++)
+        {
+            await using var connection = new NpgsqlConnection(database.ConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(statements[i], connection);
+            await using var reader = await command.ExecuteReaderAsync();
+            var rows = 0;
+            while (await reader.ReadAsync()) rows++;
+            Assert.True(rows == 0, $"{when}: transit reconciliation query {i + 1} returned {rows} row(s)");
+        }
+    }
+
+    // ---- writers that race a shipment dispatch (FI-D38 e) ------------------------------------------------------------------------------
+
+    public static Task<HttpResponseMessage> DispatchShipmentAsync(ShipScene s, Guid shipmentId, string? key = null, Guid? branch = null) =>
+        SendAsync(s.W.Admin, HttpMethod.Post, $"/api/v1/shipments/{shipmentId}/dispatch", null, branch ?? s.Src, key);
+
+    public static Task<HttpResponseMessage> SellPiecesAsync(ShipScene s, decimal pieces) =>
+        SendAsync(s.W.Admin, HttpMethod.Post, "/api/v1/sales", new CreateSaleRequest(s.W.CustomerId, BranchApiWorld.Today, PaymentMethod.Cash, 0m,
+            [new CreateSaleLineRequest(s.W.ProductId, s.Pc, pieces, 20m, 0)]), s.Src);
+
+    public static Task<HttpResponseMessage> AdjustDownAsync(ShipScene s, decimal pieces) =>
+        SendAsync(s.W.Admin, HttpMethod.Post, "/api/v1/stock-adjustments",
+            new CreateStockAdjustmentRequest(s.W.ProductId, s.Pc, AdjustmentType.Damage, AdjustmentDirection.Decrease, pieces, null, "race"), s.Src);
+
+    /// <summary>A purchase of <paramref name="pieces"/> at the scene's source branch; returns the purchase detail.</summary>
+    public static async Task<JsonElement> BuyAsync(ShipScene s, decimal pieces) => await OkAsync(await s.W.PurchaseAsync(s.Src, qty: pieces));
+
+    public static Task<HttpResponseMessage> PurchaseReturnAsync(ShipScene s, JsonElement purchase, decimal pieces) =>
+        SendAsync(s.W.Admin, HttpMethod.Post, "/api/v1/purchase-returns", new CreatePurchaseReturnRequest(IdOf(purchase), BranchApiWorld.Today, "race",
+            [new PurchaseReturnLineRequest(purchase.GetProperty("lines")[0].GetProperty("id").GetGuid(), s.Pc, pieces)]), s.Src);
+
+    /// <summary>A fresh scene stocked with <paramref name="stock"/> pieces whose source has one ReadyToDispatch shipment of <paramref name="pieces"/> (reserved, loaded in full) to destination A.</summary>
+    public static async Task<(ShipScene S, Guid ShipmentId, JsonElement Request)> ReadySceneAsync(PostgresFixture postgres, decimal stock, decimal pieces)
+    {
+        var s = await NewSceneAsync(postgres, stock);
+        var request = await RequestAsync(s, s.AStore, pieces);
+        var ready = await ReadyShipmentAsync(s, (request, pieces));
+        return (s, IdOf(ready), request);
+    }
+
+    /// <summary>Company-wide Transit on hand of the scene's product.</summary>
+    public static Task<decimal> TransitQohAsync(ShipScene s) =>
+        ScalarAsync<decimal>(s.W.Host.Database,
+            $"SELECT COALESCE(SUM(i.\"QuantityOnHand\"), 0) FROM \"StockItems\" i JOIN \"StockLocations\" l ON l.\"Id\" = i.\"StockLocationId\" WHERE l.\"LocationType\" = 'Transit' AND i.\"ProductId\" = '{s.W.ProductId}'");
+
+    /// <summary>No negative on-hand / reserved / batch balance anywhere in the company's database, available (on hand - reserved) of the scene's source &gt;= 0, and both reconciliation scripts clean.</summary>
+    public static async Task AssertNothingNegativeAsync(ShipScene s, string when)
+    {
+        var db = s.W.Host.Database;
+        Assert.Equal(0L, await ScalarAsync<long>(db, """SELECT COUNT(*) FROM "StockItems" WHERE "QuantityOnHand" < 0 OR "ReservedQuantity" < 0 OR "QuantityOnHand" - "ReservedQuantity" < 0"""));
+        Assert.Equal(0L, await ScalarAsync<long>(db, """SELECT COUNT(*) FROM "PurchaseBatches" WHERE "RemainingBaseQty" < 0"""));
+        Assert.Equal(0L, await ScalarAsync<long>(db, """SELECT COUNT(*) FROM "BatchLocationBalances" WHERE "RemainingBaseQty" < 0"""));
+        await AssertReservationInvariantsAsync(s, when);
+        await AssertTransitReconciliationCleanAsync(db, when);
+    }
+
     // ---- DB reads / invariants -------------------------------------------------------------------------------------------------------
 
     public static Task<decimal> ReservedAsync(ShipScene s, Guid? store = null) =>

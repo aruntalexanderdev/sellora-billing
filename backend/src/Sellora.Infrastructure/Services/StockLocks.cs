@@ -106,6 +106,9 @@ internal static class Idempotency
     public const string ShipmentAllocate = "shipment-allocate";
     public const string ShipmentLoad = "shipment-load";
     public const string ShipmentCancel = "shipment-cancel";
+    public const string ShipmentDispatch = "shipment-dispatch";
+    public const string ConsignmentReceipt = "consignment-receipt";
+    public const string ConsignmentReceiptPost = "consignment-receipt-post";
 
     /// <summary>The document an earlier request with this key created, or null if the key is new. Concurrent
     /// requests with the same key queue on an advisory lock, so the second one sees the first's committed record
@@ -209,6 +212,17 @@ internal static class StockLocks
     /// (transfers, fundings, reversals) cannot interleave. Callers must be inside a transaction; takes no lock under the in-memory provider.
     /// Returns the ids that exist in the company.
     /// </summary>
+    public static async Task<bool> LockConsignmentAsync(SelloraDbContext db, Guid consignmentId, CancellationToken ct)
+    {
+        if (!db.Database.IsRelational()) return true;
+
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var rows = await db.Database
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Consignments\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = {consignmentId} FOR UPDATE")
+            .ToListAsync(ct);
+        return rows.Count > 0;
+    }
+
     public static async Task<IReadOnlyList<Guid>> LockFinancialAccountsAsync(SelloraDbContext db, IEnumerable<Guid> accountIds, CancellationToken ct)
     {
         var ids = accountIds.Distinct().Order().ToArray();

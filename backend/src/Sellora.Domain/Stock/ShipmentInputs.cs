@@ -42,3 +42,13 @@ public sealed record ChangeAllocationInput(decimal Quantity, string? Idempotency
 public sealed record LoadConsignmentLineInput(Guid ConsignmentLineId, decimal LoadedQuantity);
 
 public sealed record LoadConsignmentInput(IReadOnlyList<LoadConsignmentLineInput> Lines, string? IdempotencyKey = null);
+
+/// <summary>FI-D34: dispatches a ReadyToDispatch shipment. Header key: Idempotency-Key.</summary>
+public sealed record DispatchShipmentInput(string? IdempotencyKey = null);
+
+/// <summary>FI-D35: quantities of one consignment line, entered in the line's own unit. Accepted + damaged + rejected + missing of all receipts must not exceed what was dispatched.</summary>
+public sealed record ReceiptLineInput(Guid ConsignmentLineId, decimal AcceptedQuantity, decimal DamagedQuantity, decimal RejectedQuantity, decimal MissingQuantity);
+
+public sealed record RecordReceiptInput(IReadOnlyList<ReceiptLineInput> Lines, string? Notes, string? IdempotencyKey = null);
+
+public sealed record PostReceiptInput(string? IdempotencyKey = null);

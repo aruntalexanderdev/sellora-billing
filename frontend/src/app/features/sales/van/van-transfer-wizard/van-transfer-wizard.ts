@@ -11,6 +11,9 @@ import { StockTransfersService } from '../../../inventory/stock-transfers/stock-
 import { TransferLinesEditor, newTransferLine, type TransferLineGroup } from '../../../inventory/stock-transfers/transfer-lines-editor/transfer-lines-editor';
 import { actionPermission } from '../../../inventory/stock-transfers/stock-transfer-rules';
 import type { StockTransfer } from '../../../inventory/stock-transfers/stock-transfers.models';
+import { VehiclesService } from '../../../company/vehicles/vehicles.service';
+import { ConsignmentsService } from '../../../inventory/consignments/consignments.service';
+import { ShipmentsService } from '../../../inventory/shipments/shipments.service';
 import { ChainKeys, runVanChain, type ChainResult, type ChainStep } from '../van-transfer-chain';
 
 export type VanTransferMode = 'load' | 'unload';
@@ -19,13 +22,17 @@ const STEP_LABEL: Record<ChainStep, string> = {
   create: 'Created and submitted',
   submit: 'Submitted',
   approve: 'Approved',
+  shipment: 'Shipment created',
+  allocate: 'Allocated to the shipment',
+  load: 'Loaded',
   dispatch: 'Dispatched',
-  receive: 'Received',
+  receive: 'Receipt recorded',
+  post: 'Receipt posted',
 };
 
 /**
  * Load vehicle (store/warehouse -> vehicle) / Unload vehicle (vehicle -> store). Creates the transfer as Requested and then
- * approves, dispatches and receives it for as long as the user holds the permission; otherwise it stops and links to the transfer.
+ * approves it, then ships it (own-fleet shipment on the van's vehicle: allocate, load, dispatch) and receives and posts it, for as long as the user holds the permission; otherwise it stops and links to the transfer.
  */
 @Component({
   selector: 'app-van-transfer-wizard',
@@ -37,6 +44,9 @@ const STEP_LABEL: Record<ChainStep, string> = {
 export class VanTransferWizard implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly service = inject(StockTransfersService);
+  private readonly shipments = inject(ShipmentsService);
+  private readonly consignments = inject(ConsignmentsService);
+  private readonly vehicles = inject(VehiclesService);
   private readonly locationsService = inject(StockLocationsService);
   private readonly auth = inject(AuthService);
   private readonly context = inject(ContextService);
@@ -79,8 +89,8 @@ export class VanTransferWizard implements OnInit {
     const steps: { label: string; allowed: boolean; permission: string }[] = [
       { label: 'Create and submit', permission: actionPermission('submit'), allowed: false },
       { label: 'Approve', permission: actionPermission('approve'), allowed: false },
-      { label: 'Dispatch', permission: actionPermission('dispatch'), allowed: false },
-      { label: 'Receive', permission: actionPermission('receive'), allowed: false },
+      { label: 'Shipment: plan, load, dispatch', permission: 'StockTransfers.Dispatch', allowed: false },
+      { label: 'Receive and post', permission: actionPermission('receive'), allowed: false },
     ];
     return steps.map((s) => ({ ...s, allowed: this.auth.hasPermission(s.permission) }));
   });
@@ -112,7 +122,10 @@ export class VanTransferWizard implements OnInit {
 
   private async execute(request: Parameters<typeof runVanChain>[1], existing: StockTransfer | null): Promise<void> {
     this.running.set(true);
-    const res = await runVanChain(this.service, request, existing, (c) => this.auth.hasPermission(c), this.keys);
+    const res = await runVanChain(
+      { transfers: this.service, shipments: this.shipments, consignments: this.consignments, vehicles: this.vehicles },
+      request, existing, (c) => this.auth.hasPermission(c), this.keys, { vehicleLocationId: this.vehicle().id },
+    );
     this.running.set(false);
     // Create refused with a validation problem: show the field errors on the form, nothing was created.
     if (res.reason === 'error' && !res.transfer) {

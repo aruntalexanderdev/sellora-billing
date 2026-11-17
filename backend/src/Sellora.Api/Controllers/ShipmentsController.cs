@@ -188,6 +188,15 @@ public class ShipmentsController(IShipmentService shipments, SelloraDbContext db
         return await RunAsync(async () => await RespondAsync(await shipments.LoadAsync(id, consignmentId, input, UserId(), HttpContext.TraceIdentifier, ct), ct));
     }
 
+    /// <summary>FI-D34: dispatches a ReadyToDispatch shipment (consumes the reservations, moves the loaded stock to Transit). Header key: Idempotency-Key.</summary>
+    [HttpPost("{id:guid}/dispatch")]
+    [Authorize(Policy = "StockTransfers.Dispatch")]
+    public async Task<ActionResult<ShipmentDto>> Dispatch(Guid id, CancellationToken ct)
+    {
+        if (!IdempotencyHeader.TryRead(Request, out var key)) return IdempotencyHeader.Invalid(this);
+        return await RunAsync(async () => await RespondAsync(await shipments.DispatchAsync(id, new DispatchShipmentInput(key), UserId(), HttpContext.TraceIdentifier, ct), ct));
+    }
+
     // ---- helpers ----
 
     private Guid UserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);

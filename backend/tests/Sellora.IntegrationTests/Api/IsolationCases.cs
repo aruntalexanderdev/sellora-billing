@@ -292,6 +292,11 @@ public static class IsolationCases
         "ShipmentsController.AddVehicle", "ShipmentsController.RemoveVehicle", "ShipmentsController.Allocate", "ShipmentsController.ChangeAllocation",
         "ShipmentsController.CancelAllocation", "ShipmentsController.AssignVehicle", "ShipmentsController.CancelConsignment", "ShipmentsController.Load",
         "ConsignmentsController.List", "ConsignmentsController.Get", "StockReservationsController.List", "StockReservationsController.Release",
+        // Functional improvements Phase 05: ShipmentsApiTests.OtherCompanysShipmentConsignmentAndReservation_Are404_ForReadsAndEveryWrite_AndNothingChanges (same IsolationWorld) also covers the
+        // shipment dispatch, the consignment receipts (record / post / list / get) and the transit views: the other company's ids are 404 and no transit row of it is ever listed;
+        // ShipmentDispatchApiTests covers the in-company destination / source isolation of the same endpoints.
+        "ShipmentsController.Dispatch", "ConsignmentsController.RecordReceipt", "ConsignmentsController.PostReceipt", "ConsignmentsController.ListReceipts",
+        "ConsignmentsController.GetReceipt", "TransitController.List",
         // Phase 08: category / subcategory masters - ProductCategoriesApiTests.OtherCompanysCategory_IsNeverListedAnd404OnUpdateAndStatus (never listed, 404 on every write)
         // and Product_WithAnotherCompanysCategoryOrSubcategory_Is400AndChangesNothing (product create/update naming a foreign category / subcategory is a 400).
         "ProductCategoriesController.List", "ProductCategoriesController.Create", "ProductCategoriesController.Update", "ProductCategoriesController.SetActive",

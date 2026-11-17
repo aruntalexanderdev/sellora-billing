@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import {
-  IdempotentSubmission, availableActions, buildDispatchRequest, closeProblemMessage, statusFromLabel, statusLabel, validateCloseReason, buildReceiveRequest, buildResolveRequest, mapRowProblem,
-  validateDispatch, validateReceive, validateResolve, type DispatchRow, type ReceiveRow, type UnitRef,
+  IdempotentSubmission, availableActions, closeProblemMessage, statusFromLabel, statusLabel, validateCloseReason, buildReceiveRequest, buildResolveRequest, mapRowProblem,
+  validateReceive, validateResolve, type ReceiveRow, type UnitRef,
 } from './stock-transfer-rules';
 import { STOCK_TRANSFER_STATUSES } from './stock-transfers.models';
 import { dispatchedLine, line } from './test-fixtures';
@@ -17,7 +17,7 @@ describe('availableActions (status x permission)', () => {
   const expected: Record<string, string[]> = {
     Draft: ['edit', 'submit', 'cancel'],
     Requested: ['approve', 'reject', 'cancel'],
-    Approved: ['dispatch', 'cancel', 'close'],
+    Approved: ['cancel', 'close'],
     PartiallyFulfilled: ['close'],
     Fulfilled: [],
     Closed: [],
@@ -48,37 +48,6 @@ describe('availableActions (status x permission)', () => {
 
   it('receive / resolve need goods still in transit', () => {
     expect(availableActions({ status: 'PartiallyReceived', lines: [dispatchedLine({ outstandingBaseQty: 0 })] }, has(ALL))).toEqual([]);
-  });
-});
-
-describe('validateDispatch', () => {
-  const row = (over: Partial<DispatchRow> = {}): DispatchRow => ({ lineId: 'l1', unit: box, quantity: 5, requestedBaseQty: 50, ...over });
-
-  it('accepts the requested quantity and builds the body with every line', () => {
-    const rows = [row(), row({ lineId: 'l2', quantity: 0 })];
-    expect(validateDispatch(rows)).toEqual({ rows: {}, form: null });
-    expect(buildDispatchRequest(rows)).toEqual({
-      lines: [{ lineId: 'l1', productUnitId: 'box', quantity: 5 }, { lineId: 'l2', productUnitId: 'box', quantity: 0 }],
-    });
-  });
-
-  it('allows 0 (not shipped) but not all lines at 0', () => {
-    expect(validateDispatch([row({ quantity: 0 }), row({ lineId: 'l2' })]).form).toBeNull();
-    expect(validateDispatch([row({ quantity: 0 })]).form).toMatch(/at least one/i);
-  });
-
-  it('compares in base units across unit changes and rejects more than requested', () => {
-    expect(validateDispatch([row({ unit: pc, quantity: 50 })]).rows).toEqual({});
-    expect(validateDispatch([row({ unit: pc, quantity: 51 })]).rows[0]).toMatch(/more than requested/i);
-    expect(validateDispatch([row({ quantity: 6 })]).rows[0]).toMatch(/more than requested/i);
-  });
-
-  it('follows the unit decimal places and rejects blank / negative', () => {
-    expect(validateDispatch([row({ quantity: 2.5 })]).rows[0]).toMatch(/whole numbers/i);
-    expect(validateDispatch([row({ unit: kg, quantity: 1.25, requestedBaseQty: 2 })]).rows).toEqual({});
-    expect(validateDispatch([row({ unit: kg, quantity: 1.2345, requestedBaseQty: 2 })]).rows[0]).toMatch(/at most 3/i);
-    expect(validateDispatch([row({ quantity: null })]).rows[0]).toMatch(/enter a quantity/i);
-    expect(validateDispatch([row({ quantity: -1 })]).rows[0]).toMatch(/negative/i);
   });
 });
 

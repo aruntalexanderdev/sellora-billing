@@ -1,0 +1,41 @@
+<div class="panel" role="group" aria-label="Record receipt">
+  <h3>Record receipt for {{ consignment().consignmentNo }}</h3>
+  <p class="hint">Enter what arrived per line, in the line's unit. Recording a receipt does not move stock; the accepted quantity reaches the destination when you post it.</p>
+  <p class="note" data-testid="shortfall-note">{{ shortfallNote }}</p>
+  @if (shown().form; as msg) {
+    <div class="server-error" role="alert" data-testid="receipt-error">{{ msg }}</div>
+  }
+  @if (rows().length === 0) {
+    <p class="hint" data-testid="nothing-left">Every dispatched quantity is already accounted for.</p>
+  }
+  <table>
+    <thead>
+      <tr><th>Product</th><th class="num">Left to account</th><th>Accepted</th><th>Damaged</th><th>Rejected</th><th>Missing</th></tr>
+    </thead>
+    <tbody>
+      @for (r of rows(); track r.lineId; let i = $index) {
+        <tr>
+          <td>{{ r.line.productName }}<div class="sub">{{ r.line.productSku }}{{ r.line.transferNo ? ' · ' + r.line.transferNo : '' }}</div></td>
+          <td class="num" [attr.data-testid]="'receipt-remaining-' + i">{{ remaining(r) }} {{ r.unitCode }}</td>
+          @for (f of fields; track f) {
+            <td>
+              <input type="number" min="0" class="field-input" [attr.data-testid]="'receipt-' + f + '-' + i" [step]="step(r)" [value]="value(r, f)" placeholder="0" (input)="set(i, f, $any($event.target).value)" />
+              <span class="unit">{{ r.unitCode }}</span>
+            </td>
+          }
+        </tr>
+        @if (shown().rows[i]; as msg) {
+          <tr class="err-row"><td colspan="6"><div class="field-error" [attr.data-testid]="'receipt-row-error-' + i">{{ msg }}</div></td></tr>
+        }
+      }
+    </tbody>
+  </table>
+  <label class="notes-label">Notes (optional)
+    <textarea class="field-input" rows="2" maxlength="500" data-testid="receipt-notes" [value]="notes()" (input)="notes.set($any($event.target).value)"></textarea>
+  </label>
+  <div class="actions">
+    <ui-button variant="primary" data-testid="receipt-submit" [disabled]="busy() || rows().length === 0" (onClick)="submit()">{{ busy() ? 'Saving…' : 'Record receipt' }}</ui-button>
+    <ui-button data-testid="receipt-accept-all" (onClick)="acceptAll()">Accept all remaining</ui-button>
+    <ui-button (onClick)="cancelled.emit()">Cancel</ui-button>
+  </div>
+</div>

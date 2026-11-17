@@ -55,6 +55,17 @@ public record LoadConsignmentRequest([Required, MinLength(1)] List<LoadConsignme
 
 public record ReleaseStockReservationRequest([Required, MaxLength(300)] string Reason);
 
+/// <summary>Quantities of one consignment line in the LINE's own unit (ConsignmentLineDto.UnitCode). Lines with all four at 0 are ignored.</summary>
+public record ReceiptLineRequest(
+    [Required] Guid? ConsignmentLineId,
+    [Range(0, 999999999)] decimal AcceptedQuantity,
+    [Range(0, 999999999)] decimal DamagedQuantity,
+    [Range(0, 999999999)] decimal RejectedQuantity,
+    [Range(0, 999999999)] decimal MissingQuantity);
+
+/// <summary>Verifies (records) a receipt; moves no stock. Header key: Idempotency-Key.</summary>
+public record RecordReceiptRequest([Required, MinLength(1)] List<ReceiptLineRequest> Lines, [MaxLength(500)] string? Notes);
+
 // ---- Responses ----
 
 public record ShipmentListItemDto(
@@ -76,13 +87,14 @@ public record ConsignmentLineDto(
     Guid ProductId, string? ProductSku, string? ProductName, string? BaseUnitCode,
     Guid ProductUnitId, string UnitCode, decimal ConversionFactorToBase,
     decimal EnteredQty, decimal AllocatedBaseQty, decimal LoadedBaseQty, decimal LoadedQty,
-    ConsignmentLineStatus Status, ConsignmentLineRequestDto Request, Guid? ReservationId, decimal ReservedBaseQty);
+    ConsignmentLineStatus Status, ConsignmentLineRequestDto Request, Guid? ReservationId, decimal ReservedBaseQty,
+    decimal DispatchedBaseQty, decimal AcceptedBaseQty, decimal DamagedBaseQty, decimal RejectedBaseQty, decimal MissingBaseQty, decimal PostedBaseQty);
 
 public record ConsignmentDto(
     Guid Id, string ConsignmentNo, ConsignmentStatus Status,
     StockTransferLocationDto Destination, StockTransferBranchDto DestinationBranch, Guid? ShipmentVehicleId,
     DateTimeOffset? LoadedAt, StockTransferActorDto? Cancelled, string? CancellationReason,
-    IReadOnlyList<ConsignmentLineDto> Lines);
+    IReadOnlyList<ConsignmentLineDto> Lines, DateTimeOffset? DispatchedAt);
 
 public record ShipmentDto(
     Guid Id, string ShipmentNo, ShipmentStatus Status, TransportMode TransportMode, TransportVia TransportVia,
@@ -90,7 +102,8 @@ public record ShipmentDto(
     DateOnly? PlannedDispatchDate, string? Notes,
     StockTransferBranchDto Branch, StockTransferLocationDto Source,
     IReadOnlyList<ShipmentVehicleDto> Vehicles, IReadOnlyList<ConsignmentDto> Consignments,
-    StockTransferActorDto Created, StockTransferActorDto? Updated, StockTransferActorDto? Cancelled, string? CancellationReason);
+    StockTransferActorDto Created, StockTransferActorDto? Updated, StockTransferActorDto? Cancelled, string? CancellationReason,
+    StockTransferActorDto? Dispatched);
 
 /// <summary>The leg of a consignment: the one vehicle that carries it (never the other legs).</summary>
 public record ConsignmentLegDto(string? VehicleNumber, string? VehicleName, string? DriverName, string? DriverPhone);
@@ -99,11 +112,13 @@ public record ConsignmentListItemDto(
     Guid Id, string ConsignmentNo, ConsignmentStatus Status, string Direction,
     Guid? ShipmentId, string ShipmentNo, ShipmentStatus ShipmentStatus, TransportMode TransportMode, DateOnly? PlannedDispatchDate,
     StockTransferLocationDto Source, StockTransferLocationDto Destination, StockTransferBranchDto DestinationBranch,
-    int LineCount, DateTimeOffset? LoadedAt);
+    int LineCount, DateTimeOffset? LoadedAt, DateTimeOffset? DispatchedAt);
 
 public record ConsignmentDetailLineDto(
     Guid Id, string? TransferNo, Guid ProductId, string? ProductSku, string? ProductName, string? BaseUnitCode,
-    Guid ProductUnitId, string UnitCode, decimal EnteredQty, decimal AllocatedBaseQty, decimal LoadedBaseQty, decimal LoadedQty);
+    Guid ProductUnitId, string UnitCode, decimal EnteredQty, decimal AllocatedBaseQty, decimal LoadedBaseQty, decimal LoadedQty,
+    decimal DispatchedBaseQty, decimal AcceptedBaseQty, decimal DamagedBaseQty, decimal RejectedBaseQty, decimal MissingBaseQty, decimal PostedBaseQty,
+    decimal ConversionFactorToBase);
 
 /// <summary>One consignment as its reader sees it. Incoming readers never get ShipmentId, other destinations, vehicles other than this leg, or costs.</summary>
 public record ConsignmentDetailDto(
@@ -111,7 +126,7 @@ public record ConsignmentDetailDto(
     Guid? ShipmentId, string ShipmentNo, ShipmentStatus ShipmentStatus,
     TransportMode TransportMode, TransportVia TransportVia, string? ProviderName, string? TransportReference, DateOnly? PlannedDispatchDate,
     StockTransferLocationDto Source, StockTransferLocationDto Destination, StockTransferBranchDto DestinationBranch,
-    ConsignmentLegDto? Leg, DateTimeOffset? LoadedAt, IReadOnlyList<ConsignmentDetailLineDto> Lines);
+    ConsignmentLegDto? Leg, DateTimeOffset? LoadedAt, IReadOnlyList<ConsignmentDetailLineDto> Lines, DateTimeOffset? DispatchedAt, int ReceiptCount);
 
 public record StockReservationDto(
     Guid Id, StockReservationStatus Status, StockTransferLocationDto Source,
@@ -120,3 +135,30 @@ public record StockReservationDto(
     StockTransferLocationDto Destination, string? TransferNo,
     DateTimeOffset CreatedAt, string? CreatedBy, int AgeDays,
     DateTimeOffset? ReleasedAt, string? ReleasedBy, string? ReleaseReason, DateTimeOffset? ConsumedAt);
+
+// ---- Phase 05: receipts and transit views (FI-D35..D37) ----
+
+public record ConsignmentReceiptLineDto(
+    Guid ConsignmentLineId, Guid ProductId, string? ProductSku, string? ProductName, string? BaseUnitCode,
+    Guid ProductUnitId, string UnitCode, decimal ConversionFactorToBase,
+    decimal AcceptedQty, decimal AcceptedBaseQty, decimal DamagedQty, decimal DamagedBaseQty,
+    decimal RejectedQty, decimal RejectedBaseQty, decimal MissingQty, decimal MissingBaseQty);
+
+/// <summary>One receipt event. Verified = recorded, no stock moved; Posted = the accepted quantity was moved Transit to the destination. ConsignmentStatus / ShipmentStatus are the statuses right now.</summary>
+public record ConsignmentReceiptDto(
+    Guid Id, Guid ConsignmentId, string ConsignmentNo, ConsignmentStatus ConsignmentStatus, ShipmentStatus ShipmentStatus,
+    int Sequence, ConsignmentReceiptStatus Status, StockTransferActorDto Verified, StockTransferActorDto? Posted, string? Notes,
+    IReadOnlyList<ConsignmentReceiptLineDto> Lines);
+
+/// <summary>Per product and consignment line (never summed across products). OutstandingBaseQty = dispatched - accounted (nothing verified yet); InTransitBaseQty = dispatched - posted (still physically in Transit).</summary>
+public record TransitLineDto(
+    Guid ConsignmentLineId, Guid ProductId, string? ProductSku, string? ProductName, string? BaseUnitCode, string UnitCode,
+    decimal DispatchedBaseQty, decimal AcceptedBaseQty, decimal DamagedBaseQty, decimal RejectedBaseQty, decimal MissingBaseQty, decimal PostedBaseQty,
+    decimal OutstandingBaseQty, decimal InTransitBaseQty);
+
+/// <summary>A consignment in (or through) transit. Direction = "outgoing" when the caller reads the shipment's source (ShipmentId present), otherwise "incoming" (no ShipmentId, no other consignments).</summary>
+public record TransitItemDto(
+    Guid ConsignmentId, string ConsignmentNo, ConsignmentStatus Status, string Direction,
+    Guid? ShipmentId, string ShipmentNo, ShipmentStatus ShipmentStatus, TransportMode TransportMode, string? TransportReference,
+    StockTransferLocationDto Source, StockTransferLocationDto Destination, StockTransferBranchDto DestinationBranch,
+    DateTimeOffset? DispatchedAt, int ReceiptCount, int UnpostedReceiptCount, bool HasDiscrepancy, IReadOnlyList<TransitLineDto> Lines);

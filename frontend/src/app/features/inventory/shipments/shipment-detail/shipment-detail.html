@@ -39,6 +39,9 @@
     @if (caps().edit) {
       <ui-button data-testid="act-edit" (onClick)="open({ kind: 'header' })">Edit header</ui-button>
     }
+    @if (caps().dispatch) {
+      <ui-button variant="primary" data-testid="act-dispatch" [disabled]="busy()" (onClick)="dispatch()">Dispatch</ui-button>
+    }
     @if (caps().cancel) {
       <ui-button variant="destructive" data-testid="act-cancel" (onClick)="open({ kind: 'cancelShipment' })">Cancel shipment</ui-button>
     }
@@ -61,6 +64,9 @@
         }
         <div><dt>{{ refLabel(s.transportMode) }}</dt><dd data-testid="reference">{{ s.transportReference || '—' }}</dd></div>
         <div><dt>Planned dispatch</dt><dd>{{ s.plannedDispatchDate || '—' }}</dd></div>
+        @if (s.dispatched; as d) {
+          <div><dt>Dispatched</dt><dd data-testid="dispatched-stamp">{{ d.userName }} · {{ d.at | date: 'medium' }}</dd></div>
+        }
         <div><dt>Created</dt><dd>{{ s.created.userName }} · {{ s.created.at | date: 'medium' }}</dd></div>
         @if (s.notes) {
           <div><dt>Notes</dt><dd>{{ s.notes }}</dd></div>
@@ -84,7 +90,7 @@
       <div class="cons-head">
         <div>
           <strong>{{ c.consignmentNo }}</strong> → {{ place(c.destination) }}
-          <div class="sub">{{ c.destinationBranch.code || c.destinationBranch.name || 'Company' }} · {{ loadedSummary(c) }}</div>
+          <div class="sub">{{ c.destinationBranch.code || c.destinationBranch.name || 'Company' }} · {{ loadedSummary(c) }}@if (c.dispatchedAt) { · <span data-testid="cons-dispatched">dispatched {{ c.dispatchedAt | date: 'medium' }}</span> }</div>
         </div>
         <ui-badge [text]="c.status" [tone]="consignmentTone(c.status)" />
       </div>

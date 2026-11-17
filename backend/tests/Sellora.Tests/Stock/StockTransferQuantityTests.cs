@@ -120,53 +120,6 @@ public class StockTransferQuantityTests
         await w.AssertInvariantsAsync("zero line");
     }
 
-    [Fact]
-    public async Task Dispatch_InputShape_AllZero_MissingLine_DuplicateLine_UnknownLine_NegativeQuantity_AreRefused()
-    {
-        var w = await TransferWorld.CreateAsync();
-        await w.StockPenAsync(w.L.MainStore, 300m);
-        var t = await w.ApprovedAsync(w.L.MainStore, w.L.BlrStore, w.Pen(w.Box, 4m), w.Pen(w.Pc, 3m));
-        var (a, b) = (t.Lines[0], t.Lines[1]);
-        DispatchStockTransferLineInput L(Guid id, decimal q) => new(id, w.Pc, q);
-
-        Assert.Equal("lines", await LocationWorld.FieldAsync(() => w.DispatchAsync(t.Id, new([L(a.Id, 0m), L(b.Id, 0m)]))));
-        Assert.Equal("lines", await LocationWorld.FieldAsync(() => w.DispatchAsync(t.Id, new([L(a.Id, 5m)]))));
-        Assert.Equal("lines", await LocationWorld.FieldAsync(() => w.DispatchAsync(t.Id, new([]))));
-        Assert.Equal("lines[1].lineId", await LocationWorld.FieldAsync(() => w.DispatchAsync(t.Id, new([L(a.Id, 1m), L(a.Id, 1m)]))));
-        Assert.Equal("lines[1].lineId", await LocationWorld.FieldAsync(() => w.DispatchAsync(t.Id, new([L(a.Id, 1m), L(Guid.NewGuid(), 1m)]))));
-        Assert.Equal("lines[0].quantity", await LocationWorld.FieldAsync(() => w.DispatchAsync(t.Id, new([L(a.Id, -1m), L(b.Id, 1m)]))));
-        Assert.Equal(StockTransferStatus.Approved, (await w.ReloadAsync(t.Id)).Status);
-        Assert.Equal(300m, await w.QohAsync(w.L.MainStore));
-    }
-
-    [Fact]
-    public async Task Dispatch_MoreThanRequested_OrMoreThanInStock_IsRefusedWithNothingMoved()
-    {
-        var w = await TransferWorld.CreateAsync();
-        await w.StockPenAsync(w.L.MainStore, 30m);
-        var t = await w.ApprovedAsync(w.L.MainStore, w.L.BlrStore, w.Pen(w.Box, 5m)); // 50 pc requested, 30 in stock
-        var line = t.Lines.Single();
-
-        Assert.Equal("lines[0].quantity", await LocationWorld.FieldAsync(() => w.DispatchAsync(t.Id, new([new(line.Id, w.Box, 6m)])))); // above requested
-        Assert.Equal("lines[0].quantity", await LocationWorld.FieldAsync(() => w.DispatchAsync(t.Id, new([new(line.Id, w.Box, 4m)])))); // 40 > 30 in stock
-
-        Assert.Equal((30m, 0m), (await w.QohAsync(w.L.MainStore), await w.QohAsync(w.L.Transit)));
-        Assert.Equal(StockTransferStatus.Approved, (await w.ReloadAsync(t.Id)).Status);
-        await w.AssertInvariantsAsync("refused dispatch");
-    }
-
-    [Fact]
-    public async Task Dispatch_TwoLinesOfTheSameProductInDifferentUnits_ChecksAvailabilityOnTheirSum()
-    {
-        var w = await TransferWorld.CreateAsync();
-        await w.StockPenAsync(w.L.MainStore, 100m);
-        var t = await w.ApprovedAsync(w.L.MainStore, w.L.BlrStore, w.Pen(w.Full, 1m), w.Pen(w.Box, 1m)); // 100 + 10 > 100 in stock
-        var (a, b) = (t.Lines[0], t.Lines[1]);
-
-        Assert.Equal("lines[0].quantity", await LocationWorld.FieldAsync(() => w.DispatchAsync(t.Id, new([new(a.Id, w.Full, 1m), new(b.Id, w.Box, 1m)]))));
-        Assert.Equal(100m, await w.QohAsync(w.L.MainStore));
-    }
-
     // ---- base quantity is never rounded ---------------------------------------------------------------------------------------------
 
     [Fact]
@@ -194,17 +147,14 @@ public class StockTransferQuantityTests
     }
 
     [Fact]
-    public async Task Dispatch_AndReceive_NonStorableBase_AreRejected_AndPostNothing()
+    public async Task Receive_NonStorableBase_IsRejected_AndPostsNothing()
     {
         var w = await TransferWorld.CreateAsync();
         await w.StockAsync(w.L.MainStore, w.FlourId, 10m, 4m);
         var t = await w.ApprovedAsync(w.L.MainStore, w.L.BlrStore, TransferWorld.Line(w.FlourId, w.FlourKg, 3m));
         var line = t.Lines.Single();
 
-        Assert.Equal("lines[0].quantity", await LocationWorld.FieldAsync(() => w.DispatchAsync(t.Id, new([new(line.Id, w.FlourPouch, 1m)]))));
-        Assert.Equal((10m, 0m), (await w.QohAsync(w.L.MainStore, w.FlourId), await w.QohAsync(w.L.Transit, w.FlourId)));
-
-        await w.DispatchAsync(t.Id, new([new(line.Id, w.FlourKg, 3m)]));
+        await w.DispatchAsync(t.Id, new([new(line.Id, w.FlourKg, 3m)])); // legacy-dispatched state (LegacyTransferSeed): the legacy receive path still validates
         Assert.Equal("lines[0].acceptedQuantity", await LocationWorld.FieldAsync(() => w.ReceiveAsync(t.Id, line.Id, w.FlourPouch, 1m)));
         Assert.Equal("lines[0].damagedQuantity", await LocationWorld.FieldAsync(() => w.ReceiveAsync(t.Id, line.Id, w.FlourPouch, 0m, 1m)));
         Assert.Equal(3m, await w.QohAsync(w.L.Transit, w.FlourId));

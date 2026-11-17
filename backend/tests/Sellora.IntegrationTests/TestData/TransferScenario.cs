@@ -114,7 +114,7 @@ public sealed record TransferScenario(LocationScenario L, Guid PenId, Guid Pc, G
         await using var db = Db(branch ?? Main);
         var t = await db.StockTransfers.Include(x => x.Lines).SingleAsync(x => x.Id == id);
         var lines = t.Lines.OrderBy(x => x.LineNo).Select(x => new DispatchStockTransferLineInput(x.Id, x.ProductUnitId, x.RequestedQty)).ToList();
-        return await new StockTransferService(db, permissions).DispatchAsync(id, new DispatchStockTransferInput(lines, key), UserId);
+        return await LegacyTransferSeed.DispatchAsync(db, UserId, id, lines); // FI-D3: production dispatches through shipments; this seeds the legacy-dispatched state
     }
 
     public async Task<StockTransferReceiptResult?> ReceiveAsync(Guid id, Guid unit, decimal accepted, decimal damaged = 0m, Guid? branch = null,

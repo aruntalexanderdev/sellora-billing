@@ -236,134 +236,10 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
 
     // ------------------------------------------------------------------ dispatch
 
-    public async Task<StockTransfer?> DispatchAsync(Guid id, DispatchStockTransferInput input, Guid userId, string? correlationId = null, CancellationToken ct = default)
-    {
-        if (input.Lines is null || input.Lines.Count == 0)
-        {
-            throw new DomainValidationException("lines", "Enter the quantity to dispatch for every line.");
-        }
-        for (var i = 0; i < input.Lines.Count; i++)
-        {
-            if (input.Lines[i].Quantity < 0) throw new DomainValidationException($"lines[{i}].quantity", "Quantity cannot be negative.");
-        }
-
-        await using var transaction = await StockLocks.BeginAsync(db, ct);
-
-        if (await Idempotency.FindAsync(db, userId, Idempotency.StockTransferDispatch, input.IdempotencyKey, ct) is { } existingId)
-        {
-            if (existingId != id) throw new DomainValidationException("IdempotencyKey", "This key was already used for a different transfer.");
-            return await LoadGraphAsync(id, ct)
-                ?? throw new DomainValidationException("IdempotencyKey", "This request was already processed, but its result is no longer visible with your current branch access.");
-        }
-
-        var transfer = await LockAndLoadAsync(id, ct);
-        if (transfer is null) return null;
-        EnsureStatus(transfer, StockTransferStatus.Approved);
-
-        var (source, destination) = await LoadEndpointsAsync(transfer, ct);
-        await EnsureFitAsync("StockTransfers.Dispatch", Fit.Source, source, destination, ct);
-
-        // FI-D33: while any line has quantity allocated to a shipment that has not been dispatched, the shipment owns the dispatch.
-        if (transfer.Lines.Any(l => l.AllocatedBaseQty > l.DispatchedBaseQty))
-        {
-            throw new DomainValidationException("status", "Stock is allocated to a shipment for this request; release the allocation or dispatch through the shipment.");
-        }
-
-        // Every line exactly once.
-        var byLine = transfer.Lines.ToDictionary(l => l.Id);
-        var requested = new Dictionary<Guid, (int Index, DispatchStockTransferLineInput Input)>();
-        for (var i = 0; i < input.Lines.Count; i++)
-        {
-            var li = input.Lines[i];
-            if (!byLine.ContainsKey(li.LineId)) throw new DomainValidationException($"lines[{i}].lineId", "This line does not belong to the transfer.");
-            if (!requested.TryAdd(li.LineId, (i, li))) throw new DomainValidationException($"lines[{i}].lineId", "This line appears more than once.");
-        }
-        if (requested.Count != byLine.Count)
-        {
-            throw new DomainValidationException("lines", "Enter the quantity to dispatch for every line (0 for lines that are not shipped).");
-        }
-
-        await StockLocks.LockProductsKeyShareAsync(db, transfer.Lines.Select(l => l.ProductId), ct);
-
-        // Dispatch snapshots, converted once with the stored factor.
-        var (products, units) = await LoadProductsAndUnitsAsync(transfer.Lines.Select(l => l.ProductId), requested.Values.Select(r => r.Input.ProductUnitId), ct);
-        var prepared = new List<(StockTransferLine Line, int Index, ProductUnit Unit, decimal Qty, decimal BaseQty)>();
-        foreach (var line in transfer.Lines.OrderBy(l => l.LineNo))
-        {
-            var (index, li) = requested[line.Id];
-            var unit = RequireUnit(units, li.ProductUnitId, line.ProductId, $"lines[{index}].productUnitId");
-            var baseQty = ConvertEntered(unit, products[line.ProductId], li.Quantity, $"lines[{index}].quantity");
-            if (baseQty > line.RequestedBaseQty)
-            {
-                throw new DomainValidationException($"lines[{index}].quantity",
-                    $"Cannot dispatch more than was requested ({StockQuantity.Format(line.RequestedBaseQty)} {products[line.ProductId].BaseUnit.ShortCode}).");
-            }
-            prepared.Add((line, index, unit, li.Quantity, baseQty));
-        }
-        if (prepared.All(p => p.BaseQty == 0))
-        {
-            throw new DomainValidationException("lines", "Dispatch at least one line with a quantity above zero.");
-        }
-
-        await StockLocks.LockLocationsKeyShareAsync(db, [transfer.SourceLocationId, transfer.TransitLocationId], ct);
-        await EnsureLocationActiveAsync(transfer.SourceLocationId, ct);
-
-        var shipping = prepared.Where(p => p.BaseQty > 0).ToList();
-        var items = await StockLocks.EnsureAndLockStockItemsAsync(db,
-            shipping.SelectMany(p => new[] { (transfer.SourceLocationId, p.Line.ProductId), (transfer.TransitLocationId, p.Line.ProductId) }), ct);
-
-        // Availability per product across all lines (mixed units) before anything moves; no negative stock.
-        await StockAvailability.EnsureAsync(db, items,
-            shipping.Select(p => new StockAvailability.Requirement(transfer.SourceLocationId, p.Line.ProductId, p.BaseQty)),
-            shortage =>
-            {
-                var first = shipping.First(p => p.Line.ProductId == shortage.ProductId);
-                var baseCode = products[shortage.ProductId].BaseUnit.ShortCode;
-                return new DomainValidationException($"lines[{first.Index}].quantity",
-                    $"Cannot dispatch {StockQuantity.Format(shortage.Requested)} {baseCode} of {products[shortage.ProductId].Name} — only {StockQuantity.Format(shortage.Available)} {baseCode} is in stock at the source.");
-            }, ct);
-
-        var now = DateTimeOffset.UtcNow;
-        foreach (var (line, index, unit, qty, baseQty) in prepared)
-        {
-            line.DispatchProductUnitId = unit.Id;
-            line.DispatchUnitId = unit.UnitId;
-            line.DispatchUnitCode = unit.Unit.ShortCode;
-            line.DispatchFactor = unit.ConversionFactorToBase;
-            line.DispatchedQty = qty;
-            line.DispatchedBaseQty = baseQty;
-            if (baseQty == 0) continue;
-
-            var baseCode = products[line.ProductId].BaseUnit.ShortCode;
-            var allocations = await StockPosting.MoveFifoAsync(db, items[(transfer.SourceLocationId, line.ProductId)], items[(transfer.TransitLocationId, line.ProductId)], baseQty,
-                shortBy => new DomainValidationException($"lines[{index}].quantity", $"Batch stock is short by {StockQuantity.Format(shortBy)} {baseCode} at the source."), ct);
-
-            foreach (var allocation in allocations)
-            {
-                line.Batches.Add(new StockTransferLineBatch
-                {
-                    LineId = line.Id,
-                    PurchaseBatchId = allocation.Batch.Id,
-                    DispatchedBaseQty = allocation.QtyBaseUnits,
-                    UnitCost = allocation.UnitCost,
-                });
-
-                var entered = allocations.Count == 1 ? qty : (decimal?)null;
-                db.StockMovements.Add(Movement(userId, transfer, line, StockMovementType.TransferOut, transfer.SourceLocationId, allocation.Batch.Id, -allocation.QtyBaseUnits, unit.Id, unit.Unit.ShortCode, unit.ConversionFactorToBase, entered, null));
-                db.StockMovements.Add(Movement(userId, transfer, line, StockMovementType.TransferIn, transfer.TransitLocationId, allocation.Batch.Id, allocation.QtyBaseUnits, unit.Id, unit.Unit.ShortCode, unit.ConversionFactorToBase, entered, null));
-            }
-        }
-
-        transfer.Status = StockTransferStatus.Dispatched;
-        transfer.DispatchedAt = now;
-        transfer.DispatchedByUserId = userId;
-
-        Audit(userId, correlationId, AuditActions.StockTransferDispatched, transfer, StockTransferStatus.Approved, Snapshot(transfer));
-        Idempotency.Record(db, userId, Idempotency.StockTransferDispatch, input.IdempotencyKey, transfer.Id);
-        await db.SaveChangesAsync(ct);
-        if (transaction is not null) await transaction.CommitAsync(ct);
-        return Finish(transfer);
-    }
+    // FI-D3/FI-D34 (Phase 05): dispatch only happens through a shipment (POST /shipments/{id}/dispatch). Transfers already dispatched by the
+    // legacy path (Dispatched / PartiallyReceived) still complete through receive / resolve below.
+    public Task<StockTransfer?> DispatchAsync(Guid id, DispatchStockTransferInput input, Guid userId, string? correlationId = null, CancellationToken ct = default) =>
+        Task.FromException<StockTransfer?>(new DomainValidationException("status", "Dispatch through a shipment: plan a shipment, allocate this request, load it and dispatch the shipment."));
 
     // ------------------------------------------------------------------ receive
 
@@ -433,7 +309,7 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
 
         var items = await StockLocks.EnsureAndLockStockItemsAsync(db,
             prepared.SelectMany(p => new[] { (transfer.DestinationLocationId, p.Line.ProductId), (transfer.TransitLocationId, p.Line.ProductId) }), ct);
-        var batches = await LoadBatchesAsync(prepared.SelectMany(p => p.Line.Batches).Select(b => b.PurchaseBatchId), ct);
+        var batches = await LoadBatchesAsync(prepared.SelectMany(p => p.Line.Batches.Where(b => b.ConsignmentLineId == null)).Select(b => b.PurchaseBatchId), ct);
 
         var receipt = new StockTransferReceipt
         {
@@ -569,7 +445,7 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
             if (actions[line.Id] == StockTransferResolution.ReturnToSource) keys.Add((transfer.SourceLocationId, line.ProductId));
         }
         var items = await StockLocks.EnsureAndLockStockItemsAsync(db, keys, ct);
-        var batches = await LoadBatchesAsync(open.SelectMany(l => l.Batches).Select(b => b.PurchaseBatchId), ct);
+        var batches = await LoadBatchesAsync(open.SelectMany(l => l.Batches.Where(b => b.ConsignmentLineId == null)).Select(b => b.PurchaseBatchId), ct);
 
         var receipt = new StockTransferReceipt
         {
@@ -653,7 +529,7 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
     {
         var draws = new List<(StockTransferLineBatch, PurchaseBatch, decimal)>();
         var remaining = baseQty;
-        foreach (var row in line.Batches.OrderBy(b => batches[b.PurchaseBatchId].CreatedAt).ThenBy(b => batches[b.PurchaseBatchId].BatchSequence))
+        foreach (var row in line.Batches.Where(b => b.ConsignmentLineId == null).OrderBy(b => batches[b.PurchaseBatchId].CreatedAt).ThenBy(b => batches[b.PurchaseBatchId].BatchSequence))
         {
             if (remaining <= 0) break;
             var available = Outstanding(row);
@@ -925,7 +801,7 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
         return lines;
     }
 
-    private static StockMovement Movement(
+    internal static StockMovement Movement(
         Guid userId, StockTransfer transfer, StockTransferLine line, StockMovementType type, Guid locationId, Guid batchId, decimal signedQty,
         Guid productUnitId, string unitCode, decimal factor, decimal? enteredQty, AdjustmentType? reason) =>
         MovementSnapshot.Apply(new StockMovement

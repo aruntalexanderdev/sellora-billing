@@ -4,8 +4,9 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { PagedResult } from '../../../core/api.models';
 import { ContextService } from '../../../core/context/context.service';
+import { idempotencyHeaders } from '../../../core/idempotency';
 import { primaryLoad } from '../../../core/http/request-context';
-import type { ConsignmentDetail, ConsignmentListItem, ConsignmentListQuery } from '../shipments/shipments.models';
+import type { ConsignmentDetail, ConsignmentListItem, ConsignmentListQuery, ConsignmentReceipt, RecordReceiptRequest } from '../shipments/shipments.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/consignments`;
 
@@ -32,5 +33,23 @@ export class ConsignmentsService {
 
   get(id: string): Observable<ConsignmentDetail> {
     return this.http.get<ConsignmentDetail>(`${BASE_URL}/${id}`, { context: primaryLoad() });
+  }
+
+  receipts(id: string): Observable<ConsignmentReceipt[]> {
+    return this.http.get<ConsignmentReceipt[]>(`${BASE_URL}/${id}/receipts`);
+  }
+
+  receipt(id: string, receiptId: string): Observable<ConsignmentReceipt> {
+    return this.http.get<ConsignmentReceipt>(`${BASE_URL}/${id}/receipts/${receiptId}`);
+  }
+
+  /** Verifies (records) a receipt; moves no stock. Quantities are in each line's own unit. */
+  recordReceipt(id: string, request: RecordReceiptRequest, idempotencyKey: string): Observable<ConsignmentReceipt> {
+    return this.http.post<ConsignmentReceipt>(`${BASE_URL}/${id}/receipts`, request, { headers: idempotencyHeaders(idempotencyKey) });
+  }
+
+  /** Posts a Verified receipt (accepted quantity Transit to destination); idempotent. */
+  postReceipt(id: string, receiptId: string, idempotencyKey: string): Observable<ConsignmentReceipt> {
+    return this.http.post<ConsignmentReceipt>(`${BASE_URL}/${id}/receipts/${receiptId}/post`, null, { headers: idempotencyHeaders(idempotencyKey) });
   }
 }

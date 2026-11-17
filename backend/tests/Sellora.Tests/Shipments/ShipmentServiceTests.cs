@@ -9,7 +9,7 @@ namespace Sellora.Tests.Shipments;
 
 /// <summary>
 /// Phase 04 (FI-D29..D33) on EF InMemory: shipment header rules, vehicle scope, allocation limits and reservations, release paths, loading and
-/// status transitions, legacy dispatch/cancel refusals, idempotent replays. Every test re-checks the reservation invariant (FI-D5). Locks and
+/// status transitions, legacy cancel refusals, idempotent replays. Every test re-checks the reservation invariant (FI-D5). Locks and
 /// constraints are not exercised here (integration tests).
 /// </summary>
 public class ShipmentServiceTests
@@ -371,22 +371,6 @@ public class ShipmentServiceTests
         await w.AssertReconciledAsync("adjustment vs reservation");
     }
 
-    [Fact]
-    public async Task LegacyDispatch_OfAnotherRequest_CannotUseReservedStock()
-    {
-        var w = await ShipmentWorld.CreateAsync(penStockAtMain: 100m);
-        var allocated = await w.ApprovedPenAsync(9m);   // 90 pc reserved
-        var other = await w.ApprovedPenAsync(2m);       // 20 pc, nothing allocated on it
-        var s = await w.CreateShipmentAsync();
-        await w.AllocateAsync(s.Id, allocated.Lines.Single().Id, w.T.Box, 9m);
-
-        await Assert.ThrowsAsync<DomainValidationException>(() => w.T.DispatchAsRequestedAsync(other.Id));
-
-        await w.CancelAsync(s.Id);
-        Assert.NotNull(await w.T.DispatchAsRequestedAsync(other.Id));
-        await w.AssertReconciledAsync("legacy after release");
-    }
-
     // ---- reduce / release --------------------------------------------------------------------------------------------------------
 
     [Fact]
@@ -693,16 +677,27 @@ public class ShipmentServiceTests
     // ---- legacy path (FI-D33) ----------------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task LegacyDispatch_IsRefusedWhileAnythingIsAllocated_AndWorksAfterRelease()
+    public async Task LegacyDispatch_IsRefused_WhetherOrNotAnythingIsAllocated_FI_D3()
     {
         var (w, t, _, s) = await PlannedAsync(boxes: 5m, allocateBoxes: 1m);
+        var other = await w.ApprovedPenAsync(2m); // nothing allocated on it
+        var line = t.Lines.Single();
 
-        Assert.Equal("status", await Field(() => w.T.DispatchAsRequestedAsync(t.Id)));
+        foreach (var (id, lineId) in new[] { (t.Id, line.Id), (other.Id, other.Lines.Single().Id) })
+        {
+            await using var db = w.T.Db();
+            var ex = await Assert.ThrowsAsync<DomainValidationException>(() =>
+                new StockTransferService(db, TransferWorld.Everything()).DispatchAsync(id, new DispatchStockTransferInput([new DispatchStockTransferLineInput(lineId, w.T.Box, 1m)]), w.UserId));
+            Assert.Equal("status", ex.Field);
+        }
 
-        await w.CancelAsync(s.Id);
-        var dispatched = await w.T.DispatchAsRequestedAsync(t.Id);
-        Assert.Equal(StockTransferStatus.Dispatched, dispatched!.Status);
-        await w.AssertReconciledAsync("legacy dispatch");
+        await w.CancelAsync(s.Id); // even after the allocation is gone the legacy path stays closed
+        await using var db2 = w.T.Db();
+        await Assert.ThrowsAsync<DomainValidationException>(() =>
+            new StockTransferService(db2, TransferWorld.Everything()).DispatchAsync(t.Id, new DispatchStockTransferInput([new DispatchStockTransferLineInput(line.Id, w.T.Box, 1m)]), w.UserId));
+        Assert.Equal(100m, await w.T.QohAsync(w.L.MainStore));
+        Assert.Equal(0m, await w.T.QohAsync(w.L.Transit));
+        await w.AssertReconciledAsync("legacy refused");
     }
 
     [Fact]

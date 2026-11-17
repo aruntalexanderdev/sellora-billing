@@ -21,8 +21,10 @@
         </div>
       } @else if (r.reason === 'error') {
         <div class="stop" data-testid="wizard-stopped-error">The “{{ r.stoppedAt }}” step failed. {{ r.transfer?.transferNo }} is {{ r.transfer?.status }}.</div>
+      } @else if (r.reason === 'vehicle') {
+        <div class="stop" data-testid="wizard-stopped-vehicle">No active vehicle record exists for this van, so a shipment cannot carry it. {{ r.transfer?.transferNo }} is {{ r.transfer?.status }}.</div>
       } @else {
-        <div class="stop" data-testid="wizard-stopped-status">{{ r.transfer?.transferNo }} is {{ r.transfer?.status }}; finish it from the transfer screen.</div>
+        <div class="stop" data-testid="wizard-stopped-status">{{ r.transfer?.transferNo }} is {{ r.transfer?.status }}; finish it from the shipment or transfer screen.</div>
       }
       <div class="actions">
         @if (r.transfer && canViewTransfers()) {

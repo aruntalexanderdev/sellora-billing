@@ -127,26 +127,6 @@ public class StockAvailabilityTests
             StockAvailability.EnsureInBatchAsync(db, batchId, Loc, ProductA, 80m, a => new("Lines", a.ToString()), default))).Message);
     }
 
-    // ---- transfer dispatch (van loading uses transfers) honours the reservation -------------------------------------------------
-
-    [Fact]
-    public async Task Dispatch_ReservationReducesAvailability_RefusedOnTheLineQuantityKey()
-    {
-        var w = await TransferWorld.CreateAsync();
-        await w.StockPenAsync(w.L.MainStore, 200m);
-        var t = await w.ApprovedAsync(w.L.MainStore, w.L.BlrStore, w.Pen(w.Box, 10m)); // 100 pc
-
-        using (StockAvailability.UseReservedSource((_, _, _, _, _) => Task.FromResult(150m)))
-        {
-            var ex = await Assert.ThrowsAsync<DomainValidationException>(() => w.DispatchAsRequestedAsync(t.Id));
-            Assert.Equal("lines[0].quantity", ex.Field);
-        }
-
-        Assert.Equal(200m, await w.QohAsync(w.L.MainStore));
-        await w.DispatchAsRequestedAsync(t.Id); // no reservation: ships
-        Assert.Equal(100m, await w.QohAsync(w.L.MainStore));
-    }
-
     // ---- FI-D24: request quantities above zero (create + edit share the line builder) -------------------------------------------
 
     [Fact]

@@ -30,10 +30,6 @@ public class ReservationRaceTests(PostgresFixture postgres)
         await AssertReservationInvariantsAsync(s, when);
     }
 
-    private static Task<HttpResponseMessage> DispatchAsync(ShipScene s, JsonElement transfer, decimal pieces) =>
-        SendAsync(s.W.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(transfer)}/dispatch",
-            new DispatchStockTransferRequest([new DispatchStockTransferLineRequest(LineOf(transfer), s.Pc, pieces)]), s.Src);
-
     private static Task<HttpResponseMessage> SaleAsync(ShipScene s, decimal pieces) =>
         SendAsync(s.W.Admin, HttpMethod.Post, "/api/v1/sales", new CreateSaleRequest(s.W.CustomerId, Today, PaymentMethod.Cash, 0m,
             [new CreateSaleLineRequest(s.W.ProductId, s.Pc, pieces, 20m, 0)]), s.Src);
@@ -131,31 +127,46 @@ public class ReservationRaceTests(PostgresFixture postgres)
         Assert.Equal((6m, 6m), (await QohAsync(s), await ReservedAsync(s)));
     }
 
-    [Fact]
-    public async Task AllocateVsLegacyDispatch_OfTheSameRequest_ExactlyOneWins_NoOversellNoStrandedReservation()
+    // ---- allocation vs a SHIPMENT dispatch of the same stock (FI-D34, FI-D38 e: replaces AllocateVsLegacyDispatch) ----------------------------------------------
+    // 10 on hand, shipment 1 of 6 ready (reserved 6): free is 4 before the dispatch and 4 after it (on hand 4, reserved 0), so another shipment can allocate exactly 4.
+
+    [Theory]
+    [InlineData(4, true)]
+    [InlineData(5, false)]
+    public async Task AllocateVsDispatchOfAnotherShipment_AgainstTheStockBeingDispatched_NeverOverAllocates(int pieces, bool fits)
     {
         for (var round = 0; round < Rounds; round++)
         {
-            var s = await NewSceneAsync(postgres, 10m);
-            var req = await RequestAsync(s, s.AStore, 10m);
-            var sid = IdOf(await NewShipmentAsync(s));
+            var (s, sid, _) = await ReadySceneAsync(postgres, 10m, 6m);
+            var other = await RequestAsync(s, s.BStore, 10m);
+            var otherShipment = IdOf(await NewShipmentAsync(s));
 
-            var responses = await ParallelAsync(() => AllocateAsync(s, sid, LineOf(req), 10m), () => DispatchAsync(s, req, 10m));
+            var responses = await ParallelAsync(() => DispatchShipmentAsync(s, sid), () => AllocateAsync(s, otherShipment, LineOf(other), pieces));
 
-            await AssertCleanAsync(s, $"round {round}: allocate vs dispatch", responses);
-            var (allocate, dispatch) = (responses[0], responses[1]);
-            Assert.True(allocate.IsSuccessStatusCode ^ dispatch.IsSuccessStatusCode, $"round {round}: allocate {Code(allocate)}, dispatch {Code(dispatch)}: exactly one must win");
-            var status = await ScalarAsync<string>(s.W.Host.Database, $"""SELECT "Status" FROM "StockTransfers" WHERE "Id" = '{IdOf(req)}'""");
-            if (allocate.IsSuccessStatusCode)
-            {
-                Assert.Equal(("Approved", 10m, 10m), (status, await QohAsync(s), await ReservedAsync(s)));
-            }
-            else
-            {
-                Assert.Equal(("Dispatched", 0m, 0m), (status, await QohAsync(s), await ReservedAsync(s)));
-                Assert.Equal(0L, await ScalarAsync<long>(s.W.Host.Database, $"""SELECT COUNT(*) FROM "StockReservations" WHERE "SourceLocationId" = '{s.SrcStore}'"""));
-            }
+            await AssertCleanAsync(s, $"round {round}: allocate {pieces} vs dispatch", responses);
+            Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+            Assert.Equal(fits, responses[1].IsSuccessStatusCode);
+            if (!fits) Assert.Equal(HttpStatusCode.BadRequest, responses[1].StatusCode);
+            Assert.Equal((4m, fits ? (decimal)pieces : 0m), (await QohAsync(s), await ReservedAsync(s)));
+            await AssertTransitReconciliationCleanAsync(s.W.Host.Database, $"round {round}: allocate vs dispatch");
         }
+    }
+
+    [Fact]
+    public async Task ConcurrentAllocationsVsDispatchOfAnotherShipment_CombinedOverTheFreeStock_ExactlyOneAllocationWins()
+    {
+        var (s, sid, _) = await ReadySceneAsync(postgres, 10m, 6m);
+        var (r1, r2) = (await RequestAsync(s, s.BStore, 5m), await RequestAsync(s, s.BStore, 5m));
+        var otherShipment = IdOf(await NewShipmentAsync(s));
+
+        var responses = await ParallelAsync(() => DispatchShipmentAsync(s, sid), () => AllocateAsync(s, otherShipment, LineOf(r1), 3m), () => AllocateAsync(s, otherShipment, LineOf(r2), 3m));
+
+        await AssertCleanAsync(s, "two allocations vs dispatch", responses);
+        Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+        Assert.Equal(1, responses.Skip(1).Count(r => r.IsSuccessStatusCode));                        // 4 free: one 3 fits, two do not
+        Assert.All(responses.Skip(1).Where(r => !r.IsSuccessStatusCode), r => Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode));
+        Assert.Equal((4m, 3m), (await QohAsync(s), await ReservedAsync(s)));
+        await AssertTransitReconciliationCleanAsync(s.W.Host.Database, "two allocations vs dispatch");
     }
 
     [Fact]

@@ -9,14 +9,13 @@ import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { formatChainQuantity, formatQuantity } from '../../../../shared/units/unit-conversion';
 import { ReasonPrompt } from '../../../administration/access-ui/reason-prompt';
 import { loadErrorText, problemText } from '../../../../shared/scope/problem-text';
-import { TransferDispatchDialog } from '../transfer-dialogs/transfer-dispatch-dialog';
 import { TransferReceiveDialog } from '../transfer-dialogs/transfer-receive-dialog';
 import { TransferResolveDialog } from '../transfer-dialogs/transfer-resolve-dialog';
 import { IdempotentSubmission, availableActions, baseToUnitQty, closeProblemMessage, endpointLabel, formatBase, statusLabel, statusTone, type TransferAction } from '../stock-transfer-rules';
 import { StockTransfersService } from '../stock-transfers.service';
 import type { StockTransfer, StockTransferActor, StockTransferHistoryEntry, StockTransferLine } from '../stock-transfers.models';
 
-type Panel = 'reject' | 'cancel' | 'close' | 'dispatch' | 'receive' | 'resolve';
+type Panel = 'reject' | 'cancel' | 'close' | 'receive' | 'resolve';
 
 /** Converted display of a base quantity in the line's request unit; '' when not exactly representable. */
 function lineUnitDisplay(l: StockTransferLine, baseQty: number): string {
@@ -34,7 +33,7 @@ interface TimelineEntry {
 @Component({
   selector: 'app-stock-transfer-detail',
   standalone: true,
-  imports: [RouterLink, DatePipe, UiBadge, UiButton, ReasonPrompt, TransferDispatchDialog, TransferReceiveDialog, TransferResolveDialog],
+  imports: [RouterLink, DatePipe, UiBadge, UiButton, ReasonPrompt, TransferReceiveDialog, TransferResolveDialog],
   templateUrl: './stock-transfer-detail.html',
   styleUrl: './stock-transfer-detail.scss',
 })
@@ -50,6 +49,11 @@ export class StockTransferDetail implements OnInit {
   readonly loading = signal(true);
   readonly loadError = signal<string | null>(null);
   readonly panel = signal<Panel | null>(null);
+  /** Legacy direct dispatch is gone (FI-D34): approved requests are dispatched through a shipment. */
+  readonly shipmentDispatchHint = computed(() => {
+    const s = this.transfer()?.status;
+    return s === 'Approved' || s === 'PartiallyFulfilled';
+  });
   readonly busy = signal(false);
   readonly actionError = signal<string | null>(null);
 

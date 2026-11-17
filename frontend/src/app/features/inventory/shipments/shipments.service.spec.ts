@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { ContextService } from '../../../core/context/context.service';
 import { ConsignmentsService, consignmentListParams } from '../consignments/consignments.service';
 import { ReservationsService, reservationListParams } from '../stock-reservations/reservations.service';
+import { TransitService, transitParams } from '../transit/transit.service';
 import { ShipmentsService, shipmentListParams } from './shipments.service';
 
 describe('list params', () => {
@@ -96,5 +97,49 @@ describe('ConsignmentsService / ReservationsService', () => {
     TestBed.inject(ReservationsService).release('r1', 'stale').subscribe();
     const rel = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/stock-reservations/r1/release'));
     expect(rel.request.body).toEqual({ reason: 'stale' });
+  });
+});
+
+describe('Phase 05 services', () => {
+  function setup(companyView = false) {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting(), { provide: ContextService, useValue: { companyViewActive: () => companyView } }] });
+    return TestBed.inject(HttpTestingController);
+  }
+
+  it('dispatch POSTs without a body and with the Idempotency-Key', () => {
+    const http = setup();
+    TestBed.inject(ShipmentsService).dispatch('s1', 'kd').subscribe();
+    const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/shipments/s1/dispatch'));
+    expect(req.request.headers.get('Idempotency-Key')).toBe('kd');
+    expect(req.request.body).toBeNull();
+  });
+
+  it('receipts: list, get, record (with key + body) and post (with key)', () => {
+    const http = setup();
+    const service = TestBed.inject(ConsignmentsService);
+    service.receipts('c1').subscribe();
+    http.expectOne((r) => r.method === 'GET' && r.url.endsWith('/consignments/c1/receipts'));
+    service.receipt('c1', 'r1').subscribe();
+    http.expectOne((r) => r.method === 'GET' && r.url.endsWith('/consignments/c1/receipts/r1'));
+
+    const body = { lines: [{ consignmentLineId: 'cl1', acceptedQuantity: 3, damagedQuantity: 1, rejectedQuantity: 0, missingQuantity: 0 }], notes: 'n' };
+    service.recordReceipt('c1', body, 'kr').subscribe();
+    const rec = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/consignments/c1/receipts'));
+    expect(rec.request.headers.get('Idempotency-Key')).toBe('kr');
+    expect(rec.request.body).toEqual(body);
+
+    service.postReceipt('c1', 'r1', 'kp').subscribe();
+    const post = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/consignments/c1/receipts/r1/post'));
+    expect(post.request.headers.get('Idempotency-Key')).toBe('kp');
+  });
+
+  it('transit sends the view always and scope=company only in Company view', () => {
+    expect(transitParams({ view: 'current' }, false)).toEqual({ view: 'current', page: '1', pageSize: '20' });
+    expect(transitParams({ view: 'discrepancies', search: 'x', page: 2, pageSize: 10 }, true)).toEqual({ view: 'discrepancies', search: 'x', page: '2', pageSize: '10', scope: 'company' });
+    const http = setup(true);
+    TestBed.inject(TransitService).list({ view: 'incoming' }).subscribe();
+    const req = http.expectOne((r) => r.method === 'GET' && r.url.endsWith('/transit'));
+    expect(req.request.params.get('view')).toBe('incoming');
+    expect(req.request.params.get('scope')).toBe('company');
   });
 });

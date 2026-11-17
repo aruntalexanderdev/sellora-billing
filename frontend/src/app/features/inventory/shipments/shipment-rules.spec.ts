@@ -1,7 +1,7 @@
 import {
   baseOf, buildLoadRequest, eligibleVehicles, floorUnitQty, limitsView, mapLoadProblem, maxAllocatableBase, missingLegs, plannerProblemMessage,
   referenceLabel, referenceRequired, requestRemainingBase, shipmentCapabilities, validateAllocation, validateAllocationTotal, validateHeader,
-  validateLoad, validateReference,
+  validateLoad, validateReference, buildReceiptRequest, canReceive, mapReceiptProblem, remainingToAccountBase, validateReceipt, type ReceiptRow,
 } from './shipment-rules';
 import { consignment, consignmentLine } from './shipment-fixtures';
 
@@ -38,15 +38,15 @@ describe('per-mode transport reference', () => {
 describe('status-based enablement', () => {
   const all = () => true;
   it('edits only in Draft / Loading', () => {
-    expect(shipmentCapabilities('Draft', all)).toEqual({ edit: true, load: true, cancel: true });
+    expect(shipmentCapabilities('Draft', all)).toEqual({ edit: true, load: true, cancel: true, dispatch: false });
     expect(shipmentCapabilities('Loading', all).edit).toBe(true);
-    expect(shipmentCapabilities('ReadyToDispatch', all)).toEqual({ edit: false, load: true, cancel: true });
-    expect(shipmentCapabilities('Cancelled', all)).toEqual({ edit: false, load: false, cancel: false });
+    expect(shipmentCapabilities('ReadyToDispatch', all)).toEqual({ edit: false, load: true, cancel: true, dispatch: true });
+    expect(shipmentCapabilities('Cancelled', all)).toEqual({ edit: false, load: false, cancel: false, dispatch: false });
   });
 
   it('follows the permissions', () => {
-    expect(shipmentCapabilities('Draft', (c) => c === 'Shipments.Load')).toEqual({ edit: false, load: true, cancel: false });
-    expect(shipmentCapabilities('Draft', (c) => c === 'Shipments.Plan')).toEqual({ edit: true, load: false, cancel: true });
+    expect(shipmentCapabilities('Draft', (c) => c === 'Shipments.Load')).toEqual({ edit: false, load: true, cancel: false, dispatch: false });
+    expect(shipmentCapabilities('Draft', (c) => c === 'Shipments.Plan')).toEqual({ edit: true, load: false, cancel: true, dispatch: false });
   });
 
   it('own-fleet road consignments without a leg are flagged', () => {
@@ -147,5 +147,74 @@ describe('vehicle picker', () => {
   it('active and central or assigned to the source branch, not already on the shipment', () => {
     const all = [v('central', null), v('mine', 'b1'), v('other', 'b2'), v('off', null, false), v('used', 'b1')];
     expect(eligibleVehicles(all, 'b1', ['used']).map((x) => x.id)).toEqual(['central', 'mine']);
+  });
+});
+
+describe('dispatch gating', () => {
+  it('Dispatch needs ReadyToDispatch and StockTransfers.Dispatch; cancel/edit/load vanish once dispatched', () => {
+    const dispatchOnly = (c: string) => c === 'StockTransfers.Dispatch';
+    expect(shipmentCapabilities('ReadyToDispatch', dispatchOnly).dispatch).toBe(true);
+    expect(shipmentCapabilities('ReadyToDispatch', () => false).dispatch).toBe(false);
+    for (const status of ['Draft', 'Loading', 'Dispatched', 'PartiallyDelivered', 'Delivered', 'Cancelled'] as const) {
+      expect(shipmentCapabilities(status, () => true).dispatch).toBe(false);
+    }
+    for (const status of ['Dispatched', 'PartiallyDelivered', 'Delivered'] as const) {
+      expect(shipmentCapabilities(status, () => true)).toEqual({ edit: false, load: false, cancel: false, dispatch: false });
+    }
+  });
+});
+
+describe('receipt validation', () => {
+  const row = (over: Partial<ReceiptRow> = {}): ReceiptRow => ({
+    lineId: 'cl1', unitCode: 'box', factor: 10, decimalPlaces: 0, remainingBase: 50, accepted: null, damaged: null, rejected: null, missing: null, ...over,
+  });
+
+  it('remaining = dispatched minus everything already accounted', () => {
+    expect(remainingToAccountBase({ dispatchedBaseQty: 50, acceptedBaseQty: 10, damagedBaseQty: 5, rejectedBaseQty: 5, missingBaseQty: 10 })).toBe(20);
+    expect(remainingToAccountBase({ dispatchedBaseQty: 50, acceptedBaseQty: 50, damagedBaseQty: 0, rejectedBaseQty: 0, missingBaseQty: 0 })).toBe(0);
+  });
+
+  it('accepts a total up to the remaining quantity converted with the line factor', () => {
+    expect(validateReceipt([row({ accepted: 3, damaged: 1, rejected: 0, missing: 1 })])).toEqual({ rows: {}, form: null });
+    expect(validateReceipt([row({ accepted: 3, damaged: 1, rejected: 1, missing: 1 })]).rows[0]).toMatch(/more than the 5 box/);
+  });
+
+  it('is exceeded by the sum of the four, not by any single one', () => {
+    expect(validateReceipt([row({ accepted: 5 })]).rows).toEqual({});
+    expect(validateReceipt([row({ accepted: 2, damaged: 2, rejected: 2 })]).rows[0]).toBeDefined();
+    expect(validateReceipt([row({ missing: 6 })]).rows[0]).toBeDefined();
+  });
+
+  it('follows the unit decimals and rejects negatives and an empty receipt', () => {
+    expect(validateReceipt([row({ accepted: 1.5 })]).rows[0]).toMatch(/whole numbers/i);
+    expect(validateReceipt([row({ decimalPlaces: 1, factor: 1, remainingBase: 10, accepted: 2.5 })]).rows).toEqual({});
+    expect(validateReceipt([row({ accepted: -1 })]).rows[0]).toMatch(/negative/i);
+    expect(validateReceipt([row()]).form).toMatch(/at least one/i);
+    expect(validateReceipt([]).form).toMatch(/nothing is left/i);
+  });
+
+  it('builds the request from non-zero rows only, in the line unit, trimming notes', () => {
+    const rows = [row({ accepted: 3, missing: 1 }), row({ lineId: 'cl2' })];
+    expect(buildReceiptRequest(rows, '  short one  ')).toEqual({
+      lines: [{ consignmentLineId: 'cl1', acceptedQuantity: 3, damagedQuantity: 0, rejectedQuantity: 0, missingQuantity: 1 }],
+      notes: 'short one',
+    });
+    expect(buildReceiptRequest(rows, ' ')).not.toHaveProperty('notes');
+  });
+
+  it('maps server lines[i] errors back onto the dialog rows (the request skipped zero rows)', () => {
+    const rows = [row(), row({ lineId: 'cl2', accepted: 1 })];
+    const mapped = mapReceiptProblem({ status: 400, title: 'x', errors: { 'lines[0].acceptedQuantity': ['Too many.'], status: ['Not in transit.'] } }, rows);
+    expect(mapped.rows).toEqual({ 1: 'Too many.' });
+    expect(mapped.form).toBe('Not in transit.');
+  });
+
+  it('receiving needs InTransit / PartiallyReceived and StockTransfers.Receive', () => {
+    const has = (c: string) => c === 'StockTransfers.Receive';
+    expect(canReceive('InTransit', has)).toBe(true);
+    expect(canReceive('PartiallyReceived', has)).toBe(true);
+    expect(canReceive('Received', has)).toBe(false);
+    expect(canReceive('Loaded', has)).toBe(false);
+    expect(canReceive('InTransit', () => false)).toBe(false);
   });
 });

@@ -65,16 +65,6 @@ export interface StockTransferReasonRequest {
   reason: string;
 }
 
-export interface DispatchStockTransferLineRequest {
-  lineId: string;
-  productUnitId: string;
-  quantity: number;
-}
-
-export interface DispatchStockTransferRequest {
-  lines: DispatchStockTransferLineRequest[];
-}
-
 export interface ReceiveStockTransferLineRequest {
   lineId: string;
   productUnitId: string;

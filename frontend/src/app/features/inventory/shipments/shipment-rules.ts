@@ -3,7 +3,7 @@ import { problemMessage } from '../../../core/http/api-errors';
 import { convert, formatQuantity, hasAtMostDecimals, round10 } from '../../../shared/units/unit-conversion';
 import type { BadgeTone } from '../../../shared/ui/badge/badge';
 import type {
-  Consignment, ConsignmentLine, ConsignmentStatus, LoadConsignmentRequest, ShipmentStatus, StockReservationStatus, TransportMode, TransportVia,
+  Consignment, ConsignmentDetailLine, ConsignmentLine, ConsignmentStatus, LoadConsignmentRequest, RecordReceiptRequest, ShipmentStatus, StockReservationStatus, TransportMode, TransportVia,
 } from './shipments.models';
 
 // ---- Labels ----
@@ -12,6 +12,9 @@ export const SHIPMENT_STATUS_LABELS: Record<ShipmentStatus, string> = {
   Draft: 'Draft',
   Loading: 'Loading',
   ReadyToDispatch: 'Ready to dispatch',
+  Dispatched: 'Dispatched',
+  PartiallyDelivered: 'Partially delivered',
+  Delivered: 'Delivered',
   Cancelled: 'Cancelled',
 };
 
@@ -40,15 +43,21 @@ export const referenceLabel = (m: TransportMode): string => REFERENCE_LABELS[m] 
 
 export function shipmentStatusTone(s: ShipmentStatus): BadgeTone {
   switch (s) {
-    case 'ReadyToDispatch': return 'good';
-    case 'Loading': return 'warn';
+    case 'ReadyToDispatch': case 'Delivered': return 'good';
+    case 'Loading': case 'PartiallyDelivered': return 'warn';
+    case 'Dispatched': return 'info';
     case 'Cancelled': return 'bad';
     default: return 'mute';
   }
 }
 
 export function consignmentStatusTone(s: ConsignmentStatus): BadgeTone {
-  return s === 'Loaded' ? 'good' : s === 'Cancelled' ? 'bad' : 'info';
+  switch (s) {
+    case 'Loaded': case 'Received': return 'good';
+    case 'PartiallyReceived': return 'warn';
+    case 'Cancelled': return 'bad';
+    default: return 'info';
+  }
 }
 
 export function reservationStatusTone(s: StockReservationStatus): BadgeTone {
@@ -106,6 +115,8 @@ export interface ShipmentCapabilities {
   load: boolean;
   /** Cancel the shipment or a consignment: Draft / Loading / ReadyToDispatch with Shipments.Plan. */
   cancel: boolean;
+  /** Dispatch: ReadyToDispatch only, with StockTransfers.Dispatch. Cancel/edit/load vanish once dispatched. */
+  dispatch: boolean;
 }
 
 export function shipmentCapabilities(status: ShipmentStatus, hasPermission: (code: string) => boolean): ShipmentCapabilities {
@@ -115,6 +126,7 @@ export function shipmentCapabilities(status: ShipmentStatus, hasPermission: (cod
     edit: open && hasPermission('Shipments.Plan'),
     load: live && hasPermission('Shipments.Load'),
     cancel: live && hasPermission('Shipments.Plan'),
+    dispatch: status === 'ReadyToDispatch' && hasPermission('StockTransfers.Dispatch'),
   };
 }
 
@@ -248,7 +260,7 @@ export function mapLoadProblem(problem: ApiProblem | null | undefined): LoadErro
 /** Field keys the shipment API raises on planner actions (ShipmentService). */
 const PLANNER_KEYS = [
   'status', 'transportReference', 'transportMode', 'transportVia', 'providerName', 'vehicleId', 'externalVehicleNumber', 'shipmentVehicleId',
-  'stockTransferLineId', 'productUnitId', 'quantity', 'consignmentId', 'consignmentLineId', 'lines', 'reason', 'IdempotencyKey', 'sourceLocationId',
+  'stockTransferLineId', 'productUnitId', 'quantity', 'consignmentId', 'consignmentLineId', 'lines', 'reason', 'IdempotencyKey', 'notes', 'sourceLocationId',
 ];
 
 /** All field messages of a 400 as one text (known keys first), or the generic problem message. */
@@ -316,3 +328,81 @@ export function limitsView(
     available: limits.availableBase === null ? 'unknown' : show(Math.max(0, limits.availableBase)),
   };
 }
+
+// ---- Receiving (Phase 05, FI-D35) ----
+
+/** Receiving is possible while goods are in transit or partly received. */
+export const isReceivable = (status: ConsignmentStatus): boolean => status === 'InTransit' || status === 'PartiallyReceived';
+
+export function canReceive(status: ConsignmentStatus, hasPermission: (code: string) => boolean): boolean {
+  return isReceivable(status) && hasPermission('StockTransfers.Receive');
+}
+
+/** Dispatched minus every quantity already accounted (accepted + damaged + rejected + missing), base units. */
+export function remainingToAccountBase(l: Pick<ConsignmentDetailLine, 'dispatchedBaseQty' | 'acceptedBaseQty' | 'damagedBaseQty' | 'rejectedBaseQty' | 'missingBaseQty'>): number {
+  return Math.max(0, round10(l.dispatchedBaseQty - l.acceptedBaseQty - l.damagedBaseQty - l.rejectedBaseQty - l.missingBaseQty));
+}
+
+/** Dispatched minus posted: still physically in Transit (includes damaged / rejected / missing awaiting Phase 06). */
+export const inTransitBase = (l: Pick<ConsignmentDetailLine, 'dispatchedBaseQty' | 'postedBaseQty'>): number =>
+  Math.max(0, round10(l.dispatchedBaseQty - l.postedBaseQty));
+
+export type ReceiptField = 'accepted' | 'damaged' | 'rejected' | 'missing';
+export const RECEIPT_FIELDS: readonly ReceiptField[] = ['accepted', 'damaged', 'rejected', 'missing'];
+
+export interface ReceiptRow {
+  lineId: string;
+  unitCode: string;
+  /** conversionFactorToBase of the consignment line. */
+  factor: number;
+  decimalPlaces: number;
+  /** Base units that may still be accounted for on this line. */
+  remainingBase: number;
+  accepted: number | null;
+  damaged: number | null;
+  rejected: number | null;
+  missing: number | null;
+}
+
+const rowTotal = (r: ReceiptRow): number => RECEIPT_FIELDS.reduce((sum, f) => sum + (r[f] ?? 0), 0);
+
+/** Remaining quantity of the row expressed in the line's unit (for hints). */
+export const remainingInUnit = (r: Pick<ReceiptRow, 'remainingBase' | 'factor'>): number => convert(r.remainingBase, 1, r.factor);
+
+/** Each quantity >= 0 within the unit's decimals; accepted + damaged + rejected + missing <= remaining; at least one quantity overall. */
+export function validateReceipt(rows: readonly ReceiptRow[]): LoadErrors {
+  const out: LoadErrors = { rows: {}, form: null };
+  rows.forEach((r, i) => {
+    const values = RECEIPT_FIELDS.map((f) => r[f]);
+    if (values.some((v) => v !== null && (!Number.isFinite(v) || v < 0))) out.rows[i] = 'Quantities cannot be negative.';
+    else if (values.some((v) => v !== null && !hasAtMostDecimals(v, r.decimalPlaces))) out.rows[i] = r.decimalPlaces === 0 ? 'Whole numbers only.' : `At most ${r.decimalPlaces} decimal places.`;
+    else if (baseOf(rowTotal(r), { conversionFactorToBase: r.factor }) > r.remainingBase) {
+      out.rows[i] = `Accepted + damaged + rejected + missing is more than the ${formatQuantity(remainingInUnit(r), r.decimalPlaces)} ${r.unitCode} still to account for.`;
+    }
+  });
+  if (rows.length === 0) out.form = 'Nothing is left to receive on this consignment.';
+  else if (Object.keys(out.rows).length === 0 && !rows.some((r) => rowTotal(r) > 0)) out.form = 'Enter at least one quantity.';
+  return out;
+}
+
+export function buildReceiptRequest(rows: readonly ReceiptRow[], notes: string | null): RecordReceiptRequest {
+  const text = (notes ?? '').trim();
+  return {
+    lines: rows
+      .filter((r) => rowTotal(r) > 0)
+      .map((r) => ({ consignmentLineId: r.lineId, acceptedQuantity: r.accepted ?? 0, damagedQuantity: r.damaged ?? 0, rejectedQuantity: r.rejected ?? 0, missingQuantity: r.missing ?? 0 })),
+    ...(text ? { notes: text } : {}),
+  };
+}
+
+/** `lines[i]` errors (index of the SUBMITTED, filtered lines) mapped back onto dialog rows. */
+export function mapReceiptProblem(problem: ApiProblem | null | undefined, rows: readonly ReceiptRow[]): LoadErrors {
+  const raw = mapLoadProblem(problem);
+  const sent = rows.map((r, i) => ({ r, i })).filter((x) => rowTotal(x.r) > 0).map((x) => x.i);
+  const mapped: LoadErrors = { rows: {}, form: raw.form };
+  for (const [k, v] of Object.entries(raw.rows)) mapped.rows[sent[Number(k)] ?? Number(k)] = v;
+  return mapped;
+}
+
+export const RECEIPT_SHORTFALL_NOTE =
+  'Damaged, rejected and missing quantities are recorded but stay in transit until they are resolved (Phase 06). Only accepted quantity reaches stock when the receipt is posted.';

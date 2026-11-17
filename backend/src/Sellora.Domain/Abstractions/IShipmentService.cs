@@ -33,6 +33,10 @@ public interface IShipmentService
 
     Task<Shipment?> LoadAsync(Guid id, Guid consignmentId, LoadConsignmentInput input, Guid userId, string? correlationId = null, CancellationToken ct = default);
 
+    /// <summary>FI-D34: ReadyToDispatch only. Consumes the reservations, moves the loaded quantity FIFO source to Transit, releases any allocated-but-unloaded remainder, sets the
+    /// shipment Dispatched, its consignments InTransit and the request status PartiallyFulfilled / Fulfilled. Idempotent by key.</summary>
+    Task<Shipment?> DispatchAsync(Guid id, DispatchShipmentInput input, Guid userId, string? correlationId = null, CancellationToken ct = default);
+
     /// <summary>Reservations.Release: releases an Active reservation and reduces its consignment line and the request allocation to zero. Idempotent by state. Null = not found.</summary>
     Task<StockReservation?> ReleaseReservationAsync(Guid reservationId, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default);
 }

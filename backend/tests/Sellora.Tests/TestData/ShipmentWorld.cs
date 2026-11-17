@@ -81,6 +81,66 @@ public sealed class ShipmentWorld
 
     public Task<Shipment?> CancelConsignmentAsync(Guid shipmentId, Guid consignmentId) => RunAsync(s => s.CancelConsignmentAsync(shipmentId, consignmentId, "no longer needed", UserId), null, null);
 
+    public Task<Shipment?> DispatchAsync(Guid shipmentId, string? key = null, Guid? branch = null, IEffectivePermissionService? permissions = null) =>
+        RunAsync(s => s.DispatchAsync(shipmentId, new DispatchShipmentInput(key), UserId), branch, permissions);
+
+    /// <summary>A ReadyToDispatch shipment: an approved request of <paramref name="requestedBoxes"/> (default: <paramref name="boxes"/>) Box, <paramref name="boxes"/> of it allocated and loaded in full, own-fleet leg on the central van.</summary>
+    public async Task<(Shipment S, StockTransfer T)> ReadyAsync(Guid? source = null, Guid? destination = null, decimal boxes = 5m, decimal? requestedBoxes = null)
+    {
+        var t = await ApprovedPenAsync(requestedBoxes ?? boxes, source, destination);
+        var s = await CreateShipmentAsync(source);
+        await AllocateAsync(s.Id, t.Lines.Single().Id, T.Box, boxes);
+        Guid vehicleId;
+        await using (var db = T.Db()) vehicleId = await db.Vehicles.Where(v => v.StockLocationId == L.CentralVan).Select(v => v.Id).SingleAsync();
+        var leg = (await AddOwnVehicleAsync(s.Id, vehicleId))!.Vehicles.Single().Id;
+        var planned = await ReloadAsync(s.Id);
+        var consignment = planned.Consignments.Single();
+        await AssignAsync(s.Id, consignment.Id, leg);
+        await LoadAsync(s.Id, consignment.Id, consignment.Lines.Single().Id, boxes);
+        var ready = await ReloadAsync(s.Id);
+        Assert.Equal(ShipmentStatus.ReadyToDispatch, ready.Status);
+        return (ready, await T.ReloadAsync(t.Id));
+    }
+
+    // ---- receiving (Phase 05): the destination's calls, on the BLR branch by default ----------------------------------------------------
+
+    private async Task<TResult> ReceiveRunAsync<TResult>(Func<ConsignmentReceivingService, Task<TResult>> op, Guid? branch, IEffectivePermissionService? permissions)
+    {
+        await using var db = T.Db(branch ?? Blr);
+        return await op(new ConsignmentReceivingService(db, permissions ?? Everything()));
+    }
+
+    public Task<ConsignmentReceipt?> RecordAsync(Guid consignmentId, Guid consignmentLineId, decimal accepted, decimal damaged = 0m, decimal rejected = 0m, decimal missing = 0m,
+        string? key = null, Guid? branch = null, IEffectivePermissionService? permissions = null) =>
+        ReceiveRunAsync(r => r.RecordAsync(consignmentId, new RecordReceiptInput([new ReceiptLineInput(consignmentLineId, accepted, damaged, rejected, missing)], "n", key), UserId), branch, permissions);
+
+    public Task<ConsignmentReceipt?> PostAsync(Guid consignmentId, Guid receiptId, string? key = null, Guid? branch = null, IEffectivePermissionService? permissions = null) =>
+        ReceiveRunAsync(r => r.PostAsync(consignmentId, receiptId, new PostReceiptInput(key), UserId), branch, permissions);
+
+    public async Task<List<ConsignmentReceipt>> ReceiptsAsync(Guid consignmentId)
+    {
+        await using var db = T.Db();
+        return await db.ConsignmentReceipts.AsNoTracking().Include(r => r.Lines).Where(r => r.ConsignmentId == consignmentId).OrderBy(r => r.Sequence).ToListAsync();
+    }
+
+    public async Task<ConsignmentLine> LineAsync(Guid consignmentLineId)
+    {
+        await using var db = T.Db();
+        return await db.ConsignmentLines.AsNoTracking().SingleAsync(l => l.Id == consignmentLineId);
+    }
+
+    public async Task<List<StockTransferLineBatch>> BatchRowsAsync()
+    {
+        await using var db = T.Db();
+        return await db.StockTransferLineBatches.AsNoTracking().ToListAsync();
+    }
+
+    public async Task<List<StockMovement>> MovementsAsync(Guid transferId)
+    {
+        await using var db = T.Db();
+        return await db.StockMovements.AsNoTracking().Where(m => m.ReferenceType == "StockTransfer" && m.ReferenceId == transferId).OrderBy(m => m.OccurredAt).ToListAsync();
+    }
+
     public Task<StockReservation?> ReleaseAsync(Guid reservationId, Guid? branch = null) =>
         RunAsync(s => s.ReleaseReservationAsync(reservationId, "stale plan", UserId), branch, null);
 
@@ -128,7 +188,8 @@ public sealed class ShipmentWorld
         }
         foreach (var l in lines)
         {
-            var active = reservations.Where(r => r.ConsignmentLineId == l.Id && r.Status == StockReservationStatus.Active).Sum(r => r.BaseQty);
+            // A dispatched line's reservation is Consumed (its BaseQty = the dispatched quantity); only Active reservations count towards ReservedQuantity.
+            var active = reservations.Where(r => r.ConsignmentLineId == l.Id && r.Status is StockReservationStatus.Active or StockReservationStatus.Consumed).Sum(r => r.BaseQty);
             Assert.True(l.Status == ConsignmentLineStatus.Active ? l.AllocatedBaseQty == active : active == 0 && l.AllocatedBaseQty == 0 && l.LoadedBaseQty == 0, $"{step}: line {l.Id} vs reservation");
             Assert.True(l.LoadedBaseQty <= l.AllocatedBaseQty, $"{step}: loaded above allocated");
             Assert.True(l.EnteredQty * l.ConversionFactorToBase == l.AllocatedBaseQty, $"{step}: line arithmetic");

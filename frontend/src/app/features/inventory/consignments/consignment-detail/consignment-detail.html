@@ -37,6 +37,7 @@
       <div><dt>{{ refLabel(c.transportMode) }}</dt><dd>{{ c.transportReference || '—' }}</dd></div>
       <div><dt>Planned dispatch</dt><dd>{{ c.plannedDispatchDate || '—' }}</dd></div>
       <div><dt>Loaded</dt><dd>{{ c.loadedAt ? (c.loadedAt.slice(0, 16).replace('T', ' ')) : '—' }}</dd></div>
+      <div><dt>Dispatched</dt><dd data-testid="dispatched-at">{{ c.dispatchedAt ? (c.dispatchedAt.slice(0, 16).replace('T', ' ')) : '—' }}</dd></div>
       @if (c.leg; as leg) {
         <div data-testid="leg">
           <dt>Vehicle</dt>
@@ -46,10 +47,31 @@
     </dl>
   </div>
 
+  @if (actionError(); as e) {
+    <div class="server-error" role="alert" data-testid="action-error">{{ e }}</div>
+  }
+
+  @if (receivable()) {
+    <div class="action-bar" data-testid="receive-actions">
+      <ui-button variant="primary" data-testid="act-receipt" [disabled]="!hasRemaining()" (onClick)="openReceipt()">Record receipt</ui-button>
+    </div>
+    @if (receiptOpen()) {
+      <app-receipt-dialog [consignment]="c" [submission]="submissionForReceipt()" (done)="onReceiptRecorded()" (cancelled)="closeReceipt()" />
+    }
+  }
+
   <div class="detail-card">
     <div class="card-title">Lines</div>
     <table>
-      <thead><tr><th>Request</th><th>Product</th><th class="num">Allocated</th><th class="num">Loaded</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Request</th><th>Product</th><th class="num">Allocated</th><th class="num">Loaded</th>
+          @if (dispatched()) {
+            <th class="num">Dispatched</th><th class="num">Accepted</th><th class="num">Damaged</th><th class="num">Rejected</th>
+            <th class="num">Missing</th><th class="num">Posted</th><th class="num">Outstanding</th>
+          }
+        </tr>
+      </thead>
       <tbody>
         @for (l of c.lines; track l.id) {
           <tr data-testid="line">
@@ -57,11 +79,61 @@
             <td>{{ l.productName }}<div class="sub">{{ l.productSku }}</div></td>
             <td class="num">{{ qty(l.enteredQty) }} {{ l.unitCode }}<div class="sub">= {{ qty(l.allocatedBaseQty) }} {{ l.baseUnitCode }}</div></td>
             <td class="num">{{ qty(l.loadedQty) }} {{ l.unitCode }}</td>
+            @if (dispatched()) {
+              <td class="num" data-testid="q-dispatched">{{ base(l.dispatchedBaseQty) }}</td>
+              <td class="num" data-testid="q-accepted">{{ base(l.acceptedBaseQty) }}</td>
+              <td class="num" data-testid="q-damaged">{{ base(l.damagedBaseQty) }}</td>
+              <td class="num" data-testid="q-rejected">{{ base(l.rejectedBaseQty) }}</td>
+              <td class="num" data-testid="q-missing">{{ base(l.missingBaseQty) }}</td>
+              <td class="num" data-testid="q-posted">{{ base(l.postedBaseQty) }}</td>
+              <td class="num" data-testid="q-outstanding">{{ base(remainingBase(l)) }}<div class="sub">in transit {{ base(inTransit(l)) }}</div></td>
+            }
           </tr>
         }
       </tbody>
     </table>
+    @if (dispatched()) {
+      <p class="sub" data-testid="base-note">Dispatched quantities are in base units ({{ c.lines[0]?.baseUnitCode }}). Outstanding = dispatched minus accepted, damaged, rejected and missing. {{ shortfallNote }}</p>
+    }
   </div>
+
+  @if (receipts().length > 0) {
+    <div class="detail-card" data-testid="receipts">
+      <div class="card-title">Receipts</div>
+      @for (r of receipts(); track r.id) {
+        <div class="receipt" [attr.data-testid]="'receipt-' + r.sequence">
+          <div class="receipt-head">
+            <strong>Receipt #{{ r.sequence }}</strong>
+            <ui-badge [text]="r.status" [tone]="r.status === 'Posted' ? 'good' : 'warn'" />
+            <span class="sub">Verified by {{ r.verified.userName }} · {{ r.verified.at | date: 'medium' }}</span>
+            @if (r.posted; as p) {
+              <span class="sub">Posted by {{ p.userName }} · {{ p.at | date: 'medium' }}</span>
+            }
+            @if (canPost(r)) {
+              <ui-button variant="primary" [attr.data-testid]="'post-' + r.sequence" [disabled]="busyReceiptId() === r.id" (onClick)="post(r)">{{ busyReceiptId() === r.id ? 'Posting…' : 'Post' }}</ui-button>
+            }
+          </div>
+          @if (r.notes) {
+            <div class="sub">{{ r.notes }}</div>
+          }
+          <table>
+            <thead><tr><th>Product</th><th class="num">Accepted</th><th class="num">Damaged</th><th class="num">Rejected</th><th class="num">Missing</th></tr></thead>
+            <tbody>
+              @for (l of r.lines; track l.consignmentLineId) {
+                <tr>
+                  <td>{{ l.productName }}<div class="sub">{{ l.productSku }}</div></td>
+                  <td class="num">{{ l.acceptedQty }} {{ l.unitCode }}</td>
+                  <td class="num">{{ l.damagedQty }} {{ l.unitCode }}</td>
+                  <td class="num">{{ l.rejectedQty }} {{ l.unitCode }}</td>
+                  <td class="num">{{ l.missingQty }} {{ l.unitCode }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+  }
 } @else {
   <p class="muted" data-testid="not-found">Consignment not found.</p>
 }

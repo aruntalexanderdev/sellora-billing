@@ -97,6 +97,10 @@ public static class AuditActions
     public const string ShipmentLoaded = "shipment.loaded";
     public const string ConsignmentCancelled = "consignment.cancelled";
     public const string StockReservationReleased = "stock_reservation.released";
+    // Phase 05 (FI-D34/D35).
+    public const string ShipmentDispatched = "shipment.dispatched";
+    public const string ConsignmentReceiptVerified = "consignment.receipt_verified";
+    public const string ConsignmentReceiptPosted = "consignment.receipt_posted";
     // Products: hard delete of a product without history (the only product change audited so far).
     public const string ProductDeleted = "product.deleted";
 }
