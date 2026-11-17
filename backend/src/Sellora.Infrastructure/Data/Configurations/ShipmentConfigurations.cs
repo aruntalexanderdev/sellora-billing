@@ -42,9 +42,9 @@ public class ShipmentConfiguration : IEntityTypeConfiguration<Shipment>
 
         builder.ToTable(t =>
         {
-            t.HasCheckConstraint("CK_Shipments_Status_Valid", "\"Status\" IN ('Draft', 'Loading', 'ReadyToDispatch', 'Cancelled', 'Dispatched', 'PartiallyDelivered', 'Delivered')");
+            t.HasCheckConstraint("CK_Shipments_Status_Valid", "\"Status\" IN ('Draft', 'Loading', 'ReadyToDispatch', 'Cancelled', 'Dispatched', 'PartiallyDelivered', 'Delivered', 'Completed')");
             t.HasCheckConstraint("CK_Shipments_Status_Dispatched",
-                "(\"Status\" IN ('Dispatched', 'PartiallyDelivered', 'Delivered')) = (\"DispatchedAt\" IS NOT NULL) AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL)");
+                "(\"Status\" IN ('Dispatched', 'PartiallyDelivered', 'Delivered', 'Completed')) = (\"DispatchedAt\" IS NOT NULL) AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL)");
             t.HasCheckConstraint("CK_Shipments_TransportMode_Valid", "\"TransportMode\" IN ('Road', 'Air', 'Sea', 'Rail', 'Courier', 'HandCarry')");
             t.HasCheckConstraint("CK_Shipments_TransportVia_Valid", "\"TransportVia\" IN ('OwnFleet', 'ExternalProvider')");
             t.HasCheckConstraint("CK_Shipments_Provider_Required", "\"TransportVia\" <> 'ExternalProvider' OR COALESCE(char_length(\"ProviderName\"), 0) > 0");
@@ -124,8 +124,8 @@ public class ConsignmentConfiguration : IEntityTypeConfiguration<Consignment>
 
         builder.ToTable(t =>
         {
-            t.HasCheckConstraint("CK_Consignments_Status_Valid", "\"Status\" IN ('Planned', 'Loaded', 'Cancelled', 'InTransit', 'PartiallyReceived', 'Received')");
-            t.HasCheckConstraint("CK_Consignments_Status_Dispatched", "(\"Status\" IN ('InTransit', 'PartiallyReceived', 'Received')) = (\"DispatchedAt\" IS NOT NULL)");
+            t.HasCheckConstraint("CK_Consignments_Status_Valid", "\"Status\" IN ('Planned', 'Loaded', 'Cancelled', 'InTransit', 'PartiallyReceived', 'Received', 'Reconciled')");
+            t.HasCheckConstraint("CK_Consignments_Status_Dispatched", "(\"Status\" IN ('InTransit', 'PartiallyReceived', 'Received', 'Reconciled')) = (\"DispatchedAt\" IS NOT NULL)");
             t.HasCheckConstraint("CK_Consignments_Status_Cancellation",
                 "(\"Status\" = 'Cancelled') = (\"CancelledAt\" IS NOT NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL) AND (\"CancellationReason\" IS NULL OR \"Status\" = 'Cancelled')");
             // Loaded needs its stamp; a Planned consignment has none.
@@ -147,7 +147,8 @@ public class ConsignmentLineConfiguration : IEntityTypeConfiguration<Consignment
         builder.Property(l => l.AllocatedBaseQty).HasColumnType("numeric(18,3)");
         builder.Property(l => l.LoadedBaseQty).HasColumnType("numeric(18,3)").HasDefaultValue(0m);
         foreach (var p in new[] { nameof(ConsignmentLine.DispatchedBaseQty), nameof(ConsignmentLine.AcceptedBaseQty), nameof(ConsignmentLine.DamagedBaseQty),
-                     nameof(ConsignmentLine.RejectedBaseQty), nameof(ConsignmentLine.MissingBaseQty), nameof(ConsignmentLine.PostedBaseQty) })
+                     nameof(ConsignmentLine.RejectedBaseQty), nameof(ConsignmentLine.MissingBaseQty), nameof(ConsignmentLine.PostedBaseQty),
+                     nameof(ConsignmentLine.DispositionedDamagedBaseQty), nameof(ConsignmentLine.DispositionedRejectedBaseQty), nameof(ConsignmentLine.DispositionedMissingBaseQty) })
         {
             builder.Property(p).HasColumnType("numeric(18,3)").HasDefaultValue(0m);
         }
@@ -188,6 +189,9 @@ public class ConsignmentLineConfiguration : IEntityTypeConfiguration<Consignment
             t.HasCheckConstraint("CK_ConsignmentLines_Receiving_NonNegative", "\"AcceptedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"RejectedBaseQty\" >= 0 AND \"MissingBaseQty\" >= 0 AND \"PostedBaseQty\" >= 0");
             t.HasCheckConstraint("CK_ConsignmentLines_Receiving_Max", "\"AcceptedBaseQty\" + \"DamagedBaseQty\" + \"RejectedBaseQty\" + \"MissingBaseQty\" <= \"DispatchedBaseQty\"");
             t.HasCheckConstraint("CK_ConsignmentLines_Posted_Valid", "\"PostedBaseQty\" <= \"AcceptedBaseQty\"");
+            // FI-D40: dispositioned quantity per bucket never exceeds that bucket's verified quantity.
+            t.HasCheckConstraint("CK_ConsignmentLines_Dispositioned_Valid",
+                "\"DispositionedDamagedBaseQty\" >= 0 AND \"DispositionedDamagedBaseQty\" <= \"DamagedBaseQty\" AND \"DispositionedRejectedBaseQty\" >= 0 AND \"DispositionedRejectedBaseQty\" <= \"RejectedBaseQty\" AND \"DispositionedMissingBaseQty\" >= 0 AND \"DispositionedMissingBaseQty\" <= \"MissingBaseQty\"");
         });
     }
 }
@@ -239,23 +243,35 @@ public class ConsignmentReceiptConfiguration : IEntityTypeConfiguration<Consignm
     {
         builder.HasKey(r => r.Id);
         builder.HasAlternateKey(r => new { r.CompanyId, r.Id });
-        builder.Property(r => r.Status).HasConversion<string>().HasMaxLength(20);
+        builder.Property(r => r.Status).HasConversion<string>().HasMaxLength(30);
         builder.Property(r => r.Notes).HasMaxLength(500);
+        builder.Property(r => r.PolicyMode).HasConversion<string>().HasMaxLength(20).HasDefaultValue(ReceiptPostingMode.Direct);
+        builder.Property(r => r.RequireSeparation).HasDefaultValue(false);
+        builder.Property(r => r.RejectionReason).HasMaxLength(300);
 
         builder.HasIndex(r => new { r.ConsignmentId, r.Sequence }, "IX_ConsignmentReceipts_ConsignmentId_Sequence").IsUnique();
         builder.HasIndex(r => new { r.CompanyId, r.ConsignmentId }, "IX_ConsignmentReceipts_CompanyId_ConsignmentId");
         builder.HasIndex(r => new { r.CompanyId, r.Status }, "IX_ConsignmentReceipts_CompanyId_Status_Verified").HasFilter("\"Status\" = 'Verified'");
+        builder.HasIndex(r => new { r.CompanyId, r.Status }, "IX_ConsignmentReceipts_CompanyId_Status_PendingApproval").HasFilter("\"Status\" = 'PendingApproval'");
 
         builder.HasOne<Consignment>().WithMany().HasForeignKey(r => new { r.CompanyId, r.ConsignmentId })
             .HasPrincipalKey(c => new { c.CompanyId, c.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_ConsignmentReceipts_Consignments");
         builder.HasOne<User>().WithMany().HasForeignKey(r => r.VerifiedByUserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_ConsignmentReceipts_Users_VerifiedBy");
         builder.HasOne<User>().WithMany().HasForeignKey(r => r.PostedByUserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_ConsignmentReceipts_Users_PostedBy");
+        builder.HasOne<User>().WithMany().HasForeignKey(r => r.RejectedByUserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_ConsignmentReceipts_Users_RejectedBy");
 
         builder.ToTable(t =>
         {
-            t.HasCheckConstraint("CK_ConsignmentReceipts_Status_Valid", "\"Status\" IN ('Verified', 'Posted')");
+            t.HasCheckConstraint("CK_ConsignmentReceipts_Status_Valid", "\"Status\" IN ('Verified', 'Posted', 'PendingApproval', 'RejectedForCorrection')");
             t.HasCheckConstraint("CK_ConsignmentReceipts_Sequence_Positive", "\"Sequence\" > 0");
+            t.HasCheckConstraint("CK_ConsignmentReceipts_PolicyMode_Valid", "\"PolicyMode\" IN ('Direct', 'SupervisorApproval')");
+            // FI-D39: a Direct receipt is created Verified, a SupervisorApproval one PendingApproval; Posted/Rejected are reachable from either.
+            t.HasCheckConstraint("CK_ConsignmentReceipts_Status_Policy", "(\"Status\" <> 'Verified' OR \"PolicyMode\" = 'Direct') AND (\"Status\" <> 'PendingApproval' OR \"PolicyMode\" = 'SupervisorApproval')");
+            t.HasCheckConstraint("CK_ConsignmentReceipts_Status_Rejected",
+                "(\"Status\" = 'RejectedForCorrection') = (\"RejectedAt\" IS NOT NULL) AND (\"RejectedAt\" IS NULL) = (\"RejectedByUserId\" IS NULL) AND (\"Status\" <> 'RejectedForCorrection' OR COALESCE(char_length(btrim(\"RejectionReason\")), 0) > 0) AND (\"RejectionReason\" IS NULL OR \"Status\" = 'RejectedForCorrection')");
+            // FI-D39 separation of duties, DB-expressible half: a posted receipt under RequireSeparation was not posted by its recorder.
+            t.HasCheckConstraint("CK_ConsignmentReceipts_Separation", "NOT \"RequireSeparation\" OR \"PostedByUserId\" IS NULL OR \"PostedByUserId\" <> \"VerifiedByUserId\"");
             t.HasCheckConstraint("CK_ConsignmentReceipts_Status_Posted", "(\"Status\" = 'Posted') = (\"PostedAt\" IS NOT NULL) AND (\"PostedAt\" IS NULL) = (\"PostedByUserId\" IS NULL)");
         });
     }
@@ -303,6 +319,75 @@ public class ConsignmentReceiptLineConfiguration : IEntityTypeConfiguration<Cons
             t.HasCheckConstraint("CK_ConsignmentReceiptLines_Arithmetic",
                 "\"AcceptedEnteredQty\" * \"ConversionFactorToBase\" = \"AcceptedBaseQty\" AND \"DamagedEnteredQty\" * \"ConversionFactorToBase\" = \"DamagedBaseQty\" AND \"RejectedEnteredQty\" * \"ConversionFactorToBase\" = \"RejectedBaseQty\" AND \"MissingEnteredQty\" * \"ConversionFactorToBase\" = \"MissingBaseQty\"");
             t.HasCheckConstraint("CK_ConsignmentReceiptLines_AnyPositive", "\"AcceptedBaseQty\" + \"DamagedBaseQty\" + \"RejectedBaseQty\" + \"MissingBaseQty\" > 0");
+        });
+    }
+}
+
+// Phase 06 (FI-D40): append-only disposition records resolving damaged / rejected / missing quantity.
+public class ConsignmentDispositionConfiguration : IEntityTypeConfiguration<ConsignmentDisposition>
+{
+    public void Configure(EntityTypeBuilder<ConsignmentDisposition> builder)
+    {
+        builder.HasKey(d => d.Id);
+        builder.HasAlternateKey(d => new { d.CompanyId, d.Id });
+        builder.Property(d => d.Reason).HasMaxLength(500).IsRequired();
+
+        builder.HasIndex(d => new { d.ConsignmentId, d.Sequence }, "IX_ConsignmentDispositions_ConsignmentId_Sequence").IsUnique();
+        builder.HasIndex(d => new { d.CompanyId, d.ConsignmentId }, "IX_ConsignmentDispositions_CompanyId_ConsignmentId");
+        builder.HasIndex(d => new { d.CompanyId, d.At }, "IX_ConsignmentDispositions_CompanyId_At");
+
+        builder.HasOne<Consignment>().WithMany().HasForeignKey(d => new { d.CompanyId, d.ConsignmentId })
+            .HasPrincipalKey(c => new { c.CompanyId, c.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_ConsignmentDispositions_Consignments");
+        builder.HasOne<User>().WithMany().HasForeignKey(d => d.ByUserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_ConsignmentDispositions_Users_By");
+
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_ConsignmentDispositions_Sequence_Positive", "\"Sequence\" > 0");
+            t.HasCheckConstraint("CK_ConsignmentDispositions_Reason_Required", "char_length(btrim(\"Reason\")) > 0");
+        });
+    }
+}
+
+public class ConsignmentDispositionLineConfiguration : IEntityTypeConfiguration<ConsignmentDispositionLine>
+{
+    public void Configure(EntityTypeBuilder<ConsignmentDispositionLine> builder)
+    {
+        builder.HasKey(l => l.Id);
+        builder.HasAlternateKey(l => new { l.CompanyId, l.Id });
+        builder.Property(l => l.UnitCode).HasMaxLength(10).IsRequired();
+        builder.Property(l => l.Bucket).HasConversion<string>().HasMaxLength(20);
+        builder.Property(l => l.Action).HasConversion<string>().HasMaxLength(25);
+        builder.Property(l => l.ConversionFactorToBase).HasColumnType("numeric(28,10)");
+        builder.Property(l => l.EnteredQty).HasColumnType("numeric(18,3)");
+        builder.Property(l => l.BaseQty).HasColumnType("numeric(18,3)");
+
+        builder.HasIndex(l => new { l.DispositionId, l.ConsignmentLineId, l.Bucket, l.Action }, "IX_ConsignmentDispositionLines_Disposition_Line_Bucket_Action").IsUnique();
+        builder.HasIndex(l => new { l.CompanyId, l.ConsignmentLineId }, "IX_ConsignmentDispositionLines_CompanyId_ConsignmentLineId");
+        builder.HasIndex(l => new { l.ProductId, l.ProductUnitId }, "IX_ConsignmentDispositionLines_ProductId_ProductUnitId");
+        builder.HasIndex(l => l.UnitId, "IX_ConsignmentDispositionLines_UnitId");
+
+        builder.HasOne<ConsignmentDisposition>().WithMany(d => d.Lines).HasForeignKey(l => new { l.CompanyId, l.DispositionId })
+            .HasPrincipalKey(d => new { d.CompanyId, d.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_ConsignmentDispositionLines_Dispositions");
+        builder.HasOne<ConsignmentLine>().WithMany().HasForeignKey(l => new { l.CompanyId, l.ConsignmentLineId })
+            .HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_ConsignmentDispositionLines_ConsignmentLines");
+        builder.HasOne<Product>().WithMany().HasForeignKey(l => new { l.CompanyId, l.ProductId })
+            .HasPrincipalKey(p => new { p.CompanyId, p.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_ConsignmentDispositionLines_Products");
+        builder.HasOne<ProductUnit>().WithMany().HasForeignKey(l => new { l.ProductId, l.ProductUnitId })
+            .HasPrincipalKey(u => new { u.ProductId, u.Id }).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_ConsignmentDispositionLines_ProductUnits");
+        builder.HasOne<Unit>().WithMany().HasForeignKey(l => l.UnitId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_ConsignmentDispositionLines_Units");
+
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_ConsignmentDispositionLines_Bucket_Valid", "\"Bucket\" IN ('Damaged', 'Rejected', 'Missing')");
+            t.HasCheckConstraint("CK_ConsignmentDispositionLines_Action_Valid", "\"Action\" IN ('WriteOff', 'ReturnToSource', 'AcceptToDestination')");
+            t.HasCheckConstraint("CK_ConsignmentDispositionLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
+            t.HasCheckConstraint("CK_ConsignmentDispositionLines_BaseQty_Positive", "\"BaseQty\" > 0");
+            t.HasCheckConstraint("CK_ConsignmentDispositionLines_Arithmetic", "\"EnteredQty\" * \"ConversionFactorToBase\" = \"BaseQty\"");
         });
     }
 }

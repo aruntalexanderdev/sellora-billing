@@ -246,6 +246,18 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
 
+                    b.Property<string>("ReceiptPostingMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Direct");
+
+                    b.Property<bool>("ReceiptSeparationOfDuties")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("State")
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
@@ -257,7 +269,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex(new[] { "CompanyId" }, "IX_BusinessSettings_CompanyId")
                         .IsUnique();
 
-                    b.ToTable("BusinessSettings");
+                    b.ToTable("BusinessSettings", t =>
+                        {
+                            t.HasCheckConstraint("CK_BusinessSettings_ReceiptPostingMode_Valid", "\"ReceiptPostingMode\" IN ('Direct', 'SupervisorApproval')");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Company", b =>
@@ -459,11 +474,135 @@ namespace Sellora.Infrastructure.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_Consignments_Status_Cancellation", "(\"Status\" = 'Cancelled') = (\"CancelledAt\" IS NOT NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL) AND (\"CancellationReason\" IS NULL OR \"Status\" = 'Cancelled')");
 
-                            t.HasCheckConstraint("CK_Consignments_Status_Dispatched", "(\"Status\" IN ('InTransit', 'PartiallyReceived', 'Received')) = (\"DispatchedAt\" IS NOT NULL)");
+                            t.HasCheckConstraint("CK_Consignments_Status_Dispatched", "(\"Status\" IN ('InTransit', 'PartiallyReceived', 'Received', 'Reconciled')) = (\"DispatchedAt\" IS NOT NULL)");
 
                             t.HasCheckConstraint("CK_Consignments_Status_Loaded", "(\"Status\" <> 'Loaded' OR \"LoadedAt\" IS NOT NULL) AND (\"Status\" <> 'Planned' OR \"LoadedAt\" IS NULL) AND (\"LoadedAt\" IS NULL) = (\"LoadedByUserId\" IS NULL)");
 
-                            t.HasCheckConstraint("CK_Consignments_Status_Valid", "\"Status\" IN ('Planned', 'Loaded', 'Cancelled', 'InTransit', 'PartiallyReceived', 'Received')");
+                            t.HasCheckConstraint("CK_Consignments_Status_Valid", "\"Status\" IN ('Planned', 'Loaded', 'Cancelled', 'InTransit', 'PartiallyReceived', 'Received', 'Reconciled')");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ConsignmentDisposition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConsignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ByUserId");
+
+                    b.HasIndex(new[] { "CompanyId", "At" }, "IX_ConsignmentDispositions_CompanyId_At");
+
+                    b.HasIndex(new[] { "CompanyId", "ConsignmentId" }, "IX_ConsignmentDispositions_CompanyId_ConsignmentId");
+
+                    b.HasIndex(new[] { "ConsignmentId", "Sequence" }, "IX_ConsignmentDispositions_ConsignmentId_Sequence")
+                        .IsUnique();
+
+                    b.ToTable("ConsignmentDispositions", t =>
+                        {
+                            t.HasCheckConstraint("CK_ConsignmentDispositions_Reason_Required", "char_length(btrim(\"Reason\")) > 0");
+
+                            t.HasCheckConstraint("CK_ConsignmentDispositions_Sequence_Positive", "\"Sequence\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ConsignmentDispositionLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(25)
+                        .HasColumnType("character varying(25)");
+
+                    b.Property<decimal>("BaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<string>("Bucket")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConsignmentLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ConversionFactorToBase")
+                        .HasColumnType("numeric(28,10)");
+
+                    b.Property<Guid>("DispositionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("EnteredQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductUnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UnitCode")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid>("UnitId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id");
+
+                    b.HasIndex("CompanyId", "DispositionId");
+
+                    b.HasIndex("CompanyId", "ProductId");
+
+                    b.HasIndex(new[] { "CompanyId", "ConsignmentLineId" }, "IX_ConsignmentDispositionLines_CompanyId_ConsignmentLineId");
+
+                    b.HasIndex(new[] { "DispositionId", "ConsignmentLineId", "Bucket", "Action" }, "IX_ConsignmentDispositionLines_Disposition_Line_Bucket_Action")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "ProductId", "ProductUnitId" }, "IX_ConsignmentDispositionLines_ProductId_ProductUnitId");
+
+                    b.HasIndex(new[] { "UnitId" }, "IX_ConsignmentDispositionLines_UnitId");
+
+                    b.ToTable("ConsignmentDispositionLines", t =>
+                        {
+                            t.HasCheckConstraint("CK_ConsignmentDispositionLines_Action_Valid", "\"Action\" IN ('WriteOff', 'ReturnToSource', 'AcceptToDestination')");
+
+                            t.HasCheckConstraint("CK_ConsignmentDispositionLines_Arithmetic", "\"EnteredQty\" * \"ConversionFactorToBase\" = \"BaseQty\"");
+
+                            t.HasCheckConstraint("CK_ConsignmentDispositionLines_BaseQty_Positive", "\"BaseQty\" > 0");
+
+                            t.HasCheckConstraint("CK_ConsignmentDispositionLines_Bucket_Valid", "\"Bucket\" IN ('Damaged', 'Rejected', 'Missing')");
+
+                            t.HasCheckConstraint("CK_ConsignmentDispositionLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
                         });
                 });
 
@@ -502,6 +641,21 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasDefaultValue(0m);
 
                     b.Property<decimal>("DispatchedBaseQty")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,3)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal>("DispositionedDamagedBaseQty")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,3)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal>("DispositionedMissingBaseQty")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,3)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal>("DispositionedRejectedBaseQty")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("numeric(18,3)")
                         .HasDefaultValue(0m);
@@ -583,6 +737,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_ConsignmentLines_Dispatched_Valid", "\"DispatchedBaseQty\" >= 0 AND \"DispatchedBaseQty\" <= \"AllocatedBaseQty\"");
 
+                            t.HasCheckConstraint("CK_ConsignmentLines_Dispositioned_Valid", "\"DispositionedDamagedBaseQty\" >= 0 AND \"DispositionedDamagedBaseQty\" <= \"DamagedBaseQty\" AND \"DispositionedRejectedBaseQty\" >= 0 AND \"DispositionedRejectedBaseQty\" <= \"RejectedBaseQty\" AND \"DispositionedMissingBaseQty\" >= 0 AND \"DispositionedMissingBaseQty\" <= \"MissingBaseQty\"");
+
                             t.HasCheckConstraint("CK_ConsignmentLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
 
                             t.HasCheckConstraint("CK_ConsignmentLines_Loaded_Valid", "\"LoadedBaseQty\" >= 0 AND \"LoadedBaseQty\" <= \"AllocatedBaseQty\"");
@@ -615,19 +771,41 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("PolicyMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Direct");
+
                     b.Property<DateTimeOffset?>("PostedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("PostedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("RejectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RejectedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<bool>("RequireSeparation")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<int>("Sequence")
                         .HasColumnType("integer");
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
 
                     b.Property<DateTimeOffset>("VerifiedAt")
                         .HasColumnType("timestamp with time zone");
@@ -639,9 +817,14 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("PostedByUserId");
 
+                    b.HasIndex("RejectedByUserId");
+
                     b.HasIndex("VerifiedByUserId");
 
                     b.HasIndex(new[] { "CompanyId", "ConsignmentId" }, "IX_ConsignmentReceipts_CompanyId_ConsignmentId");
+
+                    b.HasIndex(new[] { "CompanyId", "Status" }, "IX_ConsignmentReceipts_CompanyId_Status_PendingApproval")
+                        .HasFilter("\"Status\" = 'PendingApproval'");
 
                     b.HasIndex(new[] { "CompanyId", "Status" }, "IX_ConsignmentReceipts_CompanyId_Status_Verified")
                         .HasFilter("\"Status\" = 'Verified'");
@@ -651,11 +834,19 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.ToTable("ConsignmentReceipts", t =>
                         {
+                            t.HasCheckConstraint("CK_ConsignmentReceipts_PolicyMode_Valid", "\"PolicyMode\" IN ('Direct', 'SupervisorApproval')");
+
+                            t.HasCheckConstraint("CK_ConsignmentReceipts_Separation", "NOT \"RequireSeparation\" OR \"PostedByUserId\" IS NULL OR \"PostedByUserId\" <> \"VerifiedByUserId\"");
+
                             t.HasCheckConstraint("CK_ConsignmentReceipts_Sequence_Positive", "\"Sequence\" > 0");
+
+                            t.HasCheckConstraint("CK_ConsignmentReceipts_Status_Policy", "(\"Status\" <> 'Verified' OR \"PolicyMode\" = 'Direct') AND (\"Status\" <> 'PendingApproval' OR \"PolicyMode\" = 'SupervisorApproval')");
 
                             t.HasCheckConstraint("CK_ConsignmentReceipts_Status_Posted", "(\"Status\" = 'Posted') = (\"PostedAt\" IS NOT NULL) AND (\"PostedAt\" IS NULL) = (\"PostedByUserId\" IS NULL)");
 
-                            t.HasCheckConstraint("CK_ConsignmentReceipts_Status_Valid", "\"Status\" IN ('Verified', 'Posted')");
+                            t.HasCheckConstraint("CK_ConsignmentReceipts_Status_Rejected", "(\"Status\" = 'RejectedForCorrection') = (\"RejectedAt\" IS NOT NULL) AND (\"RejectedAt\" IS NULL) = (\"RejectedByUserId\" IS NULL) AND (\"Status\" <> 'RejectedForCorrection' OR COALESCE(char_length(btrim(\"RejectionReason\")), 0) > 0) AND (\"RejectionReason\" IS NULL OR \"Status\" = 'RejectedForCorrection')");
+
+                            t.HasCheckConstraint("CK_ConsignmentReceipts_Status_Valid", "\"Status\" IN ('Verified', 'Posted', 'PendingApproval', 'RejectedForCorrection')");
                         });
                 });
 
@@ -2852,9 +3043,9 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_Shipments_Status_Cancellation", "(\"Status\" = 'Cancelled') = (\"CancelledAt\" IS NOT NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL) AND (\"CancellationReason\" IS NULL OR \"Status\" = 'Cancelled')");
 
-                            t.HasCheckConstraint("CK_Shipments_Status_Dispatched", "(\"Status\" IN ('Dispatched', 'PartiallyDelivered', 'Delivered')) = (\"DispatchedAt\" IS NOT NULL) AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL)");
+                            t.HasCheckConstraint("CK_Shipments_Status_Dispatched", "(\"Status\" IN ('Dispatched', 'PartiallyDelivered', 'Delivered', 'Completed')) = (\"DispatchedAt\" IS NOT NULL) AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL)");
 
-                            t.HasCheckConstraint("CK_Shipments_Status_Valid", "\"Status\" IN ('Draft', 'Loading', 'ReadyToDispatch', 'Cancelled', 'Dispatched', 'PartiallyDelivered', 'Delivered')");
+                            t.HasCheckConstraint("CK_Shipments_Status_Valid", "\"Status\" IN ('Draft', 'Loading', 'ReadyToDispatch', 'Cancelled', 'Dispatched', 'PartiallyDelivered', 'Delivered', 'Completed')");
 
                             t.HasCheckConstraint("CK_Shipments_TransportMode_Valid", "\"TransportMode\" IN ('Road', 'Air', 'Sea', 'Rail', 'Courier', 'HandCarry')");
 
@@ -3619,6 +3810,11 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<decimal>("AcceptedCorrectionBaseQty")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,3)")
+                        .HasDefaultValue(0m);
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -3670,9 +3866,9 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.ToTable("StockTransferLineBatches", t =>
                         {
-                            t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_Max", "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" <= \"DispatchedBaseQty\"");
+                            t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_Max", "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" + \"AcceptedCorrectionBaseQty\" <= \"DispatchedBaseQty\"");
 
-                            t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
+                            t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0 AND \"AcceptedCorrectionBaseQty\" >= 0");
 
                             t.HasCheckConstraint("CK_StockTransferLineBatches_Dispatched_Positive", "\"DispatchedBaseQty\" > 0 AND \"UnitCost\" >= 0");
                         });
@@ -4508,6 +4704,78 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasConstraintName("FK_Consignments_ShipmentVehicles_SameShipment");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.ConsignmentDisposition", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_ConsignmentDispositions_Users_By");
+
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Consignment", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ConsignmentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_ConsignmentDispositions_Consignments");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ConsignmentDispositionLine", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Unit", null)
+                        .WithMany()
+                        .HasForeignKey("UnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_ConsignmentDispositionLines_Units");
+
+                    b.HasOne("Sellora.Domain.Entities.ConsignmentLine", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ConsignmentLineId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_ConsignmentDispositionLines_ConsignmentLines");
+
+                    b.HasOne("Sellora.Domain.Entities.ConsignmentDisposition", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("CompanyId", "DispositionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_ConsignmentDispositionLines_Dispositions");
+
+                    b.HasOne("Sellora.Domain.Entities.Product", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ProductId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_ConsignmentDispositionLines_Products");
+
+                    b.HasOne("Sellora.Domain.Entities.ProductUnit", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId", "ProductUnitId")
+                        .HasPrincipalKey("ProductId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_ConsignmentDispositionLines_ProductUnits");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.ConsignmentLine", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.Company", null)
@@ -4577,6 +4845,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("PostedByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("FK_ConsignmentReceipts_Users_PostedBy");
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("RejectedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_ConsignmentReceipts_Users_RejectedBy");
 
                     b.HasOne("Sellora.Domain.Entities.User", null)
                         .WithMany()
@@ -6429,6 +6703,11 @@ namespace Sellora.Infrastructure.Data.Migrations
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Consignment", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.ConsignmentDisposition", b =>
                 {
                     b.Navigation("Lines");
                 });

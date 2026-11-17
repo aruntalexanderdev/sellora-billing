@@ -73,7 +73,7 @@ public class CompanyQueryFilterTests
         var owned = ModelTypes(db).Select(t => t.ClrType).Where(t => typeof(ICompanyOwned).IsAssignableFrom(t)).Select(t => t.Name).Order().ToArray();
         string[] expected =
         [
-            "AuditEvent", "BatchLocationBalance", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Consignment", "ConsignmentLine", "ConsignmentReceipt", "ConsignmentReceiptLine", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
+            "AuditEvent", "BatchLocationBalance", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Consignment", "ConsignmentDisposition", "ConsignmentDispositionLine", "ConsignmentLine", "ConsignmentReceipt", "ConsignmentReceiptLine", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
             "FinancialTransaction", "GovernanceMemberPermission", "IdempotencyKey", "Product", "ProductCategory", "ProductSubcategory", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
             "Role", "SalesInvoice", "SalesReturn", "Shipment", "ShipmentVehicle", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "StockReservation", "StockTransfer", "StockTransferLine", "StockTransferLineBatch", "StockTransferReceipt", "StockTransferReceiptLine", "Supplier", "Tax", "UserBranchAssignment", "UserRoleAssignment", "Vehicle", "Warehouse",
         ];

@@ -241,10 +241,12 @@ public class AddShipmentDispatchAndReceivingMigrationTests(PostgresFixture postg
     [Fact]
     public async Task TransitReconciliationScript_IsCleanWhenConsistent_AndFlagsDrift()
     {
+        // The script targets the current schema (queries 4 and 7-9 use Phase 06 columns), so migrate past this migration's own target.
         await using var database = await SeededAtThisAsync();
+        await MigrateToAsync(database);
         var queries = string.Join('\n', File.ReadAllLines(ScriptPath()).Where(l => !l.TrimStart().StartsWith("--"))).Split(';', StringSplitOptions.RemoveEmptyEntries)
             .Select(q => string.Join('\n', q.Split('\n').Where(l => !l.TrimStart().StartsWith("--")))).Where(q => q.Contains("SELECT")).ToList();
-        Assert.Equal(6, queries.Count);
+        Assert.Equal(9, queries.Count);
 
         // Dispatched shipment: 5 pc loaded, reservation consumed, one batch row traced to the line, 2 accepted and posted, 1 damaged + 1 missing still in Transit.
         await ExecuteAsync(database, ShipmentSql(S1, status: "ReadyToDispatch") + ConsignmentSql(C1, S1, "CON-0001", D1, status: "Loaded", loaded: $"now(), '{User}'") + LineSql(CL1, C1, loaded: "5"));

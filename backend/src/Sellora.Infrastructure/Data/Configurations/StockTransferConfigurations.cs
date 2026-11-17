@@ -169,6 +169,7 @@ public class StockTransferLineBatchConfiguration : IEntityTypeConfiguration<Stoc
         {
             builder.Property(p).HasColumnType("numeric(18,3)");
         }
+        builder.Property(b => b.AcceptedCorrectionBaseQty).HasColumnType("numeric(18,3)").HasDefaultValue(0m);
 
         builder.HasIndex(b => b.PurchaseBatchId, "IX_StockTransferLineBatches_PurchaseBatchId");
         builder.HasIndex(b => new { b.CompanyId, b.ConsignmentLineId }, "IX_StockTransferLineBatches_CompanyId_ConsignmentLineId").HasFilter("\"ConsignmentLineId\" IS NOT NULL");
@@ -188,9 +189,9 @@ public class StockTransferLineBatchConfiguration : IEntityTypeConfiguration<Stoc
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("CK_StockTransferLineBatches_Dispatched_Positive", "\"DispatchedBaseQty\" > 0 AND \"UnitCost\" >= 0");
-            t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
+            t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0 AND \"AcceptedCorrectionBaseQty\" >= 0");
             t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_Max",
-                "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" <= \"DispatchedBaseQty\"");
+                "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" + \"AcceptedCorrectionBaseQty\" <= \"DispatchedBaseQty\"");
         });
     }
 }

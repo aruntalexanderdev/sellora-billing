@@ -23,4 +23,7 @@ public class StockTransferLineBatch : ICompanyOwned
     public decimal DamagedBaseQty { get; set; }
     public decimal WrittenOffBaseQty { get; set; }
     public decimal ReturnedBaseQty { get; set; }
+
+    /// <summary>FI-D40: quantity of a shipment batch row accepted into the destination by a disposition (AcceptToDestination). Distinct from ReceivedBaseQty, which stays equal to posted-receipt accepted quantity.</summary>
+    public decimal AcceptedCorrectionBaseQty { get; set; }
 }

@@ -18,6 +18,15 @@ public class ConsignmentReceipt : ICompanyOwned
     public Guid VerifiedByUserId { get; set; }
     public DateTimeOffset? PostedAt { get; set; }
     public Guid? PostedByUserId { get; set; }
+    /// <summary>FI-D39 policy snapshot taken at creation; later setting changes never alter it. Verified implies Direct, PendingApproval implies SupervisorApproval (DB CHECK).</summary>
+    public ReceiptPostingMode PolicyMode { get; set; } = ReceiptPostingMode.Direct;
+    public bool RequireSeparation { get; set; }
+
+    // FI-D39: Posted stamps double as the approval stamps (PostedBy = approver under SupervisorApproval). RejectedForCorrection iff all three rejection fields (reason mandatory).
+    public DateTimeOffset? RejectedAt { get; set; }
+    public Guid? RejectedByUserId { get; set; }
+    public string? RejectionReason { get; set; }
+
     public string? Notes { get; set; }
 
     public List<ConsignmentReceiptLine> Lines { get; set; } = [];

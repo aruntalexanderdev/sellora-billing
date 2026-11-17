@@ -36,6 +36,11 @@ public class ConsignmentLine : ICompanyOwned
     public decimal MissingBaseQty { get; set; }
     public decimal PostedBaseQty { get; set; }
 
+    // FI-D40 cumulative dispositioned quantity per bucket (each <= its bucket counter above). Only posted-receipt quantity is dispositionable (service rule).
+    public decimal DispositionedDamagedBaseQty { get; set; }
+    public decimal DispositionedRejectedBaseQty { get; set; }
+    public decimal DispositionedMissingBaseQty { get; set; }
+
     public ConsignmentLineStatus Status { get; set; } = ConsignmentLineStatus.Active;
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
