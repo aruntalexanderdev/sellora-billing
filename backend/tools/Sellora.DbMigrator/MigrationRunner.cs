@@ -11,7 +11,8 @@ public sealed record MigratorOptions(
     ViolationMode DefaultViolationMode,
     TimeSpan LockWait,
     string? EfBundlePath,
-    bool PlanOnly);
+    bool PlanOnly,
+    string? EfMigrationsListPath = null); // plan mode: migration ids in the build (dotnet ef migrations list --no-connect)
 
 public enum ExitCode { Succeeded = 0, ScriptFailed = 1, InvalidRelease = 2, LockTimeout = 3, Unexpected = 4 }
 
@@ -47,7 +48,19 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
         var journal = new Journal(connection);
         if (options.PlanOnly) // read-only: no journal schema, no run row, no closing of interrupted runs
         {
+            // Enforced by the server, not only by this code: the plan runs before approval with a login that has DDL rights (D25).
+            await using (var readOnly = new NpgsqlCommand("SET default_transaction_read_only = on", connection))
+                await readOnly.ExecuteNonQueryAsync(ct);
             var known = await journal.ExistsAsync(ct) ? await journal.ReadScriptsAsync(ct) : new Dictionary<string, JournalEntry>();
+            try
+            {
+                foreach (var pending in await PendingEfMigrationsAsync(connection, ct))
+                    Outcomes.Add(new StepOutcome(pending, ScriptKind.EfMigration, "Planned", null, null, "pending EF migration"));
+            }
+            catch (InvalidReleaseException ex)
+            {
+                loadErrors = [.. loadErrors, ex.Message];
+            }
             var preview = ScriptPlanner.Plan(scripts, known);
             PrintPlan(preview, loadErrors);
             return loadErrors.Count + preview.Errors.Count > 0 ? ExitCode.InvalidRelease : ExitCode.Succeeded;
@@ -295,12 +308,49 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
         return $"{ran} executed, {Count("Skipped")} skipped, {Count(JournalStatus.Warning)} validation warning(s).";
     }
 
+    /// <summary>Plan mode (D25): also fills <see cref="Outcomes"/> so the GitHub job summary shows approvers what will run.</summary>
     private void PrintPlan(MigrationPlan plan, IReadOnlyList<string> loadErrors)
     {
         log.WriteLine("Plan (nothing executed):");
+        foreach (var ef in Outcomes.Where(o => o.Kind == ScriptKind.EfMigration))
+            log.WriteLine($"  EF    {ef.Name}  (pending EF migration)");
         foreach (var step in plan.Steps)
+        {
             log.WriteLine($"  {(step.Action == StepAction.Run ? "RUN " : "skip")}  {step.Script.Name}  ({step.Reason})");
-        foreach (var error in loadErrors.Concat(plan.Errors)) log.WriteLine($"  ✘ {error}");
+            Outcomes.Add(new StepOutcome(step.Script.Name, step.Script.Kind, step.Action == StepAction.Run ? "Planned" : "Skipped", null, null, step.Reason));
+        }
+        foreach (var error in loadErrors.Concat(plan.Errors))
+        {
+            log.WriteLine($"  ✘ {error}");
+            Outcomes.Add(new StepOutcome("(release package)", ScriptKind.Data, "Invalid", null, null, error));
+        }
+    }
+
+    /// <summary>Migration ids listed in the build but absent from __EFMigrationsHistory. Lines that are not ids (build output) are ignored.</summary>
+    private async Task<IReadOnlyList<string>> PendingEfMigrationsAsync(NpgsqlConnection connection, CancellationToken ct)
+    {
+        if (options.EfMigrationsListPath is null) return [];
+        var listed = File.ReadAllLines(options.EfMigrationsListPath)
+            .Select(l => l.Trim())
+            .Where(l => System.Text.RegularExpressions.Regex.IsMatch(l, @"^\d{14}_[A-Za-z0-9_]+$"))
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        // An empty list would tell approvers "no schema changes" when the list step actually failed.
+        if (listed.Count == 0)
+            throw new InvalidReleaseException($"{options.EfMigrationsListPath} contains no EF migration ids; the build's `dotnet ef migrations list` step failed.");
+
+        var applied = new HashSet<string>(StringComparer.Ordinal);
+        await using (var exists = new NpgsqlCommand("""SELECT to_regclass('public."__EFMigrationsHistory"') IS NOT NULL""", connection))
+        {
+            if ((bool)(await exists.ExecuteScalarAsync(ct))!)
+            {
+                await using var cmd = new NpgsqlCommand("""SELECT "MigrationId" FROM public."__EFMigrationsHistory" """, connection);
+                await using var reader = await cmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct)) applied.Add(reader.GetString(0));
+            }
+        }
+        return listed.Where(id => !applied.Contains(id)).ToList();
     }
 
     /// <summary>
@@ -356,3 +406,6 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
     private static string Tail(string text, int length) => text.Length <= length ? text.Trim() : "…" + text[^length..].Trim();
     private static string Indent(string text) => string.Concat(text.Split('\n').Where(l => l.Length > 0).Select(l => $"    {l}\n"));
 }
+
+/// <summary>The release package or its metadata is unusable (exit code 2).</summary>
+public sealed class InvalidReleaseException(string message) : Exception(message);

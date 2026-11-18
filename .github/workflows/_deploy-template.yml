@@ -19,13 +19,18 @@ name: Deploy template
 #   Secret:     SELLORA_DB_MIGRATOR_CONNECTION   Npgsql connection string of the sellora_migrator login
 #   Variables:  AZURE_POSTGRES_SERVER            Flexible Server name
 #               AZURE_POSTGRES_RESOURCE_GROUP    its resource group
-#   Azure:      the deploy identity needs Contributor on the Postgres server (temporary firewall rule for the runner).
+#   Azure:      the deploy identity needs Contributor on the Postgres server (temporary firewall rule for the runner,
+#               on-demand backup).
+# require_approval=true (prod, D24/D25): db-plan (read-only plan in the run summary) -> approve (environment
+# "<environment>-approval", the only place with required reviewers) -> migrate-db -> deploy-api -> deploy-web.
+# backup_before_migrate=true (D26): migrate-db takes an on-demand server backup first; no backup, no migration.
+# Operations: docs/operations/database-release-runbook.md
 
 on:
   workflow_call:
     inputs:
       environment:
-        description: GitHub environment name (dev | claude-dev)
+        description: GitHub environment name (dev | claude-dev | prod)
         required: true
         type: string
       deploy_frontend:
@@ -35,6 +40,16 @@ on:
         default: false
       run_migrations:
         description: Apply EF migrations + backend/db scripts with Sellora.DbMigrator before deploying the API
+        required: false
+        type: boolean
+        default: false
+      require_approval:
+        description: Show the release plan (db-plan) and wait for the "<environment>-approval" environment before migrating and deploying
+        required: false
+        type: boolean
+        default: false
+      backup_before_migrate:
+        description: Create an on-demand Postgres server backup before the migrator runs (the job fails if the backup fails)
         required: false
         type: boolean
         default: false
@@ -59,6 +74,13 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      # D24: a prod release without the approval gate is a configuration error, never a silent shortcut.
+      - name: Prod requires the approval gate
+        if: inputs.environment == 'prod' && !inputs.require_approval
+        run: |
+          echo "::error::environment 'prod' must be called with require_approval: true (D24)."
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -93,6 +115,11 @@ jobs:
             --output db-release/efbundle
           dotnet publish "${{ env.MIGRATOR_PROJECT_PATH }}" --configuration Release --output db-release/migrator
           cp -r backend/db db-release/db
+          # Pending-migration list for the plan (D25); the migrator keeps only lines that look like migration ids.
+          dotnet ef migrations list --no-connect \
+            --project "${{ env.INFRASTRUCTURE_PROJECT_PATH }}" \
+            --startup-project "${{ env.INFRASTRUCTURE_PROJECT_PATH }}" \
+            --configuration Release > db-release/ef-migrations.txt
 
       - name: Upload database release package
         if: inputs.run_migrations
@@ -119,12 +146,109 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  migrate-db:
-    name: Migrate database (${{ inputs.environment }})
-    if: inputs.run_migrations
+  db-plan:
+    name: Plan database release (${{ inputs.environment }})
+    if: inputs.run_migrations && inputs.require_approval
     needs: build-api
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }} # secrets only; reviewers live on "<environment>-approval" (D24)
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check environment configuration
+        env:
+          SELLORA_DB_MIGRATOR_CONNECTION: ${{ secrets.SELLORA_DB_MIGRATOR_CONNECTION }}
+          AZURE_POSTGRES_SERVER: ${{ vars.AZURE_POSTGRES_SERVER }}
+          AZURE_POSTGRES_RESOURCE_GROUP: ${{ vars.AZURE_POSTGRES_RESOURCE_GROUP }}
+        run: |
+          missing=0
+          for name in SELLORA_DB_MIGRATOR_CONNECTION AZURE_POSTGRES_SERVER AZURE_POSTGRES_RESOURCE_GROUP; do
+            if [ -z "${!name}" ]; then
+              echo "::error::'$name' is not set in GitHub environment '${{ inputs.environment }}'."
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/ci
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Download database release package
+        uses: actions/download-artifact@v4
+        with:
+          name: db-release
+          path: db-release
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Allow this runner through the Postgres firewall
+        id: firewall
+        env:
+          AZURE_POSTGRES_RESOURCE_GROUP: ${{ vars.AZURE_POSTGRES_RESOURCE_GROUP }}
+          AZURE_POSTGRES_SERVER: ${{ vars.AZURE_POSTGRES_SERVER }}
+        run: scripts/ci/postgres-firewall.sh open plan
+
+      # Read-only (D25). The migrator writes the plan to the job summary and exits 2 when the release is invalid,
+      # which fails this job, so the approval never starts.
+      - name: Plan database release
+        env:
+          SELLORA_DB_CONNECTION: ${{ secrets.SELLORA_DB_MIGRATOR_CONNECTION }}
+        run: >
+          dotnet db-release/migrator/Sellora.DbMigrator.dll --plan
+          --scripts db-release/db
+          --ef-migrations-list db-release/ef-migrations.txt
+          --environment "${{ inputs.environment }}"
+
+      - name: Remove the runner's firewall rule
+        if: always() && steps.firewall.outputs.rule != ''
+        env:
+          AZURE_POSTGRES_RESOURCE_GROUP: ${{ vars.AZURE_POSTGRES_RESOURCE_GROUP }}
+          AZURE_POSTGRES_SERVER: ${{ vars.AZURE_POSTGRES_SERVER }}
+        run: scripts/ci/postgres-firewall.sh close plan
+
+  approve:
+    name: Approve release (${{ inputs.environment }})
+    # db-plan is skipped when run_migrations=false; a failed plan (invalid release) must never reach the approval.
+    if: ${{ !cancelled() && inputs.require_approval && needs.build-api.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.db-plan.result) }}
+    needs: [build-api, db-plan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # D24: the only job with required reviewers. On a retry ("Re-run failed jobs") it is not re-run (D27).
+    environment: ${{ inputs.environment }}-approval
+
+    steps:
+      - name: Release being approved
+        run: |
+          {
+            echo "### Release approval (${{ inputs.environment }})"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "- Approving applies the database plan shown in the db-plan job summary, then deploys the API."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  migrate-db:
+    name: Migrate database (${{ inputs.environment }})
+    # approve is skipped when require_approval is false; a failed/rejected approval (or db-plan) stops the migration.
+    if: ${{ !cancelled() && inputs.run_migrations && needs.build-api.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.db-plan.result) && contains(fromJSON('["success","skipped"]'), needs.approve.result) }}
+    needs: [build-api, db-plan, approve]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60 # on-demand backup + firewall + EF bundle + scripts; a slow backup must not cut the migration short
     environment: ${{ inputs.environment }}
 
     permissions:
@@ -147,6 +271,11 @@ jobs:
           done
           exit $missing
 
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/ci
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -165,16 +294,28 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # D26: server-side backup before anything is applied. A failure here fails the job: no migration without a backup.
+      - name: On-demand backup
+        if: inputs.backup_before_migrate
+        run: |
+          backup="pre-migrate-${{ github.run_id }}-${{ github.run_attempt }}"
+          restore_point="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          az postgres flexible-server backup create \
+            --resource-group "${{ vars.AZURE_POSTGRES_RESOURCE_GROUP }}" --name "${{ vars.AZURE_POSTGRES_SERVER }}" \
+            --backup-name "$backup" --output none
+          {
+            echo "### Database backup"
+            echo "- On-demand backup: \`$backup\`"
+            echo "- Restore timestamp (UTC, taken before the migrator starts): \`$restore_point\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # D2: open Postgres to this runner only, for this job only (removed in the always() step below).
       - name: Allow this runner through the Postgres firewall
         id: firewall
-        run: |
-          ip="$(curl --fail --silent --show-error --retry 3 https://api.ipify.org)"
-          rule="gh-migrate-${{ github.run_id }}-${{ github.run_attempt }}"
-          echo "rule=$rule" >> "$GITHUB_OUTPUT" # before create: the cleanup step must run even if create half-succeeds
-          az postgres flexible-server firewall-rule create \
-            --resource-group "${{ vars.AZURE_POSTGRES_RESOURCE_GROUP }}" --name "${{ vars.AZURE_POSTGRES_SERVER }}" \
-            --rule-name "$rule" --start-ip-address "$ip" --end-ip-address "$ip" --output none
+        env:
+          AZURE_POSTGRES_RESOURCE_GROUP: ${{ vars.AZURE_POSTGRES_RESOURCE_GROUP }}
+          AZURE_POSTGRES_SERVER: ${{ vars.AZURE_POSTGRES_SERVER }}
+        run: scripts/ci/postgres-firewall.sh open migrate
 
       # Re-running this job from GitHub ("Re-run failed jobs") is the retry path (D8): it is recorded as a Retry.
       - name: Apply database scripts
@@ -196,16 +337,16 @@ jobs:
 
       - name: Remove the runner's firewall rule
         if: always() && steps.firewall.outputs.rule != ''
-        run: >
-          az postgres flexible-server firewall-rule delete
-          --resource-group "${{ vars.AZURE_POSTGRES_RESOURCE_GROUP }}" --name "${{ vars.AZURE_POSTGRES_SERVER }}"
-          --rule-name "${{ steps.firewall.outputs.rule }}" --yes --output none || true
+        env:
+          AZURE_POSTGRES_RESOURCE_GROUP: ${{ vars.AZURE_POSTGRES_RESOURCE_GROUP }}
+          AZURE_POSTGRES_SERVER: ${{ vars.AZURE_POSTGRES_SERVER }}
+        run: scripts/ci/postgres-firewall.sh close migrate
 
   deploy-api:
     name: Deploy API (${{ inputs.environment }})
-    needs: [build-api, migrate-db]
-    # D7: a failed migration blocks the API deploy; skipped (run_migrations=false) does not.
-    if: ${{ !cancelled() && needs.build-api.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.migrate-db.result) }}
+    needs: [build-api, db-plan, approve, migrate-db]
+    # D7: a failed migration blocks the API deploy; skipped (run_migrations=false) does not. Same for approve (skipped on dev/claude-dev).
+    if: ${{ !cancelled() && needs.build-api.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.db-plan.result) && contains(fromJSON('["success","skipped"]'), needs.approve.result) && contains(fromJSON('["success","skipped"]'), needs.migrate-db.result) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: ${{ inputs.environment }}

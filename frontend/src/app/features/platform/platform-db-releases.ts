@@ -12,7 +12,7 @@ import { PlatformService } from './platform.service';
 
 export type DbScriptFilter = 'all' | 'succeeded' | 'failed' | 'pending' | 'warning';
 
-export const RETRY_HINT = 'To retry, fix the script in a PR (or re-run the failed migrate-db job in GitHub)';
+export const RETRY_HINT = 'Script bug: fix it in a PR and deploy again (a retry re-applies the same release). Temporary error (lock, connection): retry.';
 
 const FILTERS: { key: DbScriptFilter; label: string }[] = [
   { key: 'all', label: 'All' },
