@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,6 +34,8 @@ public static class DependencyInjection
         services.AddScoped<IPurchaseService, PurchaseService>();
         services.AddScoped<IStockAdjustmentService, StockAdjustmentService>();
         services.AddScoped<IStockTransferService, StockTransferService>();
+        services.AddScoped<IShipmentService, ShipmentService>();
+        services.AddScoped<IConsignmentReceivingService, ConsignmentReceivingService>();
         services.AddScoped<IPricingService, PricingService>();
         services.AddScoped<ISalesService, SalesService>();
         services.AddScoped<IProductService, ProductService>();
@@ -44,6 +47,11 @@ public static class DependencyInjection
         services.AddScoped<IFinancialAccountService, FinancialAccountService>();
         services.AddScoped<IUserAccessService, UserAccessService>();
         services.AddScoped<IGovernanceService, GovernanceService>();
+        // Database releases page retry (db-release-automation step 4). Its IGitHubActionsClient is a typed HttpClient registered by
+        // the API host (Program.cs); another host resolving IDbReleaseRetryService must register one too.
+        services.Configure<Sellora.Infrastructure.GitHub.GitHubAppOptions>(configuration.GetSection(Sellora.Infrastructure.GitHub.GitHubAppOptions.SectionName));
+        services.AddScoped<Sellora.Domain.Releases.IDbReleaseRetryService, DbReleaseRetryService>();
+        services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<IRoleAssignmentService, RoleAssignmentService>();
 

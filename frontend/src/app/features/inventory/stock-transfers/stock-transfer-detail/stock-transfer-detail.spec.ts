@@ -42,7 +42,7 @@ describe('StockTransferDetail action visibility', () => {
   const cases: [StockTransferStatus, string[]][] = [
     ['Draft', ['edit', 'submit', 'cancel']],
     ['Requested', ['approve', 'reject', 'cancel']],
-    ['Approved', ['dispatch', 'cancel', 'close']], // dispatched > 0 on the fixture line
+    ['Approved', ['cancel', 'close']], // dispatched > 0 on the fixture line
     ['PartiallyFulfilled', ['close']],
     ['Fulfilled', []],
     ['Closed', []],

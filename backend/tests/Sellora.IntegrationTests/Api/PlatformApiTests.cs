@@ -435,7 +435,7 @@ public class PlatformApiTests(PostgresFixture postgres)
         throw new DirectoryNotFoundException("repository root not found");
     }
 
-    private static string SignPlatformToken(Guid userId)
+    internal static string SignPlatformToken(Guid userId) // also used by PlatformDbReleasesApiTests
     {
         var claims = new List<System.Security.Claims.Claim>
         {

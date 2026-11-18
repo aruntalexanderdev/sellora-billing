@@ -160,6 +160,35 @@ public class PermissionAuthorizationHandlerTests
     }
 
     [Fact]
+    public async Task HandleRequirementAsync_AnyOfRequirement_PassesWithEitherCode_AndFailsWithNeither()
+    {
+        var w = new RbacWorld();
+        var (_, m) = w.BranchMemberWith("one", w.BranchRole("B1 Seller", w.B1, "Sales.View"), w.B1);
+        var allowed = Set(w.B1.Id);
+
+        async Task<(bool Ok, BranchContext Branches)> RunAsync(params string[] codes)
+        {
+            w.Db.ChangeTracker.Clear();
+            var membership = new MembershipContext();
+            var fresh = w.Db.UserCompanyMemberships.AsEnumerable().Single(x => x.Id == m.Id);
+            membership.Set(fresh.Id, fresh.AccessVersion);
+            var branches = new BranchContext();
+            branches.Set(w.B1.Id, allowed, w.B1.Id);
+            var handler = new PermissionAuthorizationHandler(Rbac.Effective(w.Db, membership), membership, branches);
+            var context = new AuthorizationHandlerContext([new PermissionRequirement(codes)], new ClaimsPrincipal(new ClaimsIdentity("test")), null);
+            await handler.HandleAsync(context);
+            return (context.HasSucceeded, branches);
+        }
+
+        var (either, narrowed) = await RunAsync("Purchase.View", "Sales.View");
+        var (neither, _) = await RunAsync("Purchase.View", "Purchase.Create");
+
+        Assert.True(either);
+        Assert.Equal(Set(w.B1.Id), narrowed.AllowedBranchIds);
+        Assert.False(neither);
+    }
+
+    [Fact]
     public async Task HandleRequirementAsync_BranchHoldsAtDifferentBranchesPerCode_NarrowingIntersects()
     {
         var w = new RbacWorld();

@@ -1,0 +1,63 @@
+<div class="detail-card" data-testid="allocate-panel">
+  <div class="card-title">Add requests from {{ label(shipment().source) }}</div>
+  <p class="hint">Approved requests that ship from this source. Enter how much to put on this shipment, in any unit; the allocation reserves that stock.</p>
+  <input class="field-input search" type="search" placeholder="Search transfer no…" [value]="search()" (change)="onSearch($any($event.target).value)" data-testid="queue-search" />
+
+  @if (loadError(); as e) {
+    <div class="server-error" role="alert" data-testid="queue-error">{{ e }}</div>
+  }
+  @if (loading()) {
+    <p class="muted">Loading requests…</p>
+  } @else if (requests().length === 0) {
+    <p class="muted" data-testid="queue-empty">No approved requests are waiting at this source.</p>
+  }
+
+  @for (r of requests(); track r.id) {
+    <div class="request" [attr.data-testid]="'request-' + r.transferNo">
+      <button type="button" class="request-head" (click)="toggle(r)" [attr.aria-expanded]="!!open()[r.id]">
+        <strong>{{ r.transferNo }}</strong>
+        <span>→ {{ r.destinationLocationName ?? '—' }}</span>
+        <span class="muted">{{ r.remainingLineCount }} of {{ r.lineCount }} lines to ship</span>
+      </button>
+      @if (isLoading(r.id)) {
+        <p class="muted">Loading lines…</p>
+      }
+      @if (request(r.id); as req) {
+        <table>
+          <thead>
+            <tr><th>Product</th><th class="num">Requested</th><th class="num">Remaining</th><th class="num">On hand at source</th><th>Unit</th><th>Add</th><th></th></tr>
+          </thead>
+          <tbody>
+            @for (l of req.lines; track l.line.id) {
+              <tr [attr.data-testid]="'alloc-line-' + l.line.lineNo">
+                <td>{{ l.line.productName }}<div class="sub">{{ l.line.sku }}</div></td>
+                <td class="num" data-testid="lim-requested">{{ view(l).requested }}</td>
+                <td class="num" data-testid="lim-remaining">{{ view(l).remaining }}</td>
+                <td class="num" data-testid="lim-available">{{ view(l).available }}</td>
+                <td>
+                  <select class="field-input" [attr.data-testid]="'alloc-unit-' + l.line.lineNo" [disabled]="!!l.lockedUnitId || !canAdd(l)" (change)="setUnit(req, l, $any($event.target).value)">
+                    @for (u of l.units; track u.id) {
+                      <option [value]="u.id" [selected]="u.id === l.unitId">{{ u.displayName }} ({{ u.unitCode }})</option>
+                    }
+                  </select>
+                  @if (l.lockedUnitId) {
+                    <div class="sub">Already allocated in this unit.</div>
+                  }
+                </td>
+                <td>
+                  <input type="number" min="0" class="field-input" [attr.data-testid]="'alloc-qty-' + l.line.lineNo" [step]="step(l)" [disabled]="!canAdd(l)" [value]="l.qty ?? ''" (input)="setQty(req, l, $any($event.target).value)" />
+                  @if (l.error; as e) {
+                    <div class="field-error" [attr.data-testid]="'alloc-error-' + l.line.lineNo">{{ e }}</div>
+                  }
+                </td>
+                <td>
+                  <ui-button variant="primary" [attr.data-testid]="'alloc-add-' + l.line.lineNo" [disabled]="l.busy || !canAdd(l)" (onClick)="add(req, l)">{{ l.busy ? 'Adding…' : 'Add' }}</ui-button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
+    </div>
+  }
+</div>

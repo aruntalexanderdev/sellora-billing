@@ -1,0 +1,23 @@
+@use '../../../../shared/styles/page-head';
+@use '../../../../shared/styles/form-fields';
+
+.form-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 22px;
+  max-width: 860px;
+  &.embedded { max-width: none; margin-bottom: 16px; }
+}
+.server-error {
+  padding: 11px 13px;
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--color-danger-text);
+}
+.hint { margin-top: 4px; font-size: 12px; color: var(--color-text-muted); }
+.actions { display: flex; align-items: center; gap: 16px; margin-top: 20px; }
+.cancel-link { font-size: 13.5px; font-weight: 600; color: var(--color-text-muted); }

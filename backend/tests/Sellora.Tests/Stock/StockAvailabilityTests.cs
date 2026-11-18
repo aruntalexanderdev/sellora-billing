@@ -92,24 +92,39 @@ public class StockAvailabilityTests
         }
     }
 
-    // ---- transfer dispatch (van loading uses transfers) honours the reservation -------------------------------------------------
+    // ---- FI-D30: the real source is StockItem.ReservedQuantity ---------------------------------------------------------------------
 
     [Fact]
-    public async Task Dispatch_ReservationReducesAvailability_RefusedOnTheLineQuantityKey()
+    public async Task RealReservedSource_IsTheLockedStockItemsReservedQuantity()
     {
-        var w = await TransferWorld.CreateAsync();
-        await w.StockPenAsync(w.L.MainStore, 200m);
-        var t = await w.ApprovedAsync(w.L.MainStore, w.L.BlrStore, w.Pen(w.Box, 10m)); // 100 pc
+        await using var db = NewDb();
+        var item = new StockItem { StockLocationId = Loc, ProductId = ProductA, QuantityOnHand = 100m, ReservedQuantity = 30m };
+        db.StockItems.Add(item);
+        await db.SaveChangesAsync();
 
-        using (StockAvailability.UseReservedSource((_, _, _, _, _) => Task.FromResult(150m)))
-        {
-            var ex = await Assert.ThrowsAsync<DomainValidationException>(() => w.DispatchAsRequestedAsync(t.Id));
-            Assert.Equal("lines[0].quantity", ex.Field);
-        }
+        Assert.Equal(30m, await StockAvailability.ReservedAsync(db, Loc, ProductA, null, default));
+        Assert.Equal(0m, await StockAvailability.ReservedAsync(db, Loc, ProductB, null, default));
+        Assert.Equal(70m, await StockAvailability.AvailableAsync(db, Loc, ProductA, item, default));
 
-        Assert.Equal(200m, await w.QohAsync(w.L.MainStore));
-        await w.DispatchAsRequestedAsync(t.Id); // no reservation: ships
-        Assert.Equal(100m, await w.QohAsync(w.L.MainStore));
+        var items = new Dictionary<(Guid, Guid), StockItem> { [(Loc, ProductA)] = item };
+        await StockAvailability.EnsureAsync(db, items, [new(Loc, ProductA, 70m)], Short, default);
+        Assert.Equal("71>70", (await Assert.ThrowsAsync<DomainValidationException>(() =>
+            StockAvailability.EnsureAsync(db, items, [new(Loc, ProductA, 71m)], Short, default))).Message);
+    }
+
+    [Fact]
+    public async Task BatchAvailability_IsTheLowerOfTheBatchBalanceAndOnHandLessReserved()
+    {
+        await using var db = NewDb();
+        var batchId = Guid.NewGuid();
+        db.StockItems.Add(new StockItem { StockLocationId = Loc, ProductId = ProductA, QuantityOnHand = 100m, ReservedQuantity = 30m });
+        db.BatchLocationBalances.Add(new BatchLocationBalance { PurchaseBatchId = batchId, StockLocationId = Loc, ProductId = ProductA, RemainingBaseQty = 100m });
+        await db.SaveChangesAsync();
+
+        Assert.Equal(70m, await StockAvailability.AvailableInBatchAsync(db, batchId, Loc, ProductA, default));
+        await StockAvailability.EnsureInBatchAsync(db, batchId, Loc, ProductA, 70m, a => new("Lines", a.ToString()), default);
+        Assert.Equal("70", (await Assert.ThrowsAsync<DomainValidationException>(() =>
+            StockAvailability.EnsureInBatchAsync(db, batchId, Loc, ProductA, 80m, a => new("Lines", a.ToString()), default))).Message);
     }
 
     // ---- FI-D24: request quantities above zero (create + edit share the line builder) -------------------------------------------

@@ -1,0 +1,107 @@
+@if (!editing()) {
+  <div class="page-head">
+    <div>
+      <h1>New shipment</h1>
+      <p>Pick the source location and how the goods travel. Requests are added to the shipment afterwards.</p>
+    </div>
+  </div>
+}
+
+<div class="form-card" [class.embedded]="editing()">
+  @if (serverError(); as e) {
+    <div class="server-error" role="alert" data-testid="server-error">{{ e }}</div>
+  }
+  @if (!editing() && !canPickLocations()) {
+    <div class="server-error" data-testid="no-locations">Choosing the source location needs the stock-locations view permission.</div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    @if (!editing()) {
+      <div data-testid="source-select">
+        <label class="field-label">Source location</label>
+        <app-location-select purpose="transfer" label="Source location" [value]="form.controls.sourceLocationId.value || null" (valueChange)="onSource($event)" />
+        @if (serverOf('sourceLocationId'); as e) {
+          <div class="field-error" data-testid="source-error">{{ e }}</div>
+        } @else if (submitted() && form.controls.sourceLocationId.errors?.['required']) {
+          <div class="field-error" data-testid="source-error">Select a source location.</div>
+        }
+      </div>
+    }
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label" for="sh-mode">Transport mode</label>
+        <select id="sh-mode" class="field-input" formControlName="transportMode" data-testid="mode">
+          @for (m of modes; track m) {
+            <option [value]="m">{{ modeLabels[m] }}</option>
+          }
+        </select>
+        @if (serverOf('transportMode'); as e) {
+          <div class="field-error">{{ e }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label" for="sh-via">Carried by</label>
+        <select id="sh-via" class="field-input" formControlName="transportVia" data-testid="via">
+          @for (v of vias; track v) {
+            <option [value]="v">{{ viaLabels[v] }}</option>
+          }
+        </select>
+        @if (serverOf('transportVia'); as e) {
+          <div class="field-error">{{ e }}</div>
+        }
+      </div>
+    </div>
+
+    @if (external()) {
+      <div class="grid-2" data-testid="provider-fields">
+        <div>
+          <label class="field-label" for="sh-provider">Provider name</label>
+          <input id="sh-provider" class="field-input" formControlName="providerName" maxlength="120" data-testid="provider-name" />
+          @if (errors().providerName ?? serverOf('providerName'); as e) {
+            <div class="field-error" data-testid="provider-error">{{ e }}</div>
+          }
+        </div>
+        <div>
+          <label class="field-label" for="sh-contact">Provider contact</label>
+          <input id="sh-contact" class="field-input" formControlName="providerContact" maxlength="120" />
+        </div>
+      </div>
+    }
+
+    <div class="grid-2">
+      <div>
+        <label class="field-label" for="sh-ref" data-testid="ref-label">{{ refLabel() }}</label>
+        <input id="sh-ref" class="field-input" formControlName="transportReference" [maxLength]="referenceMax" data-testid="reference" [attr.aria-required]="refRequired()" />
+        <div class="hint" data-testid="ref-hint">{{ refHint() }}</div>
+        @if (errors().transportReference ?? serverOf('transportReference'); as e) {
+          <div class="field-error" data-testid="reference-error">{{ e }}</div>
+        }
+      </div>
+      <div>
+        <label class="field-label" for="sh-date">Planned dispatch date</label>
+        <input id="sh-date" type="date" class="field-input" formControlName="plannedDispatchDate" />
+        @if (serverOf('plannedDispatchDate'); as e) {
+          <div class="field-error">{{ e }}</div>
+        }
+      </div>
+    </div>
+
+    <label class="field-label" for="sh-notes">Notes</label>
+    <textarea id="sh-notes" class="field-input" rows="2" maxlength="500" formControlName="notes"></textarea>
+    @if (serverOf('notes'); as e) {
+      <div class="field-error">{{ e }}</div>
+    }
+
+    <div class="actions">
+      <ui-button type="submit" variant="primary" [disabled]="saving()" data-testid="save-header">
+        {{ saving() ? 'Saving…' : editing() ? 'Save header' : 'Create shipment' }}
+      </ui-button>
+      @if (editing()) {
+        <ui-button (onClick)="cancelled.emit()">Cancel</ui-button>
+      } @else {
+        <a routerLink="/inventory/shipments" class="cancel-link">Cancel</a>
+      }
+    </div>
+  </form>
+</div>

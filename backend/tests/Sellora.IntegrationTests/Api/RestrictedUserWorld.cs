@@ -61,6 +61,24 @@ public sealed class RestrictedUserWorld
         finally { Gate.Release(); }
     }
 
+    /// <summary>The same roles on a dedicated (non-shared) <see cref="BranchApiWorld"/>.</summary>
+    public static async Task<RestrictedUserWorld> CreateDedicatedAsync(BranchApiWorld world)
+    {
+        var staff = PermissionCatalog.All.Select(p => p.Code)
+            .Where(c => !c.StartsWith("Users.") && !c.StartsWith("Roles.") && !c.StartsWith("Permissions.") && c != "Company.Users.ManageBranchAccess"
+                        && !c.StartsWith("Company.Branches.") || c == "Company.Branches.View")
+            .ToArray();
+        string[] delegates = ["Users.View", "Company.Users.ManageBranchAccess", "Company.Branches.View"];
+        Guid adminRole;
+        await using (var db = world.Host.Database.CreateDbContext()) adminRole = db.Roles.Where(r => r.IsSystem).Select(r => r.Id).Single();
+        return new RestrictedUserWorld
+        {
+            World = world, AdminRoleId = adminRole,
+            StaffRoleId = await CreateRoleAsync(world, "Branch Staff", staff),
+            DelegateRoleId = await CreateRoleAsync(world, "Access Delegate", delegates),
+        };
+    }
+
     private static async Task<Guid> CreateRoleAsync(BranchApiWorld world, string name, string[] codes)
     {
         var response = await world.Admin.PostAsJsonAsync("/api/v1/roles", new CreateRoleRequest(name, null, codes), ApiHost.Json);

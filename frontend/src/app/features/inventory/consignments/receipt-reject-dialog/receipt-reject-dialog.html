@@ -1,0 +1,17 @@
+<div class="panel" role="group" aria-label="Reject receipt">
+  <h3>Reject receipt #{{ receipt().sequence }}</h3>
+  <p class="hint">The receipt is returned for correction and its quantities can be recorded again. Nothing was posted, so no stock moves.</p>
+  @if (serverError(); as msg) {
+    <div class="server-error" role="alert" data-testid="reject-error">{{ msg }}</div>
+  }
+  <label class="notes-label">Reason
+    <textarea class="field-input" rows="2" [attr.maxlength]="reasonMax" data-testid="reject-reason" [value]="reason()" (input)="reason.set($any($event.target).value)"></textarea>
+  </label>
+  @if (error(); as msg) {
+    <div class="field-error" data-testid="reject-reason-error">{{ msg }}</div>
+  }
+  <div class="actions">
+    <ui-button variant="primary" data-testid="reject-submit" [disabled]="busy()" (onClick)="submit()">{{ busy() ? 'Rejecting…' : 'Reject receipt' }}</ui-button>
+    <ui-button (onClick)="cancelled.emit()">Cancel</ui-button>
+  </div>
+</div>

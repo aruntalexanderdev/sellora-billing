@@ -20,4 +20,7 @@ public class StockItem : ICompanyOwned
 
     public decimal QuantityOnHand { get; set; }
     public decimal AverageCost { get; set; }
+
+    /// <summary>FI-D4: base quantity earmarked by Active <see cref="StockReservation"/>s. 0 &lt;= Reserved &lt;= QuantityOnHand (DB CHECK); available = on hand - reserved.</summary>
+    public decimal ReservedQuantity { get; set; }
 }

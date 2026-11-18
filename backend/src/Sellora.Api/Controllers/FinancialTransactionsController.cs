@@ -58,17 +58,28 @@ public class FinancialTransactionsController(SelloraDbContext db, IFinancialAcco
                 || (t.SourceReference != null && t.SourceReference.ToLower().Contains(s)));
         }
 
-        var total = await query.CountAsync(ct);
-        // Opening balances, transfers and the reversals of either are not money entering or leaving the business; funding is, and its reversal nets it off.
-        // Money in/out = business flows only, matching the cash-flow report (FI-D19, review): opening balances, transfers, funding and every
-        // reversal are capital/internal movements, shown as rows but never counted here.
-        var external = query.Where(t => t.Type != FinancialTransactionType.OpeningBalance && t.Type != FinancialTransactionType.Transfer
-            && t.Type != FinancialTransactionType.Funding && t.Type != FinancialTransactionType.Reversal);
-        var moneyIn = await external.Where(t => t.Status == FinancialTransactionStatus.Active && t.Direction == MoneyDirection.In).SumAsync(t => (decimal?)t.BaseAmount, ct) ?? 0m;
-        var moneyOut = await external.Where(t => t.Status == FinancialTransactionStatus.Active && t.Direction == MoneyDirection.Out).SumAsync(t => (decimal?)t.BaseAmount, ct) ?? 0m;
+        // One aggregate round-trip instead of Count + 2 Sums (each re-evaluated the visibility predicate).
+        // Opening balances, transfers, funding and every reversal are capital/internal movements, shown as rows but never counted
+        // as money in/out (FI-D19, review): money in/out = business flows only, matching the cash-flow report.
+        var totals = await query
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Total = g.Count(),
+                MoneyIn = g.Where(t => t.Type != FinancialTransactionType.OpeningBalance && t.Type != FinancialTransactionType.Transfer
+                        && t.Type != FinancialTransactionType.Funding && t.Type != FinancialTransactionType.Reversal
+                        && t.Status == FinancialTransactionStatus.Active && t.Direction == MoneyDirection.In).Sum(t => (decimal?)t.BaseAmount),
+                MoneyOut = g.Where(t => t.Type != FinancialTransactionType.OpeningBalance && t.Type != FinancialTransactionType.Transfer
+                        && t.Type != FinancialTransactionType.Funding && t.Type != FinancialTransactionType.Reversal
+                        && t.Status == FinancialTransactionStatus.Active && t.Direction == MoneyDirection.Out).Sum(t => (decimal?)t.BaseAmount),
+            })
+            .SingleOrDefaultAsync(ct);
+        var total = totals?.Total ?? 0;
+        var moneyIn = totals?.MoneyIn ?? 0m;
+        var moneyOut = totals?.MoneyOut ?? 0m;
 
         var items = await query
-            .OrderByDescending(t => t.TransactionDate).ThenByDescending(t => t.CreatedAt)
+            .OrderByDescending(t => t.TransactionDate).ThenByDescending(t => t.CreatedAt).ThenByDescending(t => t.Id)
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(t => new FinancialTransactionDto(
                 t.Id, t.TransactionDate, t.Type, t.Direction, t.Status,

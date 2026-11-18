@@ -34,7 +34,8 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
         var accountQuery = db.FinancialAccounts.AsQueryable();
         if (branchId is not null) accountQuery = accountQuery.Where(a => a.BranchId == branchId);
         var accounts = await accountQuery.OrderBy(a => a.Kind).ThenBy(a => a.Name).ToListAsync(ct);
-        var balances = await BalancesAsync(null, ct);
+        // Aggregate only the accounts the caller can see (branch-filtered above), not the whole company ledger.
+        var balances = await BalancesAsync(accounts.Select(a => a.Id).ToList(), ct);
         var labels = await BranchLabels.LoadAsync(db, ct);
         var sharedBalances = await CanSeeSharedBalancesAsync(ct);
 
@@ -54,7 +55,7 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
         var account = await db.FinancialAccounts.SingleOrDefaultAsync(a => a.Id == id, ct);
         if (account is null) return NotFound();
 
-        var balances = await BalancesAsync(id, ct);
+        var balances = await BalancesAsync([id], ct);
         return Ok(ToDto(account, balances.GetValueOrDefault(id), await BranchLabels.LoadAsync(db, ct), await CanSeeSharedBalancesAsync(ct)));
     }
 
@@ -207,8 +208,10 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
             })
             .ToListAsync(ct);
 
+        // Only the originals shown in this statement matter (a reversal may be dated outside the range, so its own date must not be filtered).
+        var entryIds = entries.Select(e => e.Id).ToList();
         var reversedBy = (await db.FinancialTransactions
-                .Where(r => r.AccountId == id && r.ReversalOfTransactionId != null)
+                .Where(r => r.AccountId == id && r.ReversalOfTransactionId != null && entryIds.Contains(r.ReversalOfTransactionId.Value))
                 .Select(r => new { Original = r.ReversalOfTransactionId!.Value, r.Id }).ToListAsync(ct))
             .ToDictionary(r => r.Original, r => r.Id);
 
@@ -280,10 +283,11 @@ public class FinancialAccountsController(SelloraDbContext db, IFinancialAccountS
     private sealed record Balance(decimal Book, decimal Reconciled, int Unreconciled);
 
     // Balances are derived from the ledger, never stored: active money in less money out per account.
-    private async Task<Dictionary<Guid, Balance>> BalancesAsync(Guid? accountId, CancellationToken ct)
+    private async Task<Dictionary<Guid, Balance>> BalancesAsync(IReadOnlyCollection<Guid> accountIds, CancellationToken ct)
     {
-        var query = db.FinancialTransactions.Where(t => t.AccountId != null && t.Status == FinancialTransactionStatus.Active);
-        if (accountId is not null) query = query.Where(t => t.AccountId == accountId);
+        if (accountIds.Count == 0) return [];
+        var ids = accountIds.ToList();
+        var query = db.FinancialTransactions.Where(t => t.AccountId != null && t.Status == FinancialTransactionStatus.Active && ids.Contains(t.AccountId.Value));
 
         var rows = await query
             .GroupBy(t => t.AccountId!.Value)

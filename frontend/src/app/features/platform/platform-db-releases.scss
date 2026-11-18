@@ -1,0 +1,73 @@
+@use '../../shared/styles/page-head';
+
+.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 16px 18px; margin-bottom: 16px; }
+.card h2 { font-size: 15px; font-weight: 650; margin: 0 0 12px; }
+.state { text-align: center; color: var(--color-text-muted); }
+.meta { color: var(--color-text-muted); font-size: 13px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+.nowrap { white-space: nowrap; }
+.hint { font-size: 13px; margin: 8px 0 0; }
+.hint.bad { color: var(--color-danger-text); }
+.summary { font-size: 13.5px; margin: 8px 0 0; }
+.eyebrow { font-size: 11.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; color: var(--color-text-muted); margin: 14px 0 6px; }
+
+.release-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 16px; }
+.tile { display: grid; gap: 2px; text-align: left; padding: 12px 14px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); cursor: pointer; font: inherit; color: inherit; }
+.tile strong { font-size: 22px; }
+.tile span { font-size: 12.5px; color: var(--color-text-muted); }
+.tile.on { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
+.tile.bad strong { color: var(--color-danger-text); }
+
+.split { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
+.split.open { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
+.table-card { padding: 0; overflow: auto; }
+.ef-toggle { padding: 10px 14px; border-bottom: 1px solid var(--color-border-subtle); }
+.link { background: none; border: 0; padding: 0; color: var(--color-accent); font-weight: 600; font-size: 13px; cursor: pointer; }
+
+.rows { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rows th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--color-text-muted); padding: 9px 14px; border-bottom: 1px solid var(--color-border); }
+.rows td { padding: 10px 14px; border-bottom: 1px solid var(--color-border-subtle); vertical-align: top; }
+.rows .num { text-align: right; }
+.rows.small th, .rows.small td { padding: 6px 8px; }
+.rows tr.click { cursor: pointer; }
+.rows tr.click:hover, .rows tr.sel { background: var(--color-surface-subtle); }
+.rows tr.muted { opacity: .55; }
+.name { word-break: break-all; }
+.kind { color: var(--color-text-muted); font-size: 12px; margin-top: 2px; }
+.err-inline { color: var(--color-danger-text); font-size: 12px; margin-top: 2px; }
+
+.drawer { margin-bottom: 0; min-width: 0; }
+.drawer-head { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+.drawer-head h3 { margin: 0 0 8px; font-size: 14px; word-break: break-all; }
+.x { background: none; border: 0; font-size: 20px; cursor: pointer; color: var(--color-text-muted); line-height: 1; }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 10px 0; font-size: 13px; }
+.facts dt { color: var(--color-text-muted); }
+.facts dd { margin: 0; }
+.sql { margin: 0; padding: 10px; background: var(--color-surface-subtle); border-radius: 6px; font-size: 12px; max-height: 280px; overflow: auto; white-space: pre-wrap; }
+.scroll { overflow-x: auto; }
+
+.runs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.run { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 6px; background: none; cursor: pointer; font: inherit; color: inherit; text-align: left; }
+.run:hover, .run.sel { background: var(--color-surface-subtle); border-color: var(--color-border); }
+.run-detail { margin-top: 14px; border-top: 1px solid var(--color-border-subtle); padding-top: 12px; overflow-x: auto; }
+
+@media (max-width: 800px) {
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+  .split.open { grid-template-columns: 1fr; }
+}
+
+// With the detail panel open the list keeps script, status, attempts and duration; "Last run" is in the panel.
+.split.open .rows:not(.small) th:nth-child(5),
+.split.open .rows:not(.small) td:nth-child(5) { display: none; }
+
+.retry-actions { display: flex; gap: 10px; margin-top: 12px; }
+.confirm { margin-top: 12px; padding: 12px; display: grid; gap: 8px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-card); background: var(--color-surface-subtle); }
+.confirm h3 { margin: 0; font-size: 14px; }
+.confirm label { font-size: 12.5px; font-weight: 600; }
+.confirm textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 8px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-control); resize: vertical; }
+.counter { display: flex; justify-content: space-between; font-size: 12px; color: var(--color-text-muted); }
+.counter.bad { color: var(--color-danger-text); }
+.notice a { margin-left: 8px; font-weight: 600; }
+.notice.err { color: var(--color-danger-text); }

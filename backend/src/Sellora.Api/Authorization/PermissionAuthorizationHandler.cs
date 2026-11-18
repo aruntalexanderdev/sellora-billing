@@ -20,13 +20,19 @@ public sealed class PermissionAuthorizationHandler(
 
         var ct = (context.Resource as HttpContext)?.RequestAborted ?? CancellationToken.None;
         var set = await permissions.GetCurrentAsync(ct);
-        var permitted = set.PermittedBranches(requirement.PermissionCode);
-
-        if (permitted is null)
+        // Any-of: a company-wide grant of any listed code passes; otherwise the branch scopes of every held code are unioned (one code = the single-code rule).
+        HashSet<Guid>? union = null;
+        foreach (var code in requirement.PermissionCodes)
         {
-            context.Succeed(requirement);
-            return;
+            var held = set.PermittedBranches(code);
+            if (held is null)
+            {
+                context.Succeed(requirement);
+                return;
+            }
+            (union ??= []).UnionWith(held);
         }
+        IReadOnlySet<Guid> permitted = union ?? [];
         if (permitted.Count == 0) return;
 
         // Active branch is resolved once by CompanyContextMiddleware (header, primary, company default).

@@ -41,6 +41,8 @@ public static class PlatformAuditActions
     public const string CurrencyCreated = "platform.currency_created";
     public const string CurrencyUpdated = "platform.currency_updated";
     public const string CurrencyStatusChanged = "platform.currency_status_changed";
+    public const string DbReleaseRetryRequested = "platform.db_release_retry_requested";
+    public const string DbReleaseRetryFailed = "platform.db_release_retry_failed";
 }
 
 /// <summary>Values of <see cref="PlatformAuditEvent.TargetType"/>.</summary>
@@ -51,4 +53,5 @@ public static class PlatformAuditTargets
     public const string PlatformAdministrator = "PlatformAdministrator";
     public const string Unit = "Unit";
     public const string Currency = "Currency";
+    public const string DbReleaseRun = "DbReleaseRun";
 }

@@ -83,7 +83,7 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
                 t.SourceLocationId, t.DestinationLocationId, t.SourceBranchId, t.DestinationBranchId,
                 LineCount = t.Lines.Count,
                 OutstandingLineCount = t.Lines.Count(l =>
-                    l.DispatchedBaseQty - l.ReceivedBaseQty - l.DamagedBaseQty - l.WrittenOffBaseQty - l.ReturnedBaseQty > 0),
+                    l.DispatchedBaseQty - l.ReceivedBaseQty - l.DamagedBaseQty - l.WrittenOffBaseQty - l.ReturnedBaseQty - l.AcceptedCorrectionBaseQty > 0),
                 t.DispatchedAt, t.CompletedAt,
             })
             .ToListAsync(ct);
@@ -417,15 +417,15 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
                 .Select(b => new StockTransferLineBatchDto(
                     b.PurchaseBatchId,
                     batchSeq.TryGetValue(b.PurchaseBatchId, out var seq) ? PurchaseBatch.FormatInternalBatchNo(seq) : "",
-                    showCost ? b.UnitCost : null, b.DispatchedBaseQty, b.ReceivedBaseQty, b.DamagedBaseQty, b.WrittenOffBaseQty, b.ReturnedBaseQty,
-                    b.DispatchedBaseQty - b.ReceivedBaseQty - b.DamagedBaseQty - b.WrittenOffBaseQty - b.ReturnedBaseQty))
+                    showCost ? b.UnitCost : null, b.DispatchedBaseQty, b.ReceivedBaseQty, b.DamagedBaseQty, b.WrittenOffBaseQty, b.ReturnedBaseQty, b.AcceptedCorrectionBaseQty,
+                    b.DispatchedBaseQty - b.ReceivedBaseQty - b.DamagedBaseQty - b.WrittenOffBaseQty - b.ReturnedBaseQty - b.AcceptedCorrectionBaseQty))
                 .ToList();
             return new StockTransferLineDto(
                 l.Id, l.LineNo, l.ProductId, p?.Name, p?.Sku, p?.BaseUnitCode, p?.BaseDecimalPlaces,
                 l.ProductUnitId, l.UnitCode, l.ConversionFactorToBase, l.RequestedQty, l.RequestedBaseQty,
                 l.DispatchProductUnitId, l.DispatchUnitCode, l.DispatchFactor, l.DispatchedQty, l.DispatchedBaseQty,
-                l.ReceivedBaseQty, l.DamagedBaseQty, l.WrittenOffBaseQty, l.ReturnedBaseQty,
-                l.DispatchedBaseQty - l.ReceivedBaseQty - l.DamagedBaseQty - l.WrittenOffBaseQty - l.ReturnedBaseQty,
+                l.ReceivedBaseQty, l.DamagedBaseQty, l.WrittenOffBaseQty, l.ReturnedBaseQty, l.AcceptedCorrectionBaseQty,
+                l.DispatchedBaseQty - l.ReceivedBaseQty - l.DamagedBaseQty - l.WrittenOffBaseQty - l.ReturnedBaseQty - l.AcceptedCorrectionBaseQty,
                 l.AllocatedBaseQty, l.ClosedBaseQty, l.RequestedBaseQty - l.ClosedBaseQty - l.DispatchedBaseQty,
                 batches);
         }).ToList();

@@ -11,7 +11,6 @@ import type {
   ReadyForShipmentItem,
   ReadyForShipmentQuery,
   StockTransferHistoryEntry,
-  DispatchStockTransferRequest,
   ReceiveStockTransferRequest,
   ResolveStockTransferRequest,
   StockTransfer,
@@ -44,7 +43,7 @@ export function readyForShipmentParams(query: ReadyForShipmentQuery, companyView
   return params;
 }
 
-/** Phase 9 API. Create / dispatch / receipts / resolve require an Idempotency-Key; the state-idempotent actions accept one harmlessly. */
+/** Phase 9 API. Create / receipts / resolve require an Idempotency-Key; the state-idempotent actions accept one harmlessly. */
 @Injectable({ providedIn: 'root' })
 export class StockTransfersService {
   private readonly http = inject(HttpClient);
@@ -80,10 +79,6 @@ export class StockTransfersService {
 
   cancel(id: string, reason: string, idempotencyKey?: string): Observable<StockTransfer> {
     return this.http.post<StockTransfer>(`${BASE_URL}/${id}/cancel`, { reason }, { headers: idempotencyHeaders(idempotencyKey) });
-  }
-
-  dispatch(id: string, request: DispatchStockTransferRequest, idempotencyKey: string): Observable<StockTransfer> {
-    return this.http.post<StockTransfer>(`${BASE_URL}/${id}/dispatch`, request, { headers: idempotencyHeaders(idempotencyKey) });
   }
 
   receive(id: string, request: ReceiveStockTransferRequest, idempotencyKey: string): Observable<StockTransferReceiptResult> {

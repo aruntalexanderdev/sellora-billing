@@ -1,0 +1,54 @@
+name: Deploy prod
+
+# Deploys branch main → GitHub environment "prod" (API + frontend + database scripts). Manual only.
+# Flow: guard -> CI -> db-plan (read-only plan in the run summary) -> approve (reviewers) -> backup + migrate-db -> deploy-api -> deploy-web.
+# Runbook: docs/operations/database-release-runbook.md   Spec: docs/features/db-release-automation.md (D24-D27)
+#
+# Required GitHub environments (Settings -> Environments):
+#   prod            Deployment branch rule: main only. No required reviewers (approval lives on prod-approval, D24).
+#     Secrets:      AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, SELLORA_DB_MIGRATOR_CONNECTION,
+#                   AZURE_STATIC_WEB_APPS_API_TOKEN
+#     Variables:    AZURE_WEBAPP_NAME, API_HEALTH_URL, SELLORA_API_BASE_URL, AZURE_POSTGRES_SERVER, AZURE_POSTGRES_RESOURCE_GROUP
+#   prod-approval   Required reviewers (prevent self-review optional), deployment branch rule: main only. No secrets, no variables.
+#
+# Azure roles for the prod deploy identity (federated credential subject repo:<owner>/<repo>:environment:prod):
+#   Website Contributor on the App Service; Contributor on the Postgres Flexible Server (runner firewall rule + on-demand backup).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false # never stop a deploy halfway; a newer run waits
+
+jobs:
+  guard:
+    name: Check branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only the main branch deploys to prod
+        if: github.ref_name != 'main'
+        run: |
+          echo "::error::Run this workflow on branch 'main' (selected: '${{ github.ref_name }}')."
+          exit 1
+
+  ci:
+    name: CI
+    needs: guard
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy
+    needs: ci
+    uses: ./.github/workflows/_deploy-template.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: prod
+      deploy_frontend: true
+      run_migrations: true
+      require_approval: true
+      backup_before_migrate: true
