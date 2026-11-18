@@ -269,13 +269,20 @@ public abstract class MigrationRunnerScenarios
         await using var dropOnExit = drop;
         using var package = new Package().Write("scripts", Create, "CREATE TABLE it_plan (id int);");
 
+        var efList = Path.Combine(package.Root, "ef-migrations.txt");
+        File.WriteAllLines(efList, ["Build started...", "20990101000000_FutureSchema", "Build succeeded."]); // build noise is ignored
+
         var log = new StringWriter();
         var options = new MigratorOptions(cs, package.Root, new RunInfo("test", null, null, "Deploy", "it", null, null),
-            ViolationMode.Warn, TimeSpan.FromSeconds(5), EfBundlePath: null, PlanOnly: true);
-        var code = await new MigrationRunner(options, log).RunAsync(CancellationToken.None);
+            ViolationMode.Warn, TimeSpan.FromSeconds(5), EfBundlePath: null, PlanOnly: true, EfMigrationsListPath: efList);
+        var runner = new MigrationRunner(options, log);
+        var code = await runner.RunAsync(CancellationToken.None);
 
         Assert.Equal(ExitCode.Succeeded, code);
         Assert.Contains($"RUN   {Create}", log.ToString());
+        Assert.Equal(
+            [("20990101000000_FutureSchema", "Planned"), (Create, "Planned")],
+            runner.Outcomes.Select(o => (o.Name, o.Status)));
         Assert.Null(await ScalarAsync<string>(cs, "SELECT to_regnamespace('ops')::text"));
         Assert.Null(await ScalarAsync<string>(cs, "SELECT to_regclass('it_plan')::text"));
     }

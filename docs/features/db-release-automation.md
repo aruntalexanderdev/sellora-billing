@@ -6,7 +6,7 @@ size: L
 
 Review page (plan, workflow, UI prototype, answered questions): https://claude.ai/artifact/FyLELaZd9qLahrk2KvU1YQ
 Owner answers 2026-11-18: all recommendations Q1–Q17 accepted. Q10 resolved (nothing to baseline, see Decisions D11).
-Current step: **Delivery steps 2–4 implemented and reviewed on `feature/db-release-automation`.** Waiting for the owner actions below (claude-dev pipeline run = POC step 5, GitHub App). Step 5 (prod) not started.
+Current step: **All delivery steps (2–5) implemented and reviewed on `feature/db-release-automation`.** Remaining: rollout and verification in real environments (see "Rollout checklist").
 
 ## Problem
 The deploy pipeline (`.github/workflows/_deploy-template.yml`) generates the idempotent EF migration script, publishes it as the
@@ -215,6 +215,18 @@ Scripts are ordered EfMigration, Data, Repeatable, Validation, then by name. Dat
 - D22 One retry per run per 10 minutes (409), so double clicks and impatient repeats do not queue several re-runs.
 - D23 Notifications (Q16): GitHub already emails the actor of a failed workflow and the page shows the red status; nothing extra is
   built in step 4.
+- D24 (step 5) **One approval per prod release.** GitHub asks for approval on every job that uses a protected environment, and
+  `migrate-db` and `deploy-api` both use `prod` for secrets. So approval lives on a separate environment `prod-approval`
+  (required reviewers, no secrets) used by one `approve` job; `prod` holds the secrets and only allows the `main` branch.
+- D25 (step 5) **Approvers see the plan first.** Before the approval job, a `db-plan` job runs the migrator with `--plan` against
+  prod (read-only: nothing is written, D-review Minor 7) and puts the planned scripts, the pending EF migrations
+  (`--ef-migrations-list`, produced by `dotnet ef migrations list --no-connect` in the build) and any release errors in the run summary.
+- D26 (step 5, revises D6) **On-demand server backup before every prod migration** (`az postgres flexible-server backup create`,
+  stays inside Azure) instead of `pg_dump` for destructive releases only: no customer data leaves Azure, nothing to classify as
+  "destructive", and point-in-time restore remains the fallback. The backup name and the restore timestamp go into the job summary.
+- D27 (step 5) Prod validations block (`--validation-default block`, already in the template). A retry ("re-run failed jobs",
+  page or GitHub) does **not** ask for approval again: the `approve` job already succeeded and is not re-run, and the retry applies
+  the same package that was approved. The retry itself is audited with its reason (D21).
 - File moves (done in step 2): `seed-permissions.sql` → `backend/db/repeatable/R__seed-permissions.sql`; `stock-reconciliation.sql`,
   `stock-transfers-validation.sql`, `unit-restructuring-validation.sql`, `van-operations-validation.sql` → `backend/db/validation/V__*.sql`;
   `unit-restructuring-profile.sql`, `grant-platform-admin.sql`, `delete-product.sql` stay in `scripts/sql/`. Done in delivery step 2.
@@ -224,6 +236,7 @@ Scripts are ordered EfMigration, Data, Repeatable, Validation, then by name. Dat
   zero from before Phase 07 are expected, so it must never block a prod deploy). Test helpers and `docs/functional-improvements/RELEASE.md` point there.
 
 ## Deployment notes
+Operations (release, approval, restore, setup checklist): `docs/operations/database-release-runbook.md`.
 ### Delivery step 2 — what changed
 - `backend/db/` is the release package: `repeatable/R__seed-permissions.sql`, `validation/V__*.sql` (4 files), `scripts/` (empty).
 - `.github/workflows/_deploy-template.yml`: build job bundles EF migrations + publishes the migrator (`db-release` artifact);
@@ -266,6 +279,29 @@ instead of argv, no row values in logs/summary + HTML-escaped summary, `--plan` 
   runs 2–3 extra queries for retry info.
 - Not run here (no Docker): `DbReleaseRetryTests` / `PlatformDbReleasesApiTests` under Testcontainers — the same retry scenarios
   passed against a local PostgreSQL 16 with the full EF schema.
+
+### Delivery step 5 — prod approval gate, backup, runbook
+- `deploy-prod.yml` (manual, `main` only) → template with `require_approval` + `backup_before_migrate`. Job graph:
+  guard → ci → build-api → db-plan (read-only plan in the job summary) → approve (`prod-approval`, the only reviewer gate) →
+  migrate-db (on-demand backup, then migrator) → deploy-api → deploy-web. dev/claude-dev skip db-plan/approve (unchanged).
+- `build-api` fails when `prod` is called without the approval gate. `migrate-db` timeout 60 min.
+- Migrator plan mode: `--ef-migrations-list` shows pending EF migrations; an empty/failed list is an invalid release (exit 2);
+  the plan session is `default_transaction_read_only = on`, enforced by PostgreSQL.
+- `scripts/ci/postgres-firewall.sh open|close <suffix>` shared by db-plan and migrate-db.
+- Runbook: `docs/operations/database-release-runbook.md`. Key rule now also on the page hint: a **script bug needs a new deploy**;
+  Retry / "Re-run failed jobs" re-applies the same package and is for data fixes and temporary errors only.
+- Review (`code-reviewer`): no Blocker; 3 Majors fixed (runbook retry-vs-redeploy, restore guidance incl. attempt-1 backup,
+  firewall propagation — covered by the migrator's connect retry, now documented) and Minors 4–7, 9 fixed. Minor 8 accepted
+  (a re-run after a rejected approval is also labelled Retry).
+- Unverified here: `az postgres flexible-server backup create` / `restore` flags (no Azure access) — first prod-like run must confirm.
+
+### Rollout checklist (remaining after the code)
+1. claude-dev: owner actions below → merge to `claude_dev` → Deploy claude-dev (POC step 5) → check the page.
+2. GitHub App settings on claude-dev → test a page retry on a deliberately failing script.
+3. dev: set `run_migrations: true` in `deploy-dev.yml`, add the same secrets/variables to the `dev` environment, retire the
+   legacy push-triggered workflows.
+4. prod: create environments `prod` and `prod-approval`, Azure roles, first approved release; confirm the backup step.
+5. Mark this spec `status: done`.
 
 ### Owner actions for page retry (GitHub App, D20)
 1. GitHub → Settings → Developer settings → GitHub Apps → **New GitHub App**: name e.g. "Sellora DB releases", homepage = repo URL,

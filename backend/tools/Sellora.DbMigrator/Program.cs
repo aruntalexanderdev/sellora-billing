@@ -5,7 +5,7 @@ namespace Sellora.DbMigrator;
 // 4 unexpected (cannot connect, journal error, cancelled); a run left "Running" by 4 is closed by the next run.
 //
 //   SELLORA_DB_CONNECTION="Host=…;Database=…;Username=…;Password=…" \
-//   dotnet Sellora.DbMigrator.dll --scripts backend/db --environment dev [--ef-bundle ./efbundle] [--plan]
+//   dotnet Sellora.DbMigrator.dll --scripts backend/db --environment dev [--ef-bundle ./efbundle] [--plan [--ef-migrations-list ef-migrations.txt]]
 //
 // The connection string is read from SELLORA_DB_CONNECTION so it never appears in the process list or pipeline logs.
 // Run metadata defaults to the GitHub Actions variables (GITHUB_SHA, GITHUB_ACTOR, run URL) when present.
@@ -65,7 +65,8 @@ internal static class Program
             validationMode.Value,
             TimeSpan.FromSeconds(int.TryParse(Arg("lock-wait"), out var wait) ? wait : 300),
             Arg("ef-bundle"),
-            args_.ContainsKey("plan"));
+            args_.ContainsKey("plan"),
+            Arg("ef-migrations-list"));
 
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -82,14 +83,14 @@ internal static class Program
             Console.Error.WriteLine($"✘ Migrator stopped: {ex.GetType().Name}: {ex.Message}");
             code = ExitCode.Unexpected;
         }
-        WriteGitHubSummary(environment, code, runner.Outcomes);
+        WriteGitHubSummary(environment, code, runner.Outcomes, options.PlanOnly);
         return (int)code;
     }
 
     private static Dictionary<string, string>? ParseArgs(string[] argv)
     {
         string[] flags = ["plan"];
-        string[] valued = ["scripts", "environment", "ef-bundle", "commit", "version", "trigger", "triggered-by", "reason", "validation-default", "lock-wait"];
+        string[] valued = ["scripts", "environment", "ef-bundle", "commit", "version", "trigger", "triggered-by", "reason", "validation-default", "lock-wait", "ef-migrations-list"];
         var result = new Dictionary<string, string>();
         for (var i = 0; i < argv.Length; i++)
         {
@@ -102,12 +103,14 @@ internal static class Program
         return result;
     }
 
-    private static void WriteGitHubSummary(string environment, ExitCode code, IReadOnlyList<StepOutcome> outcomes)
+    private static void WriteGitHubSummary(string environment, ExitCode code, IReadOnlyList<StepOutcome> outcomes, bool plan)
     {
         var path = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY");
         if (string.IsNullOrEmpty(path)) return;
         using var w = File.AppendText(path);
-        w.WriteLine($"### Database scripts · {environment} · {(code == ExitCode.Succeeded ? "✅ succeeded" : $"❌ {code}")}");
+        w.WriteLine(plan
+            ? $"### Database plan · {environment} · {(code == ExitCode.Succeeded ? "✅ valid release" : $"❌ {code}")} (nothing executed)"
+            : $"### Database scripts · {environment} · {(code == ExitCode.Succeeded ? "✅ succeeded" : $"❌ {code}")}");
         w.WriteLine();
         w.WriteLine("| Script | Kind | Status | Duration | Rows | Detail |");
         w.WriteLine("|---|---|---|---|---|---|");

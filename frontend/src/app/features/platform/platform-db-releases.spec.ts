@@ -93,7 +93,7 @@ describe('PlatformDbReleases', () => {
 
   it('shows the retry hint for a failed script and failed run', async () => {
     const { el, fixture } = mount(overview());
-    expect(el.textContent).toContain('To retry, fix the script in a PR (or re-run the failed migrate-db job in GitHub)');
+    expect(el.textContent).toContain('Script bug: fix it in a PR and deploy again (a retry re-applies the same release). Temporary error (lock, connection): retry.');
     el.querySelectorAll<HTMLElement>('tr.click')[1].click(); // Failed row
     fixture.detectChanges();
     await tick();
