@@ -92,6 +92,25 @@ public class PlatformDbReleasesApiTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task Retry_without_github_app_settings_is_503_and_the_overview_says_why()
+    {
+        await using var host = await StartAsync(postgres);
+        await RunMigratorAsync(host);
+        using var client = await Phase6Support.PlatformClientAsync(host, "ops.releases");
+
+        var overview = (await client.GetFromJsonAsync<DbReleasesOverviewDto>(Route, ApiHost.Json))!;
+        var tooShort = await client.PostAsJsonAsync($"{Route}/retry", new RetryDbReleaseRequest("claude-dev", "short"), ApiHost.Json);
+        var unconfigured = await client.PostAsJsonAsync($"{Route}/retry", new RetryDbReleaseRequest("claude-dev", "Retry after fixing the data"), ApiHost.Json);
+
+        Assert.False(overview.Retry.Configured);
+        Assert.False(overview.Retry.CanRetry);
+        Assert.NotNull(overview.Retry.UnavailableReason);
+        Assert.Equal(HttpStatusCode.BadRequest, tooShort.StatusCode);
+        Assert.Contains("\"reason\"", await tooShort.Content.ReadAsStringAsync());
+        Assert.Equal((HttpStatusCode.ServiceUnavailable, "retry_not_configured"), (unconfigured.StatusCode, await unconfigured.ProblemCodeAsync()));
+    }
+
+    [Fact]
     public async Task Unknown_ids_are_404()
     {
         await using var host = await StartAsync(postgres);

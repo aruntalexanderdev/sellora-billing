@@ -6,7 +6,7 @@ size: L
 
 Review page (plan, workflow, UI prototype, answered questions): https://claude.ai/artifact/FyLELaZd9qLahrk2KvU1YQ
 Owner answers 2026-11-18: all recommendations Q1–Q17 accepted. Q10 resolved (nothing to baseline, see Decisions D11).
-Current step: **Delivery steps 2 and 3 implemented and reviewed on `feature/db-release-automation`.** Waiting for the first claude-dev pipeline run (POC step 5, owner actions below); step 4 (page retry + notifications) not started.
+Current step: **Delivery steps 2–4 implemented and reviewed on `feature/db-release-automation`.** Waiting for the owner actions below (claude-dev pipeline run = POC step 5, GitHub App). Step 5 (prod) not started.
 
 ## Problem
 The deploy pipeline (`.github/workflows/_deploy-template.yml`) generates the idempotent EF migration script, publishes it as the
@@ -157,6 +157,24 @@ DbReleaseRunDetailDto  { run: DbReleaseRunDto, attempts: DbScriptAttemptDto[] (e
 DbScriptDetailDto      { script: DbScriptDto, sql?: string (text of the latest attempt; null for EF migrations), attempts: DbScriptAttemptDto[] (newest first) }
 ```
 `journalAvailable = false` (schema `ops` absent: the migrator never ran on this database) → empty lists, not an error.
+
+**Step 4 additions (retry, D20–D23):**
+
+| Method | Route | Permission | Request | Response | Errors |
+|---|---|---|---|---|---|
+| POST | /api/v1/platform/db-releases/retry | Platform admin | `{ environment, reason }` | 202 `DbReleaseRetryResponseDto` | 400 (validation), 409 `retry_not_allowed`, 502 `github_rejected`, 503 `retry_not_configured` |
+
+```
+DbReleasesOverviewDto  + retry: DbReleaseRetryInfoDto
+DbReleaseRetryInfoDto  { configured: bool, canRetry: bool, unavailableReason?: string,
+                         lastRequest?: { requestedBy: string, reason: string, requestedAt } }   // last request for the latest run
+RetryDbReleaseRequest  { environment: string (must equal the latest run's environment), reason: string (10–500 chars) }
+DbReleaseRetryResponseDto { runId (journal run being retried), pipelineUrl, requestedAt }
+```
+`canRetry` = configured AND the latest run is `Failed` AND its `pipelineUrl` is a run of the configured repository AND no retry was
+requested for that run in the last 10 minutes. `unavailableReason` explains a false `canRetry` in one sentence. 400 field errors use
+`environment` / `reason`; 409/502/503 are ProblemDetails with `extensions.code` and a human `title`.
+
 Scripts are ordered EfMigration, Data, Repeatable, Validation, then by name. Dates are ISO 8601 UTC.
 
 ## Decisions
@@ -186,6 +204,17 @@ Scripts are ordered EfMigration, Data, Repeatable, Validation, then by name. Dat
 - D18 Step 3 contract: three read endpoints (overview, run detail, script detail) instead of the four drafted; one call loads the page.
 - D19 Q17 "show the SQL": the migrator stores the executed SQL on each attempt (`"DbScriptAttempts"."Sql"`, added with
   `ADD COLUMN IF NOT EXISTS`), so the page shows exactly what ran, even when the API version differs from the migrated release.
+- D20 (OQ2) Page retry uses a **GitHub App** (owner decision 2026-11-18), repository permission **Actions: read & write** only,
+  installed on this repository. Config section `GitHubApp`: `AppId`, `InstallationId`, `PrivateKey` (PEM; App Service setting or
+  Key Vault reference, never in the repo), `Owner`, `Repository`. Not configured → page shows retry as unavailable (503 on POST).
+- D21 Retry = GitHub "re-run failed jobs" of the **latest failed pipeline run** (`POST /repos/{o}/{r}/actions/runs/{id}/rerun-failed-jobs`),
+  not `workflow_dispatch`: a dispatch would deploy the branch head, possibly a different release; a re-run keeps the same release
+  package (R12). The run id comes from the journal's `PipelineUrl`, accepted only when it points at the configured repository.
+  The migrator then records the run as `Retry` ("GitHub re-run, attempt N"); the platform user and reason go to the platform audit
+  (`platform.db_release_retry_requested`, target `DbReleaseRun`). GitHub keeps re-runs possible for 30 days; older → 502 with GitHub's message.
+- D22 One retry per run per 10 minutes (409), so double clicks and impatient repeats do not queue several re-runs.
+- D23 Notifications (Q16): GitHub already emails the actor of a failed workflow and the page shows the red status; nothing extra is
+  built in step 4.
 - File moves (done in step 2): `seed-permissions.sql` → `backend/db/repeatable/R__seed-permissions.sql`; `stock-reconciliation.sql`,
   `stock-transfers-validation.sql`, `unit-restructuring-validation.sql`, `van-operations-validation.sql` → `backend/db/validation/V__*.sql`;
   `unit-restructuring-profile.sql`, `grant-platform-admin.sql`, `delete-product.sql` stay in `scripts/sql/`. Done in delivery step 2.
@@ -219,6 +248,31 @@ instead of argv, no row values in logs/summary + HTML-escaped summary, `--plan` 
   link) not done: Angular already sanitises `[href]` and the URL is written by the pipeline.
 - Not run here (no Docker): `PlatformDbReleasesApiTests` and the migrator Testcontainers tests — CI runs them. The controller queries
   were executed through EF against a real Postgres journal.
+
+### Delivery step 4 — retry from the page (GitHub App)
+- Backend: `IGitHubActionsClient` / `GitHubActionsClient` (app JWT RS256 → installation token → `rerun-failed-jobs`; network errors,
+  timeouts and refusals become 502, never 500; `ApiBaseUrl` must be https), `DbReleaseRetryService` (rules, audit), `POST /retry`,
+  `overview.retry`. Audit actions `platform.db_release_retry_requested` / `platform.db_release_retry_failed` (no schema change).
+- Concurrency: a transaction-scoped advisory lock serialises the window check and the "requested" audit row, which is committed
+  **before** GitHub is called; a GitHub refusal appends "failed" and releases the window. Tested: 4 simultaneous requests → 1 re-run.
+- UI: "Retry migration" on the failed latest-run card (and in the script panel only for a script that failed in that run), inline
+  confirm with required reason (10–500), last request shown, unavailable reason shown when retry is not possible.
+- Review (`code-reviewer`): no Blocker; both Majors fixed (retry race; unmapped network errors). Minors fixed: `\z` anchor + https-only
+  base URL, missing actor claim → 403 instead of 500, script-panel button scoped to the latest run, DI comment. Accepted: overview
+  runs 2–3 extra queries for retry info.
+- Not run here (no Docker): `DbReleaseRetryTests` / `PlatformDbReleasesApiTests` under Testcontainers — the same retry scenarios
+  passed against a local PostgreSQL 16 with the full EF schema.
+
+### Owner actions for page retry (GitHub App, D20)
+1. GitHub → Settings → Developer settings → GitHub Apps → **New GitHub App**: name e.g. "Sellora DB releases", homepage = repo URL,
+   **Webhook: off**, Repository permissions: **Actions: Read and write** (Metadata read is automatic), nothing else.
+   "Where can this app be installed": only this account.
+2. Generate a **private key** (.pem), note the **App ID**. Install the app on `sellora-billing` only; the installation id is the
+   number at the end of the installation's settings URL.
+3. App Service `sellora-billing-dev-api-claude` → Configuration: `GitHubApp__AppId`, `GitHubApp__InstallationId`,
+   `GitHubApp__Owner=aruntalexanderdev`, `GitHubApp__Repository=sellora-billing`, `GitHubApp__PrivateKey` — preferably a Key Vault
+   reference (`@Microsoft.KeyVault(SecretUri=…)`); a plain setting also works (`\n` escapes are accepted). Restart the app.
+4. Check: the page's failed run shows "Retry migration" instead of "not set up". Without these settings the page stays view only.
 
 ### Owner actions before the first claude-dev run (POC step 5)
 1. Generate a password and run, as the server admin:

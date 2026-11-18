@@ -2,7 +2,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Authorization;
+using System.Security.Claims;
 using Sellora.Api.Contracts;
+using Sellora.Domain.Abstractions;
+using Sellora.Domain.Releases;
 using Sellora.Infrastructure.Data;
 
 namespace Sellora.Api.Controllers;
@@ -16,7 +19,7 @@ namespace Sellora.Api.Controllers;
 [Route("api/v1/platform/db-releases")]
 [PlatformEndpoint]
 [Authorize(Policy = PlatformPolicies.Admin)]
-public class PlatformDbReleasesController(SelloraDbContext db) : ControllerBase
+public class PlatformDbReleasesController(SelloraDbContext db, IDbReleaseRetryService retry) : ControllerBase
 {
     private const string RunColumns = """
         r."Id", r."Environment", r."CommitSha", r."AppVersion", r."Trigger", r."TriggeredBy", r."RetryReason", r."Status",
@@ -55,7 +58,8 @@ public class PlatformDbReleasesController(SelloraDbContext db) : ControllerBase
     [HttpGet]
     public async Task<ActionResult<DbReleasesOverviewDto>> Overview([FromQuery] int runs = 20, CancellationToken ct = default)
     {
-        if (!await JournalExistsAsync(ct)) return Ok(new DbReleasesOverviewDto(false, [], []));
+        var retryInfo = ToDto(await retry.GetInfoAsync(ct));
+        if (!await JournalExistsAsync(ct)) return Ok(new DbReleasesOverviewDto(false, [], [], retryInfo));
         var take = Math.Clamp(runs, 1, 100);
 
         var runRows = await db.Database
@@ -63,7 +67,28 @@ public class PlatformDbReleasesController(SelloraDbContext db) : ControllerBase
             .ToListAsync(ct);
         var scriptRows = await db.Database.SqlQueryRaw<ScriptRow>($"{ScriptSelect} {ScriptOrder}").ToListAsync(ct);
 
-        return Ok(new DbReleasesOverviewDto(true, runRows.Select(ToDto).ToList(), scriptRows.Select(ToDto).ToList()));
+        return Ok(new DbReleasesOverviewDto(true, runRows.Select(ToDto).ToList(), scriptRows.Select(ToDto).ToList(), retryInfo));
+    }
+
+    /// <summary>Step 4 (D21): asks GitHub to re-run the failed jobs of the latest failed pipeline run; audited with the reason.</summary>
+    [HttpPost("retry")]
+    public async Task<ActionResult<DbReleaseRetryResponseDto>> Retry(RetryDbReleaseRequest request, CancellationToken ct)
+    {
+        try
+        {
+            if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub"), out var actor)) return Forbid();
+            var accepted = await retry.RequestAsync(request.Environment, request.Reason, actor, HttpContext.TraceIdentifier, ct);
+            return Accepted(new DbReleaseRetryResponseDto(accepted.RunId, accepted.PipelineUrl, accepted.RequestedAt));
+        }
+        catch (DomainValidationException ex)
+        {
+            foreach (var error in ex.Errors) ModelState.AddModelError(error.Field, error.Message);
+            return ValidationProblem(ModelState);
+        }
+        catch (DbReleaseRetryException ex)
+        {
+            return Problem(statusCode: ex.Status, title: ex.Message, extensions: new Dictionary<string, object?> { ["code"] = ex.Code });
+        }
     }
 
     [HttpGet("runs/{id:guid}")]
@@ -101,6 +126,9 @@ public class PlatformDbReleasesController(SelloraDbContext db) : ControllerBase
         await db.Database
             .SqlQueryRaw<bool>("""SELECT to_regclass('ops."DbScriptAttempts"') IS NOT NULL AS "Value" """)
             .SingleAsync(ct);
+
+    private static DbReleaseRetryInfoDto ToDto(DbReleaseRetryInfo i) => new(i.Configured, i.CanRetry, i.UnavailableReason,
+        i.LastRequest is { } l ? new DbReleaseRetryLastRequestDto(l.RequestedBy, l.Reason, l.RequestedAt) : null);
 
     private static DbReleaseRunDto ToDto(RunRow r) => new(r.Id, r.Environment, r.CommitSha, r.AppVersion, r.Trigger, r.TriggeredBy,
         r.RetryReason, r.Status, r.StartedAt, r.CompletedAt, r.PipelineUrl, r.Summary);

@@ -74,6 +74,9 @@ builder.Services.AddScoped<IAuthorizationHandler, PlatformAdminHandler>();
 builder.Services.AddScoped<IAuthorizationHandler, GovernanceAuthorizationHandler>();
 builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, PlatformAuthorizationResultHandler>();
 builder.Services.Configure<PlatformOptions>(builder.Configuration.GetSection(PlatformOptions.SectionName));
+// GitHub App client for the Database releases retry (D20); unconfigured settings simply disable the action.
+builder.Services.AddHttpClient<Sellora.Domain.Releases.IGitHubActionsClient, Sellora.Infrastructure.GitHub.GitHubActionsClient>(
+    client => client.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddScoped<IPlatformService, PlatformService>();
 
 // CORS (Phase 2 D10): origins come from configuration (Cors:AllowedOrigins; environments override with

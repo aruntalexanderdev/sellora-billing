@@ -1,7 +1,8 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { problemMessage, toProblem } from '../../core/http/api-errors';
+import { Component, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
+import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
+import { applyProblem, problemMessage, toProblem } from '../../core/http/api-errors';
 import { UiBadge, type BadgeTone } from '../../shared/ui/badge/badge';
 import { UiButton } from '../../shared/ui/button/button';
 import type {
@@ -55,16 +56,29 @@ export function runDurationMs(run: DbReleaseRunDto): number | null {
   return Number.isFinite(d) && d >= 0 ? d : null;
 }
 
-/** Platform admin view of the migrator journal (db-release-automation D8: view only, no retry). */
+export const REASON_MIN = 10;
+export const REASON_MAX = 500;
+
+function reasonLength(c: AbstractControl): ValidationErrors | null {
+  const n = String(c.value ?? '').trim().length;
+  if (n < REASON_MIN) return { minlength: true };
+  if (n > REASON_MAX) return { maxlength: true };
+  return null;
+}
+
+export interface RetryNotice { kind: 'ok' | 'error'; text: string; url?: string }
+
+/** Platform admin view of the migrator journal, with retry of the latest failed run (db-release-automation D20-D23). */
 @Component({
   selector: 'app-platform-db-releases',
   standalone: true,
-  imports: [DatePipe, UiBadge, UiButton],
+  imports: [DatePipe, ReactiveFormsModule, UiBadge, UiButton],
   templateUrl: './platform-db-releases.html',
   styleUrl: './platform-db-releases.scss',
 })
 export class PlatformDbReleases implements OnInit {
   private readonly service = inject(PlatformService);
+  private readonly fb = inject(FormBuilder);
 
   readonly filters = FILTERS;
   readonly retryHint = RETRY_HINT;
@@ -88,6 +102,15 @@ export class PlatformDbReleases implements OnInit {
   readonly runState = signal<'idle' | 'loading' | 'error'>('idle');
   readonly runError = signal('');
 
+  readonly reasonMax = REASON_MAX;
+  readonly reasonMin = REASON_MIN;
+  readonly retryForm = this.fb.nonNullable.group({ reason: ['', [Validators.required, reasonLength]] });
+  readonly retryOpen = signal(false);
+  readonly retrySubmitting = signal(false);
+  readonly retryError = signal('');
+  readonly retryNotice = signal<RetryNotice | null>(null);
+  private readonly retryPanel = viewChild<ElementRef<HTMLElement>>('retryPanel');
+
   readonly scripts = computed(() => this.overview()?.scripts ?? []);
   readonly runs = computed(() => this.overview()?.runs ?? []);
   readonly latest = computed<DbReleaseRunDto | null>(() => this.runs()[0] ?? null);
@@ -106,8 +129,8 @@ export class PlatformDbReleases implements OnInit {
     this.load();
   }
 
-  load(): void {
-    this.state.set('loading');
+  load(silent = false): void {
+    if (!silent) this.state.set('loading');
     this.service.dbReleases().subscribe({
       next: (o) => {
         this.overview.set(o);
@@ -116,6 +139,68 @@ export class PlatformDbReleases implements OnInit {
       error: (err: HttpErrorResponse) => {
         this.errorMessage.set(problemMessage(toProblem(err), 'Could not load database releases.'));
         this.state.set('error');
+      },
+    });
+  }
+
+  get reasonLen(): number {
+    return this.retryForm.controls.reason.value.length;
+  }
+
+  reasonError(): string {
+    const c = this.retryForm.controls.reason;
+    if (!c.touched && !c.errors?.['server']) return '';
+    if (c.errors?.['server']) return String(c.errors['server']);
+    if (c.errors?.['required'] || c.errors?.['minlength']) return `Enter at least ${REASON_MIN} characters.`;
+    if (c.errors?.['maxlength']) return `Use at most ${REASON_MAX} characters.`;
+    return '';
+  }
+
+  openRetry(): void {
+    this.retryOpen.set(true);
+    this.retryError.set('');
+    this.retryNotice.set(null);
+    setTimeout(() => {
+      const el = this.retryPanel()?.nativeElement;
+      el?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+      el?.querySelector('textarea')?.focus();
+    });
+  }
+
+  cancelRetry(): void {
+    this.retryOpen.set(false);
+    this.retryError.set('');
+    this.retryForm.reset();
+  }
+
+  startRetry(): void {
+    const run = this.latest();
+    this.retryForm.markAllAsTouched();
+    if (!run || this.retryForm.invalid || this.retrySubmitting()) return;
+    this.retrySubmitting.set(true);
+    this.retryError.set('');
+    this.service.retryDbRelease({ environment: run.environment, reason: this.retryForm.controls.reason.value.trim() }).subscribe({
+      next: (r) => {
+        this.retrySubmitting.set(false);
+        this.cancelRetry();
+        this.retryNotice.set({ kind: 'ok', text: 'Retry requested. GitHub is re-running the failed jobs.', url: r.pipelineUrl });
+        this.load(true);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.retrySubmitting.set(false);
+        const problem = toProblem(err);
+        const status = err.status;
+        if (status === 400) {
+          this.retryError.set(applyProblem(this.retryForm, problem) ?? '');
+        } else if (status === 502) {
+          this.retryError.set(problem?.title || 'GitHub rejected the retry request. Try again.');
+        } else if (status === 409 || status === 503) {
+          this.cancelRetry();
+          this.retryNotice.set({ kind: 'error', text: problem?.title || problemMessage(problem) });
+          this.load(true);
+        } else {
+          this.retryError.set(problemMessage(problem, 'Could not start the retry.'));
+        }
       },
     });
   }

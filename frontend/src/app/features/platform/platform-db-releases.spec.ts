@@ -17,6 +17,7 @@ const run = (o: Partial<DbReleaseRunDto> = {}): DbReleaseRunDto => ({
 
 const overview = (): DbReleasesOverviewDto => ({
   journalAvailable: true,
+  retry: { configured: true, canRetry: false, unavailableReason: 'Retry is not configured.' },
   runs: [run(), run({ id: 'r0', status: 'Succeeded', pipelineUrl: null })],
   scripts: [
     script({ id: 'e1', name: '20260101_Init', kind: 'EfMigration', status: 'Succeeded' }),
@@ -34,6 +35,10 @@ const detail: DbScriptDetailDto = {
   attempts: [{ id: 'a1', scriptId: 'd2', scriptName: '2026.11.02.001__b.sql', scriptKind: 'Data', releaseRunId: 'r1', status: 'Failed',
     startedAt: '2026-11-18T10:00:01Z', durationMs: 420, rowsAffected: null, sqlState: '23502', errorMessage: 'null value', checksum: 'abcdef0123456789ffff' }],
 };
+
+const retryable = (extra: Partial<DbReleasesOverviewDto['retry']> = {}): DbReleasesOverviewDto => ({
+  ...overview(), retry: { configured: true, canRetry: true, ...extra },
+});
 
 function mount(data: DbReleasesOverviewDto | 'error', extra: Record<string, unknown> = {}) {
   const service = {
@@ -99,7 +104,7 @@ describe('PlatformDbReleases', () => {
   });
 
   it('shows the designed empty state when the journal is unavailable', () => {
-    const { el } = mount({ journalAvailable: false, runs: [], scripts: [] });
+    const { el } = mount({ journalAvailable: false, runs: [], scripts: [], retry: { configured: false, canRetry: false } });
     expect(el.querySelector('[data-testid="journal-empty"]')?.textContent).toContain('The migrator has not run on this database yet.');
     expect(el.querySelector('.tiles')).toBeNull();
   });
@@ -140,6 +145,93 @@ describe('PlatformDbReleases', () => {
     fixture.detectChanges();
     expect(service.dbReleaseRun).toHaveBeenCalledWith('r0');
     expect(el.querySelector('[data-testid="run-panel"]')?.textContent).toContain('2026.11.02.001__b.sql');
+  });
+});
+
+describe('PlatformDbReleases retry', () => {
+  const retryBtn = (el: HTMLElement) => Array.from(el.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent?.trim() === 'Retry migration');
+  const startBtn = (el: HTMLElement) => Array.from(el.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent?.includes('Start retry'))!;
+  const type = (fixture: { detectChanges(): void }, el: HTMLElement, v: string) => {
+    const ta = el.querySelector<HTMLTextAreaElement>('textarea')!;
+    ta.value = v;
+    ta.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+  };
+
+  it('shows the button only when canRetry, otherwise the reason', () => {
+    const a = mount(overview());
+    expect(retryBtn(a.el)).toBeUndefined();
+    expect(a.el.querySelector('[data-testid="retry-unavailable"]')?.textContent).toContain('Retry is not configured.');
+    expect(a.el.querySelector('[data-testid="run-failed-hint"]')).toBeTruthy();
+    TestBed.resetTestingModule();
+    const b = mount(retryable());
+    expect(retryBtn(b.el)).toBeTruthy();
+    expect(b.el.querySelector('[data-testid="retry-unavailable"]')).toBeNull();
+  });
+
+  it('renders the last retry request', () => {
+    const { el } = mount(retryable({ canRetry: false, unavailableReason: 'Wait', lastRequest: { requestedBy: 'ana', reason: 'fixed the seed', requestedAt: '2026-11-18T10:05:00Z' } }));
+    const t = el.querySelector('[data-testid="retry-last"]')!.textContent!;
+    expect(t).toContain('Retry requested by ana at');
+    expect(t).toContain('“fixed the seed”');
+  });
+
+  it('keeps Start retry disabled until the reason has 10 characters', () => {
+    const { el, fixture } = mount(retryable());
+    retryBtn(el)!.click();
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="retry-panel"]')?.textContent).toContain('Retry migrate-db on claude-dev?');
+    expect(startBtn(el).disabled).toBe(true);
+    type(fixture, el, 'too short');
+    expect(startBtn(el).disabled).toBe(true);
+    type(fixture, el, 'long enough reason');
+    expect(startBtn(el).disabled).toBe(false);
+  });
+
+  it('posts, shows the pipeline link and reloads on 202', async () => {
+    const retryDbRelease = vi.fn(() => of({ runId: 'r1', pipelineUrl: 'https://github.com/x/actions/runs/2', requestedAt: '2026-11-18T10:06:00Z' }));
+    const { el, fixture, service } = mount(retryable(), { retryDbRelease });
+    retryBtn(el)!.click();
+    fixture.detectChanges();
+    type(fixture, el, '  seed fixed in PR 12  ');
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+    await tick();
+    fixture.detectChanges();
+    expect(retryDbRelease).toHaveBeenCalledWith({ environment: 'claude-dev', reason: 'seed fixed in PR 12' });
+    expect(el.querySelector('[data-testid="retry-panel"]')).toBeNull();
+    const link = el.querySelector<HTMLAnchorElement>('[data-testid="retry-notice"] a')!;
+    expect(link.getAttribute('href')).toBe('https://github.com/x/actions/runs/2');
+    expect(link.getAttribute('rel')).toBe('noopener');
+    expect(service.dbReleases).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the ProblemDetails title on 409 and closes the panel', async () => {
+    const err = new HttpErrorResponse({ status: 409, error: { title: 'A retry was already requested 2 minutes ago.', status: 409, code: 'retry_not_allowed' } });
+    const { el, fixture } = mount(retryable(), { retryDbRelease: vi.fn(() => throwError(() => err)) });
+    retryBtn(el)!.click();
+    fixture.detectChanges();
+    type(fixture, el, 'long enough reason');
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+    await tick();
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="retry-notice"]')?.textContent).toContain('A retry was already requested 2 minutes ago.');
+    expect(el.querySelector('[data-testid="retry-panel"]')).toBeNull();
+  });
+
+  it('keeps the panel open with the title on 502', async () => {
+    const err = new HttpErrorResponse({ status: 502, error: { title: 'GitHub rejected the request.', status: 502 } });
+    const { el, fixture } = mount(retryable(), { retryDbRelease: vi.fn(() => throwError(() => err)) });
+    retryBtn(el)!.click();
+    fixture.detectChanges();
+    type(fixture, el, 'long enough reason');
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+    await tick();
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="retry-error"]')?.textContent).toContain('GitHub rejected the request.');
+    expect(el.querySelector('[data-testid="retry-panel"]')).toBeTruthy();
   });
 });
 

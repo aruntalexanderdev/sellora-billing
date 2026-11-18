@@ -373,7 +373,7 @@ public class EndpointAuthorizationTests
         || action.GetCustomAttributes<Sellora.Api.Authorization.PlatformEndpointAttribute>(true).Any();
 
     [Fact]
-    public void PlatformEndpoints_AreExactlyTheFifteenPlatformRoutes_EachRequiringOnlyPlatformAdmin()
+    public void PlatformEndpoints_AreExactlyTheSixteenPlatformRoutes_EachRequiringOnlyPlatformAdmin()
     {
         var platform = Actions().Where(x => IsPlatformEndpoint(x.Controller, x.Action)).ToList();
 
@@ -382,7 +382,9 @@ public class EndpointAuthorizationTests
                 "GET PlatformCompaniesController.Currencies", "GET PlatformCompaniesController.List",
                 "GET PlatformDbReleasesController.Overview", "GET PlatformDbReleasesController.Run", "GET PlatformDbReleasesController.Script", // db-release-automation step 3
                 "GET PlatformReferenceDataController.Currencies", "GET PlatformReferenceDataController.Units",
-                "POST PlatformCompaniesController.Create", "POST PlatformCompaniesController.SetStatus", "POST PlatformReferenceDataController.CreateCurrency",
+                "POST PlatformCompaniesController.Create", "POST PlatformCompaniesController.SetStatus",
+                "POST PlatformDbReleasesController.Retry", // db-release-automation step 4
+                "POST PlatformReferenceDataController.CreateCurrency",
                 "POST PlatformReferenceDataController.CreateUnit", "POST PlatformReferenceDataController.SetCurrencyActive", "POST PlatformReferenceDataController.SetUnitActive",
                 "PUT PlatformReferenceDataController.UpdateCurrency", "PUT PlatformReferenceDataController.UpdateUnit",
             ],

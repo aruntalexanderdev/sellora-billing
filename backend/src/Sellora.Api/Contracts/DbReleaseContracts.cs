@@ -44,7 +44,17 @@ public record DbScriptAttemptDto(
     string? ErrorMessage,
     string? Checksum);
 
-public record DbReleasesOverviewDto(bool JournalAvailable, IReadOnlyList<DbReleaseRunDto> Runs, IReadOnlyList<DbScriptDto> Scripts);
+public record DbReleasesOverviewDto(
+    bool JournalAvailable, IReadOnlyList<DbReleaseRunDto> Runs, IReadOnlyList<DbScriptDto> Scripts, DbReleaseRetryInfoDto Retry);
+
+// Step 4: retry (D20–D22).
+public record DbReleaseRetryLastRequestDto(string RequestedBy, string Reason, DateTimeOffset RequestedAt);
+
+public record DbReleaseRetryInfoDto(bool Configured, bool CanRetry, string? UnavailableReason, DbReleaseRetryLastRequestDto? LastRequest);
+
+public record RetryDbReleaseRequest(string? Environment, string? Reason);
+
+public record DbReleaseRetryResponseDto(Guid RunId, string PipelineUrl, DateTimeOffset RequestedAt);
 
 public record DbReleaseRunDetailDto(DbReleaseRunDto Run, IReadOnlyList<DbScriptAttemptDto> Attempts);
 

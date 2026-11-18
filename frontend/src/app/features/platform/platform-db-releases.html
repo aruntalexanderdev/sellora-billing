@@ -1,7 +1,7 @@
 <div class="page-head">
   <div>
     <h1>Database releases</h1>
-    <p>Scripts applied by the deploy pipeline to this environment's database. View only.</p>
+    <p>Scripts applied by the deploy pipeline to this environment's database.</p>
   </div>
   @if (latest(); as l) { <ui-badge [text]="l.environment" tone="info" /> }
 </div>
@@ -19,6 +19,13 @@
     <p>The migrator has not run on this database yet. Scripts appear here after the first deploy with migrate-db.</p>
   </div>
 } @else {
+  @if (retryNotice(); as n) {
+    <div class="card notice" [class.err]="n.kind === 'error'" role="status" data-testid="retry-notice">
+      {{ n.text }}
+      @if (n.url) { <a [href]="n.url" target="_blank" rel="noopener">View pipeline run ↗</a> }
+    </div>
+  }
+
   @if (latest(); as run) {
     <section class="card release" aria-label="Latest release">
       <div class="release-top">
@@ -32,7 +39,41 @@
       </div>
       @if (run.trigger === 'Retry' && run.retryReason) { <p class="meta">Retry reason: {{ run.retryReason }}</p> }
       @if (run.summary) { <p class="summary">{{ run.summary }}</p> }
-      @if (run.status === 'Failed') { <p class="hint bad" data-testid="run-failed-hint">{{ retryHint }}</p> }
+      @if (run.status === 'Failed') {
+        @if (overview()?.retry; as retry) {
+          @if (retry.canRetry) {
+            @if (!retryOpen()) {
+              <div class="retry-actions"><ui-button variant="primary" (onClick)="openRetry()">Retry migration</ui-button></div>
+            }
+          } @else if (retry.unavailableReason) {
+            <p class="meta" data-testid="retry-unavailable">{{ retry.unavailableReason }}</p>
+          }
+          @if (retry.lastRequest; as lr) {
+            <p class="meta" data-testid="retry-last">Retry requested by {{ lr.requestedBy }} at {{ lr.requestedAt | date: 'medium' }}: “{{ lr.reason }}”</p>
+          }
+        }
+        <p class="hint bad" data-testid="run-failed-hint">{{ retryHint }}</p>
+        @if (retryOpen()) {
+          <form #retryPanel class="confirm" data-testid="retry-panel" [formGroup]="retryForm" (ngSubmit)="startRetry()" novalidate>
+            <h3>Retry migrate-db on {{ run.environment }}?</h3>
+            <p class="meta">GitHub re-runs the failed jobs of this pipeline run (same release package), and the API is deployed if it passes.</p>
+            <label for="retry-reason">Reason (required)</label>
+            <textarea id="retry-reason" rows="3" formControlName="reason" [attr.maxlength]="reasonMax + 100"
+                      [attr.aria-invalid]="reasonError() ? true : null"></textarea>
+            <div class="counter" [class.bad]="reasonError()">
+              <span data-testid="retry-reason-error">{{ reasonError() }}</span>
+              <span>{{ reasonLen }} / {{ reasonMax }}</span>
+            </div>
+            @if (retryError()) { <p class="hint bad" role="alert" data-testid="retry-error">{{ retryError() }}</p> }
+            <div class="retry-actions">
+              <ui-button variant="primary" type="submit" [disabled]="retryForm.invalid || retrySubmitting()">
+                {{ retrySubmitting() ? 'Starting…' : 'Start retry' }}
+              </ui-button>
+              <ui-button [disabled]="retrySubmitting()" (onClick)="cancelRetry()">Cancel</ui-button>
+            </div>
+          </form>
+        }
+      }
     </section>
   }
 
@@ -99,7 +140,13 @@
             <dt>Attempts</dt><dd>{{ d.script.attemptCount }}</dd>
             @if (d.attempts[0]?.checksum) { <dt>Checksum</dt><dd class="mono">{{ shortChecksum(d.attempts[0].checksum) }}</dd> }
           </dl>
-          @if (d.script.status === 'Failed') { <p class="hint bad" data-testid="script-failed-hint">{{ retryHint }}</p> }
+          @if (d.script.status === 'Failed') {
+            <!-- Retry always re-runs the latest pipeline run: offer it only for a script that failed in that run. -->
+            @if (overview()?.retry?.canRetry && !retryOpen() && d.attempts[0]?.releaseRunId === latest()?.id) {
+              <div class="retry-actions"><ui-button variant="primary" (onClick)="openRetry()">Retry migration</ui-button></div>
+            }
+            <p class="hint bad" data-testid="script-failed-hint">{{ retryHint }}</p>
+          }
           @if (d.sql) {
             <div class="eyebrow">Script (read only)</div>
             <pre class="sql">{{ d.sql }}</pre>

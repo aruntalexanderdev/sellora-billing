@@ -121,10 +121,35 @@ export interface DbScriptAttemptDto {
   checksum?: string | null;
 }
 
+export interface DbReleaseRetryLastRequest {
+  requestedBy: string;
+  reason: string;
+  requestedAt: string;
+}
+
+export interface DbReleaseRetryInfo {
+  configured: boolean;
+  canRetry: boolean;
+  unavailableReason?: string | null;
+  lastRequest?: DbReleaseRetryLastRequest | null;
+}
+
+export interface RetryDbReleaseRequest {
+  environment: string;
+  reason: string;
+}
+
+export interface DbReleaseRetryResponse {
+  runId: string;
+  pipelineUrl: string;
+  requestedAt: string;
+}
+
 export interface DbReleasesOverviewDto {
   journalAvailable: boolean;
   runs: DbReleaseRunDto[];
   scripts: DbScriptDto[];
+  retry: DbReleaseRetryInfo;
 }
 
 export interface DbReleaseRunDetailDto {
