@@ -116,3 +116,12 @@ If unsure, pick the smaller size and escalate.
 If existing code conflicts with the approved architecture, explain the conflict and propose a safe migration strategy before making changes.
 
 Do not assume that reading this reference authorizes implementation of all phases. Start with Phase 0 only and wait for approval.
+
+## Approved Sellora functional improvements
+Before working on branch authorization, accounts, product classifications, stock transfer requests, shipments, consignments, transit or receiving, read:
+- `docs/functional-improvements/IMPLEMENTATION_SPEC.md`
+- `docs/functional-improvements/PHASE_PLAN.md`
+
+Owner decisions (precedence, transfer model, reservations, phase order 01 → 08 → 07 → 02 → 03 → 04 → 05 → 06 → 09) are in the spec's **Decisions** section (FI-D1…D10); this package takes precedence for its nine phases.
+
+Execute only the phase explicitly requested by the user using the corresponding `docs/functional-improvements/prompts/PHASE_*.md`. Start with a targeted source audit and PLAN ONLY. Wait for approval before code changes; after implementation, run tests, report results and stop. Never auto-advance phases or deploy without approval.

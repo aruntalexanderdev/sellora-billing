@@ -31,6 +31,8 @@ const TYPE_LABEL: Record<FinancialTransactionType, string> = {
   ExpensePayment: 'Expense paid',
   OpeningBalance: 'Opening balance',
   Transfer: 'Transfer',
+  Funding: 'Funding',
+  Reversal: 'Reversal',
   CustomerRefund: 'Customer refund',
   SupplierRefund: 'Supplier refund',
   PaymentReversal: 'Payment reversal',

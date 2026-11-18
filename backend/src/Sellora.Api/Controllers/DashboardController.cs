@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Auth;
@@ -16,12 +17,13 @@ namespace Sellora.Api.Controllers;
 public class DashboardController(SelloraDbContext db, IEffectivePermissionService effectivePermissions, BranchContext branchContext) : ControllerBase
 {
     [HttpGet]
+    [CompanyScopeRead(Permission = "Reports.Sales")]
     public async Task<ActionResult<DashboardDto>> Get(CancellationToken ct)
     {
         // Phase 7: sections are shown by effective permission at the working branch. Branch-scoped holders see only their branch's documents:
         // the section's queries run through the Branch filter, which is narrowed to the branches where the code is held.
         var set = await effectivePermissions.GetCurrentAsync(ct);
-        var working = branchContext.RequestedBranchId ?? branchContext.PrimaryBranchId;
+        var working = branchContext.ActiveBranchId;
         bool Holds(string code) => set.HasCompanyLevel(code) || (working is { } w && set.HasAtBranch(code, w));
         var canViewSales = Holds("Sales.View");
         var canViewPurchases = Holds("Purchase.View");

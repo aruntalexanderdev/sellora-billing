@@ -12,6 +12,10 @@ public class FinancialTransactionConfiguration : IEntityTypeConfiguration<Financ
         builder.Property(t => t.Type).HasConversion<string>().HasMaxLength(30);
         builder.Property(t => t.Direction).HasConversion<string>().HasMaxLength(10);
         builder.Property(t => t.Status).HasConversion<string>().HasMaxLength(20);
+        builder.Property(t => t.FundingSource).HasConversion<string>().HasMaxLength(20);
+        builder.Property(t => t.SourceReference).HasMaxLength(100);
+        builder.Property(t => t.Counterparty).HasMaxLength(120);
+        builder.Property(t => t.Reason).HasMaxLength(300);
         builder.Property(t => t.PaymentMethod).HasConversion<string>().HasMaxLength(20);
 
         builder.Property(t => t.Amount).HasColumnType("numeric(18,4)");
@@ -25,10 +29,25 @@ public class FinancialTransactionConfiguration : IEntityTypeConfiguration<Financ
             // are entered directly, have no source, and must name their account.
             t.HasCheckConstraint("CK_FinancialTransactions_Source",
                 "(CASE WHEN \"PurchasePaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"SalesPaymentId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"ExpenseId\" IS NULL THEN 0 ELSE 1 END) = "
-                + "CASE WHEN \"Type\" IN ('OpeningBalance', 'Transfer') THEN 0 ELSE 1 END");
+                + "CASE WHEN \"Type\" IN ('OpeningBalance', 'Transfer', 'Funding', 'Reversal') THEN 0 ELSE 1 END");
             t.HasCheckConstraint("CK_FinancialTransactions_ManualHasAccount",
-                "\"Type\" NOT IN ('OpeningBalance', 'Transfer') OR \"AccountId\" IS NOT NULL");
+                "\"Type\" NOT IN ('OpeningBalance', 'Transfer', 'Funding', 'Reversal') OR \"AccountId\" IS NOT NULL");
+            t.HasCheckConstraint("CK_FinancialTransactions_Funding",
+                "(\"Type\" = 'Funding') = (\"FundingSource\" IS NOT NULL) AND (\"Type\" <> 'Funding' OR \"Direction\" = 'In')");
+            t.HasCheckConstraint("CK_FinancialTransactions_CustomerReceipt",
+                "(\"FundingSource\" IS DISTINCT FROM 'CustomerReceipt' OR (\"CustomerId\" IS NOT NULL AND \"SourceReference\" IS NOT NULL)) "
+                + "AND (\"CustomerId\" IS NULL OR \"FundingSource\" = 'CustomerReceipt')");
+            t.HasCheckConstraint("CK_FinancialTransactions_OtherReason",
+                "\"FundingSource\" IS DISTINCT FROM 'Other' OR \"Reason\" IS NOT NULL");
+            t.HasCheckConstraint("CK_FinancialTransactions_Reversal",
+                "(\"Type\" = 'Reversal') = (\"ReversalOfTransactionId\" IS NOT NULL) AND (\"Type\" <> 'Reversal' OR \"Reason\" IS NOT NULL)");
         });
+
+        // A reversal is posted at most once per entry.
+        builder.HasIndex(t => t.ReversalOfTransactionId).IsUnique().HasFilter("\"ReversalOfTransactionId\" IS NOT NULL");
+        builder.HasOne<FinancialTransaction>().WithMany().HasForeignKey(t => t.ReversalOfTransactionId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Customer>().WithMany().HasForeignKey(t => new { t.CompanyId, t.CustomerId })
+            .HasPrincipalKey(c => new { c.CompanyId, c.Id }).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
 
         // A source record produces at most one transaction (nulls are not compared by a unique index).
         builder.HasIndex(t => t.PurchasePaymentId).IsUnique();
@@ -37,6 +56,13 @@ public class FinancialTransactionConfiguration : IEntityTypeConfiguration<Financ
         builder.HasIndex(t => new { t.TransactionDate, t.CreatedAt });
         builder.HasIndex(t => new { t.Type, t.Status });
         builder.HasIndex(t => new { t.AccountId, t.TransactionDate });
+        // Release readiness (FI-D43 e): ledger list order, transfer-leg lookup and per-account balance aggregation.
+        builder.HasIndex(t => new { t.CompanyId, t.TransactionDate, t.CreatedAt, t.Id }, "IX_FinancialTransactions_CompanyId_Date_CreatedAt_Id")
+            .IsDescending(false, true, true, false);
+        builder.HasIndex(t => new { t.CompanyId, t.TransferGroupId }, "IX_FinancialTransactions_CompanyId_TransferGroupId")
+            .HasFilter("\"TransferGroupId\" IS NOT NULL");
+        builder.HasIndex(t => new { t.CompanyId, t.AccountId, t.Status }, "IX_FinancialTransactions_CompanyId_AccountId_Status")
+            .IncludeProperties(t => new { t.Direction, t.BaseAmount, t.ReconciledAt });
         builder.Property(t => t.Notes).HasMaxLength(500);
 
         builder.HasOne(t => t.Currency).WithMany().HasForeignKey(t => t.CurrencyId).OnDelete(DeleteBehavior.Restrict);

@@ -9,6 +9,8 @@ public class VehicleConfiguration : IEntityTypeConfiguration<Vehicle>
     public void Configure(EntityTypeBuilder<Vehicle> builder)
     {
         builder.HasKey(v => v.Id);
+        // Phase 04: lets ShipmentVehicles tie a vehicle to its own company (composite FK).
+        builder.HasAlternateKey(v => new { v.CompanyId, v.Id });
         builder.Property(v => v.LocationType).HasConversion<string>().HasMaxLength(20).IsRequired();
         builder.Property(v => v.VehicleNumber).HasMaxLength(20).IsRequired();
         builder.Property(v => v.VehicleName).HasMaxLength(150).IsRequired();

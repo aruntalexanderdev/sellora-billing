@@ -9,7 +9,7 @@ namespace Sellora.Infrastructure.Data.Configurations;
 
 public class StockTransferConfiguration : IEntityTypeConfiguration<StockTransfer>
 {
-    private const string OpenFilter = "\"Status\" NOT IN ('Completed', 'Cancelled', 'Rejected')";
+    private const string OpenFilter = "\"Status\" NOT IN ('Completed', 'Cancelled', 'Rejected', 'Fulfilled', 'Closed')";
 
     public void Configure(EntityTypeBuilder<StockTransfer> builder)
     {
@@ -20,10 +20,12 @@ public class StockTransferConfiguration : IEntityTypeConfiguration<StockTransfer
         builder.Property(t => t.Notes).HasMaxLength(300);
         builder.Property(t => t.RejectionReason).HasMaxLength(300);
         builder.Property(t => t.CancellationReason).HasMaxLength(300);
+        builder.Property(t => t.ClosureReason).HasMaxLength(500);
 
         builder.HasIndex(t => new { t.CompanyId, t.TransferNo }, "IX_StockTransfers_CompanyId_TransferNo").IsUnique();
         builder.HasIndex(t => new { t.CompanyId, t.Status }, "IX_StockTransfers_CompanyId_Status");
         builder.HasIndex(t => new { t.CompanyId, t.BranchId, t.CreatedAt }, "IX_StockTransfers_CompanyId_BranchId_CreatedAt");
+        builder.HasIndex(t => new { t.CompanyId, t.Status, t.ApprovedAt }, "IX_StockTransfers_CompanyId_Status_ApprovedAt");
         // Usage check (HasOpenTransfers): open transfers touching a location.
         builder.HasIndex(t => new { t.CompanyId, t.SourceLocationId }, "IX_StockTransfers_Source_Open").HasFilter(OpenFilter);
         builder.HasIndex(t => new { t.CompanyId, t.DestinationLocationId }, "IX_StockTransfers_Destination_Open").HasFilter(OpenFilter);
@@ -59,28 +61,33 @@ public class StockTransferConfiguration : IEntityTypeConfiguration<StockTransfer
         builder.HasOne<User>().WithMany().HasForeignKey(t => t.DispatchedByUserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_StockTransfers_Users_DispatchedBy");
         builder.HasOne<User>().WithMany().HasForeignKey(t => t.CompletedByUserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_StockTransfers_Users_CompletedBy");
         builder.HasOne<User>().WithMany().HasForeignKey(t => t.CancelledByUserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_StockTransfers_Users_CancelledBy");
+        builder.HasOne<User>().WithMany().HasForeignKey(t => t.ClosedByUserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_StockTransfers_Users_ClosedBy");
 
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("CK_StockTransfers_Endpoints_Differ", "\"SourceLocationId\" <> \"DestinationLocationId\"");
             t.HasCheckConstraint("CK_StockTransfers_Endpoints_NotTransit", "\"SourceLocationId\" <> \"TransitLocationId\" AND \"DestinationLocationId\" <> \"TransitLocationId\"");
             t.HasCheckConstraint("CK_StockTransfers_Status_Valid",
-                "\"Status\" IN ('Draft', 'Requested', 'Approved', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled')");
+                "\"Status\" IN ('Draft', 'Requested', 'Approved', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled', 'PartiallyFulfilled', 'Fulfilled', 'Closed')");
             // Each actor/time pair is all-or-none.
             t.HasCheckConstraint("CK_StockTransfers_Actors_Paired",
                 "(\"SubmittedAt\" IS NULL) = (\"SubmittedByUserId\" IS NULL) AND (\"ApprovedAt\" IS NULL) = (\"ApprovedByUserId\" IS NULL) AND (\"RejectedAt\" IS NULL) = (\"RejectedByUserId\" IS NULL)"
-                + " AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL) AND (\"CompletedAt\" IS NULL) = (\"CompletedByUserId\" IS NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL)");
+                + " AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL) AND (\"CompletedAt\" IS NULL) = (\"CompletedByUserId\" IS NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL)"
+                + " AND (\"ClosedAt\" IS NULL) = (\"ClosedByUserId\" IS NULL)");
             // Status-consistent actor columns (D1): a status needs its own stamps; a stamp needs its status. Draft may be cancelled without ever being submitted.
             t.HasCheckConstraint("CK_StockTransfers_Status_Stamps",
                 "(\"Status\" = 'Draft') = (\"SubmittedAt\" IS NULL) OR \"Status\" = 'Cancelled'");
             t.HasCheckConstraint("CK_StockTransfers_Status_Approval",
-                "(\"Status\" NOT IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed') OR \"ApprovedAt\" IS NOT NULL)"
-                + " AND (\"Status\" IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled') OR \"ApprovedAt\" IS NULL)");
+                "(\"Status\" NOT IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed', 'PartiallyFulfilled', 'Fulfilled', 'Closed') OR \"ApprovedAt\" IS NOT NULL)"
+                + " AND (\"Status\" IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed', 'PartiallyFulfilled', 'Fulfilled', 'Closed', 'Cancelled') OR \"ApprovedAt\" IS NULL)");
             t.HasCheckConstraint("CK_StockTransfers_Status_Rejection",
                 "(\"Status\" = 'Rejected') = (\"RejectedAt\" IS NOT NULL) AND (\"Status\" <> 'Rejected' OR char_length(\"RejectionReason\") > 0)");
             t.HasCheckConstraint("CK_StockTransfers_Status_Dispatch",
                 "(\"Status\" IN ('Dispatched', 'PartiallyReceived', 'Completed')) = (\"DispatchedAt\" IS NOT NULL)");
             t.HasCheckConstraint("CK_StockTransfers_Status_Completion", "(\"Status\" = 'Completed') = (\"CompletedAt\" IS NOT NULL)");
+            // FI-D26: Closed <=> ClosedAt (actor paired above), with a mandatory reason; the reason exists only on a closed transfer.
+            t.HasCheckConstraint("CK_StockTransfers_Status_Closure",
+                "(\"Status\" = 'Closed') = (\"ClosedAt\" IS NOT NULL) AND (\"Status\" <> 'Closed' OR COALESCE(char_length(\"ClosureReason\"), 0) > 0) AND (\"Status\" = 'Closed' OR \"ClosureReason\" IS NULL)");
             t.HasCheckConstraint("CK_StockTransfers_Status_Cancellation",
                 "(\"Status\" = 'Cancelled') = (\"CancelledAt\" IS NOT NULL) AND (\"Status\" <> 'Cancelled' OR char_length(\"CancellationReason\") > 0)");
         });
@@ -98,11 +105,14 @@ public class StockTransferLineConfiguration : IEntityTypeConfiguration<StockTran
         builder.Property(l => l.ConversionFactorToBase).HasColumnType("numeric(28,10)");
         builder.Property(l => l.DispatchFactor).HasColumnType("numeric(28,10)");
         foreach (var p in new[] { nameof(StockTransferLine.RequestedQty), nameof(StockTransferLine.RequestedBaseQty), nameof(StockTransferLine.DispatchedQty),
-                     nameof(StockTransferLine.DispatchedBaseQty), nameof(StockTransferLine.ReceivedBaseQty), nameof(StockTransferLine.DamagedBaseQty),
+                     nameof(StockTransferLine.DispatchedBaseQty), nameof(StockTransferLine.AllocatedBaseQty), nameof(StockTransferLine.ClosedBaseQty), nameof(StockTransferLine.ReceivedBaseQty), nameof(StockTransferLine.DamagedBaseQty),
                      nameof(StockTransferLine.WrittenOffBaseQty), nameof(StockTransferLine.ReturnedBaseQty) })
         {
             builder.Property(p).HasColumnType("numeric(18,3)");
         }
+        builder.Property(l => l.AllocatedBaseQty).HasDefaultValue(0m);
+        builder.Property(l => l.AcceptedCorrectionBaseQty).HasColumnType("numeric(18,3)").HasDefaultValue(0m);
+        builder.Property(l => l.ClosedBaseQty).HasDefaultValue(0m);
 
         builder.HasIndex(l => new { l.CompanyId, l.TransferId, l.LineNo }, "IX_StockTransferLines_CompanyId_TransferId_LineNo").IsUnique();
         // ProductUnit immutability / usage lookups.
@@ -138,10 +148,11 @@ public class StockTransferLineConfiguration : IEntityTypeConfiguration<StockTran
             t.HasCheckConstraint("CK_StockTransferLines_Dispatch_Arithmetic",
                 "\"DispatchedQty\" IS NULL OR (\"DispatchedQty\" >= 0 AND \"DispatchFactor\" > 0 AND \"DispatchedQty\" * \"DispatchFactor\" = \"DispatchedBaseQty\")");
             t.HasCheckConstraint("CK_StockTransferLines_Dispatch_Required", "\"DispatchProductUnitId\" IS NOT NULL OR (\"DispatchedBaseQty\" = 0 AND \"ReceivedBaseQty\" = 0 AND \"DamagedBaseQty\" = 0 AND \"WrittenOffBaseQty\" = 0 AND \"ReturnedBaseQty\" = 0)");
-            t.HasCheckConstraint("CK_StockTransferLines_Dispatched_Max", "\"DispatchedBaseQty\" >= 0 AND \"DispatchedBaseQty\" <= \"RequestedBaseQty\"");
-            t.HasCheckConstraint("CK_StockTransferLines_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
+            t.HasCheckConstraint("CK_StockTransferLines_Dispatched_Max", "\"DispatchedBaseQty\" >= 0 AND \"DispatchedBaseQty\" + \"ClosedBaseQty\" <= \"RequestedBaseQty\"");
+            t.HasCheckConstraint("CK_StockTransferLines_Allocation_Valid", "\"AllocatedBaseQty\" >= 0 AND \"ClosedBaseQty\" >= 0 AND \"AllocatedBaseQty\" + \"ClosedBaseQty\" <= \"RequestedBaseQty\"");
+            t.HasCheckConstraint("CK_StockTransferLines_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0 AND \"AcceptedCorrectionBaseQty\" >= 0");
             t.HasCheckConstraint("CK_StockTransferLines_Counters_Max",
-                "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" <= \"DispatchedBaseQty\"");
+                "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" + \"AcceptedCorrectionBaseQty\" <= \"DispatchedBaseQty\"");
         });
     }
 }
@@ -150,15 +161,20 @@ public class StockTransferLineBatchConfiguration : IEntityTypeConfiguration<Stoc
 {
     public void Configure(EntityTypeBuilder<StockTransferLineBatch> builder)
     {
-        builder.HasKey(b => new { b.LineId, b.PurchaseBatchId });
+        builder.HasKey(b => b.Id);
+        // One row per batch per request line for legacy direct dispatch; one per batch per consignment line for shipment dispatch (FI-D34).
+        builder.HasIndex(b => new { b.LineId, b.PurchaseBatchId }, "IX_StockTransferLineBatches_LineId_PurchaseBatchId_Legacy").IsUnique().HasFilter("\"ConsignmentLineId\" IS NULL");
+        builder.HasIndex(b => new { b.ConsignmentLineId, b.PurchaseBatchId }, "IX_StockTransferLineBatches_ConsignmentLineId_PurchaseBatchId").IsUnique().HasFilter("\"ConsignmentLineId\" IS NOT NULL");
         builder.Property(b => b.UnitCost).HasColumnType("numeric(18,6)");
         foreach (var p in new[] { nameof(StockTransferLineBatch.DispatchedBaseQty), nameof(StockTransferLineBatch.ReceivedBaseQty), nameof(StockTransferLineBatch.DamagedBaseQty),
                      nameof(StockTransferLineBatch.WrittenOffBaseQty), nameof(StockTransferLineBatch.ReturnedBaseQty) })
         {
             builder.Property(p).HasColumnType("numeric(18,3)");
         }
+        builder.Property(b => b.AcceptedCorrectionBaseQty).HasColumnType("numeric(18,3)").HasDefaultValue(0m);
 
         builder.HasIndex(b => b.PurchaseBatchId, "IX_StockTransferLineBatches_PurchaseBatchId");
+        builder.HasIndex(b => new { b.CompanyId, b.ConsignmentLineId }, "IX_StockTransferLineBatches_CompanyId_ConsignmentLineId").HasFilter("\"ConsignmentLineId\" IS NOT NULL");
         builder.HasIndex(b => new { b.CompanyId, b.LineId }, "IX_StockTransferLineBatches_CompanyId_LineId");
 
         builder.HasOne<StockTransferLine>().WithMany(l => l.Batches).HasForeignKey(b => new { b.CompanyId, b.LineId })
@@ -167,13 +183,17 @@ public class StockTransferLineBatchConfiguration : IEntityTypeConfiguration<Stoc
         builder.HasOne<PurchaseBatch>().WithMany().HasForeignKey(b => new { b.CompanyId, b.PurchaseBatchId })
             .HasPrincipalKey(p => new { p.CompanyId, p.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_StockTransferLineBatches_PurchaseBatches");
+        // MATCH SIMPLE: legacy direct dispatch (NULL ConsignmentLineId) skips the check.
+        builder.HasOne<ConsignmentLine>().WithMany().HasForeignKey(b => new { b.CompanyId, b.ConsignmentLineId })
+            .HasPrincipalKey(l => new { l.CompanyId, l.Id }).IsRequired(false).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_StockTransferLineBatches_ConsignmentLines");
 
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("CK_StockTransferLineBatches_Dispatched_Positive", "\"DispatchedBaseQty\" > 0 AND \"UnitCost\" >= 0");
-            t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
+            t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0 AND \"AcceptedCorrectionBaseQty\" >= 0");
             t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_Max",
-                "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" <= \"DispatchedBaseQty\"");
+                "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" + \"AcceptedCorrectionBaseQty\" <= \"DispatchedBaseQty\"");
         });
     }
 }

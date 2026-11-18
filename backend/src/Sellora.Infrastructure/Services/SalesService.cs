@@ -62,6 +62,8 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         };
 
         decimal subtotal = 0, taxTotal = 0, discountTotal = 0;
+        // FI-D24 Q1a: money is rounded per line to the base currency precision; header totals are sums of rounded line values.
+        var precision = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyDecimalPrecision;
 
         // Product KEY SHARE before building lines: a concurrent product-unit edit (FOR UPDATE) waits for this sale to
         // commit, so the factors snapshotted below cannot change underneath it. StockItems locks follow (§5.4).
@@ -73,12 +75,13 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
 
         foreach (var lineInput in input.Lines)
         {
-            var line = await BuildLineAsync(invoice, lineInput, input.CanOverridePrice, ct);
+            var line = await BuildLineAsync(invoice, lineInput, input.CanOverridePrice, precision, ct);
             invoice.Lines.Add(line);
 
-            subtotal += lineInput.Qty * lineInput.UnitPrice;
+            var amounts = SaleMoney.Line(lineInput.Qty, lineInput.UnitPrice, lineInput.Discount, line.TaxRatePercent, precision);
+            subtotal += amounts.Gross;
             taxTotal += line.TaxAmount;
-            discountTotal += lineInput.Discount;
+            discountTotal += amounts.Discount;
 
             requestedBaseQtyByProduct[line.ProductId] = requestedBaseQtyByProduct.GetValueOrDefault(line.ProductId) + line.BaseQty;
         }
@@ -89,15 +92,12 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         await StockLocationRules.ResolveAsync(db, PostingKind.Sale, locationId, branch.Id, companyLevel, ct);
         var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, requestedBaseQtyByProduct.Keys.Select(id => (locationId, id)), ct);
 
-        foreach (var (productId, requestedBaseQty) in requestedBaseQtyByProduct)
+        if (await StockAvailability.FindShortageAsync(db, stockItems,
+                requestedBaseQtyByProduct.Select(r => new StockAvailability.Requirement(locationId, r.Key, r.Value)), ct) is { } shortage)
         {
-            var available = stockItems.TryGetValue((locationId, productId), out var stockItem) ? stockItem.QuantityOnHand : 0;
-            if (requestedBaseQty > available)
-            {
-                var product = await db.Products.Include(p => p.BaseUnit).SingleAsync(p => p.Id == productId, ct);
-                var code = product.BaseUnit.ShortCode;
-                throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(available)} {code} of {product.Name} in stock — cannot sell {StockQuantity.Format(requestedBaseQty)} {code}.");
-            }
+            var product = await db.Products.Include(p => p.BaseUnit).SingleAsync(p => p.Id == shortage.ProductId, ct);
+            var code = product.BaseUnit.ShortCode;
+            throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(shortage.Available)} {code} of {product.Name} in stock — cannot sell {StockQuantity.Format(shortage.Requested)} {code}.");
         }
 
         foreach (var line in invoice.Lines)
@@ -108,7 +108,7 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         invoice.Subtotal = subtotal;
         invoice.TaxTotal = taxTotal;
         invoice.DiscountTotal = discountTotal;
-        invoice.GrandTotal = subtotal - discountTotal + taxTotal;
+        invoice.GrandTotal = SaleMoney.GrandTotal(subtotal, discountTotal, taxTotal);
 
         // Cash tendered above the total is change handed back, not money received against the invoice.
         var received = Math.Min(input.PaidAmount, invoice.GrandTotal);
@@ -545,7 +545,7 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         if (transaction is not null) await transaction.CommitAsync(ct);
     }
 
-    private async Task<SalesInvoiceLine> BuildLineAsync(SalesInvoice invoice, SaleLineInput input, bool canOverridePrice, CancellationToken ct)
+    private async Task<SalesInvoiceLine> BuildLineAsync(SalesInvoice invoice, SaleLineInput input, bool canOverridePrice, int precision, CancellationToken ct)
     {
         if (input.Qty <= 0)
         {
@@ -561,9 +561,11 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         }
         // The column is numeric(18,4): a finer discount would be rounded on save while the line and header totals were
         // computed from the unrounded value, so it is refused instead.
-        if (Math.Round(input.Discount, 4, MidpointRounding.AwayFromZero) != input.Discount)
+        // FI-D24: a discount is a money amount, so it has at most the base currency's decimals. It then never needs rounding, which keeps
+        // CK_SalesInvoiceLines_Discount_WithinGross (Discount <= Qty * UnitPrice) true for a discount equal to an unrounded gross.
+        if (Math.Round(input.Discount, precision, MidpointRounding.AwayFromZero) != input.Discount)
         {
-            throw new DomainValidationException("Lines", "Discount can have at most 4 decimal places.");
+            throw new DomainValidationException("Lines", $"Discount can have at most {precision} decimal places.");
         }
 
         var product = await db.Products.Include(p => p.BaseUnit).SingleOrDefaultAsync(p => p.Id == input.ProductId, ct)
@@ -631,9 +633,10 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         }
 
         var tax = await db.Taxes.SingleAsync(t => t.Id == product.TaxId, ct);
-        var taxableValue = gross - input.Discount;
-        var taxAmount = taxableValue * tax.RatePercent / 100;
-        var lineTotal = taxableValue + taxAmount;
+        var amounts = SaleMoney.Line(input.Qty, input.UnitPrice, input.Discount, tax.RatePercent, precision);
+        var taxableValue = amounts.Taxable;
+        var taxAmount = amounts.Tax;
+        var lineTotal = amounts.LineTotal;
 
         return new SalesInvoiceLine
         {
@@ -651,7 +654,7 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
             PriceOverridden = priceDiffers,
             TaxId = tax.Id,
             TaxRatePercent = tax.RatePercent,
-            Discount = input.Discount,
+            Discount = amounts.Discount, // FI-D24: rounded like the invoice DiscountTotal, so Taxable = Gross - Discount on every line
             TaxableValue = taxableValue,
             TaxAmount = taxAmount,
             LineTotal = lineTotal,
@@ -693,4 +696,25 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
             UserId = userId,
         }, line.ProductUnitId, line.UnitCode, line.ConversionFactorToBase, line.Qty));
     }
+}
+
+/// <summary>FI-D24 Q1a: the one place a sale line's money is rounded (base currency precision, AwayFromZero). Taxable is the
+/// difference of the rounded gross and rounded discount, so it is already at precision, and the invoice identity
+/// GrandTotal = Subtotal - DiscountTotal + TaxTotal = sum of line totals holds exactly.</summary>
+public static class SaleMoney
+{
+    public readonly record struct LineAmounts(decimal Gross, decimal Discount, decimal Taxable, decimal Tax, decimal LineTotal);
+
+    public static decimal Round(decimal value, int precision) => Math.Round(value, precision, MidpointRounding.AwayFromZero);
+
+    public static LineAmounts Line(decimal qty, decimal unitPrice, decimal discount, decimal ratePercent, int precision)
+    {
+        var gross = Round(qty * unitPrice, precision);
+        var disc = Round(discount, precision);
+        var taxable = gross - disc;
+        var tax = Round(taxable * ratePercent / 100, precision);
+        return new LineAmounts(gross, disc, taxable, tax, taxable + tax);
+    }
+
+    public static decimal GrandTotal(decimal subtotal, decimal discountTotal, decimal taxTotal) => subtotal - discountTotal + taxTotal;
 }

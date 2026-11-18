@@ -3,6 +3,9 @@ export type StockTransferStatus =
   | 'Draft'
   | 'Requested'
   | 'Approved'
+  | 'PartiallyFulfilled'
+  | 'Fulfilled'
+  | 'Closed'
   | 'Rejected'
   | 'Dispatched'
   | 'PartiallyReceived'
@@ -10,8 +13,23 @@ export type StockTransferStatus =
   | 'Cancelled';
 
 export const STOCK_TRANSFER_STATUSES: StockTransferStatus[] = [
-  'Draft', 'Requested', 'Approved', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled',
+  'Draft', 'Requested', 'Approved', 'PartiallyFulfilled', 'Fulfilled', 'Closed', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled',
 ];
+
+/** Display labels (FI-D26); legacy statuses keep their names. */
+export const STOCK_TRANSFER_STATUS_LABELS: Record<StockTransferStatus, string> = {
+  Draft: 'Draft',
+  Requested: 'Requested',
+  Approved: 'Ready for shipment',
+  PartiallyFulfilled: 'Partially fulfilled',
+  Fulfilled: 'Fulfilled',
+  Closed: 'Closed (short)',
+  Rejected: 'Rejected',
+  Dispatched: 'Dispatched',
+  PartiallyReceived: 'PartiallyReceived',
+  Completed: 'Completed',
+  Cancelled: 'Cancelled',
+};
 
 /** Mirrors Domain/Stock/StockTransferResolution (string enum). */
 export type StockTransferResolution = 'WriteOff' | 'ReturnToSource';
@@ -45,16 +63,6 @@ export interface UpdateStockTransferRequest {
 
 export interface StockTransferReasonRequest {
   reason: string;
-}
-
-export interface DispatchStockTransferLineRequest {
-  lineId: string;
-  productUnitId: string;
-  quantity: number;
-}
-
-export interface DispatchStockTransferRequest {
-  lines: DispatchStockTransferLineRequest[];
 }
 
 export interface ReceiveStockTransferLineRequest {
@@ -119,12 +127,15 @@ export interface StockTransferActor {
 export interface StockTransferLineBatch {
   purchaseBatchId: string;
   internalBatchNo: string;
-  unitCost: number;
+  /** Null when the reader cannot access the source branch. */
+  unitCost: number | null;
   dispatchedBaseQty: number;
   receivedBaseQty: number;
   damagedBaseQty: number;
   writtenOffBaseQty: number;
   returnedBaseQty: number;
+  /** Phase 06 (FI-D40): accepted into the destination by a disposition; already subtracted from outstandingBaseQty. Absent on older payloads. */
+  acceptedCorrectionBaseQty?: number;
   outstandingBaseQty: number;
 }
 
@@ -150,7 +161,11 @@ export interface StockTransferLine {
   damagedBaseQty: number;
   writtenOffBaseQty: number;
   returnedBaseQty: number;
+  acceptedCorrectionBaseQty?: number;
   outstandingBaseQty: number;
+  allocatedBaseQty: number;
+  closedBaseQty: number;
+  remainingBaseQty: number;
   batches: StockTransferLineBatch[];
 }
 
@@ -199,6 +214,9 @@ export interface StockTransfer {
   completed: StockTransferActor | null;
   cancelled: StockTransferActor | null;
   cancellationReason: string | null;
+  closedAt: string | null;
+  closedByName: string | null;
+  closureReason: string | null;
   lines: StockTransferLine[];
   receipts: StockTransferReceipt[];
 }
@@ -217,4 +235,36 @@ export interface StockTransferListQuery {
   dateTo?: string;
   page?: number;
   pageSize?: number;
+}
+
+/** GET /stock-transfers/ready-for-shipment item. */
+export interface ReadyForShipmentItem {
+  id: string;
+  transferNo: string;
+  status: StockTransferStatus;
+  sourceLocationId: string;
+  sourceLocationName: string | null;
+  destinationLocationId: string;
+  destinationLocationName: string | null;
+  destinationBranchName: string | null;
+  approvedAt: string | null;
+  lineCount: number;
+  remainingLineCount: number;
+}
+
+export interface ReadyForShipmentQuery {
+  sourceLocationId?: string | null;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/** GET /stock-transfers/{id}/history item. */
+export interface StockTransferHistoryEntry {
+  at: string;
+  action: string;
+  fromStatus: StockTransferStatus | null;
+  toStatus: StockTransferStatus | null;
+  actorName: string | null;
+  reason: string | null;
 }

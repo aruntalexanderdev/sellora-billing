@@ -482,11 +482,8 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             {
                 throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(returnableBase)} {baseUnit.ShortCode} of {line.Product.Name} can still be returned.");
             }
-            var inStock = await StockPosting.BalanceAsync(db, batch.Id, locationId, ct);
-            if (baseQty > inStock)
-            {
-                throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(inStock)} {baseUnit.ShortCode} of {line.Product.Name} from this purchase is still in stock to return.");
-            }
+            await StockAvailability.EnsureInBatchAsync(db, batch.Id, locationId, line.ProductId, baseQty,
+                inStock => new DomainValidationException("Lines", $"Only {StockQuantity.Format(inStock)} {baseUnit.ShortCode} of {line.Product.Name} from this purchase is still in stock to return."), ct);
 
             // Returning whatever is left takes the exact remainder, so per-line rounding can never leave a stray
             // paisa of credit unissued (or issue one too many) once an item is fully returned. Credit is prorated
@@ -610,6 +607,13 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
                 throw new DomainValidationException("Lines", $"Cannot cancel — the stock batch of a line on {purchase.PurchaseNo} does not match the line quantity.");
             }
         }
+
+        // FI-D32: removing the receipt must not take on-hand below what shipments have reserved (checked per product, summed over lines).
+        await StockAvailability.EnsureAsync(db, stockItems,
+            purchase.Lines.Select(l => new StockAvailability.Requirement(locationId, l.ProductId, l.BaseQty)),
+            s => new DomainValidationException("Status",
+                $"Cannot cancel — {Math.Max(0m, s.Requested - s.Available):0.###} of the {s.Requested:0.###} to remove is reserved for shipments; only {Math.Max(0m, s.Available):0.###} is unreserved. Release the reservations first."),
+            ct);
 
         foreach (var line in purchase.Lines)
         {

@@ -4,13 +4,15 @@ import { Router, provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { ProductList } from './product-list';
 import { ProductsService } from '../products.service';
+import { ProductCategoriesService } from '../../../../shared/product-categories/product-categories.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import { ConfirmDialogService } from '../../../../shared/ui/confirm-dialog/confirm-dialog.service';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import type { ProductListItem } from '../products.models';
 
 const RICE: ProductListItem = {
-  id: 'p1', sku: 'RICE-1', name: 'Rice', category: null, baseUnitLabel: 'kg', taxLabel: 'GST 5%', reorderLevel: 0, isActive: true,
+  id: 'p1', sku: 'RICE-1', name: 'Rice', category: null,
+  categoryId: null, categoryName: null, subcategoryId: null, subcategoryName: null, baseUnitLabel: 'kg', taxLabel: 'GST 5%', reorderLevel: 0, isActive: true,
   canDelete: true,
 };
 
@@ -28,6 +30,7 @@ function setup(opts: { permissions?: string[]; confirm?: boolean; remove?: () =>
       { provide: AuthService, useValue: { hasPermission: (c: string) => permissions.includes(c) } },
       { provide: ConfirmDialogService, useValue: { ask } },
       { provide: ToastService, useValue: toast },
+      { provide: ProductCategoriesService, useValue: { list: () => of([]) } },
     ],
   });
   vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);

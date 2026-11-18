@@ -68,7 +68,7 @@ function mountDetail(t: StockTransfer) {
       provideRouter([]),
       ...provideScopeStubs(),
       { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: t.id }) } } },
-      { provide: StockTransfersService, useValue: { get: () => of(t) } },
+      { provide: StockTransfersService, useValue: { get: () => of(t), history: () => of([]) } },
       { provide: ProductUnitsLookup, useValue: { units: () => of([]) } },
       { provide: AuthService, useValue: { hasPermission: () => true } },
     ],

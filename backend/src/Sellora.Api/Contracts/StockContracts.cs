@@ -7,7 +7,8 @@ public record StockOverviewItemDto(
     Guid ProductId, string Sku, string Name, string? Category, string BaseUnitLabel,
     decimal QuantityOnHand, decimal AverageCost, decimal StockValue, StockStatus Status,
     IReadOnlyList<StockLocationBalanceDto>? Locations = null,
-    int BaseDecimalPlaces = 0, IReadOnlyList<BreakdownUnitDto>? BreakdownUnits = null
+    int BaseDecimalPlaces = 0, IReadOnlyList<BreakdownUnitDto>? BreakdownUnits = null,
+    Guid? CategoryId = null, string? SubcategoryName = null
 );
 
 /// <summary>Phase 7: one unit of a product for the client-side stock breakdown (Factor = base units per 1 of this unit).</summary>
@@ -42,12 +43,14 @@ public record StockDetailDto(
     decimal QuantityOnHand, decimal AverageCost, decimal StockValue, decimal ReorderLevel, StockStatus Status,
     IReadOnlyList<StockMovementDto> Movements, IReadOnlyList<StockBatchDto> Batches,
     IReadOnlyList<StockLocationBalanceDto>? Locations = null,
-    int BaseDecimalPlaces = 0, IReadOnlyList<BreakdownUnitDto>? BreakdownUnits = null
+    int BaseDecimalPlaces = 0, IReadOnlyList<BreakdownUnitDto>? BreakdownUnits = null,
+    Guid? CategoryId = null, string? SubcategoryName = null
 );
 
 /// <summary>Phase 8: one product's stock at one location (base units; never summed across products).</summary>
 public record StockLocationBalanceDto(
-    Guid LocationId, string Code, string Name, string Type, decimal Qty, decimal AvgCost, decimal Value
+    Guid LocationId, string Code, string Name, string Type, decimal Qty, decimal AvgCost, decimal Value,
+    decimal ReservedQuantity = 0, decimal AvailableQuantity = 0
 );
 
 /// <summary>Phase 8: remaining quantity of one batch at one location.</summary>

@@ -10,7 +10,7 @@ using Sellora.Infrastructure.Data;
 
 namespace Sellora.Api.Controllers;
 
-/// <summary>Vehicles (Phase 4). Vehicles are company-level: visible to every member with View. Assigning to a branch needs access to
+/// <summary>Vehicles (Phase 4). Vehicles are company-level: visible to every member with View, except vehicles assigned to a branch the caller cannot access (Phase 01). Assigning to a branch needs access to
 /// that branch (403 otherwise); the vehicle's stock location never gets a branch.</summary>
 [ApiController]
 [Route("api/v1/vehicles")]
@@ -42,7 +42,9 @@ public class VehiclesController(SelloraDbContext db, IVehicleService vehicleServ
         if (unassigned) query = query.Where(v => v.AssignedBranchId == null);
         else if (assignedBranchId is { } b) query = query.Where(v => v.AssignedBranchId == b);
 
-        var vehicles = await query.OrderBy(v => v.VehicleNumber).ToListAsync(ct);
+        // Phase 01 (G5): vehicles assigned to a branch outside the caller's branches are hidden; central (unassigned) ones stay visible.
+        var vehicles = (await query.OrderBy(v => v.VehicleNumber).ToListAsync(ct))
+            .Where(v => v.AssignedBranchId is not { } owner || db.BranchContext.CanAccess(owner)).ToList();
         var labels = await BranchLabels.LoadAsync(db, ct);
         return Ok(vehicles.Select(v => ToDto(v, labels)).ToList());
     }
@@ -132,7 +134,7 @@ public class VehiclesController(SelloraDbContext db, IVehicleService vehicleServ
     {
         var companyId = db.CompanyContext.RequireCompanyId();
         var vehicle = await db.Vehicles.AsNoTracking().SingleOrDefaultAsync(v => v.CompanyId == companyId && v.Id == id, ct);
-        return vehicle is null ? null : ToDto(vehicle, await BranchLabels.LoadAsync(db, ct));
+        return vehicle is null || (vehicle.AssignedBranchId is { } owner && !db.BranchContext.CanAccess(owner)) ? null : ToDto(vehicle, await BranchLabels.LoadAsync(db, ct));
     }
 
     private Guid CurrentUserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);

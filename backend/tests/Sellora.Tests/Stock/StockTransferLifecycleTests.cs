@@ -27,8 +27,9 @@ public class StockTransferLifecycleTests
             ["submit"] = ([StockTransferStatus.Draft], StockTransferStatus.Requested),
             ["approve"] = ([StockTransferStatus.Requested], StockTransferStatus.Approved),
             ["reject"] = ([StockTransferStatus.Requested], StockTransferStatus.Rejected),
+            ["close"] = ([StockTransferStatus.PartiallyFulfilled], StockTransferStatus.Closed),
             ["cancel"] = ([StockTransferStatus.Draft, StockTransferStatus.Requested, StockTransferStatus.Approved], StockTransferStatus.Cancelled),
-            ["dispatch"] = ([StockTransferStatus.Approved], null),
+            ["dispatch"] = ([], null), // FI-D3 (Phase 05): dispatch happens through a shipment; the legacy operation is refused from every status
             ["receive"] = ([StockTransferStatus.Dispatched, StockTransferStatus.PartiallyReceived], null),
             ["resolve"] = ([StockTransferStatus.Dispatched, StockTransferStatus.PartiallyReceived], null),
         };
@@ -62,6 +63,26 @@ public class StockTransferLifecycleTests
         }
         await w.ApproveAsync(t.Id);
         if (status == StockTransferStatus.Approved) return (w, await w.ReloadAsync(t.Id));
+        // Request-level fulfilment states (FI-D26) are reached through shipments in Phase 04; here the line counters are set directly
+        // (30 of 100 pc shipped; Fulfilled = everything shipped). Closed goes through the real close operation.
+        if (status is StockTransferStatus.PartiallyFulfilled or StockTransferStatus.Fulfilled or StockTransferStatus.Closed)
+        {
+            await using (var db = w.Db())
+            {
+                var row = await db.StockTransfers.Include(x => x.Lines).SingleAsync(x => x.Id == t.Id);
+                row.Status = status == StockTransferStatus.Fulfilled ? StockTransferStatus.Fulfilled : StockTransferStatus.PartiallyFulfilled;
+                var l = row.Lines.Single();
+                l.DispatchedBaseQty = status == StockTransferStatus.Fulfilled ? l.RequestedBaseQty : 30m;
+                l.AllocatedBaseQty = l.DispatchedBaseQty;
+                await db.SaveChangesAsync();
+            }
+            if (status == StockTransferStatus.Closed)
+            {
+                await using var db = w.Db();
+                await new StockTransferService(db, TransferWorld.Everything()).CloseAsync(t.Id, "short", w.W.UserId);
+            }
+            return (w, await w.ReloadAsync(t.Id));
+        }
         await w.DispatchAsRequestedAsync(t.Id);
         var line = (await w.ReloadAsync(t.Id)).Lines.Single();
         if (status == StockTransferStatus.PartiallyReceived) await w.ReceiveAsync(t.Id, line.Id, w.Box, 3m);
@@ -79,6 +100,7 @@ public class StockTransferLifecycleTests
             case "submit": return await service.SubmitAsync(t.Id, w.W.UserId);
             case "approve": return await service.ApproveAsync(t.Id, w.W.UserId);
             case "reject": return await service.RejectAsync(t.Id, "no", w.W.UserId);
+            case "close": return await service.CloseAsync(t.Id, "no more stock coming", w.W.UserId);
             case "cancel": return await service.CancelAsync(t.Id, "changed mind", w.W.UserId);
             case "dispatch": return await service.DispatchAsync(t.Id, new DispatchStockTransferInput([new DispatchStockTransferLineInput(line.Id, w.Box, 10m)]), w.W.UserId);
             case "receive": return (await service.ReceiveAsync(t.Id, new ReceiveStockTransferInput(null, [new ReceiveStockTransferLineInput(line.Id, w.Box, 1m, 0m)]), w.W.UserId))?.Transfer;
@@ -111,7 +133,7 @@ public class StockTransferLifecycleTests
             Assert.Equal(from, result!.Status);
             var after = await w.ReloadAsync(t.Id);
             // Nothing is re-stamped: the first actor/time stay.
-            Assert.Equal((before.SubmittedAt, before.ApprovedAt, before.RejectedAt, before.CancelledAt), (after.SubmittedAt, after.ApprovedAt, after.RejectedAt, after.CancelledAt));
+            Assert.Equal((before.SubmittedAt, before.ApprovedAt, before.RejectedAt, before.CancelledAt, before.ClosedAt), (after.SubmittedAt, after.ApprovedAt, after.RejectedAt, after.CancelledAt, after.ClosedAt));
             Assert.Equal(movementsBefore, (await w.MovementsAsync(t.Id)).Count);
         }
         else
@@ -128,7 +150,7 @@ public class StockTransferLifecycleTests
     [InlineData("approve")]
     [InlineData("reject")]
     [InlineData("cancel")]
-    [InlineData("dispatch")]
+    [InlineData("close")]
     [InlineData("receive")]
     [InlineData("resolve")]
     [InlineData("submit")]
@@ -255,47 +277,25 @@ public class StockTransferLifecycleTests
         Assert.NotEqual(first.Id, other.Id);
     }
 
-    [Fact]
-    public async Task Dispatch_ReplayedWithTheSameKey_MovesStockOnce_AndReturnsTheTransfer()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("k-d")]
+    public async Task LegacyDispatch_IsRefusedForEveryRequest_WithOrWithoutKey_AndMovesNothing(string? key)
     {
         var w = await TransferWorld.CreateAsync();
         await w.StockPenAsync(w.L.MainStore, 200m);
         var t = await w.ApprovedAsync(w.L.MainStore, w.L.BlrStore, w.Pen(w.Box, 10m));
+        var line = (await w.ReloadAsync(t.Id)).Lines.Single();
 
-        var first = await w.DispatchAsRequestedAsync(t.Id, key: "k-d");
-        var replay = await w.DispatchAsRequestedAsync(t.Id, key: "k-d"); // the transfer is Dispatched now: without the key this would be 400
+        await using var db = w.Db();
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() =>
+            new StockTransferService(db, TransferWorld.Everything()).DispatchAsync(t.Id, new DispatchStockTransferInput([new DispatchStockTransferLineInput(line.Id, w.Box, 10m)], key), w.W.UserId));
 
-        Assert.Equal(StockTransferStatus.Dispatched, replay!.Status);
-        Assert.Equal(first!.DispatchedAt, replay.DispatchedAt);
-        Assert.Equal((100m, 100m), (await w.QohAsync(w.L.MainStore), await w.QohAsync(w.L.Transit)));
-        Assert.Equal(2, (await w.MovementsAsync(t.Id)).Count);
-        await w.AssertInvariantsAsync("dispatch replay");
-    }
-
-    [Fact]
-    public async Task Dispatch_WithoutKey_SecondCall_IsRefusedOnStatus_AndMovesNothing()
-    {
-        var w = await TransferWorld.CreateAsync();
-        await w.StockPenAsync(w.L.MainStore, 200m);
-        var t = await w.ApprovedAsync(w.L.MainStore, w.L.BlrStore, w.Pen(w.Box, 10m));
-        await w.DispatchAsRequestedAsync(t.Id);
-
-        Assert.Equal("status", await LocationWorld.FieldAsync(() => w.DispatchAsRequestedAsync(t.Id)));
-        Assert.Equal((100m, 100m), (await w.QohAsync(w.L.MainStore), await w.QohAsync(w.L.Transit)));
-    }
-
-    [Fact]
-    public async Task Dispatch_KeyReusedOnAnotherTransfer_Is400OnIdempotencyKey_AndMovesNothing()
-    {
-        var w = await TransferWorld.CreateAsync();
-        await w.StockPenAsync(w.L.MainStore, 200m);
-        var a = await w.ApprovedAsync(w.L.MainStore, w.L.BlrStore, w.Pen(w.Box, 10m));
-        var b = await w.ApprovedAsync(w.L.MainStore, w.L.BlrStore, w.Pen(w.Box, 5m));
-        await w.DispatchAsRequestedAsync(a.Id, key: "shared");
-
-        Assert.Equal("IdempotencyKey", await LocationWorld.FieldAsync(() => w.DispatchAsRequestedAsync(b.Id, key: "shared")));
-        Assert.Equal(StockTransferStatus.Approved, (await w.ReloadAsync(b.Id)).Status);
-        Assert.Equal(100m, await w.QohAsync(w.L.Transit));
+        Assert.Equal("status", ex.Field);
+        Assert.Contains("shipment", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(StockTransferStatus.Approved, (await w.ReloadAsync(t.Id)).Status);
+        Assert.Equal((200m, 0m), (await w.QohAsync(w.L.MainStore), await w.QohAsync(w.L.Transit)));
+        Assert.Empty(await w.MovementsAsync(t.Id));
     }
 
     [Fact]

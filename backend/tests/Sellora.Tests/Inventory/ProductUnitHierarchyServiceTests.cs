@@ -46,7 +46,7 @@ public class ProductUnitHierarchyServiceTests
         new(id, unitId, innerUnitId, qty, label, barcode, purchasable, sellable, defaultPurchase, defaultSales, active);
 
     private static UpsertProductInput Input(Fixture f, string sku, Guid baseUnitId, params ProductUnitInputItem[] units) =>
-        new(sku, "Ball Pen", "Stationery", baseUnitId, f.Tax.Id, 200m, units);
+        new(sku, "Ball Pen", null, null, baseUnitId, f.Tax.Id, 200m, units);
 
     private static ProductUnitInputItem[] PenRows(Fixture f) =>
     [

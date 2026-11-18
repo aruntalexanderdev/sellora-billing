@@ -4,6 +4,7 @@ import { of } from 'rxjs';
 import { CurrentStockReport } from './current-stock-report';
 import { AuthService } from '../../../core/auth/auth.service';
 import { provideScopeStubs } from '../../../shared/scope/scope-testing';
+import { ProductCategoriesService } from '../../../shared/product-categories/product-categories.service';
 import { ReportsService } from '../reports.service';
 import type { CurrentStockReportRow } from '../reports.models';
 
@@ -23,7 +24,8 @@ function mount(items: CurrentStockReportRow[]) {
     providers: [
       provideRouter([]),
       ...provideScopeStubs(),
-      { provide: ReportsService, useValue: { currentStock: vi.fn(() => of({ items, total: items.length, page: 1, pageSize: 20 })), currentStockCategories: () => of([]) } },
+      { provide: ProductCategoriesService, useValue: { list: () => of([]) } },
+      { provide: ReportsService, useValue: { currentStock: vi.fn(() => of({ items, total: items.length, page: 1, pageSize: 20 })) } },
       { provide: AuthService, useValue: { hasPermission: () => false } },
     ],
   });

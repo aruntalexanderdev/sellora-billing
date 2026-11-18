@@ -15,6 +15,8 @@
   }
 </div>
 
+<ui-company-view-toggle permission="Reports.Sales" (changed)="onCompanyViewChange()" />
+
 @if (loading()) {
   <div class="dash-state">Loading…</div>
 } @else if (error()) {

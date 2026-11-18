@@ -14,6 +14,10 @@ export interface StockLocationBalance {
   qty: number;
   avgCost: number;
   value: number;
+  /** FI-D30: base quantity reserved for shipments at this location (0 when none). */
+  reservedQuantity?: number;
+  /** On hand minus reserved: what can still be sold, adjusted out or allocated. */
+  availableQuantity?: number;
 }
 
 /** Mirrors StockBatchLocationDto: remaining quantity of one batch at one location. */
@@ -29,6 +33,8 @@ export interface StockOverviewItem {
   sku: string;
   name: string;
   category: string | null;
+  categoryId?: string | null;
+  subcategoryName?: string | null;
   baseUnitLabel: string;
   baseDecimalPlaces: number;
   breakdownUnits?: BreakdownUnit[];

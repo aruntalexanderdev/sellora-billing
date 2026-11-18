@@ -7,6 +7,7 @@ import { ExpensesService } from '../../expenses/expenses.service';
 import { ReportDateFilter } from '../report-date-filter/report-date-filter';
 import type { ExpenseCategory } from '../../expenses/expenses.models';
 import type { ExpenseReport as ExpenseReportModel, PaymentMethod } from '../accounts-reports.models';
+import { UiCompanyViewToggle } from '../../../../shared/ui/company-view-toggle/company-view-toggle';
 
 const COLS: DataTableColumn[] = [
   { label: 'Date', align: 'left' },
@@ -25,7 +26,7 @@ const money = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 
 @Component({
   selector: 'app-expense-report',
   standalone: true,
-  imports: [UiDataTable, ReportDateFilter],
+  imports: [UiCompanyViewToggle, UiDataTable, ReportDateFilter],
   templateUrl: './expense-report.html',
   styleUrl: '../accounts-report.scss',
 })
@@ -113,6 +114,11 @@ export class ExpenseReport implements OnInit {
 
   onPageChange(page: number): void {
     this.page.set(page);
+    this.load();
+  }
+
+  onCompanyViewChange(): void {
+    this.page.set(1);
     this.load();
   }
 

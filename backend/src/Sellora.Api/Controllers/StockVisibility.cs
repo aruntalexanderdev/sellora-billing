@@ -11,7 +11,7 @@ namespace Sellora.Api.Controllers;
 
 /// <summary>
 /// Phase 8 (D6): which stock locations a read may see, as an explicit predicate (NOT a global query filter: posting code must never be
-/// narrowed). Visible = locations of branches the caller may access (<see cref="BranchContext"/>), further narrowed to the branches where the
+/// narrowed). Visible = locations of branches in the READ scope (Phase 01: the active branch, or the allowed company scope under ?scope=company; <see cref="IBranchContext.ReadBranchIds"/>), further narrowed to the branches where the
 /// required permission is held (<see cref="EffectivePermissionSet.PermittedBranches"/>), plus company-level locations (BranchId NULL and not a vehicle assigned to a branch; Phase 3/7
 /// decision). Inactive locations stay visible for history. Also serves as the id → code/name/type lookup (location FKs are navigation-less).
 /// </summary>
@@ -19,7 +19,22 @@ internal sealed class StockVisibility
 {
     private readonly Dictionary<Guid, StockLocationLabel> _visible;
 
-    private StockVisibility(Dictionary<Guid, StockLocationLabel> visible) => _visible = visible;
+    private readonly HashSet<Guid> _companyLevel;
+    private readonly bool _holdsCompanyLevel;
+
+    private StockVisibility(Dictionary<Guid, StockLocationLabel> visible, HashSet<Guid> companyLevel, bool holdsCompanyLevel)
+    {
+        _visible = visible;
+        _companyLevel = companyLevel;
+        _holdsCompanyLevel = holdsCompanyLevel;
+    }
+
+    /// <summary>FI-D32 amendment: a company-level source (no owning branch) is visible to shipment readers only when they hold the permission
+    /// company-wide (no branch narrowing) with an all-branch membership. Ordinary stock reads are unaffected.</summary>
+    public bool IsShipmentSourceVisible(Guid locationId) => IsVisible(locationId) && (_holdsCompanyLevel || !_companyLevel.Contains(locationId));
+
+    /// <summary>Ids of the locations whose shipments may be read (see <see cref="IsShipmentSourceVisible"/>).</summary>
+    public List<Guid> ShipmentSourceIds() => _visible.Keys.Where(IsShipmentSourceVisible).ToList();
 
     /// <summary>Ids of every visible location (never null; empty = nothing visible).</summary>
     public IReadOnlyList<Guid> Ids => _visible.Keys.ToList();
@@ -60,14 +75,40 @@ internal sealed class StockVisibility
         // reader of the permission; branch-scoped readers (and the permission-less POS catalog) never get it in their sums and see the
         // in-transit quantity on the transfer document instead.
         // Company-wide membership as well: an AssignedBranches member with a company-scope role must not see other branches' goods in flight.
-        var companyLevel = permissionCode is not null && permitted is null && db.BranchContext.AllowedBranchIds is null;
+        // Phase 01 (FI-D11): additionally only in the explicit company view (?scope=company); the default active-branch read never shows goods in flight.
+        var companyLevel = permissionCode is not null && permitted is null && db.BranchContext.AllowedBranchIds is null && db.BranchContext.IsCompanyScope;
 
         var visible = rows
             .Where(l => companyLevel || l.LocationType != StockLocationType.Transit)
             .Select(l => new { l.Id, l.Code, l.Name, l.LocationType, Owner = l.BranchId ?? vehicleOwner.GetValueOrDefault(l.Id) })
-            .Where(l => l.Owner is not { } b || (db.BranchContext.CanAccess(b) && (permitted is null || permitted.Contains(b))))
+            .Where(l => l.Owner is not { } b || (db.BranchContext.CanRead(b) && (permitted is null || permitted.Contains(b))))
             .ToDictionary(l => l.Id, l => new StockLocationLabel(l.Code, l.Name, l.LocationType.ToString()));
-        return new StockVisibility(visible);
+        var companyLevelIds = rows.Select(l => new { l.Id, Owner = l.BranchId ?? vehicleOwner.GetValueOrDefault(l.Id) })
+            .Where(l => l.Owner is null && visible.ContainsKey(l.Id)).Select(l => l.Id).ToHashSet();
+        var holdsCompanyLevel = permissionCode is not null && permitted is null && db.BranchContext.AllowedBranchIds is null;
+        return new StockVisibility(visible, companyLevelIds, holdsCompanyLevel);
+    }
+
+    /// <summary>The union of the visibilities of every code the caller holds somewhere (FI-D32: incoming consignments); null when none is held.</summary>
+    public static async Task<StockVisibility?> LoadAnyAsync(
+        SelloraDbContext db, IEffectivePermissionService effectivePermissions, IEnumerable<string> codes, CancellationToken ct)
+    {
+        var set = await effectivePermissions.GetCurrentAsync(ct);
+        var visible = new Dictionary<Guid, StockLocationLabel>();
+        var companyLevel = new HashSet<Guid>();
+        var holds = false;
+        var any = false;
+        foreach (var code in codes)
+        {
+            var permitted = set.PermittedBranches(code);
+            if (permitted is not null && permitted.Count == 0) continue;
+            any = true;
+            var one = await LoadAsync(db, effectivePermissions, code, ct);
+            foreach (var (id, label) in one._visible) visible.TryAdd(id, label);
+            companyLevel.UnionWith(one._companyLevel);
+            holds |= one._holdsCompanyLevel;
+        }
+        return any ? new StockVisibility(visible, companyLevel, holds) : null;
     }
 
     /// <summary>403 <c>branch_access_denied</c> for an explicit location filter that is unknown, foreign or not visible (one answer, no existence leak).</summary>
@@ -89,14 +130,15 @@ internal sealed class StockVisibility
     {
         var rows = await db.StockItems.AsNoTracking()
             .Where(s => productIds.Contains(s.ProductId) && scope.Contains(s.StockLocationId))
-            .Select(s => new { s.ProductId, s.StockLocationId, s.QuantityOnHand, s.AverageCost })
+            .Select(s => new { s.ProductId, s.StockLocationId, s.QuantityOnHand, s.AverageCost, s.ReservedQuantity })
             .ToListAsync(ct);
         return rows
             .GroupBy(r => r.ProductId)
             .ToDictionary(g => g.Key, g => g
                 .Select(r => new StockLocationBalanceDto(
                     r.StockLocationId, Code(r.StockLocationId) ?? "", Name(r.StockLocationId) ?? "", Type(r.StockLocationId) ?? "",
-                    r.QuantityOnHand, r.AverageCost, r.QuantityOnHand * r.AverageCost))
+                    r.QuantityOnHand, r.AverageCost, r.QuantityOnHand * r.AverageCost,
+                    r.ReservedQuantity, r.QuantityOnHand - r.ReservedQuantity))
                 .OrderBy(b => b.Code, StringComparer.Ordinal)
                 .ToList());
     }

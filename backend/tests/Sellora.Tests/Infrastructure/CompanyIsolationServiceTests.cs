@@ -117,7 +117,7 @@ public class CompanyIsolationServiceTests
         db.Taxes.Add(new Tax { Id = Guid.NewGuid(), Name = "GST 5%", RatePercent = 5m });
         await db.SaveChangesAsync();
         var taxA = await db.Taxes.SingleAsync();
-        var input = new UpsertProductInput(w.TenantB is null ? "x" : "RICE-BP10", "Ponni Rice", null, w.KgId, taxA.Id, 0m,
+        var input = new UpsertProductInput(w.TenantB is null ? "x" : "RICE-BP10", "Ponni Rice", null, null, w.KgId, taxA.Id, 0m,
             [new ProductUnitInputItem(null, w.KgId, null, 1m, "Loose kg", "8901234567890", true, true, true, true, true)]);
         var service = new ProductService(db);
 
@@ -136,7 +136,7 @@ public class CompanyIsolationServiceTests
         var w = await SeedAsync();
         await using var db = w.Db(A);
         var service = new ProductService(db);
-        var input = new UpsertProductInput("NEW", "New", null, w.KgId, w.TenantB.TaxId, 0m,
+        var input = new UpsertProductInput("NEW", "New", null, null, w.KgId, w.TenantB.TaxId, 0m,
             [new ProductUnitInputItem(null, w.KgId, null, 1m, "Each", null, true, true, false, false, true)]);
 
         var tax = await Assert.ThrowsAsync<DomainValidationException>(() => service.CreateProductAsync(input));

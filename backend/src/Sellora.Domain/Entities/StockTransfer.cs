@@ -54,6 +54,11 @@ public class StockTransfer : ICompanyOwned
     public Guid? CancelledByUserId { get; set; }
     public string? CancellationReason { get; set; }
 
+    /// <summary>FI-D26: set when the remainder of an approved request is closed (Status Closed). Reason is mandatory.</summary>
+    public DateTimeOffset? ClosedAt { get; set; }
+    public Guid? ClosedByUserId { get; set; }
+    public string? ClosureReason { get; set; }
+
     public List<StockTransferLine> Lines { get; set; } = [];
     public List<StockTransferReceipt> Receipts { get; set; } = [];
 }

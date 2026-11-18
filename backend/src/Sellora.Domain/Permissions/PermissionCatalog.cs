@@ -18,7 +18,8 @@ public static class PermissionCatalog
         "Sales.View", "Sales.Create", "Sales.PriceOverride", "Sales.Edit", "Sales.Receive", "Sales.Return", "Sales.Refund", "Sales.Cancel",
         "Purchase.View", "Purchase.Create", "Purchase.Edit", "Purchase.Pay", "Purchase.Return", "Purchase.Refund", "Purchase.Cancel",
         "Inventory.Adjust", "StockLocations.View", "Inventory.View",
-        "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.Cancel",
+        "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.ApproveReceipt", "StockTransfers.Cancel",
+        "Shipments.View", "Shipments.Plan", "Shipments.Load", // FI-D31 (Reservations.Release stays company-only)
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
         "Customers.View", // Phase 11 D15: branch cashiers pick named customers at POS (customers stay company master data)
         "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",
@@ -89,14 +90,20 @@ public static class PermissionCatalog
         new("Inventory.Delete", "Inventory", "Delete", "Delete products that have never been used in a transaction."),
         new("Inventory.Adjust", "Inventory", "Adjust", "Post stock adjustments (damage, loss, correction, etc.)."),
         new("Inventory.Price", "Inventory", "Price", "Configure product units and prices."),
+        new("Inventory.Categories", "Inventory", "Manage categories", "Create, edit, activate and deactivate product categories and subcategories."),
         new("StockLocations.View", "Inventory", "View locations", "View stock locations (branch stores, warehouses, vehicles, in-transit)."),
         new("StockTransfers.View", "Inventory", "View transfers", "View stock transfers."),
         new("StockTransfers.Create", "Inventory", "Create transfers", "Create, edit and submit stock transfer requests."),
         new("StockTransfers.Approve", "Inventory", "Approve transfers", "Approve or reject stock transfer requests."),
         new("StockTransfers.Dispatch", "Inventory", "Dispatch transfers", "Dispatch approved stock transfers from the source location."),
         new("StockTransfers.Receive", "Inventory", "Receive transfers", "Receive dispatched stock transfers at the destination location."),
+        new("StockTransfers.ApproveReceipt", "Inventory", "Approve receipts", "Approve or reject recorded consignment receipts at the destination when the company requires supervisor approval."),
         new("StockTransfers.Cancel", "Inventory", "Cancel transfers", "Cancel stock transfers before they are dispatched."),
         new("StockTransfers.Resolve", "Inventory", "Resolve transfers", "Resolve in-transit shortages by writing them off or returning them to the source (company-wide only)."),
+        new("Shipments.View", "Inventory", "View shipments", "View shipments, consignments and their allocations."),
+        new("Shipments.Plan", "Inventory", "Plan shipments", "Create, edit, allocate stock to, assign vehicles to and cancel shipments and consignments."),
+        new("Shipments.Load", "Inventory", "Load shipments", "Record loading of consignments and mark shipments ready to dispatch."),
+        new("Reservations.Release", "Inventory", "Release reservations", "Release stock reservations that are no longer needed (company-wide only)."),
 
         // Purchase — Suppliers
         new("Suppliers.View", "Purchase", "View", "View the supplier list."),
@@ -144,6 +151,8 @@ public static class PermissionCatalog
         new("CashBank.Manage", "Accounts", "Manage", "Create, edit and deactivate cash and bank accounts."),
         new("CashBank.Transfer", "Accounts", "Transfer", "Transfer money between accounts, including cash deposits and withdrawals."),
         new("CashBank.Reconcile", "Accounts", "Reconcile", "Reconcile account transactions against statements."),
+        new("CashBank.Fund", "Accounts", "Fund", "Record funding (capital, loan, deposit, customer receipt) into cash and bank accounts."),
+        new("CashBank.Reverse", "Accounts", "Reverse", "Reverse funding, transfers and opening balances posted in error."),
 
         // Reports
         new("Reports.Stock", "Reports", "View", "View the current stock report."),

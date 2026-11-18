@@ -26,7 +26,8 @@ public record UpsertTaxRequest(
 public record BusinessSettingsDto(
     Guid Id, string BusinessName, string? AddressLine, string? City, string? State,
     string? Gstin, string? Phone, string? Email, string InvoicePrefix,
-    Guid BaseCurrencyId, string BaseCurrencyCode, string BaseCurrencySymbol, Guid CompanyId
+    Guid BaseCurrencyId, string BaseCurrencyCode, string BaseCurrencySymbol, Guid CompanyId,
+    ReceiptPostingMode ReceiptPostingMode = ReceiptPostingMode.Direct, bool ReceiptSeparationOfDuties = false
 );
 
 public record UpdateBusinessSettingsRequest(
@@ -38,7 +39,9 @@ public record UpdateBusinessSettingsRequest(
     [MaxLength(30)] string? Phone,
     [EmailAddress, MaxLength(200)] string? Email,
     [Required, MaxLength(10)] string InvoicePrefix,
-    [Required] Guid? BaseCurrencyId
+    [Required] Guid? BaseCurrencyId,
+    ReceiptPostingMode? ReceiptPostingMode = null, // Phase 06 (FI-D39): omitted = unchanged
+    bool? ReceiptSeparationOfDuties = null
 );
 
 public record SetActiveRequest(bool IsActive);

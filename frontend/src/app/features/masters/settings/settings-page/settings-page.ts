@@ -8,6 +8,7 @@ import { SettingsService } from '../settings.service';
 import { CurrenciesService } from '../../../administration/currencies/currencies.service';
 import type { CurrencyItem } from '../../../administration/currencies/currencies.models';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
+import type { ReceiptPostingMode } from '../settings.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 
 @Component({
@@ -36,7 +37,14 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
     email: ['', Validators.email],
     invoicePrefix: ['', Validators.required],
     baseCurrencyId: ['', Validators.required],
+    receiptPostingMode: ['Direct' as ReceiptPostingMode],
+    receiptSeparationOfDuties: [false],
   });
+
+  readonly postingModes: { value: ReceiptPostingMode; label: string }[] = [
+    { value: 'Direct', label: 'Direct (the receiver posts)' },
+    { value: 'SupervisorApproval', label: 'Supervisor approval (a supervisor approves, which posts)' },
+  ];
 
   readonly currencies = signal<CurrencyItem[]>([]);
 
@@ -65,6 +73,8 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
           email: s.email ?? '',
           invoicePrefix: s.invoicePrefix,
           baseCurrencyId: s.baseCurrencyId,
+          receiptPostingMode: s.receiptPostingMode ?? 'Direct',
+          receiptSeparationOfDuties: s.receiptSeparationOfDuties ?? false,
         });
         if (!this.canEdit()) this.form.disable();
         this.loading.set(false);

@@ -114,19 +114,19 @@ public sealed class TransferWorld
         return await new StockTransferService(db, permissions ?? Everything()).ApproveAsync(id, W.UserId);
     }
 
-    /// <summary>Dispatches every line of the transfer exactly as requested (same unit, same quantity).</summary>
+    /// <summary>Seeds the legacy-dispatched state of every line exactly as requested (same unit, same quantity). Production no longer dispatches this way (FI-D3): see <see cref="LegacyTransferSeed"/>.</summary>
     public async Task<StockTransfer?> DispatchAsRequestedAsync(Guid id, Guid? branch = null, IEffectivePermissionService? permissions = null, string? key = null)
     {
         await using var db = Db(branch ?? Main);
         var t = await db.StockTransfers.Include(x => x.Lines).SingleAsync(x => x.Id == id);
         var lines = t.Lines.OrderBy(l => l.LineNo).Select(l => new DispatchStockTransferLineInput(l.Id, l.ProductUnitId, l.RequestedQty)).ToList();
-        return await new StockTransferService(db, permissions ?? Everything()).DispatchAsync(id, new DispatchStockTransferInput(lines, key), W.UserId);
+        return await LegacyTransferSeed.DispatchAsync(db, W.UserId, id, lines);
     }
 
     public async Task<StockTransfer?> DispatchAsync(Guid id, DispatchStockTransferInput input, Guid? branch = null, IEffectivePermissionService? permissions = null)
     {
         await using var db = Db(branch ?? Main);
-        return await new StockTransferService(db, permissions ?? Everything()).DispatchAsync(id, input, W.UserId);
+        return await LegacyTransferSeed.DispatchAsync(db, W.UserId, id, input.Lines);
     }
 
     public async Task<StockTransferReceiptResult?> ReceiveAsync(Guid id, ReceiveStockTransferInput input, Guid? branch = null, IEffectivePermissionService? permissions = null)
@@ -208,7 +208,7 @@ public sealed class TransferWorld
         await using var db = Db();
         var balances = await db.BatchLocationBalances.AsNoTracking().Where(b => b.StockLocationId == L.Transit).ToListAsync();
         var rows = await db.StockTransferLineBatches.AsNoTracking().ToListAsync();
-        var outstanding = rows.GroupBy(r => r.PurchaseBatchId).ToDictionary(g => g.Key, g => g.Sum(r => r.DispatchedBaseQty - r.ReceivedBaseQty - r.DamagedBaseQty - r.WrittenOffBaseQty - r.ReturnedBaseQty));
+        var outstanding = rows.GroupBy(r => r.PurchaseBatchId).ToDictionary(g => g.Key, g => g.Sum(r => r.DispatchedBaseQty - r.ReceivedBaseQty - r.DamagedBaseQty - r.WrittenOffBaseQty - r.ReturnedBaseQty - r.AcceptedCorrectionBaseQty));
         foreach (var batchId in balances.Select(b => b.PurchaseBatchId).Concat(outstanding.Keys).Distinct())
         {
             Assert.True(balances.Where(b => b.PurchaseBatchId == batchId).Sum(b => b.RemainingBaseQty) == outstanding.GetValueOrDefault(batchId), $"{step}: Transit vs outstanding for batch {batchId}");

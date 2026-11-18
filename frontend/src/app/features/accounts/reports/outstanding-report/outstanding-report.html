@@ -9,6 +9,8 @@
   <button type="button" class="report-print-btn" (click)="print()">Print</button>
 </div>
 
+<ui-company-view-toggle permission="Reports.Accounts" (changed)="onCompanyViewChange()" />
+
 <div class="report-filters no-print">
   <app-report-date-filter
     [from]="dateFrom()" [to]="dateTo()"

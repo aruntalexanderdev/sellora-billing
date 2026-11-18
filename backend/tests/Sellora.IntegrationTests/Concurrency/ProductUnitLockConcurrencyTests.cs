@@ -207,7 +207,7 @@ public class ProductUnitLockConcurrencyTests(PostgresFixture postgres)
 
     private static Task<Product?> EditBagQuantityAsync(SelloraDbContext db, StockSeed seed, decimal kgPerBag) =>
         new ProductService(db).UpdateProductAsync(seed.Scenario.ProductId, new UpsertProductInput(
-            "RICE-BP10", "Ponni Rice", null, seed.KgUnitId, seed.TaxId, 100m,
+            "RICE-BP10", "Ponni Rice", null, null, seed.KgUnitId, seed.TaxId, 100m,
             [
                 new ProductUnitInputItem(seed.Scenario.LooseKgModeId, seed.KgUnitId, null, 1m, "Loose kg", null, true, true, false, false, true),
                 new ProductUnitInputItem(seed.Scenario.BagModeId, seed.BagUnitId, seed.KgUnitId, kgPerBag, $"{kgPerBag} kg bag", null, true, true, false, false, true),
@@ -353,7 +353,7 @@ public class ProductUnitLockConcurrencyTests(PostgresFixture postgres)
             bagUnitId = await db.ProductUnits.Where(u => u.Id == scenario.BagModeId).Select(u => u.UnitId).SingleAsync();
         }
         Task ChangeBaseToGram(SelloraDbContext db) => new ProductService(db).UpdateProductAsync(scenario.ProductId, new UpsertProductInput(
-            "RICE-BP10", "Ponni Rice", null, gramId, taxId, 100m,
+            "RICE-BP10", "Ponni Rice", null, null, gramId, taxId, 100m,
             [
                 new ProductUnitInputItem(scenario.LooseKgModeId, gramId, null, 1m, "Loose g", null, true, true, false, false, true),
                 new ProductUnitInputItem(scenario.BagModeId, bagUnitId, gramId, 10_000m, "10 kg bag", null, true, true, false, false, true),
@@ -426,7 +426,7 @@ public class ProductUnitLockConcurrencyTests(PostgresFixture postgres)
     {
         static Task Deactivate(SelloraDbContext db, StockSeed seed) =>
             new ProductService(db).UpdateProductAsync(seed.Scenario.ProductId, new UpsertProductInput(
-                "RICE-BP10", "Ponni Rice", null, seed.KgUnitId, seed.TaxId, 100m,
+                "RICE-BP10", "Ponni Rice", null, null, seed.KgUnitId, seed.TaxId, 100m,
                 [
                     new ProductUnitInputItem(seed.Scenario.LooseKgModeId, seed.KgUnitId, null, 1m, "Loose kg", null, true, true, false, false, true),
                     new ProductUnitInputItem(seed.Scenario.BagModeId, seed.BagUnitId, seed.KgUnitId, 10m, "10 kg bag", null, true, true, false, false, false),
