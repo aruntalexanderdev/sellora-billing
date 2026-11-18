@@ -42,6 +42,51 @@ public sealed class PostgresFixture : IAsyncLifetime
                 "(`docker ps` must work), then re-run the tests. These tests are not skipped when Docker is missing. " +
                 $"Underlying error: {ex.GetType().Name}: {ex.Message}", ex);
         }
+        await CreateTemplateAsync();
+    }
+
+    /// <summary>
+    /// CI speed-up: the fully migrated schema is built ONCE per container in this database; every <see cref="CreateDatabaseAsync"/>
+    /// with <c>migrate: true</c> is then a file-level copy (<c>CREATE DATABASE … TEMPLATE …</c>, milliseconds) instead of replaying
+    /// every migration (~2 s each). The copy is identical to a freshly migrated database (same history rows, same migration-inserted
+    /// data), so tests see exactly what they saw before. Tests that need a specific or empty schema (migration tests, the startup
+    /// migration check) keep using <c>migrate: false</c> and migrate themselves. The template refuses connections once built, so
+    /// nothing can change it or block a copy.
+    /// </summary>
+    public const string TemplateName = "sellora_template";
+
+    private async Task CreateTemplateAsync()
+    {
+        await ExecuteAdminAsync($"CREATE DATABASE \"{TemplateName}\"");
+        // No pooling: no idle connection may survive on the template, or a copy fails ("source database is being accessed by other users").
+        var templateConnection = new NpgsqlConnectionStringBuilder(ConnectionString) { Database = TemplateName, Pooling = false }.ConnectionString;
+        await using (var db = CreateDbContext(templateConnection))
+        {
+            await db.Database.MigrateAsync();
+        }
+        // The server ends a closed session asynchronously; copying while it is still listed fails with 55006 "being accessed by other users".
+        await using (var connection = new NpgsqlConnection(ConnectionString))
+        {
+            await connection.OpenAsync();
+            for (var attempt = 0; ; attempt++)
+            {
+                await using var check = connection.CreateCommand();
+                check.CommandText = $"SELECT count(*) FROM pg_stat_activity WHERE datname = '{TemplateName}'";
+                if ((long)(await check.ExecuteScalarAsync())! == 0) break;
+                if (attempt >= 100) throw new InvalidOperationException($"{TemplateName} still has open sessions after migrating it.");
+                await Task.Delay(50);
+            }
+        }
+        await ExecuteAdminAsync($"ALTER DATABASE \"{TemplateName}\" WITH IS_TEMPLATE true ALLOW_CONNECTIONS false");
+    }
+
+    private async Task ExecuteAdminAsync(string sql)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync();
     }
 
     public async Task DisposeAsync()
@@ -94,27 +139,13 @@ public sealed class PostgresFixture : IAsyncLifetime
         ConnectionPruningInterval = 1,
     }.ConnectionString;
 
-    /// <summary>Creates a uniquely named empty database on the container and, unless <paramref name="migrate"/> is
-    /// false, applies all migrations to it.</summary>
+    /// <summary>Creates a uniquely named database on the container: a copy of the fully migrated <see cref="TemplateName"/>
+    /// (the schema and data every migration produces), or an empty one when <paramref name="migrate"/> is false.</summary>
     public async Task<TestDatabase> CreateDatabaseAsync(bool migrate = true)
     {
         var name = "sellora_test_" + Guid.NewGuid().ToString("N");
-
-        await using (var connection = new NpgsqlConnection(ConnectionString))
-        {
-            await connection.OpenAsync();
-            await using var command = connection.CreateCommand();
-            command.CommandText = $"CREATE DATABASE \"{name}\"";
-            await command.ExecuteNonQueryAsync();
-        }
-
-        var database = new TestDatabase(name, ConnectionStringFor(ConnectionString, name), ConnectionString);
-        if (migrate)
-        {
-            await using var db = database.CreateDbContext();
-            await db.Database.MigrateAsync();
-        }
-        return database;
+        await ExecuteAdminAsync(migrate ? $"CREATE DATABASE \"{name}\" TEMPLATE \"{TemplateName}\"" : $"CREATE DATABASE \"{name}\"");
+        return new TestDatabase(name, ConnectionStringFor(ConnectionString, name), ConnectionString);
     }
 }
 

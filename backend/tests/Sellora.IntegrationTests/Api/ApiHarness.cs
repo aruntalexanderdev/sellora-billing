@@ -83,9 +83,9 @@ public sealed class ApiHost : IAsyncDisposable
 
     public static async Task<ApiHost> StartAsync(PostgresFixture postgres, IReadOnlyDictionary<string, string>? settings = null)
     {
-        var database = await postgres.CreateDatabaseAsync(migrate: false);
+        var database = await postgres.CreateDatabaseAsync(); // copy of the migrated template (CI speed-up)
         var factory = new SelloraApiFactory(database.ConnectionString, settings);
-        using var warmup = factory.CreateClient(); // builds the host: migrations + seed
+        using var warmup = factory.CreateClient(); // builds the host: startup migration (nothing pending) + seed
         return new ApiHost(database, factory);
     }
 
