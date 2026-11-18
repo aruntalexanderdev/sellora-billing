@@ -56,6 +56,13 @@ public class FinancialTransactionConfiguration : IEntityTypeConfiguration<Financ
         builder.HasIndex(t => new { t.TransactionDate, t.CreatedAt });
         builder.HasIndex(t => new { t.Type, t.Status });
         builder.HasIndex(t => new { t.AccountId, t.TransactionDate });
+        // Release readiness (FI-D43 e): ledger list order, transfer-leg lookup and per-account balance aggregation.
+        builder.HasIndex(t => new { t.CompanyId, t.TransactionDate, t.CreatedAt, t.Id }, "IX_FinancialTransactions_CompanyId_Date_CreatedAt_Id")
+            .IsDescending(false, true, true, false);
+        builder.HasIndex(t => new { t.CompanyId, t.TransferGroupId }, "IX_FinancialTransactions_CompanyId_TransferGroupId")
+            .HasFilter("\"TransferGroupId\" IS NOT NULL");
+        builder.HasIndex(t => new { t.CompanyId, t.AccountId, t.Status }, "IX_FinancialTransactions_CompanyId_AccountId_Status")
+            .IncludeProperties(t => new { t.Direction, t.BaseAmount, t.ReconciledAt });
         builder.Property(t => t.Notes).HasMaxLength(500);
 
         builder.HasOne(t => t.Currency).WithMany().HasForeignKey(t => t.CurrencyId).OnDelete(DeleteBehavior.Restrict);

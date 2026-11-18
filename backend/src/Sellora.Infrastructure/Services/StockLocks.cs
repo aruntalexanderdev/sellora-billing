@@ -102,6 +102,16 @@ internal static class Idempotency
     public const string CashTransfer = "cash-transfer";
     public const string CashFunding = "cash-funding";
     public const string CashReversal = "cash-reversal";
+    public const string Shipment = "shipment";
+    public const string ShipmentAllocate = "shipment-allocate";
+    public const string ShipmentLoad = "shipment-load";
+    public const string ShipmentCancel = "shipment-cancel";
+    public const string ShipmentDispatch = "shipment-dispatch";
+    public const string ConsignmentReceipt = "consignment-receipt";
+    public const string ConsignmentReceiptPost = "consignment-receipt-post";
+    public const string ConsignmentReceiptApprove = "consignment-receipt-approve";
+    public const string ConsignmentReceiptReject = "consignment-receipt-reject";
+    public const string ConsignmentDisposition = "consignment-disposition";
 
     /// <summary>The document an earlier request with this key created, or null if the key is new. Concurrent
     /// requests with the same key queue on an advisory lock, so the second one sees the first's committed record
@@ -180,6 +190,37 @@ internal static class StockLocks
         var companyId = db.CompanyContext.RequireCompanyId();
         var rows = await db.Database
             .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"StockTransfers\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = {transferId} FOR UPDATE")
+            .ToListAsync(ct);
+        return rows.Count > 0;
+    }
+
+    /// <summary>
+    /// Phase 04: FOR UPDATE on one shipment header; serialises every change of the shipment, its consignments and allocations. Taken right after the
+    /// idempotency lock, BEFORE any transfer header or stock lock (order: shipment → transfers in id order → products → locations → StockItems).
+    /// Returns false when the company has no such shipment. Callers must be inside a transaction.
+    /// </summary>
+    public static async Task<bool> LockShipmentAsync(SelloraDbContext db, Guid shipmentId, CancellationToken ct)
+    {
+        if (!db.Database.IsRelational()) return true;
+
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var rows = await db.Database
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Shipments\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = {shipmentId} FOR UPDATE")
+            .ToListAsync(ct);
+        return rows.Count > 0;
+    }
+
+    /// <summary>
+    /// Phase 05 (FI-D35): FOR UPDATE on one consignment, taken after the shipment lock and before transfers/products/locations/stock items.
+    /// Returns false when it does not exist in the company; takes no lock under the in-memory provider.
+    /// </summary>
+    public static async Task<bool> LockConsignmentAsync(SelloraDbContext db, Guid consignmentId, CancellationToken ct)
+    {
+        if (!db.Database.IsRelational()) return true;
+
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var rows = await db.Database
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"Consignments\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = {consignmentId} FOR UPDATE")
             .ToListAsync(ct);
         return rows.Count > 0;
     }

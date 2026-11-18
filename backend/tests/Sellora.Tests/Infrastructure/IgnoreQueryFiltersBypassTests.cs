@@ -12,6 +12,8 @@ public class IgnoreQueryFiltersBypassTests
     private static readonly string[] BranchBypass =
     [
         "DocumentNumbers.cs", "ProductUnitUsage.cs", "FinancialAccountService.cs", "BranchService.cs", "StockLocationUsageService.cs", "StockController.cs", "SalesController.cs", "ExpenseService.cs",
+        // Phase 04 (FI-D32): shipment allocation reads requests of other creating branches under the source-location fit; the destination's consignment view reads the shipment header outside its source-branch filter.
+        "ShipmentService.cs", "ConsignmentReceivingService.cs", "TransitController.cs", "ShipmentReads.cs", "ConsignmentsController.cs", "StockReservationsController.cs",
     ];
 
     // Phase 5: auth/middleware read assignments/branches before a company context exists; they bypass "Company" with explicit CompanyId predicates.

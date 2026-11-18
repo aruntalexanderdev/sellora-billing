@@ -9,7 +9,7 @@ namespace Sellora.Tests.Permissions;
 
 /// <summary>
 /// Phase 6 T6 and the seed-script drift test: the governance catalogue is disjoint from the permission catalogue, never reaches a role,
-/// the JWT or the resolver, and scripts/sql/seed-permissions.sql mirrors it exactly (code and description) with the deterministic ids.
+/// the JWT or the resolver, and backend/db/repeatable/R__seed-permissions.sql mirrors it exactly (code and description) with the deterministic ids.
 /// </summary>
 public partial class GovernanceCatalogueTests
 {

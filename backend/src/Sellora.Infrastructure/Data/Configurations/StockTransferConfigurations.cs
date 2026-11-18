@@ -25,6 +25,7 @@ public class StockTransferConfiguration : IEntityTypeConfiguration<StockTransfer
         builder.HasIndex(t => new { t.CompanyId, t.TransferNo }, "IX_StockTransfers_CompanyId_TransferNo").IsUnique();
         builder.HasIndex(t => new { t.CompanyId, t.Status }, "IX_StockTransfers_CompanyId_Status");
         builder.HasIndex(t => new { t.CompanyId, t.BranchId, t.CreatedAt }, "IX_StockTransfers_CompanyId_BranchId_CreatedAt");
+        builder.HasIndex(t => new { t.CompanyId, t.Status, t.ApprovedAt }, "IX_StockTransfers_CompanyId_Status_ApprovedAt");
         // Usage check (HasOpenTransfers): open transfers touching a location.
         builder.HasIndex(t => new { t.CompanyId, t.SourceLocationId }, "IX_StockTransfers_Source_Open").HasFilter(OpenFilter);
         builder.HasIndex(t => new { t.CompanyId, t.DestinationLocationId }, "IX_StockTransfers_Destination_Open").HasFilter(OpenFilter);
@@ -110,6 +111,7 @@ public class StockTransferLineConfiguration : IEntityTypeConfiguration<StockTran
             builder.Property(p).HasColumnType("numeric(18,3)");
         }
         builder.Property(l => l.AllocatedBaseQty).HasDefaultValue(0m);
+        builder.Property(l => l.AcceptedCorrectionBaseQty).HasColumnType("numeric(18,3)").HasDefaultValue(0m);
         builder.Property(l => l.ClosedBaseQty).HasDefaultValue(0m);
 
         builder.HasIndex(l => new { l.CompanyId, l.TransferId, l.LineNo }, "IX_StockTransferLines_CompanyId_TransferId_LineNo").IsUnique();
@@ -148,9 +150,9 @@ public class StockTransferLineConfiguration : IEntityTypeConfiguration<StockTran
             t.HasCheckConstraint("CK_StockTransferLines_Dispatch_Required", "\"DispatchProductUnitId\" IS NOT NULL OR (\"DispatchedBaseQty\" = 0 AND \"ReceivedBaseQty\" = 0 AND \"DamagedBaseQty\" = 0 AND \"WrittenOffBaseQty\" = 0 AND \"ReturnedBaseQty\" = 0)");
             t.HasCheckConstraint("CK_StockTransferLines_Dispatched_Max", "\"DispatchedBaseQty\" >= 0 AND \"DispatchedBaseQty\" + \"ClosedBaseQty\" <= \"RequestedBaseQty\"");
             t.HasCheckConstraint("CK_StockTransferLines_Allocation_Valid", "\"AllocatedBaseQty\" >= 0 AND \"ClosedBaseQty\" >= 0 AND \"AllocatedBaseQty\" + \"ClosedBaseQty\" <= \"RequestedBaseQty\"");
-            t.HasCheckConstraint("CK_StockTransferLines_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
+            t.HasCheckConstraint("CK_StockTransferLines_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0 AND \"AcceptedCorrectionBaseQty\" >= 0");
             t.HasCheckConstraint("CK_StockTransferLines_Counters_Max",
-                "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" <= \"DispatchedBaseQty\"");
+                "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" + \"AcceptedCorrectionBaseQty\" <= \"DispatchedBaseQty\"");
         });
     }
 }
@@ -159,15 +161,20 @@ public class StockTransferLineBatchConfiguration : IEntityTypeConfiguration<Stoc
 {
     public void Configure(EntityTypeBuilder<StockTransferLineBatch> builder)
     {
-        builder.HasKey(b => new { b.LineId, b.PurchaseBatchId });
+        builder.HasKey(b => b.Id);
+        // One row per batch per request line for legacy direct dispatch; one per batch per consignment line for shipment dispatch (FI-D34).
+        builder.HasIndex(b => new { b.LineId, b.PurchaseBatchId }, "IX_StockTransferLineBatches_LineId_PurchaseBatchId_Legacy").IsUnique().HasFilter("\"ConsignmentLineId\" IS NULL");
+        builder.HasIndex(b => new { b.ConsignmentLineId, b.PurchaseBatchId }, "IX_StockTransferLineBatches_ConsignmentLineId_PurchaseBatchId").IsUnique().HasFilter("\"ConsignmentLineId\" IS NOT NULL");
         builder.Property(b => b.UnitCost).HasColumnType("numeric(18,6)");
         foreach (var p in new[] { nameof(StockTransferLineBatch.DispatchedBaseQty), nameof(StockTransferLineBatch.ReceivedBaseQty), nameof(StockTransferLineBatch.DamagedBaseQty),
                      nameof(StockTransferLineBatch.WrittenOffBaseQty), nameof(StockTransferLineBatch.ReturnedBaseQty) })
         {
             builder.Property(p).HasColumnType("numeric(18,3)");
         }
+        builder.Property(b => b.AcceptedCorrectionBaseQty).HasColumnType("numeric(18,3)").HasDefaultValue(0m);
 
         builder.HasIndex(b => b.PurchaseBatchId, "IX_StockTransferLineBatches_PurchaseBatchId");
+        builder.HasIndex(b => new { b.CompanyId, b.ConsignmentLineId }, "IX_StockTransferLineBatches_CompanyId_ConsignmentLineId").HasFilter("\"ConsignmentLineId\" IS NOT NULL");
         builder.HasIndex(b => new { b.CompanyId, b.LineId }, "IX_StockTransferLineBatches_CompanyId_LineId");
 
         builder.HasOne<StockTransferLine>().WithMany(l => l.Batches).HasForeignKey(b => new { b.CompanyId, b.LineId })
@@ -176,13 +183,17 @@ public class StockTransferLineBatchConfiguration : IEntityTypeConfiguration<Stoc
         builder.HasOne<PurchaseBatch>().WithMany().HasForeignKey(b => new { b.CompanyId, b.PurchaseBatchId })
             .HasPrincipalKey(p => new { p.CompanyId, p.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_StockTransferLineBatches_PurchaseBatches");
+        // MATCH SIMPLE: legacy direct dispatch (NULL ConsignmentLineId) skips the check.
+        builder.HasOne<ConsignmentLine>().WithMany().HasForeignKey(b => new { b.CompanyId, b.ConsignmentLineId })
+            .HasPrincipalKey(l => new { l.CompanyId, l.Id }).IsRequired(false).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_StockTransferLineBatches_ConsignmentLines");
 
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("CK_StockTransferLineBatches_Dispatched_Positive", "\"DispatchedBaseQty\" > 0 AND \"UnitCost\" >= 0");
-            t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0");
+            t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_NonNegative", "\"ReceivedBaseQty\" >= 0 AND \"DamagedBaseQty\" >= 0 AND \"WrittenOffBaseQty\" >= 0 AND \"ReturnedBaseQty\" >= 0 AND \"AcceptedCorrectionBaseQty\" >= 0");
             t.HasCheckConstraint("CK_StockTransferLineBatches_Counters_Max",
-                "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" <= \"DispatchedBaseQty\"");
+                "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" + \"AcceptedCorrectionBaseQty\" <= \"DispatchedBaseQty\"");
         });
     }
 }

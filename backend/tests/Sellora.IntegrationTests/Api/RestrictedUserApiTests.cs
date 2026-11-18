@@ -497,7 +497,7 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         var r = await RestrictedUserWorld.GetWorldAsync(postgres); var w = r.World;
         var (x, _) = await w.NewBranchAsync(); var (y, _) = await w.NewBranchAsync();
         // 8b: a branch sells from its OWN store, so a batch of another branch's purchase can only sit at x's store after a transfer (Phase 9):
-        // purchase at y's store, then a real transfer y -> x (create, approve, dispatch at y; receive at x).
+        // purchase at y's store, then a transfer y -> x (create, approve, legacy-dispatched state seeded; receive at x).
         var purchaseY = await JsonAsync(await w.PurchaseAsync(y, qty: 4000m));
         var yStore = await StoreOfAsync(w, y); var xStore = await StoreOfAsync(w, x);
         var transfer = await RestrictedUserWorld.JsonOkAsync(await w.SendAsync(HttpMethod.Post, "/api/v1/stock-transfers",
@@ -505,9 +505,10 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         var transferId = IdOf(transfer);
         var approved = await RestrictedUserWorld.JsonOkAsync(await w.SendAsync(HttpMethod.Post, $"/api/v1/stock-transfers/{transferId}/approve", branch: y));
         var lineId = approved.GetProperty("lines")[0].GetProperty("id").GetGuid();
-        var dispatched = await RestrictedUserWorld.JsonOkAsync(await w.SendAsync(HttpMethod.Post, $"/api/v1/stock-transfers/{transferId}/dispatch",
-            new DispatchStockTransferRequest([new DispatchStockTransferLineRequest(lineId, w.ProductUnitId, 4000m)]), branch: y));
-        Assert.Equal("Dispatched", dispatched.GetProperty("status").GetString());
+        await using (var seedDb = w.Host.Database.CreateDbContext(w.CompanyId)) // FI-D3: production dispatches through shipments; seed the legacy-dispatched state this receive scenario needs
+        {
+            await Sellora.IntegrationTests.TestData.LegacyTransferSeed.DispatchAsync(seedDb, w.AdminId, transferId, [new Sellora.Domain.Stock.DispatchStockTransferLineInput(lineId, w.ProductUnitId, 4000m)]);
+        }
         var received = await RestrictedUserWorld.JsonOkAsync(await w.SendAsync(HttpMethod.Post, $"/api/v1/stock-transfers/{transferId}/receipts",
             new ReceiveStockTransferRequest(null, [new ReceiveStockTransferLineRequest(lineId, w.ProductUnitId, 4000m, 0m)]), branch: x));
         Assert.Equal("Completed", received.GetProperty("transfer").GetProperty("status").GetString());

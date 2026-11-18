@@ -1,0 +1,231 @@
+<div class="page-head">
+  <div>
+    <h1>Database releases</h1>
+    <p>Scripts applied by the deploy pipeline to this environment's database.</p>
+  </div>
+  @if (latest(); as l) { <ui-badge [text]="l.environment" tone="info" /> }
+</div>
+
+@if (state() === 'loading') {
+  <div class="card state" role="status">Loading database releases…</div>
+} @else if (state() === 'error') {
+  <div class="card state" role="alert">
+    <p>{{ errorMessage() }}</p>
+    <ui-button (onClick)="load()">Retry</ui-button>
+  </div>
+} @else if (!overview()?.journalAvailable) {
+  <div class="card state empty" data-testid="journal-empty">
+    <h2>No release history yet</h2>
+    <p>The migrator has not run on this database yet. Scripts appear here after the first deploy with migrate-db.</p>
+  </div>
+} @else {
+  @if (retryNotice(); as n) {
+    <div class="card notice" [class.err]="n.kind === 'error'" role="status" data-testid="retry-notice">
+      {{ n.text }}
+      @if (n.url) { <a [href]="n.url" target="_blank" rel="noopener">View pipeline run ↗</a> }
+    </div>
+  }
+
+  @if (latest(); as run) {
+    <section class="card release" aria-label="Latest release">
+      <div class="release-top">
+        <ui-badge [text]="run.status" [tone]="runTone(run.status)" />
+        @if (run.appVersion) { <strong>Release {{ run.appVersion }}</strong> }
+        @if (run.commitSha) { <span class="mono meta">{{ shortSha(run.commitSha) }}</span> }
+        @if (run.triggeredBy) { <span class="meta">by {{ run.triggeredBy }}</span> }
+        @if (run.trigger === 'Retry') { <ui-badge text="Retry" tone="warn" /> }
+        <span class="meta">{{ run.startedAt | date: 'medium' }} · {{ duration(runMs(run)) }}</span>
+        @if (run.pipelineUrl) { <a class="meta" [href]="run.pipelineUrl" target="_blank" rel="noopener">View pipeline run ↗</a> }
+      </div>
+      @if (run.trigger === 'Retry' && run.retryReason) { <p class="meta">Retry reason: {{ run.retryReason }}</p> }
+      @if (run.summary) { <p class="summary">{{ run.summary }}</p> }
+      @if (run.status === 'Failed') {
+        @if (overview()?.retry; as retry) {
+          @if (retry.canRetry) {
+            @if (!retryOpen()) {
+              <div class="retry-actions"><ui-button variant="primary" (onClick)="openRetry()">Retry migration</ui-button></div>
+            }
+          } @else if (retry.unavailableReason) {
+            <p class="meta" data-testid="retry-unavailable">{{ retry.unavailableReason }}</p>
+          }
+          @if (retry.lastRequest; as lr) {
+            <p class="meta" data-testid="retry-last">Retry requested by {{ lr.requestedBy }} at {{ lr.requestedAt | date: 'medium' }}: “{{ lr.reason }}”</p>
+          }
+        }
+        <p class="hint bad" data-testid="run-failed-hint">{{ retryHint }}</p>
+        @if (retryOpen()) {
+          <form #retryPanel class="confirm" data-testid="retry-panel" [formGroup]="retryForm" (ngSubmit)="startRetry()" novalidate>
+            <h3>Retry migrate-db on {{ run.environment }}?</h3>
+            <p class="meta">GitHub re-runs the failed jobs of this pipeline run (same release package), and the API is deployed if it passes.</p>
+            <label for="retry-reason">Reason (required)</label>
+            <textarea id="retry-reason" rows="3" formControlName="reason" [attr.maxlength]="reasonMax + 100"
+                      [attr.aria-invalid]="reasonError() ? true : null"></textarea>
+            <div class="counter" [class.bad]="reasonError()">
+              <span data-testid="retry-reason-error">{{ reasonError() }}</span>
+              <span>{{ reasonLen }} / {{ reasonMax }}</span>
+            </div>
+            @if (retryError()) { <p class="hint bad" role="alert" data-testid="retry-error">{{ retryError() }}</p> }
+            <div class="retry-actions">
+              <ui-button variant="primary" type="submit" [disabled]="retryForm.invalid || retrySubmitting()">
+                {{ retrySubmitting() ? 'Starting…' : 'Start retry' }}
+              </ui-button>
+              <ui-button [disabled]="retrySubmitting()" (onClick)="cancelRetry()">Cancel</ui-button>
+            </div>
+          </form>
+        }
+      }
+    </section>
+  }
+
+  <div class="tiles" role="group" aria-label="Filter scripts by status">
+    @for (f of filters; track f.key) {
+      <button type="button" class="tile" [class.on]="filter() === f.key" [class.bad]="f.key === 'failed' && counts()[f.key] > 0"
+              [attr.aria-pressed]="filter() === f.key" (click)="setFilter(f.key)">
+        <strong>{{ counts()[f.key] }}</strong><span>{{ f.label }}</span>
+      </button>
+    }
+  </div>
+
+  <div class="split" [class.open]="selectedScriptId()">
+    <div class="card table-card">
+      @if (efCount() > 0) {
+        <div class="ef-toggle">
+          <button type="button" class="link" (click)="toggleEf()">
+            {{ showEf() ? 'Hide ' + efCount() + ' EF migrations' : 'Show ' + efCount() + ' EF migrations' }}
+          </button>
+        </div>
+      }
+      <table class="rows">
+        <thead>
+          <tr><th>Script</th><th>Status</th><th class="num">Attempts</th><th class="num">Duration</th><th>Last run</th></tr>
+        </thead>
+        <tbody>
+          @for (s of visible(); track s.id) {
+            <tr class="click" [class.muted]="isMuted(s)" [class.sel]="selectedScriptId() === s.id" tabindex="0"
+                (click)="openScript(s)" (keydown.enter)="openScript(s)" (keydown.space)="$event.preventDefault(); openScript(s)">
+              <td>
+                <div class="mono name">{{ s.name }}</div>
+                <div class="kind">{{ s.kind }}@if (s.description) { · {{ s.description }} }</div>
+                @if (s.status === 'Failed' && (s.lastSqlState || s.lastError)) {
+                  <div class="err-inline">@if (s.lastSqlState) { SQLSTATE {{ s.lastSqlState }} · } {{ s.lastError }}</div>
+                }
+              </td>
+              <td><ui-badge [text]="s.status" [tone]="tone(s.status)" /></td>
+              <td class="num">{{ s.attemptCount }}</td>
+              <td class="num">{{ duration(s.lastDurationMs) }}</td>
+              <td class="nowrap">{{ s.lastAttemptAt ? (s.lastAttemptAt | date: 'medium') : '—' }}</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="5" class="meta">No scripts in this state.</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    @if (selectedScriptId()) {
+      <aside class="card drawer" aria-label="Script details" data-testid="script-panel">
+        <div class="drawer-head">
+          <h3 class="mono">{{ scriptDetail()?.script?.name ?? 'Script' }}</h3>
+          <button type="button" class="x" aria-label="Close details" (click)="closeScript()">×</button>
+        </div>
+        @if (scriptState() === 'loading') {
+          <p class="meta" role="status">Loading script…</p>
+        } @else if (scriptState() === 'error') {
+          <p class="hint bad" role="alert">{{ scriptError() }}</p>
+        } @else if (scriptDetail(); as d) {
+          <ui-badge [text]="d.script.status" [tone]="tone(d.script.status)" />
+          @if (d.script.description) { <p class="meta">{{ d.script.description }}</p> }
+          <dl class="facts">
+            <dt>Kind</dt><dd>{{ d.script.kind }}</dd>
+            <dt>Attempts</dt><dd>{{ d.script.attemptCount }}</dd>
+            @if (d.attempts[0]?.checksum) { <dt>Checksum</dt><dd class="mono">{{ shortChecksum(d.attempts[0].checksum) }}</dd> }
+          </dl>
+          @if (d.script.status === 'Failed') {
+            <!-- Retry always re-runs the latest pipeline run: offer it only for a script that failed in that run. -->
+            @if (overview()?.retry?.canRetry && !retryOpen() && d.attempts[0]?.releaseRunId === latest()?.id) {
+              <div class="retry-actions"><ui-button variant="primary" (onClick)="openRetry()">Retry migration</ui-button></div>
+            }
+            <p class="hint bad" data-testid="script-failed-hint">{{ retryHint }}</p>
+          }
+          @if (d.sql) {
+            <div class="eyebrow">Script (read only)</div>
+            <pre class="sql">{{ d.sql }}</pre>
+          }
+          <div class="eyebrow">Attempts</div>
+          <div class="scroll">
+            <table class="rows small">
+              <thead><tr><th>Status</th><th>Started</th><th class="num">Duration</th><th class="num">Rows</th><th>SQLSTATE</th><th>Error</th></tr></thead>
+              <tbody>
+                @for (a of d.attempts; track a.id) {
+                  <tr>
+                    <td><ui-badge [text]="a.status" [tone]="tone(a.status)" /></td>
+                    <td class="nowrap">{{ a.startedAt | date: 'medium' }}</td>
+                    <td class="num">{{ duration(a.durationMs) }}</td>
+                    <td class="num">{{ a.rowsAffected ?? '—' }}</td>
+                    <td class="mono">{{ a.sqlState ?? '—' }}</td>
+                    <td>{{ a.errorMessage ?? '' }}</td>
+                  </tr>
+                } @empty {
+                  <tr><td colspan="6" class="meta">No attempts recorded.</td></tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </aside>
+    }
+  </div>
+
+  <section class="card" aria-label="Recent runs">
+    <h2>Recent runs</h2>
+    <ul class="runs">
+      @for (r of runs(); track r.id) {
+        <li>
+          <button type="button" class="run" [class.sel]="selectedRunId() === r.id" (click)="openRun(r)">
+            <ui-badge [text]="r.status" [tone]="runTone(r.status)" />
+            <span>{{ r.startedAt | date: 'medium' }}</span>
+            @if (r.appVersion) { <span class="meta">{{ r.appVersion }}</span> }
+            @if (r.commitSha) { <span class="mono meta">{{ shortSha(r.commitSha) }}</span> }
+            @if (r.trigger === 'Retry') { <ui-badge text="Retry" tone="warn" /> }
+          </button>
+        </li>
+      } @empty {
+        <li class="meta">No runs recorded.</li>
+      }
+    </ul>
+
+    @if (selectedRunId()) {
+      <div class="run-detail" data-testid="run-panel">
+        <div class="drawer-head">
+          <h3>Attempts in this run</h3>
+          <button type="button" class="x" aria-label="Close run details" (click)="closeRun()">×</button>
+        </div>
+        @if (runState() === 'loading') {
+          <p class="meta" role="status">Loading run…</p>
+        } @else if (runState() === 'error') {
+          <p class="hint bad" role="alert">{{ runError() }}</p>
+        } @else if (runDetail(); as d) {
+          @if (d.run.pipelineUrl) { <a class="meta" [href]="d.run.pipelineUrl" target="_blank" rel="noopener">View pipeline run ↗</a> }
+          @if (d.run.summary) { <p class="summary">{{ d.run.summary }}</p> }
+          <table class="rows small">
+            <thead><tr><th>Script</th><th>Status</th><th class="num">Duration</th><th class="num">Rows</th><th>SQLSTATE</th><th>Error</th></tr></thead>
+            <tbody>
+              @for (a of d.attempts; track a.id) {
+                <tr>
+                  <td class="mono name">{{ a.scriptName }}</td>
+                  <td><ui-badge [text]="a.status" [tone]="tone(a.status)" /></td>
+                  <td class="num">{{ duration(a.durationMs) }}</td>
+                  <td class="num">{{ a.rowsAffected ?? '—' }}</td>
+                  <td class="mono">{{ a.sqlState ?? '—' }}</td>
+                  <td>{{ a.errorMessage ?? '' }}</td>
+                </tr>
+              } @empty {
+                <tr><td colspan="6" class="meta">No attempts in this run.</td></tr>
+              }
+            </tbody>
+          </table>
+        }
+      </div>
+    }
+  </section>
+}

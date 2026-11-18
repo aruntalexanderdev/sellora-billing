@@ -72,8 +72,8 @@ public class AddStockItemsNonNegativeCheckMigrationTests(PostgresFixture postgre
     private static string ScriptPath()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "scripts", "sql", "stock-items-negative-check.sql"))) dir = dir.Parent;
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "backend", "db", "validation", "V__stock-items-negative-check.sql"))) dir = dir.Parent;
         Assert.NotNull(dir);
-        return Path.Combine(dir!.FullName, "scripts", "sql", "stock-items-negative-check.sql");
+        return Path.Combine(dir!.FullName, "backend", "db", "validation", "V__stock-items-negative-check.sql");
     }
 }

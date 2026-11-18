@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
@@ -8,6 +9,8 @@ using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
 using Sellora.IntegrationTests.Infrastructure;
 using Sellora.IntegrationTests.TestData;
+using H = Sellora.IntegrationTests.TestData.ShipmentHttp;
+using static Sellora.IntegrationTests.TestData.CompanyMigrations;
 
 namespace Sellora.IntegrationTests.Concurrency;
 
@@ -69,24 +72,6 @@ public class AvailabilityRaceTests(PostgresFixture postgres)
     // ---- two-writer races, same source location -------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task SaleVsDispatch_CombinedOverAvailable_ExactlyOneSucceeds_LoserIsADomainError()
-    {
-        await using var database = await postgres.CreateDatabaseAsync();
-        var t = await TransferScenario.CreateAsync(database);
-        await t.BuyAsync(null, t.MainStore, t.Pc, 100m, 5m);
-        var transfer = await t.ApprovedAsync(t.MainStore, t.BlrStore, t.Pen(t.Pc, 60m));
-        var loaded = await t.ReloadAsync(transfer.Id);
-
-        var outcomes = await GatedAsync(t,
-            ("sale", db => SaleOnAsync(db, t, t.MainStore, 60m)),
-            ("dispatch", db => new StockTransferService(db, null).DispatchAsync(transfer.Id, DispatchInput(loaded), t.UserId)));
-
-        AssertOneWinner(outcomes);
-        Assert.Equal(40m, await t.QohAsync(t.MainStore));
-        await t.AssertInvariantsAsync("sale vs dispatch");
-    }
-
-    [Fact]
     public async Task PurchaseReturnVsSale_CombinedOverBatchBalance_ExactlyOneSucceeds_LoserIsADomainError()
     {
         await using var database = await postgres.CreateDatabaseAsync();
@@ -104,23 +89,80 @@ public class AvailabilityRaceTests(PostgresFixture postgres)
         await t.AssertInvariantsAsync("purchase return vs sale");
     }
 
-    [Fact]
-    public async Task AdjustmentDecreaseVsDispatch_CombinedOverAvailable_ExactlyOneSucceeds_LoserIsADomainError()
+    // ---- sale / adjustment vs a SHIPMENT dispatch (FI-D34, FI-D38 e: replaces the legacy-dispatch races) -----------------------------------------------
+    // 10 on hand, a ReadyToDispatch shipment of 6 (reserved 6): available is 4 before the dispatch AND after it (on hand 4, reserved 0), so a competing
+    // writer fits for exactly 4 whatever the interleaving. Never an oversell, never a negative on-hand / reserved / available, both reconciliation scripts clean.
+
+    [Theory]
+    [InlineData(4, true)]
+    [InlineData(5, false)]
+    public async Task SaleVsShipmentDispatch_AgainstTheUnreservedRemainder_NeverOversells(int pieces, bool fits)
     {
-        await using var database = await postgres.CreateDatabaseAsync();
-        var t = await TransferScenario.CreateAsync(database);
-        await t.BuyAsync(null, t.MainStore, t.Pc, 100m, 5m);
-        var transfer = await t.ApprovedAsync(t.MainStore, t.BlrStore, t.Pen(t.Pc, 60m));
-        var loaded = await t.ReloadAsync(transfer.Id);
+        for (var round = 0; round < 3; round++)
+        {
+            var (s, sid, _) = await H.ReadySceneAsync(postgres, 10m, 6m);
+            var transitBefore = await H.TransitQohAsync(s);
 
-        var outcomes = await GatedAsync(t,
-            ("adjustment", db => new StockAdjustmentService(db, LocationScenario.CompanyLevel).CreateAdjustmentAsync(
-                new CreateAdjustmentInput(t.PenId, t.Pc, AdjustmentType.Damage, AdjustmentDirection.Decrease, 60m, null, "damage", StockLocationId: t.MainStore), t.UserId)),
-            ("dispatch", db => new StockTransferService(db, null).DispatchAsync(transfer.Id, DispatchInput(loaded), t.UserId)));
+            var responses = await H.ParallelAsync(() => H.DispatchShipmentAsync(s, sid), () => H.SellPiecesAsync(s, pieces));
 
-        AssertOneWinner(outcomes);
-        Assert.Equal(40m, await t.QohAsync(t.MainStore));
-        await t.AssertInvariantsAsync("adjustment vs dispatch");
+            await H.AssertNo500Async($"round {round}: sale vs dispatch", responses);
+            Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+            Assert.Equal(fits, responses[1].IsSuccessStatusCode);
+            if (!fits) Assert.Equal(HttpStatusCode.BadRequest, responses[1].StatusCode);
+            Assert.Equal((fits ? 0m : 4m, 0m, transitBefore + 6m), (await H.QohAsync(s), await H.ReservedAsync(s), await H.TransitQohAsync(s)));
+            await H.AssertNothingNegativeAsync(s, $"round {round}: sale {pieces} vs dispatch");
+        }
+    }
+
+    [Fact]
+    public async Task SalesHammerVsShipmentDispatch_OnlyTheUnreservedRemainderSells_NeverNegative()
+    {
+        var (s, sid, _) = await H.ReadySceneAsync(postgres, 10m, 6m);
+
+        var responses = await H.ParallelAsync(() => H.DispatchShipmentAsync(s, sid), () => H.SellPiecesAsync(s, 2m), () => H.SellPiecesAsync(s, 2m), () => H.SellPiecesAsync(s, 2m));
+
+        await H.AssertNo500Async("sales vs dispatch", responses);
+        Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+        Assert.Equal(2, responses.Skip(1).Count(r => r.IsSuccessStatusCode));                       // 4 free = two sales of 2
+        Assert.All(responses.Skip(1).Where(r => !r.IsSuccessStatusCode), r => Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode));
+        Assert.Equal((0m, 0m), (await H.QohAsync(s), await H.ReservedAsync(s)));
+        await H.AssertNothingNegativeAsync(s, "sales hammer vs dispatch");
+    }
+
+    [Theory]
+    [InlineData(4, true)]
+    [InlineData(5, false)]
+    public async Task AdjustmentDecreaseVsShipmentDispatch_AgainstTheUnreservedRemainder_NeverGoesNegative(int pieces, bool fits)
+    {
+        for (var round = 0; round < 3; round++)
+        {
+            var (s, sid, _) = await H.ReadySceneAsync(postgres, 10m, 6m);
+            var transitBefore = await H.TransitQohAsync(s);
+
+            var responses = await H.ParallelAsync(() => H.DispatchShipmentAsync(s, sid), () => H.AdjustDownAsync(s, pieces));
+
+            await H.AssertNo500Async($"round {round}: adjustment vs dispatch", responses);
+            Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+            Assert.Equal(fits, responses[1].IsSuccessStatusCode);
+            if (!fits) Assert.Equal(HttpStatusCode.BadRequest, responses[1].StatusCode);
+            Assert.Equal((fits ? 0m : 4m, 0m, transitBefore + 6m), (await H.QohAsync(s), await H.ReservedAsync(s), await H.TransitQohAsync(s)));
+            await H.AssertNothingNegativeAsync(s, $"round {round}: adjustment {pieces} vs dispatch");
+        }
+    }
+
+    [Fact]
+    public async Task AdjustmentsHammerVsShipmentDispatch_CombinedOverTheUnreservedRemainder_ExactlyOneAdjustmentWins()
+    {
+        var (s, sid, _) = await H.ReadySceneAsync(postgres, 10m, 6m);
+
+        var responses = await H.ParallelAsync(() => H.DispatchShipmentAsync(s, sid), () => H.AdjustDownAsync(s, 4m), () => H.AdjustDownAsync(s, 4m));
+
+        await H.AssertNo500Async("adjustments vs dispatch", responses);
+        Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+        Assert.Equal(1, responses.Skip(1).Count(r => r.IsSuccessStatusCode));
+        Assert.All(responses.Skip(1).Where(r => !r.IsSuccessStatusCode), r => Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode));
+        Assert.Equal((0m, 0m), (await H.QohAsync(s), await H.ReservedAsync(s)));
+        await H.AssertNothingNegativeAsync(s, "adjustments hammer vs dispatch");
     }
 
     // ---- N-writer races --------------------------------------------------------------------------------------------------------------

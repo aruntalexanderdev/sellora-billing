@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\Sellora.Domain\Sellora.Domain.csproj" />
     <ProjectReference Include="..\..\src\Sellora.Infrastructure\Sellora.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Sellora.Api\Sellora.Api.csproj" />
+    <ProjectReference Include="..\..\tools\Sellora.DbMigrator\Sellora.DbMigrator.csproj" />
   </ItemGroup>
 
 </Project>

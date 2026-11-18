@@ -1,0 +1,65 @@
+using Sellora.Domain.Entities;
+
+namespace Sellora.Domain.Stock;
+
+/// <summary>FI-D29: creates a Draft shipment out of ONE source location. The transport reference is validated per mode (field "transportReference").</summary>
+public sealed record CreateShipmentInput(
+    Guid SourceLocationId,
+    TransportMode TransportMode,
+    TransportVia TransportVia,
+    string? ProviderName,
+    string? ProviderContact,
+    string? TransportReference,
+    DateOnly? PlannedDispatchDate,
+    string? Notes,
+    string? IdempotencyKey = null);
+
+/// <summary>Replaces the editable header fields (Draft / Loading only). The source location never changes.</summary>
+public sealed record UpdateShipmentInput(
+    TransportMode TransportMode,
+    TransportVia TransportVia,
+    string? ProviderName,
+    string? ProviderContact,
+    string? TransportReference,
+    DateOnly? PlannedDispatchDate,
+    string? Notes);
+
+/// <summary>A vehicle leg: exactly one of <paramref name="VehicleId"/> (own fleet) or <paramref name="ExternalVehicleNumber"/> (external provider).</summary>
+public sealed record ShipmentVehicleInput(
+    Guid? VehicleId,
+    string? ExternalVehicleNumber,
+    string? ExternalDescription,
+    string? DriverName,
+    string? DriverPhone);
+
+/// <summary>Allocates <paramref name="Quantity"/> (entered in <paramref name="ProductUnitId"/>) of one request line to the shipment; adds to an existing allocation.</summary>
+public sealed record AllocateShipmentInput(Guid StockTransferLineId, Guid ProductUnitId, decimal Quantity, string? IdempotencyKey = null);
+
+/// <summary>New TOTAL entered quantity (in the allocation's own unit) of a consignment line; 0 cancels the line.</summary>
+public sealed record ChangeAllocationInput(decimal Quantity, string? IdempotencyKey = null);
+
+/// <summary>Loaded quantity of one consignment line in the line's unit (absolute, not a delta; lower values unload).</summary>
+public sealed record LoadConsignmentLineInput(Guid ConsignmentLineId, decimal LoadedQuantity);
+
+public sealed record LoadConsignmentInput(IReadOnlyList<LoadConsignmentLineInput> Lines, string? IdempotencyKey = null);
+
+/// <summary>FI-D34: dispatches a ReadyToDispatch shipment. Header key: Idempotency-Key.</summary>
+public sealed record DispatchShipmentInput(string? IdempotencyKey = null);
+
+/// <summary>FI-D35: quantities of one consignment line, entered in the line's own unit. Accepted + damaged + rejected + missing of all receipts must not exceed what was dispatched.</summary>
+public sealed record ReceiptLineInput(Guid ConsignmentLineId, decimal AcceptedQuantity, decimal DamagedQuantity, decimal RejectedQuantity, decimal MissingQuantity);
+
+public sealed record RecordReceiptInput(IReadOnlyList<ReceiptLineInput> Lines, string? Notes, string? IdempotencyKey = null);
+
+public sealed record PostReceiptInput(string? IdempotencyKey = null);
+
+/// <summary>Phase 06 (FI-D39): approving a PendingApproval receipt posts it (same effect as a direct post).</summary>
+public sealed record ApproveReceiptInput(string? IdempotencyKey = null);
+
+/// <summary>Phase 06 (FI-D39): rejecting an unposted receipt for correction; the reason is mandatory.</summary>
+public sealed record RejectReceiptInput(string? Reason, string? IdempotencyKey = null);
+
+/// <summary>Phase 06 (FI-D40): <see cref="Quantity"/> is in the consignment line's own unit.</summary>
+public sealed record DispositionLineInput(Guid ConsignmentLineId, DispositionBucket Bucket, DispositionAction Action, decimal Quantity);
+
+public sealed record RecordDispositionInput(string? Reason, IReadOnlyList<DispositionLineInput> Lines, string? IdempotencyKey = null);

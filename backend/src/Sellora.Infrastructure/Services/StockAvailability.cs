@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
@@ -34,14 +35,28 @@ public static class StockAvailability
         return new Scope(previous);
     }
 
-    /// <summary>The single reservation seam. Phase 04 (FI-D4/D5) enables reservations here: until then nothing is reserved, so
-    /// available equals on hand. When enabled, this must be read under the same StockItem locks as the on-hand quantity.</summary>
-    public static Task<decimal> ReservedAsync(SelloraDbContext db, Guid locationId, Guid productId, Guid? batchId, CancellationToken ct) =>
-        Override.Value is { } source ? source(db, locationId, productId, batchId, ct) : Task.FromResult(0m);
+    /// <summary>The single reservation seam (FI-D30). With no batch: <c>StockItem.ReservedQuantity</c> of the (location, product), read from the
+    /// tracked row when the caller holds it under the StockItem lock (the locked, current value), else from the database. Reservations are per
+    /// product and location, never per batch (batches stay FIFO, chosen at dispatch), so a batch argument reserves nothing by itself: the
+    /// batch cap is applied through the product's <c>on hand - reserved</c> in <see cref="AvailableInBatchAsync"/>.</summary>
+    public static async Task<decimal> ReservedAsync(SelloraDbContext db, Guid locationId, Guid productId, Guid? batchId, CancellationToken ct)
+    {
+        if (Override.Value is { } source) return await source(db, locationId, productId, batchId, ct);
+        if (batchId is not null) return 0m;
+
+        var tracked = db.StockItems.Local.FirstOrDefault(s => s.StockLocationId == locationId && s.ProductId == productId);
+        if (tracked is not null) return tracked.ReservedQuantity;
+        return await db.StockItems.AsNoTracking()
+            .Where(s => s.StockLocationId == locationId && s.ProductId == productId)
+            .Select(s => s.ReservedQuantity)
+            .SingleOrDefaultAsync(ct);
+    }
 
     /// <summary>Available base quantity of one locked StockItem (a missing row counts as 0 on hand).</summary>
     public static async Task<decimal> AvailableAsync(SelloraDbContext db, Guid locationId, Guid productId, StockItem? lockedItem, CancellationToken ct) =>
-        (lockedItem?.QuantityOnHand ?? 0) - await ReservedAsync(db, locationId, productId, null, ct);
+        (lockedItem?.QuantityOnHand ?? 0) - (lockedItem is not null && Override.Value is null
+            ? lockedItem.ReservedQuantity   // the locked row's own value: nothing else can change it before the caller posts
+            : await ReservedAsync(db, locationId, productId, null, ct));
 
     /// <summary>First requirement (requests for the same location and product are summed, first-seen order) that exceeds its
     /// available quantity, else null. <paramref name="lockedItems"/> are the rows returned by
@@ -75,8 +90,23 @@ public static class StockAvailability
     }
 
     /// <summary>What a named batch can still give at a location: its balance there minus what is reserved against it.</summary>
-    public static async Task<decimal> AvailableInBatchAsync(SelloraDbContext db, Guid batchId, Guid locationId, Guid productId, CancellationToken ct) =>
-        await StockPosting.BalanceAsync(db, batchId, locationId, ct) - await ReservedAsync(db, locationId, productId, batchId, ct);
+    public static async Task<decimal> AvailableInBatchAsync(SelloraDbContext db, Guid batchId, Guid locationId, Guid productId, CancellationToken ct)
+    {
+        var available = await StockPosting.BalanceAsync(db, batchId, locationId, ct) - await ReservedAsync(db, locationId, productId, batchId, ct);
+
+        // FI-D30: batch availability = min(batch balance, on hand - reserved). Reservations are not batch-specific, so what is reserved
+        // at the location for the product can never be taken from any single batch. Nothing reserved = the batch balance alone.
+        var reserved = await ReservedAsync(db, locationId, productId, null, ct);
+        if (reserved > 0)
+        {
+            var tracked = db.StockItems.Local.FirstOrDefault(s => s.StockLocationId == locationId && s.ProductId == productId);
+            var onHand = tracked?.QuantityOnHand ?? await db.StockItems.AsNoTracking()
+                .Where(s => s.StockLocationId == locationId && s.ProductId == productId)
+                .Select(s => s.QuantityOnHand).SingleOrDefaultAsync(ct);
+            available = Math.Min(available, onHand - reserved);
+        }
+        return available;
+    }
 
     /// <summary>Throws the caller's exception when <paramref name="qty"/> exceeds the named batch's availability at the location.
     /// The caller holds the StockItem lock of (location, product), which also serialises batch balances.</summary>

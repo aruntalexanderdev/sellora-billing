@@ -33,8 +33,6 @@ describe('StockTransfersService', () => {
 
     service.reject('t1', 'no', 'k').subscribe();
     expect(http.expectOne((r) => r.url.endsWith('/t1/reject')).request.body).toEqual({ reason: 'no' });
-    service.dispatch('t1', { lines: [] }, 'k2').subscribe();
-    expect(http.expectOne((r) => r.url.endsWith('/t1/dispatch')).request.headers.get('Idempotency-Key')).toBe('k2');
     service.receive('t1', { notes: null, lines: [] }, 'k3').subscribe();
     expect(http.expectOne((r) => r.url.endsWith('/t1/receipts')).request.headers.get('Idempotency-Key')).toBe('k3');
     service.resolve('t1', { reason: 'r', lines: [] }, 'k4').subscribe();

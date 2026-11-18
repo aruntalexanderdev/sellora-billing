@@ -4,7 +4,6 @@ import { of, throwError } from 'rxjs';
 import { IdempotentSubmission } from '../../../../core/idempotency';
 import { ProductUnitsLookup } from '../product-units-lookup';
 import { StockTransfersService } from '../stock-transfers.service';
-import { TransferDispatchDialog } from './transfer-dispatch-dialog';
 import { TransferReceiveDialog } from './transfer-receive-dialog';
 import { TransferResolveDialog } from './transfer-resolve-dialog';
 import { dispatchedLine, line, transfer } from '../test-fixtures';
@@ -42,100 +41,6 @@ function setup<T>(component: new () => T, t = transfer('Approved', [line(), line
 }
 
 const http = (status: number, errors?: Record<string, string[]>) => new HttpErrorResponse({ status, error: errors ? { errors } : undefined });
-
-describe('transfer dialogs idempotency', () => {
-  it('rotates the key when the quantity changed after a failed attempt, keeps it for an identical retry', () => {
-    const keys: string[] = [];
-    const dispatch = vi.fn((_id: string, _body: unknown, key: string) => {
-      keys.push(key);
-      return throwError(() => http(0));
-    });
-    const { component, input, submit } = setup(TransferDispatchDialog, undefined, { dispatch });
-    submit();
-    submit();
-    expect(keys[1]).toBe(keys[0]);
-    input('dispatch-qty-0', '3');
-    submit();
-    expect(keys[2]).not.toBe(keys[1]);
-    expect(component.rows()[0].quantity).toBe(3);
-  });
-
-  it('uses a host-provided submission so a re-created dialog replays the key', () => {
-    const keys: string[] = [];
-    const dispatch = vi.fn((_id: string, _body: unknown, key: string) => {
-      keys.push(key);
-      return throwError(() => http(503));
-    });
-    const sub = new IdempotentSubmission();
-    for (let n = 0; n < 2; n++) {
-      TestBed.resetTestingModule();
-      const { fixture, submit } = setup(TransferDispatchDialog, undefined, { dispatch }, sub);
-      submit();
-      fixture.destroy();
-    }
-    expect(keys[1]).toBe(keys[0]);
-  });
-});
-
-describe('TransferDispatchDialog', () => {
-  it('lists every line defaulting to the requested quantity and unit, and posts exactly that', () => {
-    const dispatch = vi.fn(() => of(transfer('Dispatched')));
-    const { fixture, component, submit } = setup(TransferDispatchDialog, undefined, { dispatch });
-    const done = vi.fn();
-    component.done.subscribe(done);
-    expect(component.rows()).toHaveLength(2);
-
-    submit();
-    expect(dispatch).toHaveBeenCalledWith('t1', { lines: [{ lineId: 'l1', productUnitId: 'box', quantity: 5 }, { lineId: 'l2', productUnitId: 'box', quantity: 5 }] }, expect.any(String));
-    expect(done).toHaveBeenCalled();
-    fixture.destroy();
-  });
-
-  it('allows 0 on a line and lets the unit change (re-expressing the requested amount)', () => {
-    const dispatch = vi.fn((_id: string, _body: unknown, _key: string) => of(transfer('Dispatched')));
-    const { component, input, submit } = setup(TransferDispatchDialog, undefined, { dispatch });
-    input('dispatch-qty-1', '0');
-    input('dispatch-unit-0', 'pc');
-    expect(component.rows()[0].quantity).toBe(50);
-    submit();
-    expect(dispatch.mock.calls[0][1]).toEqual({ lines: [{ lineId: 'l1', productUnitId: 'pc', quantity: 50 }, { lineId: 'l2', productUnitId: 'box', quantity: 0 }] });
-  });
-
-  it('blocks submit when every line is 0, or a line exceeds the request', () => {
-    const dispatch = vi.fn(() => of(transfer('Dispatched')));
-    const { el, input, submit } = setup(TransferDispatchDialog, undefined, { dispatch });
-    input('dispatch-qty-0', '6');
-    submit();
-    expect(el.querySelector('[data-testid="dispatch-row-error-0"]')!.textContent).toMatch(/more than requested/i);
-    input('dispatch-qty-0', '0');
-    input('dispatch-qty-1', '0');
-    submit();
-    expect(el.querySelector('[data-testid="dispatch-error"]')!.textContent).toMatch(/at least one/i);
-    expect(dispatch).not.toHaveBeenCalled();
-  });
-
-  it('maps server field errors onto the row and keeps the key on a network retry, rotating it after a 400', () => {
-    const keys: string[] = [];
-    const responses = [() => throwError(() => http(0)), () => throwError(() => http(400, { 'lines[1].quantity': ['Exceeds requested.'] })), () => throwError(() => http(400, { status: ['Not approved.'] })), () => of(transfer('Dispatched'))];
-    const dispatch = vi.fn((_id: string, _body: unknown, key: string) => {
-      keys.push(key);
-      return responses[keys.length - 1]();
-    });
-    const { el, submit } = setup(TransferDispatchDialog, undefined, { dispatch });
-
-    submit(); // network failure: nothing known about the outcome
-    submit(); // retry of the same submission
-    expect(keys[1]).toBe(keys[0]);
-    expect(el.querySelector('[data-testid="dispatch-row-error-1"]')!.textContent).toContain('Exceeds requested.');
-
-    submit(); // the 400 above was definitive -> new submission, new key
-    expect(keys[2]).not.toBe(keys[1]);
-    expect(el.querySelector('[data-testid="dispatch-error"]')!.textContent).toContain('Not approved.');
-
-    submit();
-    expect(keys[3]).not.toBe(keys[2]);
-  });
-});
 
 describe('TransferReceiveDialog', () => {
   const dispatched = transfer('Dispatched', [dispatchedLine(), dispatchedLine({ id: 'l2', lineNo: 2, productId: 'rice', productName: 'Rice' }), dispatchedLine({ id: 'l3', lineNo: 3, outstandingBaseQty: 0, receivedBaseQty: 50 })]);
