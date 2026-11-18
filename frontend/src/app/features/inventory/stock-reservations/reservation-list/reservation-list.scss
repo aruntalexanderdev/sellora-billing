@@ -1,0 +1,12 @@
+@use '../../../../shared/styles/page-head';
+@use '../../../../shared/styles/report-filters';
+
+.muted, .sub { color: var(--color-text-muted); font-size: 12.5px; }
+.pad { padding: 16px; }
+.table-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); overflow-x: auto; margin-top: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--color-text-fainter); padding: 8px; }
+td { padding: 8px; border-top: 1px solid var(--color-border); vertical-align: top; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--color-border); }
+.pager .muted { margin-right: auto; }

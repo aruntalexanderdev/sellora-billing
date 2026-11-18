@@ -1,0 +1,50 @@
+<div class="panel" role="group" aria-label="Resolve discrepancy">
+  <h3>Resolve discrepancy for {{ consignment().consignmentNo }}</h3>
+  <p class="hint">Choose what happens to each damaged, rejected or missing quantity, in the line's unit. Write off removes it from transit as a loss, return sends it back to the source, accept moves it into the destination stock.</p>
+  <p class="note" data-testid="disposition-note">{{ note }}</p>
+  @if (shown().form; as msg) {
+    <div class="server-error" role="alert" data-testid="disposition-error">{{ msg }}</div>
+  }
+  @if (unitsError(); as msg) {
+    <div class="server-error" role="alert" data-testid="units-error">{{ msg }}</div>
+  }
+  @if (rows().length === 0) {
+    <p class="hint" data-testid="nothing-open">No posted damaged, rejected or missing quantity is open to resolve.</p>
+  }
+  <table>
+    <thead>
+      <tr><th>Product</th><th>Bucket</th><th class="num">Open</th><th>Action</th><th>Quantity</th></tr>
+    </thead>
+    <tbody>
+      @for (r of rows(); track r.lineId + r.bucket; let i = $index) {
+        <tr>
+          <td>{{ r.line.productName }}<div class="sub">{{ r.line.productSku }}{{ r.line.transferNo ? ' · ' + r.line.transferNo : '' }}</div></td>
+          <td>{{ r.bucket }}</td>
+          <td class="num" [attr.data-testid]="'disposition-open-' + i">{{ open(r) }} {{ r.unitCode }}</td>
+          <td>
+            <select class="field-input" [attr.data-testid]="'disposition-action-' + i" [value]="r.action" (change)="setAction(i, $any($event.target).value)">
+              @for (a of actions; track a) {
+                <option [value]="a" [selected]="a === r.action">{{ actionLabel(a) }}</option>
+              }
+            </select>
+          </td>
+          <td>
+            <input type="number" min="0" class="field-input" [attr.data-testid]="'disposition-qty-' + i" [step]="step(r)" [value]="r.quantity ?? ''" placeholder="0" (input)="setQuantity(i, $any($event.target).value)" />
+            <span class="unit">{{ r.unitCode }}</span>
+            <button type="button" class="link" [attr.data-testid]="'disposition-all-' + i" [disabled]="!unitsReady()" (click)="fillAll(i)">All</button>
+          </td>
+        </tr>
+        @if (shown().rows[i]; as msg) {
+          <tr class="err-row"><td colspan="5"><div class="field-error" [attr.data-testid]="'disposition-row-error-' + i">{{ msg }}</div></td></tr>
+        }
+      }
+    </tbody>
+  </table>
+  <label class="notes-label">Reason
+    <textarea class="field-input" rows="2" [attr.maxlength]="reasonMax" data-testid="disposition-reason" [value]="reason()" (input)="reason.set($any($event.target).value)"></textarea>
+  </label>
+  <div class="actions">
+    <ui-button variant="primary" data-testid="disposition-submit" [disabled]="busy() || !unitsReady() || rows().length === 0" (onClick)="submit()">{{ busy() ? 'Saving…' : 'Resolve' }}</ui-button>
+    <ui-button (onClick)="cancelled.emit()">Cancel</ui-button>
+  </div>
+</div>

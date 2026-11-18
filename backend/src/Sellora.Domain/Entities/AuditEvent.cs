@@ -84,6 +84,28 @@ public static class AuditActions
     public const string CashFunded = "cash.funded";
     public const string CashTransferred = "cash.transferred";
     public const string CashReversed = "cash.reversed";
+    // Phase 04 (FI-D31): shipments, consignments, allocations and reservations.
+    public const string ShipmentCreated = "shipment.created";
+    public const string ShipmentUpdated = "shipment.updated";
+    public const string ShipmentCancelled = "shipment.cancelled";
+    public const string ShipmentVehicleAdded = "shipment.vehicle_added";
+    public const string ShipmentVehicleRemoved = "shipment.vehicle_removed";
+    public const string ShipmentAllocated = "shipment.allocated";
+    public const string ShipmentAllocationChanged = "shipment.allocation_changed";
+    public const string ShipmentAllocationCancelled = "shipment.allocation_cancelled";
+    public const string ShipmentVehicleAssigned = "shipment.vehicle_assigned";
+    public const string ShipmentLoaded = "shipment.loaded";
+    public const string ConsignmentCancelled = "consignment.cancelled";
+    public const string StockReservationReleased = "stock_reservation.released";
+    // Phase 05 (FI-D34/D35).
+    public const string ShipmentDispatched = "shipment.dispatched";
+    public const string ConsignmentReceiptVerified = "consignment.receipt_verified";
+    public const string ConsignmentReceiptPosted = "consignment.receipt_posted";
+    // Phase 06 (FI-D39/D40).
+    public const string ConsignmentReceiptApproved = "consignment.receipt_approved";
+    public const string ConsignmentReceiptRejected = "consignment.receipt_rejected";
+    public const string ConsignmentDispositioned = "consignment.dispositioned";
+    public const string ReceiptPolicyChanged = "settings.receipt_policy_changed";
     // Products: hard delete of a product without history (the only product change audited so far).
     public const string ProductDeleted = "product.deleted";
 }
@@ -102,4 +124,8 @@ public static class AuditTargets
     public const string User = "User";
     public const string FinancialTransaction = "FinancialTransaction";
     public const string Product = "Product";
+    public const string Shipment = "Shipment";
+    public const string Consignment = "Consignment";
+    public const string StockReservation = "StockReservation";
+    public const string BusinessSettings = "BusinessSettings";
 }

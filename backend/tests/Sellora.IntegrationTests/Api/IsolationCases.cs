@@ -285,6 +285,20 @@ public static class IsolationCases
         "StockTransfersController.Receive", "StockTransfersController.Resolve",
         // Functional improvements Phase 03: TransferRequestFulfilmentApiTests.OtherCompanysTransfer_IsA404ForCloseAndHistory_AndNeverInTheReadyQueue (same IsolationWorld).
         "StockTransfersController.Close", "StockTransfersController.History", "StockTransfersController.ReadyForShipment",
+        // Functional improvements Phase 04: ShipmentsApiTests.OtherCompanysShipmentConsignmentAndReservation_Are404_ForReadsAndEveryWrite_AndNothingChanges (same IsolationWorld):
+        // the other company's shipment / consignment / reservation is never listed, its detail is a 404 and every write on it (update, cancel, vehicles, allocations, assign, load,
+        // release) is a 404; creates naming its source location / vehicle / request line are a 400 on the field.
+        "ShipmentsController.List", "ShipmentsController.Get", "ShipmentsController.Create", "ShipmentsController.Update", "ShipmentsController.Cancel",
+        "ShipmentsController.AddVehicle", "ShipmentsController.RemoveVehicle", "ShipmentsController.Allocate", "ShipmentsController.ChangeAllocation",
+        "ShipmentsController.CancelAllocation", "ShipmentsController.AssignVehicle", "ShipmentsController.CancelConsignment", "ShipmentsController.Load",
+        "ConsignmentsController.List", "ConsignmentsController.Get", "StockReservationsController.List", "StockReservationsController.Release",
+        // Functional improvements Phase 05: ShipmentsApiTests.OtherCompanysShipmentConsignmentAndReservation_Are404_ForReadsAndEveryWrite_AndNothingChanges (same IsolationWorld) also covers the
+        // shipment dispatch, the consignment receipts (record / post / list / get) and the transit views: the other company's ids are 404 and no transit row of it is ever listed;
+        // ShipmentDispatchApiTests covers the in-company destination / source isolation of the same endpoints.
+        "ShipmentsController.Dispatch", "ConsignmentsController.RecordReceipt", "ConsignmentsController.PostReceipt", "ConsignmentsController.ListReceipts",
+        "ConsignmentsController.GetReceipt", "TransitController.List",
+        // Functional improvements Phase 06: the same ShipmentsApiTests isolation test also covers receipt approve / reject and the dispositions (record / list): the other company's consignment is a 404.
+        "ConsignmentsController.ApproveReceipt", "ConsignmentsController.RejectReceipt", "ConsignmentsController.RecordDisposition", "ConsignmentsController.ListDispositions",
         // Phase 08: category / subcategory masters - ProductCategoriesApiTests.OtherCompanysCategory_IsNeverListedAnd404OnUpdateAndStatus (never listed, 404 on every write)
         // and Product_WithAnotherCompanysCategoryOrSubcategory_Is400AndChangesNothing (product create/update naming a foreign category / subcategory is a 400).
         "ProductCategoriesController.List", "ProductCategoriesController.Create", "ProductCategoriesController.Update", "ProductCategoriesController.SetActive",

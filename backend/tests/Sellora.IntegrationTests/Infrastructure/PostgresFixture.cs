@@ -81,6 +81,19 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// <summary>Context on the container's default database (not migrated; prefer <see cref="CreateDatabaseAsync"/>).</summary>
     public SelloraDbContext CreateDbContext() => CreateDbContext(ConnectionString);
 
+    /// <summary>
+    /// Connection string for a per-test database (FI-D43h). Shared worlds and class fixtures keep their databases (and hosts) alive for a whole run, and every one of them used to keep an idle
+    /// pooled connection until the end, so the full suite approached the container's 100-connection cap (53300) and only passed in a lucky order. Idle connections are now pruned within
+    /// ~2-3 s (Npgsql's pool keeps none below <c>Minimum Pool Size</c>=0), so the number of open server connections follows what is in use right now, whatever the test order.
+    /// </summary>
+    public static string ConnectionStringFor(string adminConnectionString, string databaseName) => new NpgsqlConnectionStringBuilder(adminConnectionString)
+    {
+        Database = databaseName,
+        MinPoolSize = 0,
+        ConnectionIdleLifetime = 2,
+        ConnectionPruningInterval = 1,
+    }.ConnectionString;
+
     /// <summary>Creates a uniquely named empty database on the container and, unless <paramref name="migrate"/> is
     /// false, applies all migrations to it.</summary>
     public async Task<TestDatabase> CreateDatabaseAsync(bool migrate = true)
@@ -95,7 +108,7 @@ public sealed class PostgresFixture : IAsyncLifetime
             await command.ExecuteNonQueryAsync();
         }
 
-        var database = new TestDatabase(name, new NpgsqlConnectionStringBuilder(ConnectionString) { Database = name }.ConnectionString, ConnectionString);
+        var database = new TestDatabase(name, ConnectionStringFor(ConnectionString, name), ConnectionString);
         if (migrate)
         {
             await using var db = database.CreateDbContext();

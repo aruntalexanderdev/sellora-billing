@@ -80,7 +80,7 @@ public record StockTransferActorDto(Guid? UserId, string? UserName, DateTimeOffs
 /// <summary>Where one line's dispatched quantity came from: the per-transfer batch identity with its cost and settled counters (base units).</summary>
 public record StockTransferLineBatchDto(
     Guid PurchaseBatchId, string InternalBatchNo, decimal? UnitCost,
-    decimal DispatchedBaseQty, decimal ReceivedBaseQty, decimal DamagedBaseQty, decimal WrittenOffBaseQty, decimal ReturnedBaseQty,
+    decimal DispatchedBaseQty, decimal ReceivedBaseQty, decimal DamagedBaseQty, decimal WrittenOffBaseQty, decimal ReturnedBaseQty, decimal AcceptedCorrectionBaseQty,
     decimal OutstandingBaseQty);
 
 /// <summary>Request snapshot, dispatch snapshot (null until dispatch) and settlement counters of one line. Quantities per line are in the
@@ -89,7 +89,7 @@ public record StockTransferLineDto(
     Guid Id, int LineNo, Guid ProductId, string? ProductName, string? Sku, string? BaseUnitCode, short? BaseDecimalPlaces,
     Guid ProductUnitId, string UnitCode, decimal ConversionFactorToBase, decimal RequestedQty, decimal RequestedBaseQty,
     Guid? DispatchProductUnitId, string? DispatchUnitCode, decimal? DispatchFactor, decimal? DispatchedQty, decimal DispatchedBaseQty,
-    decimal ReceivedBaseQty, decimal DamagedBaseQty, decimal WrittenOffBaseQty, decimal ReturnedBaseQty,
+    decimal ReceivedBaseQty, decimal DamagedBaseQty, decimal WrittenOffBaseQty, decimal ReturnedBaseQty, decimal AcceptedCorrectionBaseQty,
     decimal OutstandingBaseQty,
     decimal AllocatedBaseQty, decimal ClosedBaseQty, decimal RemainingBaseQty,
     IReadOnlyList<StockTransferLineBatchDto> Batches);

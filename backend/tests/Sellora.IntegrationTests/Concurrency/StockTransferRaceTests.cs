@@ -1,4 +1,6 @@
+using System.Net;
 using Microsoft.EntityFrameworkCore;
+using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Stock;
@@ -6,6 +8,8 @@ using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
 using Sellora.IntegrationTests.Infrastructure;
 using Sellora.IntegrationTests.TestData;
+using H = Sellora.IntegrationTests.TestData.ShipmentHttp;
+using static Sellora.IntegrationTests.TestData.CompanyMigrations;
 
 namespace Sellora.IntegrationTests.Concurrency;
 
@@ -50,73 +54,134 @@ public class StockTransferRaceTests(PostgresFixture postgres)
 
     // ---- double dispatch ---------------------------------------------------------------------------------------------------------------
 
+    // ---- SHIPMENT dispatch races (FI-D34, FI-D38 e). These replace the seven legacy StockTransferService.DispatchAsync races deleted with the legacy dispatch. ------------
+    // Dispatch vs a source sale / adjustment / purchase return / allocation live in AvailabilityRaceTests, ReturnLocationRaceTests and ReservationRaceTests; the
+    // close-of-request race is ShipmentDispatchApiTests.CloseOfTheRequest_RacingTheShipmentDispatch_*; the plain same-key / no-key hammer is ParallelDispatches_*.
+
+    // replaces DoubleDispatch_WithoutKey_* and DoubleDispatch_WithTheSameKey_*: two callers with DIFFERENT keys cannot each replay-and-move; the loser is a status refusal.
     [Fact]
-    public async Task DoubleDispatch_WithoutKey_BothWaitOnTheHeader_OneDispatches_TheOtherIsRefusedOnStatus()
+    public async Task DoubleShipmentDispatch_WithDifferentKeys_MovesOnce_TheOtherIsRefusedOnStatus()
     {
-        await using var database = await postgres.CreateDatabaseAsync();
-        var (t, transfer) = await ApprovedAsync(database);
-        var loaded = await t.ReloadAsync(transfer.Id);
-
-        await using var race = await LockRace.BeginAsync(database, LockRace.LockRow("StockTransfers", "Id", transfer.Id));
-        var w1 = await race.StartAsync("dispatch 1", db => new StockTransferService(db, null).DispatchAsync(transfer.Id, DispatchInput(loaded), t.UserId), branchId: t.Main);
-        await race.WaitBlockedAsync(w1, TransfersPattern, "dispatch must queue on the transfer header.");
-        var w2 = await race.StartAsync("dispatch 2", db => new StockTransferService(db, null).DispatchAsync(transfer.Id, DispatchInput(loaded), t.UserId), branchId: t.Main);
-        await race.WaitBlockedAsync(w2, TransfersPattern);
-
-        var outcomes = await race.ReleaseAsync();
-
-        Assert.Equal(1, outcomes.Count(o => o is null));
-        Assert.Equal("status", Field(outcomes.Single(o => o is not null)));
-        Assert.Equal((100m, 100m), (await t.QohAsync(t.MainStore), await t.QohAsync(t.Transit)));
-        Assert.Equal(3, await t.MovementCountAsync()); // the purchase's movement + one dispatch pair
-        await t.AssertInvariantsAsync("double dispatch without key");
-    }
-
-    [Fact]
-    public async Task DoubleDispatch_WithTheSameKey_SecondWaitsOnTheKey_AndReplaysTheFirst()
-    {
-        await using var database = await postgres.CreateDatabaseAsync();
-        var (t, transfer) = await ApprovedAsync(database);
-        var loaded = await t.ReloadAsync(transfer.Id);
-
-        await using var race = await LockRace.BeginAsync(database, LockRace.LockRow("StockTransfers", "Id", transfer.Id));
-        var w1 = await race.StartAsync("dispatch 1", db => new StockTransferService(db, null).DispatchAsync(transfer.Id, DispatchInput(loaded, "same-key"), t.UserId), branchId: t.Main);
-        await race.WaitBlockedAsync(w1, TransfersPattern);
-        var w2 = await race.StartAsync("dispatch 2", db => new StockTransferService(db, null).DispatchAsync(transfer.Id, DispatchInput(loaded, "same-key"), t.UserId), branchId: t.Main);
-        await race.WaitBlockedAsync(w2, hint: "the second must wait on the idempotency advisory lock held by the first.");
-
-        var outcomes = await race.ReleaseAsync();
-
-        Assert.All(outcomes, o => Assert.Null(o)); // both succeed: the second returns the stored dispatch
-        Assert.Equal((100m, 100m), (await t.QohAsync(t.MainStore), await t.QohAsync(t.Transit)));
-        Assert.Equal(StockTransferStatus.Dispatched, (await t.ReloadAsync(transfer.Id)).Status);
-        await t.AssertInvariantsAsync("double dispatch with key");
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task DoubleDispatch_ParallelHammer_MovesTheStockExactlyOnce(bool withKey)
-    {
-        await using var database = await postgres.CreateDatabaseAsync();
-        var (t, transfer) = await ApprovedAsync(database);
-        var loaded = await t.ReloadAsync(transfer.Id);
-
-        var outcomes = await ParallelAsync(Enumerable.Range(0, 6).Select<int, Func<Task>>(_ => async () =>
+        for (var round = 0; round < 3; round++)
         {
-            await using var db = t.Db(t.Main);
-            await new StockTransferService(db, null).DispatchAsync(transfer.Id, DispatchInput(loaded, withKey ? "hammer" : null), t.UserId);
-        }).ToArray());
+            var (s, sid, _) = await H.ReadySceneAsync(postgres, 100m, 40m);
+            var transitBefore = await H.TransitQohAsync(s);
 
-        AssertNoDeadlock(outcomes);
-        if (withKey) Assert.All(outcomes, o => Assert.Null(o));
-        else
-        {
-            Assert.Equal(1, outcomes.Count(o => o is null));
-            Assert.All(outcomes.Where(o => o is not null), o => Assert.Equal("status", Field(o)));
+            var responses = await H.ParallelAsync(() => H.DispatchShipmentAsync(s, sid, "k1-" + Guid.NewGuid()), () => H.DispatchShipmentAsync(s, sid, "k2-" + Guid.NewGuid()));
+
+            await H.AssertNo500Async($"round {round}: double dispatch", responses);
+            Assert.Equal(1, responses.Count(r => r.StatusCode == HttpStatusCode.OK));
+            Assert.Equal(HttpStatusCode.BadRequest, responses.Single(r => r.StatusCode != HttpStatusCode.OK).StatusCode);
+            Assert.Equal((60m, 0m, transitBefore + 40m), (await H.QohAsync(s), await H.ReservedAsync(s), await H.TransitQohAsync(s)));
+            var shipmentNo = await ScalarAsync<string>(s.W.Host.Database, $"""SELECT "ShipmentNo" FROM "Shipments" WHERE "Id" = '{sid}'""");
+            Assert.Equal(1L, await ScalarAsync<long>(s.W.Host.Database, $"""SELECT COUNT(*) FROM "StockMovements" WHERE "Type" = 'TransferOut' AND "StockLocationId" = '{s.SrcStore}' AND "ProductId" = '{s.W.ProductId}' AND "Notes" LIKE '{shipmentNo}%'"""));
+            await H.AssertNothingNegativeAsync(s, $"round {round}: double dispatch with different keys");
         }
-        Assert.Equal((100m, 100m), (await t.QohAsync(t.MainStore), await t.QohAsync(t.Transit)));
-        await t.AssertInvariantsAsync("dispatch hammer");
+    }
+
+    // replaces FirstDispatchesOfTheSameProduct_FromTwoSources_RaceForTheTransitRow_WithoutErrors (the company Transit row is shared; the first-row creation itself is covered by FirstStockConcurrencyTests).
+    [Fact]
+    public async Task ShipmentDispatches_OfTheSameProduct_FromTwoSources_ShareTheTransitRow_WithoutErrors()
+    {
+        var (s1, sid1, _) = await H.ReadySceneAsync(postgres, 50m, 20m);
+        var (s2, sid2, _) = await H.ReadySceneAsync(postgres, 50m, 15m);
+        var transitBefore = await H.TransitQohAsync(s1);
+
+        var responses = await H.ParallelAsync(() => H.DispatchShipmentAsync(s1, sid1), () => H.DispatchShipmentAsync(s2, sid2));
+
+        await H.AssertNo500Async("two sources", responses);
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        Assert.Equal(transitBefore + 35m, await H.TransitQohAsync(s1));
+        Assert.Equal((30m, 35m), (await H.QohAsync(s1), await H.QohAsync(s2)));
+        await H.AssertNothingNegativeAsync(s1, "two sources, first");
+        await H.AssertNothingNegativeAsync(s2, "two sources, second");
+    }
+
+    // replaces OppositeDispatchesMixedWithReceipts_OfTwoTransfers_AreDeadlockFree (its dispatch half; the receipts half stays as OppositeReceipts_*): X to Y and Y to X dispatch together.
+    [Fact]
+    public async Task OppositeShipments_DispatchingTogether_AreDeadlockFree()
+    {
+        var x = await H.NewSceneAsync(postgres, 60m);                                       // source X, destination A = Y
+        var y = new ShipScene(x.W, x.A, x.Src, x.B, x.AStore, x.SrcStore, x.BStore, x.Pc, x.Box);   // source Y, destination X
+        await x.W.EnsureBranchStockAsync(y.Src, 60m);
+        for (var round = 0; round < 3; round++)
+        {
+            var (xr, yr) = (await H.RequestAsync(x, x.AStore, 7m), await H.RequestAsync(y, y.AStore, 7m));
+            var (xs, ys) = (H.IdOf(await H.ReadyShipmentAsync(x, (xr, 7m))), H.IdOf(await H.ReadyShipmentAsync(y, (yr, 7m))));
+            var transitBefore = await H.TransitQohAsync(x);
+
+            var responses = await H.ParallelAsync(() => H.DispatchShipmentAsync(x, xs), () => H.DispatchShipmentAsync(y, ys));
+
+            await H.AssertNo500Async($"round {round}: opposite dispatches", responses);
+            Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+            Assert.Equal(transitBefore + 14m, await H.TransitQohAsync(x));
+            await H.AssertNothingNegativeAsync(x, $"round {round}: opposite dispatches (X)");
+            await H.AssertNothingNegativeAsync(y, $"round {round}: opposite dispatches (Y)");
+        }
+    }
+
+    // new: FI-D38 (d), shipment cancel is refused once dispatched and dispatch once cancelled: whichever commits first, the other is a clean 400.
+    [Fact]
+    public async Task ShipmentDispatchVsShipmentCancel_ExactlyOneWins_StockEndsConsistent()
+    {
+        for (var round = 0; round < 3; round++)
+        {
+            var (s, sid, _) = await H.ReadySceneAsync(postgres, 10m, 6m);
+            var transitBefore = await H.TransitQohAsync(s);
+
+            var responses = await H.ParallelAsync(() => H.DispatchShipmentAsync(s, sid), () => H.CancelShipmentAsync(s, sid, "race"));
+
+            await H.AssertNo500Async($"round {round}: dispatch vs shipment cancel", responses);
+            Assert.True(responses[0].IsSuccessStatusCode ^ responses[1].IsSuccessStatusCode, $"round {round}: dispatch {(int)responses[0].StatusCode}, cancel {(int)responses[1].StatusCode}: exactly one must win");
+            Assert.Equal(HttpStatusCode.BadRequest, (responses[0].IsSuccessStatusCode ? responses[1] : responses[0]).StatusCode);
+            var dispatched = responses[0].IsSuccessStatusCode;
+            Assert.Equal(dispatched ? "Dispatched" : "Cancelled", await ScalarAsync<string>(s.W.Host.Database, $"""SELECT "Status" FROM "Shipments" WHERE "Id" = '{sid}'"""));
+            Assert.Equal((dispatched ? 4m : 10m, 0m, transitBefore + (dispatched ? 6m : 0m)), (await H.QohAsync(s), await H.ReservedAsync(s), await H.TransitQohAsync(s)));
+            await H.AssertNothingNegativeAsync(s, $"round {round}: dispatch vs shipment cancel");
+        }
+    }
+
+    // new: the request of an allocated shipment cannot be cancelled (cancel is refused while quantity is allocated, and a dispatched request is Fulfilled), so the dispatch always wins.
+    [Fact]
+    public async Task ShipmentDispatchVsCancelOfTheRequest_DispatchWins_TheCancelIsRefused()
+    {
+        for (var round = 0; round < 3; round++)
+        {
+            var (s, sid, request) = await H.ReadySceneAsync(postgres, 10m, 6m);
+
+            var responses = await H.ParallelAsync(() => H.DispatchShipmentAsync(s, sid),
+                () => H.SendAsync(s.W.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{H.IdOf(request)}/cancel", new StockTransferReasonRequest("race"), s.Src));
+
+            await H.AssertNo500Async($"round {round}: dispatch vs request cancel", responses);
+            Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, responses[1].StatusCode);
+            Assert.Equal("Fulfilled", await ScalarAsync<string>(s.W.Host.Database, $"""SELECT "Status" FROM "StockTransfers" WHERE "Id" = '{H.IdOf(request)}'"""));
+            await H.AssertNothingNegativeAsync(s, $"round {round}: dispatch vs request cancel");
+        }
+    }
+
+    // replaces WarehouseDeactivation_AlongsideADispatch_IsAlwaysRefused_WhileTheTransferIsOpen for shipments, and the deactivation-window dispatch race: a warehouse source holding
+    // stock for a ready shipment can never be deactivated, whichever order the two commit in; the dispatch always succeeds, nothing is stranded.
+    [Fact]
+    public async Task ShipmentDispatchVsDeactivationOfTheSourceWarehouse_TheDispatchWins_TheWarehouseStaysActive()
+    {
+        var s0 = await H.NewSceneAsync(postgres, 0m);
+        var created = await H.OkAsync(await s0.W.SendAsync(HttpMethod.Post, "/api/v1/warehouses", new CreateWarehouseRequest("WH" + Guid.NewGuid().ToString("N")[..8], "Race warehouse", s0.Src)));
+        var (warehouseId, store) = (H.IdOf(created), created.GetProperty("stockLocationId").GetGuid());
+        await using (var db = s0.W.Host.Database.CreateDbContext(s0.W.CompanyId)) await StockSeed.AddAsync(db, store, s0.W.ProductId, 10m, 5m, s0.W.AdminId);
+        var s = s0 with { SrcStore = store };
+        var request = await H.RequestAsync(s, s.AStore, 6m);
+        var sid = H.IdOf(await H.ReadyShipmentAsync(s, (request, 6m)));
+
+        var responses = await H.ParallelAsync(() => H.DispatchShipmentAsync(s, sid),
+            () => H.SendAsync(s.W.Admin, HttpMethod.Post, $"/api/v1/warehouses/{warehouseId}/status", new SetStatusRequest(false, "race"), s.Src));
+
+        await H.AssertNo500Async("dispatch vs warehouse deactivation", responses);
+        Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, responses[1].StatusCode);                  // 4 pieces stay on hand: stock keeps the warehouse in use
+        Assert.True(await ScalarAsync<bool>(s.W.Host.Database, $"""SELECT "IsActive" FROM "StockLocations" WHERE "Id" = '{store}'"""));
+        Assert.Equal((4m, 0m), (await H.QohAsync(s), await H.ReservedAsync(s)));
+        await H.AssertNothingNegativeAsync(s, "dispatch vs warehouse deactivation");
     }
 
     // ---- two receivers -------------------------------------------------------------------------------------------------------------------
@@ -189,11 +254,9 @@ public class StockTransferRaceTests(PostgresFixture postgres)
             var ba = await t.CreateAsync(t.BlrStore, t.MainStore, [t.Pen(t.Pc, 10m)], branch: t.Blr);
             await t.ApproveAsync(ba.Id, t.Blr);
 
-            var dispatches = await ParallelAsync(
-                async () => await t.DispatchAsRequestedAsync(ab.Id, t.Main),
-                async () => await t.DispatchAsRequestedAsync(ba.Id, t.Blr));
-            AssertNoDeadlock(dispatches);
-            Assert.All(dispatches, o => Assert.Null(o));
+            // FI-D3: the dispatch itself is a shipment concern (ShipmentDispatchApiTests); the legacy-dispatched state is seeded, the receipts race below.
+            await t.DispatchAsRequestedAsync(ab.Id, t.Main);
+            await t.DispatchAsRequestedAsync(ba.Id, t.Blr);
 
             var receipts = await ParallelAsync(
                 async () => await t.ReceiveAsync(ab.Id, t.Pc, 10m, branch: t.Blr),
@@ -207,7 +270,7 @@ public class StockTransferRaceTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task OppositeDispatchesMixedWithReceipts_OfTwoTransfers_AreDeadlockFree()
+    public async Task OppositeReceipts_OfTwoInFlightTransfers_AreDeadlockFree()
     {
         await using var database = await postgres.CreateDatabaseAsync();
         var t = await TransferScenario.CreateAsync(database);
@@ -219,93 +282,18 @@ public class StockTransferRaceTests(PostgresFixture postgres)
             var ab = await t.ApprovedAsync(t.MainStore, t.BlrStore, t.Pen(t.Pc, 7m));
             var ba = await t.CreateAsync(t.BlrStore, t.MainStore, [t.Pen(t.Pc, 7m)], branch: t.Blr);
             await t.ApproveAsync(ba.Id, t.Blr);
-            await t.DispatchAsRequestedAsync(ab.Id, t.Main); // ab is in flight while ba dispatches and ab is received
+            await t.DispatchAsRequestedAsync(ab.Id, t.Main); // legacy-dispatched state is seeded (FI-D3); both are in flight when the receipts race
+            await t.DispatchAsRequestedAsync(ba.Id, t.Blr);
             var mixed = await ParallelAsync(
-                async () => await t.DispatchAsRequestedAsync(ba.Id, t.Blr),
+                async () => await t.ReceiveAsync(ba.Id, t.Pc, 7m, branch: t.Main),
                 async () => await t.ReceiveAsync(ab.Id, t.Pc, 7m, branch: t.Blr));
             AssertNoDeadlock(mixed);
             Assert.All(mixed, o => Assert.Null(o));
-            await t.ReceiveAsync(ba.Id, t.Pc, 7m, branch: t.Main);
             await t.AssertInvariantsAsync($"mixed round {round}");
         }
     }
 
-    [Fact]
-    public async Task FirstDispatchesOfTheSameProduct_FromTwoSources_RaceForTheTransitRow_WithoutErrors()
-    {
-        await using var database = await postgres.CreateDatabaseAsync();
-        var t = await TransferScenario.CreateAsync(database);
-        await t.BuyAsync(null, t.MainStore, t.Pc, 50m, 5m);
-        await t.BuyAsync(t.Blr, t.BlrStore, t.Pc, 50m, 6m);
-        var fromMain = await t.ApprovedAtAsync(t.Main, t.MainStore, t.BlrStore, t.Pen(t.Pc, 20m));
-        var fromBlr = await t.ApprovedAtAsync(t.Blr, t.BlrStore, t.MainStore, t.Pen(t.Pc, 15m));
-        await using (var db = t.Db()) Assert.Equal(0, await db.StockItems.CountAsync(i => i.StockLocationId == t.Transit)); // no Transit row exists yet
-
-        var outcomes = await ParallelAsync(
-            async () => await t.DispatchAsRequestedAsync(fromMain.Id, t.Main),
-            async () => await t.DispatchAsRequestedAsync(fromBlr.Id, t.Blr));
-
-        AssertNoDeadlock(outcomes);
-        Assert.All(outcomes, o => Assert.Null(o));
-        Assert.Equal(35m, await t.QohAsync(t.Transit));
-        await t.AssertInvariantsAsync("first dispatches");
-    }
-
     // ---- dispatch vs a sale at the source -----------------------------------------------------------------------------------------------------
-
-    [Fact]
-    public async Task DispatchQueuedBeforeASourceSale_Wins_TheSaleIsRefused_NoNegativeStock()
-    {
-        await using var database = await postgres.CreateDatabaseAsync();
-        var (t, transfer) = await ApprovedAsync(database, pieces: 40m, stock: 40m);
-        var loaded = await t.ReloadAsync(transfer.Id);
-
-        await using var race = await LockRace.BeginAsync(database, async gate =>
-        {
-            var rows = await gate.Database.SqlQueryRaw<decimal>("""SELECT "QuantityOnHand" AS "Value" FROM "StockItems" WHERE "StockLocationId" = {0} AND "ProductId" = {1} FOR UPDATE""", t.MainStore, t.PenId).ToListAsync();
-            Assert.Single(rows);
-        });
-        var dispatch = await race.StartAsync("dispatch", db => new StockTransferService(db, null).DispatchAsync(transfer.Id, DispatchInput(loaded), t.UserId), branchId: t.Main);
-        await race.WaitBlockedAsync(dispatch, """%"StockItems"%""");
-        var sale = await race.StartAsync("sale", db => new SalesService(db, LocationScenario.CompanyLevel).CreateSaleAsync(
-            new Sellora.Domain.Sales.CreateSaleInput(t.L.S.CustomerId, StockScenario.SaleDate, PaymentMethod.Cash, 0,
-                [new Sellora.Domain.Sales.SaleLineInput(t.PenId, t.Pc, 1m, 10m, 0)]), t.UserId), branchId: t.Main);
-        await race.WaitBlockedAsync(sale, """%"StockItems"%""");
-
-        var outcomes = await race.ReleaseAsync();
-
-        Assert.Null(outcomes[0]);
-        Assert.IsType<DomainValidationException>(outcomes[1]); // nothing left at the source
-        Assert.Equal((0m, 40m), (await t.QohAsync(t.MainStore), await t.QohAsync(t.Transit)));
-        await t.AssertInvariantsAsync("dispatch before sale");
-    }
-
-    [Fact]
-    public async Task DispatchVsSourceSale_ParallelHammer_ExactlyOneWins_NeverNegativeStock()
-    {
-        await using var database = await postgres.CreateDatabaseAsync();
-        var t = await TransferScenario.CreateAsync(database);
-        for (var round = 0; round < 6; round++)
-        {
-            await t.BuyAsync(null, t.MainStore, t.Pc, 30m, 5m);
-            var onHand = await t.QohAsync(t.MainStore);
-            var transfer = await t.ApprovedAsync(t.MainStore, t.BlrStore, t.Pen(t.Pc, onHand)); // the whole stock
-            var loaded = await t.ReloadAsync(transfer.Id);
-
-            var outcomes = await ParallelAsync(
-                async () => { await using var db = t.Db(t.Main); await new StockTransferService(db, null).DispatchAsync(transfer.Id, DispatchInput(loaded), t.UserId); },
-                async () => await t.SellAsync(null, t.MainStore, t.Pc, 1m, 10m));
-
-            AssertNoDeadlock(outcomes);
-            Assert.Equal(1, outcomes.Count(o => o is null)); // all of it moves, or one piece sells and the dispatch of "all" is refused: never both
-            Assert.All(outcomes.Where(o => o is not null), o => Assert.IsType<DomainValidationException>(o));
-            await t.AssertInvariantsAsync($"dispatch vs sale round {round}");
-            if (outcomes[0] is null) // clean up: return the shipment so the next round starts from a known state
-            {
-                await t.ReceiveAsync(transfer.Id, t.Pc, onHand, branch: t.Blr);
-            }
-        }
-    }
 
     // ---- dispatch / receipt vs a deactivation committed in the window --------------------------------------------------------------------
 
@@ -314,28 +302,6 @@ public class StockTransferRaceTests(PostgresFixture postgres)
         await LockRace.LockRow("StockLocations", "Id", location)(gate);
         await gate.Database.ExecuteSqlRawAsync("""UPDATE "StockLocations" SET "IsActive" = false WHERE "Id" = {0}""", location);
     };
-
-    [Fact]
-    public async Task Dispatch_SourceDeactivatedBetweenCheckAndLock_IsRefusedWithNothingMoved()
-    {
-        await using var database = await postgres.CreateDatabaseAsync();
-        var t = await TransferScenario.CreateAsync(database);
-        await t.BuyAsync(t.Blr, t.L.BlrWarehouse, t.Pc, 50m, 5m);
-        var transfer = await t.ApprovedAtAsync(t.Blr, t.L.BlrWarehouse, t.MainStore, t.Pen(t.Pc, 20m));
-        var loaded = await t.ReloadAsync(transfer.Id);
-        var before = await t.MovementCountAsync();
-
-        await using var race = await LockRace.BeginAsync(database, DeactivateLocation(t.L.BlrWarehouse));
-        var writer = await race.StartAsync("dispatch", db => new StockTransferService(db, null).DispatchAsync(transfer.Id, DispatchInput(loaded), t.UserId), branchId: t.Blr);
-        await race.WaitBlockedAsync(writer, """%"StockLocations"%""", "the dispatch must wait on the location KEY SHARE behind the deactivation.");
-
-        var outcomes = await race.ReleaseAsync(commit: true);
-
-        Assert.Equal("stockLocationId", Field(outcomes.Single()));
-        Assert.Equal((50m, 0m, before), (await t.QohAsync(t.L.BlrWarehouse), await t.QohAsync(t.Transit), await t.MovementCountAsync()));
-        Assert.Equal(StockTransferStatus.Approved, (await t.ReloadAsync(transfer.Id)).Status);
-        await t.AssertInvariantsAsync("dispatch vs deactivation");
-    }
 
     [Fact]
     public async Task Receive_DestinationDeactivatedBetweenCheckAndLock_IsRefused_TheGoodsStayInTransit()

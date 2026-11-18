@@ -49,7 +49,8 @@ public record StockDetailDto(
 
 /// <summary>Phase 8: one product's stock at one location (base units; never summed across products).</summary>
 public record StockLocationBalanceDto(
-    Guid LocationId, string Code, string Name, string Type, decimal Qty, decimal AvgCost, decimal Value
+    Guid LocationId, string Code, string Name, string Type, decimal Qty, decimal AvgCost, decimal Value,
+    decimal ReservedQuantity = 0, decimal AvailableQuantity = 0
 );
 
 /// <summary>Phase 8: remaining quantity of one batch at one location.</summary>

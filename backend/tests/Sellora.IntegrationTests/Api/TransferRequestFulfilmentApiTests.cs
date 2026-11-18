@@ -5,7 +5,9 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Stock;
 using Sellora.IntegrationTests.Infrastructure;
+using Sellora.IntegrationTests.TestData;
 using static Sellora.IntegrationTests.Api.BranchApiWorld;
 using static Sellora.IntegrationTests.TestData.CompanyMigrations;
 
@@ -82,6 +84,15 @@ public class TransferRequestFulfilmentApiTests(PostgresFixture postgres) : IAsyn
         SendAsync(client ?? s.W.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{IdOf(transfer)}/dispatch",
             new DispatchStockTransferRequest(transfer.GetProperty("lines").EnumerateArray()
                 .Select(l => new DispatchStockTransferLineRequest(l.GetProperty("id").GetGuid(), s.Box, l.GetProperty("requestedQty").GetDecimal())).ToList()), branch);
+
+    /// <summary>Seeds the legacy-dispatched state of the transfer (what a request dispatched before the Phase 05 cut-over looks like), with its dispatch audit event.</summary>
+    private static async Task SeedDispatchedAsync(Scene s, JsonElement transfer)
+    {
+        await using var db = s.W.Host.Database.CreateDbContext(s.W.CompanyId);
+        var lines = transfer.GetProperty("lines").EnumerateArray()
+            .Select(l => new DispatchStockTransferLineInput(l.GetProperty("id").GetGuid(), s.Box, l.GetProperty("requestedQty").GetDecimal())).ToList();
+        await LegacyTransferSeed.DispatchAsync(db, s.W.AdminId, IdOf(transfer), lines);
+    }
 
     /// <summary>Arranges the Phase-04 state directly: every line has <paramref name="dispatchedBoxes"/> Box dispatched (+ <paramref name="allocatedBase"/> allocated) and the header is PartiallyFulfilled.</summary>
     private static async Task ArrangeAsync(BranchApiWorld w, Guid transferId, decimal dispatchedBoxes, decimal allocatedBase = 0m, string status = "PartiallyFulfilled")
@@ -364,7 +375,7 @@ public class TransferRequestFulfilmentApiTests(PostgresFixture postgres) : IAsyn
         await s.W.EnsureBranchStockAsync(z, 100m);
         var zStore = await ScalarAsync<Guid>(s.W.Host.Database, $"""SELECT "Id" FROM "StockLocations" WHERE "BranchId" = '{z}' AND "LocationType" = 'BranchStore' LIMIT 1""");
         var t = await ApprovedAsync(s, s.Y, s.YStore, s.XStore, 3m);
-        Assert.Equal(HttpStatusCode.OK, (await DispatchAsync(s, t, s.Y)).StatusCode);
+        await SeedDispatchedAsync(s, t); // FI-D3: the legacy-dispatched state (a shipment dispatch has its own tests)
         var unrelated = await ApprovedAsync(s, s.Y, s.YStore, zStore, 1m);
 
         var destination = await BranchUserAsync(r, s.X, "StockTransfers.View");
@@ -390,25 +401,6 @@ public class TransferRequestFulfilmentApiTests(PostgresFixture postgres) : IAsyn
     }
 
     // ---- 6. concurrency ---------------------------------------------------------------------------------------------------------------------
-
-    [Fact]
-    public async Task CloseRacingADirectDispatch_EndsConsistently_NoCheckViolationOr500()
-    {
-        var s = await SceneAsync();
-        for (var round = 0; round < 3; round++)
-        {
-            var t = await ApprovedAsync(s, s.Y, s.YStore, s.XStore, 2m);
-            var dispatch = DispatchAsync(s, t, s.Y);
-            var close = CloseAsync(s.W.Admin, IdOf(t), new CloseStockTransferRequest("race"), s.Y);
-            var (dispatched, closed) = (await dispatch, await close);
-
-            Assert.True((int)dispatched.StatusCode < 500 && (int)closed.StatusCode < 500, $"dispatch {(int)dispatched.StatusCode}, close {(int)closed.StatusCode}");
-            // Nothing had shipped, so a close can never win: the dispatch always does and the close is refused (400), whichever order the lock gives.
-            Assert.Equal((HttpStatusCode.OK, HttpStatusCode.BadRequest), (dispatched.StatusCode, closed.StatusCode));
-            Assert.Equal("Dispatched", await ScalarAsync<string>(s.W.Host.Database, $"""SELECT "Status" FROM "StockTransfers" WHERE "Id" = '{IdOf(t)}'"""));
-            Assert.Equal(0m, await ScalarAsync<decimal>(s.W.Host.Database, $"""SELECT SUM("ClosedBaseQty") FROM "StockTransferLines" WHERE "TransferId" = '{IdOf(t)}'"""));
-        }
-    }
 
     [Fact]
     public async Task ConcurrentClosesAndADispatch_OnAPartiallyFulfilledRequest_CloseOnce_DispatchIsRefused()

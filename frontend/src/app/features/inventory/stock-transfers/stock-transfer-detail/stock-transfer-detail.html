@@ -34,9 +34,6 @@
     @if (can('reject')) {
       <ui-button variant="destructive" data-testid="act-reject" (onClick)="open('reject')">Reject</ui-button>
     }
-    @if (can('dispatch')) {
-      <ui-button variant="primary" data-testid="act-dispatch" (onClick)="open('dispatch')">Dispatch</ui-button>
-    }
     @if (can('receive')) {
       <ui-button variant="primary" data-testid="act-receive" (onClick)="open('receive')">Receive</ui-button>
     }
@@ -51,6 +48,13 @@
     }
   </div>
 
+  @if (shipmentDispatchHint()) {
+    <div class="note-box" data-testid="dispatch-hint">
+      Dispatch is done from a shipment: allocate and load this request on a shipment, then dispatch it there.
+      <a routerLink="/inventory/stock-transfers/ready-for-shipment">Ready for shipment</a> · <a routerLink="/inventory/shipments">Shipments</a>
+    </div>
+  }
+
   @switch (panel()) {
     @case ('reject') {
       <app-reason-prompt title="Reject this transfer" confirmLabel="Reject" [destructive]="true" [busy]="busy()" [error]="actionError()" (confirmed)="confirmReason('reject', $event)" (cancelled)="close()" />
@@ -60,9 +64,6 @@
     }
     @case ('close') {
       <app-reason-prompt title="Close the remaining quantity (short)" confirmLabel="Close remaining" [destructive]="true" [busy]="busy()" [error]="actionError()" (confirmed)="confirmClose($event)" (cancelled)="close()" />
-    }
-    @case ('dispatch') {
-      <app-transfer-dispatch-dialog [transfer]="t" [submission]="submissionFor('dispatch')" (done)="onUpdated($event, 'Transfer dispatched.')" (cancelled)="close()" />
     }
     @case ('receive') {
       <app-transfer-receive-dialog [transfer]="t" [submission]="submissionFor('receive')" (done)="onUpdated($event, 'Receipt recorded.')" (cancelled)="close()" />

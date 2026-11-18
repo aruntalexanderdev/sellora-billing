@@ -4,7 +4,6 @@ import { IdempotentSubmission } from '../../../core/idempotency';
 import { convert, formatQuantity, hasAtMostDecimals, round10 } from '../../../shared/units/unit-conversion';
 import { STOCK_TRANSFER_STATUS_LABELS } from './stock-transfers.models';
 import type {
-  DispatchStockTransferRequest,
   ReceiveStockTransferRequest,
   ResolveStockTransferRequest,
   StockTransferLine,
@@ -13,7 +12,7 @@ import type {
 } from './stock-transfers.models';
 
 /** Phase 9 D2 state machine + D8 permissions, as the UI needs them (the server stays authoritative). */
-export type TransferAction = 'edit' | 'submit' | 'approve' | 'reject' | 'cancel' | 'dispatch' | 'receive' | 'resolve' | 'close';
+export type TransferAction = 'edit' | 'submit' | 'approve' | 'reject' | 'cancel' | 'receive' | 'resolve' | 'close';
 
 const ACTION_PERMISSION: Record<TransferAction, string> = {
   edit: 'StockTransfers.Create',
@@ -21,7 +20,6 @@ const ACTION_PERMISSION: Record<TransferAction, string> = {
   approve: 'StockTransfers.Approve',
   reject: 'StockTransfers.Approve',
   cancel: 'StockTransfers.Cancel',
-  dispatch: 'StockTransfers.Dispatch',
   receive: 'StockTransfers.Receive',
   resolve: 'StockTransfers.Resolve',
   close: 'StockTransfers.Approve',
@@ -33,13 +31,12 @@ const ACTION_STATUSES: Record<TransferAction, readonly StockTransferStatus[]> = 
   approve: ['Requested'],
   reject: ['Requested'],
   cancel: ['Draft', 'Requested', 'Approved'],
-  dispatch: ['Approved'],
   receive: ['Dispatched', 'PartiallyReceived'],
   resolve: ['Dispatched', 'PartiallyReceived'],
   close: ['Approved', 'PartiallyFulfilled'],
 };
 
-export const ACTION_ORDER: readonly TransferAction[] = ['edit', 'submit', 'approve', 'reject', 'dispatch', 'receive', 'resolve', 'close', 'cancel'];
+export const ACTION_ORDER: readonly TransferAction[] = ['edit', 'submit', 'approve', 'reject', 'receive', 'resolve', 'close', 'cancel'];
 
 export function hasOutstanding(lines: readonly Pick<StockTransferLine, 'outstandingBaseQty'>[]): boolean {
   return lines.some((l) => l.outstandingBaseQty > 0);
@@ -168,33 +165,6 @@ export interface RowErrors {
 }
 
 export const hasErrors = (e: RowErrors): boolean => Object.keys(e.rows).length > 0 || e.form !== null;
-
-// ---- Dispatch ----
-
-export interface DispatchRow {
-  lineId: string;
-  unit: UnitRef | null;
-  quantity: number | null;
-  requestedBaseQty: number;
-}
-
-/** Every line is listed; 0 = not shipped; dispatched <= requested (base); at least one line > 0 (Phase 9 D3). */
-export function validateDispatch(rows: readonly DispatchRow[]): RowErrors {
-  const errors: RowErrors = { rows: {}, form: null };
-  rows.forEach((r, i) => {
-    const e = qtyError(r.quantity, r.unit, 'Enter a quantity (0 = not shipped).');
-    if (e) errors.rows[i] = e;
-    else if (r.unit && round10(r.quantity! * r.unit.conversionFactorToBase) > r.requestedBaseQty) {
-      errors.rows[i] = 'Cannot dispatch more than requested.';
-    }
-  });
-  if (!hasErrors(errors) && !rows.some((r) => r.quantity! > 0)) errors.form = 'Dispatch at least one line (every line is 0).';
-  return errors;
-}
-
-export function buildDispatchRequest(rows: readonly DispatchRow[]): DispatchStockTransferRequest {
-  return { lines: rows.map((r) => ({ lineId: r.lineId, productUnitId: r.unit!.id, quantity: r.quantity! })) };
-}
 
 // ---- Receive ----
 

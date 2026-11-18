@@ -35,8 +35,8 @@ public class PermissionSeedScriptTests(PostgresFixture postgres)
     {
         await using var database = await postgres.CreateDatabaseAsync();
         // Phase 7: the AddScopedRoles migration itself inserts the four new codes (Company.Users.AssignRoles, Branch.Roles.*, Branch.Users.AssignRoles); start from a truly empty table.
-        // Phase 9: AddStockTransfers inserts the seven StockTransfers.* codes as well (4 + 7); Phase 8: AddProductCategoryMasters adds Inventory.Categories (4 + 7 + 1); Phase 07: AddCashBankFundingAndReversal adds CashBank.Fund and CashBank.Reverse (4 + 7 + 1 + 2).
-        Assert.Equal(14L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Permissions" """));
+        // Phase 9: AddStockTransfers inserts the seven StockTransfers.* codes as well (4 + 7); Phase 8: AddProductCategoryMasters adds Inventory.Categories (4 + 7 + 1); Phase 07: AddCashBankFundingAndReversal adds CashBank.Fund and CashBank.Reverse (4 + 7 + 1 + 2); Phase 04: AddShipmentsConsignmentsAndReservations adds Shipments.View/Plan/Load and Reservations.Release (4 + 7 + 1 + 2 + 4); Phase 06: AddReceiptApprovalAndDispositions adds StockTransfers.ApproveReceipt (4 + 7 + 1 + 2 + 4 + 1).
+        Assert.Equal(19L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Permissions" """));
         await ExecuteAsync(database, """DELETE FROM "Permissions" """);
         Assert.Equal(0L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Permissions" """));
 
@@ -83,13 +83,13 @@ public class PermissionSeedScriptTests(PostgresFixture postgres)
     {
         await using var database = await postgres.CreateDatabaseAsync();
         string[] codes = ["Company.Users.AssignRoles", "Branch.Roles.View", "Branch.Roles.Manage", "Branch.Users.AssignRoles",
-            "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.Cancel", "StockTransfers.Resolve", "Inventory.Categories", "CashBank.Fund", "CashBank.Reverse"];
+            "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.Cancel", "StockTransfers.Resolve", "Inventory.Categories", "CashBank.Fund", "CashBank.Reverse", "Shipments.View", "Shipments.Plan", "Shipments.Load", "Reservations.Release", "StockTransfers.ApproveReceipt"];
         var fromMigration = await QueryAsync(database, """SELECT "Code", "Id"::text FROM "Permissions" ORDER BY 1""", r => (r.GetString(0), r.GetString(1)));
         Assert.Equal(codes.Order(), fromMigration.Select(x => x.Item1).Order());
 
         await ExecuteAsync(database, Script);
 
-        var after = await QueryAsync(database, """SELECT "Code", "Id"::text FROM "Permissions" WHERE "Code" IN ('Company.Users.AssignRoles', 'Branch.Roles.View', 'Branch.Roles.Manage', 'Branch.Users.AssignRoles', 'StockTransfers.View', 'StockTransfers.Create', 'StockTransfers.Approve', 'StockTransfers.Dispatch', 'StockTransfers.Receive', 'StockTransfers.Cancel', 'StockTransfers.Resolve', 'Inventory.Categories', 'CashBank.Fund', 'CashBank.Reverse') ORDER BY 1""", r => (r.GetString(0), r.GetString(1)));
+        var after = await QueryAsync(database, """SELECT "Code", "Id"::text FROM "Permissions" WHERE "Code" IN ('Company.Users.AssignRoles', 'Branch.Roles.View', 'Branch.Roles.Manage', 'Branch.Users.AssignRoles', 'StockTransfers.View', 'StockTransfers.Create', 'StockTransfers.Approve', 'StockTransfers.Dispatch', 'StockTransfers.Receive', 'StockTransfers.Cancel', 'StockTransfers.Resolve', 'Inventory.Categories', 'CashBank.Fund', 'CashBank.Reverse', 'Shipments.View', 'Shipments.Plan', 'Shipments.Load', 'Reservations.Release', 'StockTransfers.ApproveReceipt') ORDER BY 1""", r => (r.GetString(0), r.GetString(1)));
         Assert.Equal(fromMigration, after); // one row per code, the migration's id (ON CONFLICT (Code) DO NOTHING in both)
         Assert.Equal(PermissionCatalog.All.Count, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Permissions" """));
         Assert.Equal(CatalogueRows(), (await RowsAsync(database)).OrderBy(r => r, StringComparer.Ordinal).ToList());
