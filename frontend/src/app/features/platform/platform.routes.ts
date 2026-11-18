@@ -19,6 +19,7 @@ export const PLATFORM_ROUTES: Routes = [
       },
       { path: 'units', loadComponent: () => import('./platform-units').then((m) => m.PlatformUnits) },
       { path: 'currencies', loadComponent: () => import('./platform-currencies').then((m) => m.PlatformCurrencies) },
+      { path: 'db-releases', loadComponent: () => import('./platform-db-releases').then((m) => m.PlatformDbReleases) },
     ],
   },
 ];

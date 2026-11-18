@@ -66,7 +66,7 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
         if (options.EfBundlePath is not null)
         {
             var ef = await RunEfBundleAsync(ct);
-            await journal.RecordAttemptAsync(runId, "ef-migration-bundle", ScriptKind.EfMigration, "EF Core migration bundle", null, ef, CancellationToken.None);
+            await journal.RecordAttemptAsync(runId, "ef-migration-bundle", ScriptKind.EfMigration, "EF Core migration bundle", null, null, ef, CancellationToken.None);
             Outcomes.Add(new StepOutcome("ef-migration-bundle", ScriptKind.EfMigration, ef.Status, ef.Duration, null, ef.Error));
             if (ef.Status == JournalStatus.Failed)
                 return await FinishAsync(journal, runId, ExitCode.ScriptFailed, "EF migration bundle failed; no SQL scripts were run.", CancellationToken.None);
@@ -99,7 +99,7 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
                 ? await RunValidationAsync(connection, script, ct)
                 : await RunScriptAsync(connection, script, ct);
 
-            await journal.RecordAttemptAsync(runId, script.Name, script.Kind, script.Description, script.Checksum, result, CancellationToken.None);
+            await journal.RecordAttemptAsync(runId, script.Name, script.Kind, script.Description, script.Checksum, script.Sql, result, CancellationToken.None);
             // Violation rows stay in the journal (platform admins only); pipeline logs and the step summary get the count only.
             var shown = script.Kind == ScriptKind.Validation && result.Rows > 0
                 ? $"{result.Rows} violation row(s); see the Database releases page or ops.\"DbScriptAttempts\""

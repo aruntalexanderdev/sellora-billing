@@ -52,6 +52,7 @@ public sealed class Journal(NpgsqlConnection connection)
             "SqlState"     text NULL,
             "ErrorMessage" text NULL
         );
+        ALTER TABLE ops."DbScriptAttempts" ADD COLUMN IF NOT EXISTS "Sql" text NULL; -- D19, added after the first journal version
         CREATE INDEX IF NOT EXISTS "IX_DbScriptAttempts_ScriptId" ON ops."DbScriptAttempts" ("ScriptId");
         CREATE INDEX IF NOT EXISTS "IX_DbScriptAttempts_ReleaseRunId" ON ops."DbScriptAttempts" ("ReleaseRunId");
         """;
@@ -125,7 +126,7 @@ public sealed class Journal(NpgsqlConnection connection)
         """, ct, ("names", namesInPackage.ToArray()));
 
     public async Task RecordAttemptAsync(Guid runId, string name, ScriptKind kind, string? description, string? checksum,
-        AttemptResult result, CancellationToken ct)
+        string? sql, AttemptResult result, CancellationToken ct)
     {
         var finalState = result.Status is JournalStatus.Succeeded or JournalStatus.Passed or JournalStatus.Warning;
         await ExecAsync("""
@@ -142,12 +143,12 @@ public sealed class Journal(NpgsqlConnection connection)
                     "LastAttemptAt" = EXCLUDED."LastAttemptAt",
                     "AppliedAt" = CASE WHEN @ok THEN now() ELSE ops."DbScripts"."AppliedAt" END
                 RETURNING "Id")
-            INSERT INTO ops."DbScriptAttempts" ("Id","ScriptId","ReleaseRunId","Checksum","Status","StartedAt","DurationMs","RowsAffected","SqlState","ErrorMessage")
-            SELECT gen_random_uuid(), s."Id", @run, @checksum, @status, @started, @ms, @rows::int, @sqlstate, @error FROM script s
+            INSERT INTO ops."DbScriptAttempts" ("Id","ScriptId","ReleaseRunId","Checksum","Status","StartedAt","DurationMs","RowsAffected","SqlState","ErrorMessage","Sql")
+            SELECT gen_random_uuid(), s."Id", @run, @checksum, @status, @started, @ms, @rows::int, @sqlstate, @error, @sql FROM script s
             """, ct,
             ("name", name), ("kind", kind.ToString()), ("desc", description), ("checksum", checksum), ("status", result.Status),
             ("ok", finalState), ("started", result.StartedAt), ("run", runId), ("ms", (int)result.Duration.TotalMilliseconds),
-            ("rows", result.Rows), ("sqlstate", result.SqlState), ("error", result.Error));
+            ("rows", result.Rows), ("sqlstate", result.SqlState), ("error", result.Error), ("sql", sql));
     }
 
     private async Task<int> ExecAsync(string sql, CancellationToken ct, params (string Name, object? Value)[] parameters)

@@ -6,7 +6,7 @@ size: L
 
 Review page (plan, workflow, UI prototype, answered questions): https://claude.ai/artifact/FyLELaZd9qLahrk2KvU1YQ
 Owner answers 2026-11-18: all recommendations Q1–Q17 accepted. Q10 resolved (nothing to baseline, see Decisions D11).
-Current step: **Delivery step 2 implemented on `feature/db-release-automation`; awaiting the first claude-dev pipeline run (POC step 5) after the owner actions in "Deployment notes".** OQ1 accepted and design approved 2026-11-18.
+Current step: **Delivery steps 2 and 3 implemented and reviewed on `feature/db-release-automation`.** Waiting for the first claude-dev pipeline run (POC step 5, owner actions below); step 4 (page retry + notifications) not started.
 
 ## Problem
 The deploy pipeline (`.github/workflows/_deploy-template.yml`) generates the idempotent EF migration script, publishes it as the
@@ -130,19 +130,34 @@ ops."DbScripts"       Id uuid PK, Name text UNIQUE, Kind text (EfMigration|Data|
                       AttemptCount int, LastAttemptAt timestamptz NULL, AppliedAt timestamptz NULL
 ops."DbScriptAttempts" Id uuid PK, ScriptId uuid FK, ReleaseRunId uuid FK, Checksum text, Status text
                       (Succeeded|Failed|Passed|Warning), StartedAt timestamptz, DurationMs int, RowsAffected int NULL,
-                      SqlState text NULL, ErrorMessage text NULL
+                      SqlState text NULL, ErrorMessage text NULL, Sql text NULL (D19: executed SQL, added in step 3)
 ```
 EF migrations keep `__EFMigrationsHistory`; the migrator mirrors applied ones into `"DbScripts"` (Kind `EfMigration`).
 
 ## API contract
-Draft, finalised in the design phase.
+Final for delivery step 3 (view only; retry endpoint comes in step 4). Platform session (`[PlatformEndpoint]`,
+policy `PlatformPolicies.Admin`); each API reads the journal of **its own** database, so the page shows one environment.
+
 | Method | Route | Permission | Request | Response | Errors |
 |---|---|---|---|---|---|
-| GET | /api/v1/platform/db-releases/runs?take= | Platform admin | — | `DbReleaseRunDto[]` | 401, 403 |
-| GET | /api/v1/platform/db-releases/runs/{id} | Platform admin | — | `DbReleaseRunDetailDto` (scripts + attempts of that run) | 401, 403, 404 |
-| GET | /api/v1/platform/db-releases/scripts | Platform admin | — | `DbScriptDto[]` (current state) | 401, 403 |
-| GET | /api/v1/platform/db-releases/scripts/{id}/attempts | Platform admin | — | `DbScriptAttemptDto[]` | 401, 403, 404 |
-| POST | /api/v1/platform/db-releases/retry | Platform admin | `{ environment, reason }` | 202 `{ pipelineUrl }` | 400, 401, 403, 409 (run in progress) |
+| GET | /api/v1/platform/db-releases | Platform admin | `?runs=20` (1–100) | `DbReleasesOverviewDto` | 401, 403 |
+| GET | /api/v1/platform/db-releases/runs/{id} | Platform admin | — | `DbReleaseRunDetailDto` | 401, 403, 404 |
+| GET | /api/v1/platform/db-releases/scripts/{id} | Platform admin | — | `DbScriptDetailDto` | 401, 403, 404 |
+
+```
+DbReleasesOverviewDto  { journalAvailable: bool, runs: DbReleaseRunDto[] (newest first), scripts: DbScriptDto[] }
+DbReleaseRunDto        { id, environment, commitSha?, appVersion?, trigger: "Deploy"|"Retry", triggeredBy?, retryReason?,
+                         status: "Running"|"Succeeded"|"Failed", startedAt, completedAt?, pipelineUrl?, summary? }
+DbScriptDto            { id, name, kind: "EfMigration"|"Data"|"Repeatable"|"Validation", description?,
+                         status: "Pending"|"Succeeded"|"Failed"|"Baselined"|"Passed"|"Warning"|"Removed",
+                         attemptCount, lastAttemptAt?, appliedAt?, lastDurationMs?, lastSqlState?, lastError? }
+DbScriptAttemptDto     { id, scriptId, scriptName, scriptKind, releaseRunId, status, startedAt, durationMs?, rowsAffected?,
+                         sqlState?, errorMessage?, checksum? }
+DbReleaseRunDetailDto  { run: DbReleaseRunDto, attempts: DbScriptAttemptDto[] (execution order) }
+DbScriptDetailDto      { script: DbScriptDto, sql?: string (text of the latest attempt; null for EF migrations), attempts: DbScriptAttemptDto[] (newest first) }
+```
+`journalAvailable = false` (schema `ops` absent: the migrator never ran on this database) → empty lists, not an error.
+Scripts are ordered EfMigration, Data, Repeatable, Validation, then by name. Dates are ISO 8601 UTC.
 
 ## Decisions
 - D1 (Q1) dev + claude-dev now; prod later on Azure Database for PostgreSQL Flexible Server.
@@ -168,6 +183,9 @@ Draft, finalised in the design phase.
 - D16 CI guard `scripts/check-db-scripts.sh` blocks edits to merged data scripts on PRs; label `db-script-fix` overrides it for a
   script that failed everywhere (D10). The migrator still refuses a modified succeeded script per database.
 - D17 `migrate-db` is opt-in per caller (`run_migrations` input): on for claude-dev, off for dev until a claude-dev run is green.
+- D18 Step 3 contract: three read endpoints (overview, run detail, script detail) instead of the four drafted; one call loads the page.
+- D19 Q17 "show the SQL": the migrator stores the executed SQL on each attempt (`"DbScriptAttempts"."Sql"`, added with
+  `ADD COLUMN IF NOT EXISTS`), so the page shows exactly what ran, even when the API version differs from the migrated release.
 - File moves (done in step 2): `seed-permissions.sql` → `backend/db/repeatable/R__seed-permissions.sql`; `stock-reconciliation.sql`,
   `stock-transfers-validation.sql`, `unit-restructuring-validation.sql`, `van-operations-validation.sql` → `backend/db/validation/V__*.sql`;
   `unit-restructuring-profile.sql`, `grant-platform-admin.sql`, `delete-product.sql` stay in `scripts/sql/`. Done in delivery step 2.
@@ -188,6 +206,19 @@ Blocker: two validation helpers still returned the old `scripts/sql` path. Major
 cancel threw (now best-effort cleanup, journal writes ignore cancellation). Minors fixed: EF bundle connection via environment
 instead of argv, no row values in logs/summary + HTML-escaped summary, `--plan` writes nothing, firewall rule cleanup always runs
 + connect retry for rule propagation, every unexpected exception exits 4.
+
+### Delivery step 3 — read API + Database releases page
+- API: `PlatformDbReleasesController` (3 GETs, raw parameterised SQL over the journal, platform admin only; route registry test now
+  lists 15 platform routes). Contracts in `Contracts/DbReleaseContracts.cs`.
+- UI: `/platform/db-releases` (`features/platform/platform-db-releases.*`): latest run card, filter tiles, script list (EF migrations
+  collapsed), script panel with attempts + executed SQL, recent runs with per-run attempts, empty state when the journal is absent.
+- Migrator: stores the executed SQL per attempt (D19). Existing journals get the column on the next migrator run; until then the
+  page shows no SQL for older attempts.
+- Review (`code-reviewer`): no Blocker; fixed the 2 Majors (403/401 codes asserted exactly; SQL text no longer loaded for every
+  attempt) and Minors 3–4 (composition comment; run panel closable while loading, unique test ids). Minor 5 (https-only pipeline
+  link) not done: Angular already sanitises `[href]` and the URL is written by the pipeline.
+- Not run here (no Docker): `PlatformDbReleasesApiTests` and the migrator Testcontainers tests — CI runs them. The controller queries
+  were executed through EF against a real Postgres journal.
 
 ### Owner actions before the first claude-dev run (POC step 5)
 1. Generate a password and run, as the server admin:
