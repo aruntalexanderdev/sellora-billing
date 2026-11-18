@@ -158,6 +158,8 @@ public class ScriptCatalogTests
             Directory.CreateDirectory(Path.Combine(root.FullName, "scripts"));
             File.WriteAllText(Path.Combine(root.FullName, "scripts", "fix.sql"), "SELECT 1;");
             File.WriteAllText(Path.Combine(root.FullName, "scripts", "2026.11.18.001__ok-name.sql"), "SELECT 1;");
+            File.WriteAllText(Path.Combine(root.FullName, "scripts", ".gitkeep"), "");
+            File.WriteAllText(Path.Combine(root.FullName, "scripts", ".DS_Store"), "x");
 
             var (scripts, errors) = ScriptCatalog.Load(root.FullName);
 

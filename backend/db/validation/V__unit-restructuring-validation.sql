@@ -1,13 +1,15 @@
+-- sellora:description Unit restructuring post-migration checks
+-- Applied by Sellora.DbMigrator on every deploy (docs/features/db-release-automation.md); can still be run by hand with psql.
 -- Unit restructuring: POST-MIGRATION VALIDATION (analysis 22.7). Read-only; EVERY query must return no rows when healthy. Ids only, no PII.
 -- Run after applying the idempotent release script (through at least 20261109053202_AddMovementTypesAndReasonCode), before the app deploy,
 -- and again after the smoke test / any unit, product or document change:
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/unit-restructuring-validation.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/db/validation/V__unit-restructuring-validation.sql
 -- Row-count comparisons (SellingPrices before = after) are not zero-row checks: record the P7 line of unit-restructuring-profile.sql before the
 -- release and compare after it with: SELECT COUNT(*) FROM "SellingPrices"  (and "ProductUnits" = old "ProductSellingModes" + products that had
 -- no factor-1 mode, profile P2). The migrations assert the same counts in-transaction (IntroduceProductUnits "row counts changed").
 -- Most rules below are also CHECK / FK / unique-index constraints (all validated); the queries are the belt-and-braces proof for
 -- databases migrated from legacy data and the only proof for the rules that SQL constraints cannot express.
--- Stock reconciliation (QOH vs ledger vs batches) lives in scripts/sql/stock-reconciliation.sql.
+-- Stock reconciliation (QOH vs ledger vs batches) lives in backend/db/validation/V__stock-reconciliation.sql.
 
 -- U1 every product has exactly ONE base ProductUnit (IntroduceProductUnits V-block; ProductService validation rule 1;
 --    unique index IX_ProductUnits_ProductId_Base only guards "at most one"). The base row is always active (CK_ProductUnits_Base_Active).

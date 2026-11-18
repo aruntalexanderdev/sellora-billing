@@ -1,7 +1,9 @@
+-- sellora:description Location-aware returns and van operations R1-R5
+-- Applied by Sellora.DbMigrator on every deploy (docs/features/db-release-automation.md); can still be run by hand with psql.
 -- Phase 10 location-aware sales/purchase returns and van operations: validation (R1-R5). Read-only; EVERY query must return no rows.
--- Run in the release AFTER the Phase 8b + 9 validation blocks (alongside scripts/sql/stock-transfers-validation.sql V1-V8),
+-- Run in the release AFTER the Phase 8b + 9 validation blocks (alongside backend/db/validation/V__stock-transfers-validation.sql V1-V8),
 -- after any return flow in tests/smoke, and before the release sign-off:
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/van-operations-validation.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/db/validation/V__van-operations-validation.sql
 -- No schema change in Phase 10: SalesReturns / PurchaseReturns."StockLocationId" (Phase 8) holds the restock / issuing location.
 
 -- R1 every SaleReturn movement sits at its SalesReturns header location (and the header exists).

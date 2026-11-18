@@ -13,7 +13,7 @@ public sealed record MigratorOptions(
     string? EfBundlePath,
     bool PlanOnly);
 
-public enum ExitCode { Succeeded = 0, ScriptFailed = 1, InvalidRelease = 2, LockTimeout = 3 }
+public enum ExitCode { Succeeded = 0, ScriptFailed = 1, InvalidRelease = 2, LockTimeout = 3, Unexpected = 4 }
 
 public sealed record StepOutcome(string Name, ScriptKind Kind, string Status, TimeSpan? Duration, int? Rows, string? Detail);
 
@@ -24,7 +24,7 @@ public sealed record StepOutcome(string Name, ScriptKind Kind, string Status, Ti
 public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
 {
     // Arbitrary but fixed: every Sellora migrator, in every pipeline, competes for this key.
-    private const long AdvisoryLockKey = 0x53_45_4C_4C_44_42_01; // "SELLDB" v1
+    internal const long AdvisoryLockKey = 0x53_45_4C_4C_44_42_01; // "SELLDB" v1
 
     public List<StepOutcome> Outcomes { get; } = [];
 
@@ -32,8 +32,11 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
     {
         var (scripts, loadErrors) = ScriptCatalog.Load(options.ScriptsRoot);
 
-        await using var connection = new NpgsqlConnection(options.ConnectionString);
-        await connection.OpenAsync(ct);
+        // No pooling: the advisory lock belongs to the session, and a pooled session would keep holding it (and let a second
+        // runner in the same process re-enter it) after this run ends. Closing the physical connection always releases it.
+        var unpooled = new NpgsqlConnectionStringBuilder(options.ConnectionString) { Pooling = false }.ConnectionString;
+        await using var connection = new NpgsqlConnection(unpooled);
+        await OpenWithRetryAsync(connection, ct);
 
         if (!await AcquireLockAsync(connection, ct))
         {
@@ -42,16 +45,17 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
         }
 
         var journal = new Journal(connection);
-        await journal.EnsureSchemaAsync(ct);
-        if (await journal.CloseInterruptedRunsAsync(ct) > 0)
-            log.WriteLine("Marked an earlier interrupted run as Failed.");
-
-        if (options.PlanOnly)
+        if (options.PlanOnly) // read-only: no journal schema, no run row, no closing of interrupted runs
         {
-            var preview = ScriptPlanner.Plan(scripts, await journal.ReadScriptsAsync(ct));
+            var known = await journal.ExistsAsync(ct) ? await journal.ReadScriptsAsync(ct) : new Dictionary<string, JournalEntry>();
+            var preview = ScriptPlanner.Plan(scripts, known);
             PrintPlan(preview, loadErrors);
             return loadErrors.Count + preview.Errors.Count > 0 ? ExitCode.InvalidRelease : ExitCode.Succeeded;
         }
+
+        await journal.EnsureSchemaAsync(ct);
+        if (await journal.CloseInterruptedRunsAsync(ct) > 0)
+            log.WriteLine("Marked an earlier interrupted run as Failed.");
 
         var runId = await journal.StartRunAsync(options.Run, ct);
         log.WriteLine($"Run {runId} on '{options.Run.Environment}' ({options.Run.Trigger}).");
@@ -62,10 +66,10 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
         if (options.EfBundlePath is not null)
         {
             var ef = await RunEfBundleAsync(ct);
-            await journal.RecordAttemptAsync(runId, "ef-migration-bundle", ScriptKind.EfMigration, "EF Core migration bundle", null, ef, ct);
+            await journal.RecordAttemptAsync(runId, "ef-migration-bundle", ScriptKind.EfMigration, "EF Core migration bundle", null, ef, CancellationToken.None);
             Outcomes.Add(new StepOutcome("ef-migration-bundle", ScriptKind.EfMigration, ef.Status, ef.Duration, null, ef.Error));
             if (ef.Status == JournalStatus.Failed)
-                return await FinishAsync(journal, runId, ExitCode.ScriptFailed, "EF migration bundle failed; no SQL scripts were run.", ct);
+                return await FinishAsync(journal, runId, ExitCode.ScriptFailed, "EF migration bundle failed; no SQL scripts were run.", CancellationToken.None);
         }
         var mirrored = await journal.MirrorEfMigrationsAsync(runId, ct);
         if (mirrored > 0) log.WriteLine($"Recorded {mirrored} newly applied EF migration(s).");
@@ -87,24 +91,49 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
                 continue;
             }
 
+            if (ct.IsCancellationRequested)
+                return await FinishAsync(journal, runId, ExitCode.ScriptFailed, "Cancelled before " + script.Name + ".", CancellationToken.None);
+
             log.WriteLine($"→ {script.Name} ({step.Reason})");
             var result = script.Kind == ScriptKind.Validation
                 ? await RunValidationAsync(connection, script, ct)
                 : await RunScriptAsync(connection, script, ct);
 
-            await journal.RecordAttemptAsync(runId, script.Name, script.Kind, script.Description, script.Checksum, result, ct);
-            Outcomes.Add(new StepOutcome(script.Name, script.Kind, result.Status, result.Duration, result.Rows, result.Error));
-            log.WriteLine($"  {result.Status} in {result.Duration.TotalMilliseconds:0} ms{(result.Error is null ? "" : $": {result.Error}")}");
+            await journal.RecordAttemptAsync(runId, script.Name, script.Kind, script.Description, script.Checksum, result, CancellationToken.None);
+            // Violation rows stay in the journal (platform admins only); pipeline logs and the step summary get the count only.
+            var shown = script.Kind == ScriptKind.Validation && result.Rows > 0
+                ? $"{result.Rows} violation row(s); see the Database releases page or ops.\"DbScriptAttempts\""
+                : result.Error;
+            Outcomes.Add(new StepOutcome(script.Name, script.Kind, result.Status, result.Duration, result.Rows, shown));
+            log.WriteLine($"  {result.Status} in {result.Duration.TotalMilliseconds:0} ms{(shown is null ? "" : $": {shown}")}");
 
             if (result.Status == JournalStatus.Failed && script.Kind != ScriptKind.Validation)
-                return await FinishAsync(journal, runId, ExitCode.ScriptFailed, $"{script.Name} failed; later scripts were not run.", ct);
+                return await FinishAsync(journal, runId, ExitCode.ScriptFailed, $"{script.Name} failed; later scripts were not run.", CancellationToken.None);
             if (result.Status == JournalStatus.Failed)
                 blockingViolation = true; // keep running the other validations so the report is complete
         }
 
         return blockingViolation
-            ? await FinishAsync(journal, runId, ExitCode.ScriptFailed, "A blocking validation found violations.", ct)
-            : await FinishAsync(journal, runId, ExitCode.Succeeded, Summarise(), ct);
+            ? await FinishAsync(journal, runId, ExitCode.ScriptFailed, "A blocking validation found violations.", CancellationToken.None)
+            : await FinishAsync(journal, runId, ExitCode.Succeeded, Summarise(), CancellationToken.None);
+    }
+
+    /// <summary>A just-created Azure firewall rule can take a few seconds to apply; retry the first connection briefly.</summary>
+    private async Task OpenWithRetryAsync(NpgsqlConnection connection, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await connection.OpenAsync(ct);
+                return;
+            }
+            catch (NpgsqlException ex) when (attempt < 6 && ex is not PostgresException { SqlState: "28P01" }) // not: wrong password
+            {
+                log.WriteLine($"Cannot connect yet ({ex.Message}); retrying in 10 s ({attempt}/5).");
+                await Task.Delay(TimeSpan.FromSeconds(10), ct);
+            }
+        }
     }
 
     private async Task<bool> AcquireLockAsync(NpgsqlConnection connection, CancellationToken ct)
@@ -140,15 +169,16 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
             if (tx is not null) await tx.CommitAsync(ct);
             return new AttemptResult(JournalStatus.Succeeded, started, clock.Elapsed, rows < 0 ? null : rows, null, null);
         }
-        catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
+        catch (Exception ex) when (ex is NpgsqlException or TimeoutException or OperationCanceledException)
         {
-            if (tx is not null) await tx.RollbackAsync(CancellationToken.None);
+            // Best effort: on a broken connection rollback/reset throw too, and must not hide the original failure.
+            if (tx is not null) await QuietlyAsync(() => tx.RollbackAsync(CancellationToken.None));
             return Failure(started, clock.Elapsed, ex);
         }
         finally
         {
             if (tx is not null) await tx.DisposeAsync();
-            else await ResetTimeoutsAsync(connection);
+            else await QuietlyAsync(() => ResetTimeoutsAsync(connection));
         }
     }
 
@@ -187,11 +217,17 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
             return new AttemptResult(mode == ViolationMode.Block ? JournalStatus.Failed : JournalStatus.Warning,
                 started, clock.Elapsed, violations, null, Truncate(message));
         }
-        catch (Exception ex) when (ex is NpgsqlException or TimeoutException)
+        catch (Exception ex) when (ex is NpgsqlException or TimeoutException or OperationCanceledException)
         {
-            await tx.RollbackAsync(CancellationToken.None);
+            await QuietlyAsync(() => tx.RollbackAsync(CancellationToken.None));
             return Failure(started, clock.Elapsed, ex);
         }
+    }
+
+    private static async Task QuietlyAsync(Func<Task> cleanup)
+    {
+        try { await cleanup(); }
+        catch (Exception ex) when (ex is NpgsqlException or InvalidOperationException or TimeoutException) { /* connection already broken */ }
     }
 
     private static async Task SetTimeoutsAsync(NpgsqlConnection connection, NpgsqlTransaction? tx, SqlScript script, CancellationToken ct)
@@ -222,8 +258,8 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        info.ArgumentList.Add("--connection");
-        info.ArgumentList.Add(options.ConnectionString);
+        // Environment, not argv: argv is visible in the process list. SelloraDbContextFactory reads this variable.
+        info.Environment["SELLORA_DESIGN_CONNECTION"] = options.ConnectionString;
 
         using var process = Process.Start(info)!;
         var stdout = process.StandardOutput.ReadToEndAsync(ct);
@@ -280,9 +316,15 @@ public sealed class MigrationRunner(MigratorOptions options, TextWriter log)
             if (pg.ConstraintName is not null) text.Append($" [constraint {pg.ConstraintName}]");
             if (pg.Hint is not null) text.Append($" Hint: {pg.Hint}");
             if (pg.Position > 0) text.Append($" (at character {pg.Position})");
+            if (pg.SqlState == "25001") text.Append(" A 'transaction: none' script must contain exactly one statement (several are sent as one implicit transaction).");
             return new AttemptResult(JournalStatus.Failed, started, elapsed, null, pg.SqlState, Truncate(text.ToString()));
         }
-        var message = ex is NpgsqlException { InnerException: TimeoutException } ? "Client timeout: the script ran longer than its timeout." : ex.Message;
+        var message = ex switch
+        {
+            OperationCanceledException => "Cancelled: the migrator was stopped while this script ran.",
+            NpgsqlException { InnerException: TimeoutException } => "Client timeout: the script ran longer than its timeout.",
+            _ => ex.Message,
+        };
         return new AttemptResult(JournalStatus.Failed, started, elapsed, null, null, Truncate(message));
     }
 

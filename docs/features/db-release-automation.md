@@ -1,12 +1,12 @@
 # DB release automation
 
-status: requirements-approved
+status: design-approved
 <!-- draft → requirements-approved → design-approved → db-done → backend-done → frontend-done → reviewed → done -->
 size: L
 
 Review page (plan, workflow, UI prototype, answered questions): https://claude.ai/artifact/FyLELaZd9qLahrk2KvU1YQ
 Owner answers 2026-11-18: all recommendations Q1–Q17 accepted. Q10 resolved (nothing to baseline, see Decisions D11).
-Current step: **POC done locally (steps 1–4, 6); step 5 waits on OQ1.** D13 confirmed (own Npgsql runner). Next gate: answer OQ1 + approve "Database design" and "API contract" → `design-approved`.
+Current step: **Delivery step 2 implemented on `feature/db-release-automation`; awaiting the first claude-dev pipeline run (POC step 5) after the owner actions in "Deployment notes".** OQ1 accepted and design approved 2026-11-18.
 
 ## Problem
 The deploy pipeline (`.github/workflows/_deploy-template.yml`) generates the idempotent EF migration script, publishes it as the
@@ -46,11 +46,13 @@ in which environment, or whether it failed, so scripts are regularly missed afte
 - R10 Naming (Q12): `yyyy.MM.dd.nnn__kebab-description.sql`, `R__kebab-description.sql`, `V__kebab-description.sql`.
 - R11 Every attempt is recorded with checksum, duration, rows affected, SQLSTATE and error message. Error `Detail` is **not**
   stored because it can contain row values (customer data); message, hint, where, schema/table/column/constraint are stored.
+  Validation sample rows (ids) are kept in the journal only; pipeline logs and the GitHub step summary show counts.
 - R12 The API never runs DDL or scripts. Retry only re-runs scripts already in the deployed release package.
 
 ## Edge cases
 - Script file contains psql meta-commands (`\if`, `\echo`, `:var`): rejected at load time with the line number.
-- `CREATE INDEX CONCURRENTLY` cannot run in a transaction: needs `transaction: none`.
+- `CREATE INDEX CONCURRENTLY` cannot run in a transaction: needs `transaction: none`, and such a script must hold **exactly one
+  statement** (Npgsql sends several as one implicit transaction; the failure message says so). One index per script.
 - Validation script returns rows across several statements: violations are summed over all result sets.
 - Runner killed mid-run: the advisory lock is released with the session; the run row stays `Running` and the next run marks
   stale `Running` rows as `Failed` ("interrupted").
@@ -75,7 +77,7 @@ UI: `/platform/db-releases` · Permissions: platform admin only (no company perm
 CI/CD: `ci.yml` checks, `_deploy-template.yml` `migrate-db` job, GitHub environment protection for prod.
 
 ## Open questions
-- OQ1 POC step 5: which identity/connection string does the pipeline use for claude-dev (needs DDL rights), and may the job open the
+- ~~OQ1~~ resolved → D14. POC step 5: which identity/connection string does the pipeline use for claude-dev (needs DDL rights), and may the job open the
   Postgres firewall to the runner IP for its duration?
 - OQ2 GitHub token for page retry (step 4): fine-grained PAT vs GitHub App, and where it is stored (Key Vault / App Service setting).
 
@@ -124,7 +126,7 @@ ops."DbReleaseRuns"   Id uuid PK, Environment text, CommitSha text, AppVersion t
                       TriggeredBy text, RetryReason text NULL, Status text (Running|Succeeded|Failed),
                       StartedAt timestamptz, CompletedAt timestamptz NULL, PipelineUrl text NULL, Summary text NULL
 ops."DbScripts"       Id uuid PK, Name text UNIQUE, Kind text (EfMigration|Data|Repeatable|Validation), Description text NULL,
-                      Checksum text NULL (sha256 of last success), Status text (Pending|Succeeded|Failed|Baselined|Passed|Warning),
+                      Checksum text NULL (sha256 of last success), Status text (Pending|Succeeded|Failed|Baselined|Passed|Warning|Removed),
                       AttemptCount int, LastAttemptAt timestamptz NULL, AppliedAt timestamptz NULL
 ops."DbScriptAttempts" Id uuid PK, ScriptId uuid FK, ReleaseRunId uuid FK, Checksum text, Status text
                       (Succeeded|Failed|Passed|Warning), StartedAt timestamptz, DurationMs int, RowsAffected int NULL,
@@ -158,16 +160,52 @@ Draft, finalised in the design phase.
 - D12 (Q12) Date + sequence naming. (Q13) 10 min default timeout. (Q15) Platform admins only. (Q16) GitHub failure email + page status.
   (Q17) Page shows script SQL read only.
 - D13 (Q14, revised after POC F1, owner confirmed 2026-11-18) Tool: own runner on Npgsql (`Sellora.DbMigrator`). No DbUp/Flyway dependency.
-- File moves: `seed-permissions.sql` → `backend/db/repeatable/R__seed-permissions.sql`; `stock-reconciliation.sql`,
+- D14 (OQ1) Pipeline login `sellora_migrator` (member of the role that owns the tables, `SET role` to it so ownership does not
+  change), connection string in GitHub environment secret `SELLORA_DB_MIGRATOR_CONNECTION`. The job adds a firewall rule for the
+  runner IP and removes it in an `always()` step; the deploy identity gets Contributor on the Postgres server. Prod later: Entra
+  token login + Container Apps Job in the VNet (D2).
+- D15 The migrator uses an unpooled connection: a pooled session would keep the advisory lock after a run (found by the lock test).
+- D16 CI guard `scripts/check-db-scripts.sh` blocks edits to merged data scripts on PRs; label `db-script-fix` overrides it for a
+  script that failed everywhere (D10). The migrator still refuses a modified succeeded script per database.
+- D17 `migrate-db` is opt-in per caller (`run_migrations` input): on for claude-dev, off for dev until a claude-dev run is green.
+- File moves (done in step 2): `seed-permissions.sql` → `backend/db/repeatable/R__seed-permissions.sql`; `stock-reconciliation.sql`,
   `stock-transfers-validation.sql`, `unit-restructuring-validation.sql`, `van-operations-validation.sql` → `backend/db/validation/V__*.sql`;
   `unit-restructuring-profile.sql`, `grant-platform-admin.sql`, `delete-product.sql` stay in `scripts/sql/`. Done in delivery step 2.
 
 ## Deployment notes
-Filled in during delivery. Run the POC migrator locally (macOS/Linux, any Postgres 16):
+### Delivery step 2 — what changed
+- `backend/db/` is the release package: `repeatable/R__seed-permissions.sql`, `validation/V__*.sql` (4 files), `scripts/` (empty).
+- `.github/workflows/_deploy-template.yml`: build job bundles EF migrations + publishes the migrator (`db-release` artifact);
+  new `migrate-db` job; `deploy-api` runs only if `migrate-db` succeeded or was skipped. `deploy-claude-dev.yml` sets `run_migrations: true`.
+- `.github/workflows/ci.yml`: `db-scripts` job on PRs. Integration test `Repository_release_package_applies_to_the_current_schema_and_reruns_cleanly`
+  runs the real package against a migrated Postgres in CI (naming, psql meta-commands, validation rows all fail it).
+- `scripts/sql/create-migrator-role.sql`: operator script for the login (idempotent).
+
+### Code review (delivery step 2)
+`code-reviewer`: 1 Blocker, 3 Major, 6 Minor — all fixed except Minor 9 (accepted: "Re-run all jobs" is also journaled as Retry).
+Blocker: two validation helpers still returned the old `scripts/sql` path. Majors: `transaction: none` multi-statement behaviour
+(now documented + tested), role-script grants (now to `owner_role`, owner checks added), journal row lost when rollback/reset or
+cancel threw (now best-effort cleanup, journal writes ignore cancellation). Minors fixed: EF bundle connection via environment
+instead of argv, no row values in logs/summary + HTML-escaped summary, `--plan` writes nothing, firewall rule cleanup always runs
++ connect retry for rule propagation, every unexpected exception exits 4.
+
+### Owner actions before the first claude-dev run (POC step 5)
+1. Generate a password and run, as the server admin:
+   `psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -v password='<generated>' -v owner_role=<API login> -f scripts/sql/create-migrator-role.sql`
+2. GitHub → Settings → Environments → `claude-dev`: secret `SELLORA_DB_MIGRATOR_CONNECTION`
+   (`Host=<server>.postgres.database.azure.com;Database=<db>;Username=sellora_migrator;Password=<generated>;Ssl Mode=Require`),
+   variables `AZURE_POSTGRES_SERVER`, `AZURE_POSTGRES_RESOURCE_GROUP`.
+3. Azure: give the claude-dev deploy managed identity **Contributor** on the Postgres Flexible Server (firewall rules).
+4. App Service `sellora-billing-dev-api-claude`: set `Database__ApplyMigrationsOnStartup=false` (D4). The repo default is already false.
+5. Merge to `claude_dev` and run **Deploy claude-dev** manually. Expected: `migrate-db` green with a "Database scripts" job summary,
+   then the API deploy. Note: the legacy push-triggered `dev_sellora-billing-dev-api-claude.yml` deploys without migrating; retire it
+   as `deploy-claude-dev.yml` already plans.
+
+### Running the migrator locally (macOS/Linux, any Postgres 16)
 ```bash
 dotnet publish backend/tools/Sellora.DbMigrator -c Release -o /tmp/migrator
 SELLORA_DB_CONNECTION="Host=localhost;Database=sellora;Username=postgres;Password=postgres" \
   dotnet /tmp/migrator/Sellora.DbMigrator.dll --scripts backend/db --environment local --plan
 ```
 Options: `--ef-bundle <path>`, `--trigger Deploy|Retry --reason <text>`, `--validation-default warn|block`, `--lock-wait <s>`,
-`--commit`, `--version`, `--triggered-by` (defaults from GitHub Actions variables). Exit codes 0 ok · 1 failed · 2 invalid release · 3 lock timeout.
+`--commit`, `--version`, `--triggered-by` (defaults from GitHub Actions variables). Exit codes 0 ok · 1 failed · 2 invalid release · 3 lock timeout · 4 unexpected (e.g. cannot connect).

@@ -64,6 +64,7 @@ public static partial class ScriptCatalog
         foreach (var path in Directory.EnumerateFiles(folder).Order(StringComparer.Ordinal))
         {
             var name = Path.GetFileName(path);
+            if (name.StartsWith('.')) continue; // .gitkeep, macOS .DS_Store
             if (!namePattern.IsMatch(name))
             {
                 errors.Add($"{name}: name must look like {expected}");

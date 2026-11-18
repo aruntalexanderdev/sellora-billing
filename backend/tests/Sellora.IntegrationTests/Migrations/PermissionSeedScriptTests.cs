@@ -4,7 +4,7 @@ using static Sellora.IntegrationTests.TestData.CompanyMigrations;
 
 namespace Sellora.IntegrationTests.Migrations;
 
-/// <summary>Phase 4 O-4 on PostgreSQL — scripts/sql/seed-permissions.sql runs cleanly, twice, leaves operator edits alone, adds only missing codes, and its result equals PermissionCatalog (V5 stays empty).</summary>
+/// <summary>Phase 4 O-4 on PostgreSQL — backend/db/repeatable/R__seed-permissions.sql runs cleanly, twice, leaves operator edits alone, adds only missing codes, and its result equals PermissionCatalog (V5 stays empty).</summary>
 [Collection(PostgresCollection.Name)]
 public class PermissionSeedScriptTests(PostgresFixture postgres)
 {
@@ -14,10 +14,10 @@ public class PermissionSeedScriptTests(PostgresFixture postgres)
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
         {
-            var candidate = Path.Combine(dir.FullName, "scripts", "sql", "seed-permissions.sql");
+            var candidate = Path.Combine(dir.FullName, "backend", "db", "repeatable", "R__seed-permissions.sql");
             if (File.Exists(candidate)) return candidate;
         }
-        throw new FileNotFoundException("scripts/sql/seed-permissions.sql not found above " + AppContext.BaseDirectory);
+        throw new FileNotFoundException("backend/db/repeatable/R__seed-permissions.sql not found above " + AppContext.BaseDirectory);
     }
 
     private static string V5 => $"""

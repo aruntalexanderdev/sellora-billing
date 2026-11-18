@@ -58,6 +58,12 @@ public sealed class Journal(NpgsqlConnection connection)
 
     public Task EnsureSchemaAsync(CancellationToken ct) => ExecAsync(Schema, ct);
 
+    public async Task<bool> ExistsAsync(CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand("""SELECT to_regclass('ops."DbScripts"') IS NOT NULL""", connection);
+        return (bool)(await cmd.ExecuteScalarAsync(ct))!;
+    }
+
     /// <summary>A run left 'Running' means its process died; we hold the lock, so no other runner owns it.</summary>
     public Task<int> CloseInterruptedRunsAsync(CancellationToken ct) => ExecAsync("""
         UPDATE ops."DbReleaseRuns" SET "Status" = 'Failed', "CompletedAt" = now(),

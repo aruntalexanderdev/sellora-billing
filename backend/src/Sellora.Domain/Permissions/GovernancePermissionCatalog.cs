@@ -6,7 +6,7 @@ namespace Sellora.Domain.Permissions;
 /// <summary>
 /// Governance permission catalogue (Phase 6 D8). Deliberately NOT part of <see cref="PermissionCatalog"/>: these codes live in the
 /// GovernancePermissions table, are never JWT claims and are never resolved for the system Administrator role.
-/// Mirrored by the migration, DbSeeder and scripts/sql/seed-permissions.sql (a test guards drift).
+/// Mirrored by the migration, DbSeeder and backend/db/repeatable/R__seed-permissions.sql (a test guards drift).
 /// </summary>
 public static class GovernancePermissionCatalog
 {

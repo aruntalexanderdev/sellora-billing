@@ -1,7 +1,8 @@
 namespace Sellora.DbMigrator;
 
 // Sellora.DbMigrator — applies the release's SQL scripts and records every attempt in the ops journal.
-// See docs/features/db-release-automation.md. Exit codes: 0 ok, 1 script/validation failed, 2 invalid release, 3 lock timeout.
+// See docs/features/db-release-automation.md. Exit codes: 0 ok, 1 script/validation failed, 2 invalid release, 3 lock timeout,
+// 4 unexpected (cannot connect, journal error, cancelled); a run left "Running" by 4 is closed by the next run.
 //
 //   SELLORA_DB_CONNECTION="Host=…;Database=…;Username=…;Password=…" \
 //   dotnet Sellora.DbMigrator.dll --scripts backend/db --environment dev [--ef-bundle ./efbundle] [--plan]
@@ -70,7 +71,17 @@ internal static class Program
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
         var runner = new MigrationRunner(options, Console.Out);
-        var code = await runner.RunAsync(cts.Token);
+        ExitCode code;
+        try
+        {
+            code = await runner.RunAsync(cts.Token);
+        }
+        catch (Exception ex)
+        {
+            // Message only: an Npgsql error never contains the password, but a stack trace adds nothing for the pipeline log.
+            Console.Error.WriteLine($"✘ Migrator stopped: {ex.GetType().Name}: {ex.Message}");
+            code = ExitCode.Unexpected;
+        }
         WriteGitHubSummary(environment, code, runner.Outcomes);
         return (int)code;
     }
@@ -101,6 +112,6 @@ internal static class Program
         w.WriteLine("| Script | Kind | Status | Duration | Rows | Detail |");
         w.WriteLine("|---|---|---|---|---|---|");
         foreach (var o in outcomes)
-            w.WriteLine($"| `{o.Name}` | {o.Kind} | {o.Status} | {(o.Duration is { } d ? $"{d.TotalMilliseconds:0} ms" : "")} | {o.Rows} | {o.Detail?.Replace("|", "\\|").Replace("\n", " ")} |");
+            w.WriteLine($"| `{o.Name}` | {o.Kind} | {o.Status} | {(o.Duration is { } d ? $"{d.TotalMilliseconds:0} ms" : "")} | {o.Rows} | {System.Net.WebUtility.HtmlEncode(o.Detail?.Replace("\n", " "))?.Replace("|", "\\|").Replace("`", "'")} |");
     }
 }
