@@ -262,6 +262,8 @@ public static class IsolationCases
         // Phase 6: the platform surface never reads company data (no company context: company-owned queries fail closed); the governance catalogue is global.
         "PlatformAuthController.Login", "PlatformCompaniesController.List", "PlatformCompaniesController.Currencies", "PlatformCompaniesController.Create",
         "PlatformCompaniesController.SetStatus", "GovernanceController.Permissions",
+        // DB release automation: platform admin only (PlatformPolicies.Admin); reads the environment-wide ops journal, never company rows.
+        "PlatformDbReleasesController.Overview", "PlatformDbReleasesController.Run", "PlatformDbReleasesController.Script", "PlatformDbReleasesController.Retry",
         "AuthController.Login", "AuthController.Refresh", "AuthController.SwitchCompany", "AuthController.Logout", "AuthController.Me",
     ];
 
