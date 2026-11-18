@@ -35,7 +35,10 @@ public sealed class SelloraApiFactory(string connectionString, IReadOnlyDictiona
         builder.UseSetting("Jwt:Issuer", Issuer);
         builder.UseSetting("Jwt:Audience", Audience);
         builder.UseSetting("Jwt:SigningKey", SigningKey);
-        builder.UseSetting("Jwt:AccessTokenMinutes", "15");
+        // Shared worlds (BranchApiWorld.GetAsync etc.) log in ONCE and are reused by every test class for the whole run (~40 min on CI).
+        // A production-like 15 min lifetime made whichever class reached a shared world after 15 min fail with 401 (order-dependent),
+        // so the test host issues tokens that outlive a full suite run. Production keeps its configured lifetime (appsettings).
+        builder.UseSetting("Jwt:AccessTokenMinutes", "240");
         builder.UseSetting("Jwt:RefreshTokenDays", "14");
         builder.UseSetting("Database:ApplyMigrationsOnStartup", "true");
         foreach (var (key, value) in settings ?? new Dictionary<string, string>()) builder.UseSetting(key, value);
