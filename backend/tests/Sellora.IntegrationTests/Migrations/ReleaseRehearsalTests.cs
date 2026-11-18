@@ -27,14 +27,21 @@ public class ReleaseRehearsalTests(PostgresFixture postgres, ITestOutputHelper o
     private const string FirstFunctionalImprovementMigration = "20261110015257_AddStockLocations";
     private const string RequiredThrough = "20261117095458_AddReceiptApprovalAndDispositions";
 
+    // Deployable scripts live under backend/db (applied by Sellora.DbMigrator); manual/operator ones stay in scripts/sql.
     private static string SqlFile(string name)
     {
+        string[] relative = name switch
+        {
+            "seed-permissions.sql" => ["backend", "db", "repeatable", "R__" + name],
+            "unit-restructuring-profile.sql" => ["scripts", "sql", name],
+            _ => ["backend", "db", "validation", "V__" + name],
+        };
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
         {
-            var candidate = Path.Combine(dir.FullName, "scripts", "sql", name);
+            var candidate = Path.Combine([dir.FullName, .. relative]);
             if (File.Exists(candidate)) return File.ReadAllText(candidate);
         }
-        throw new FileNotFoundException($"scripts/sql/{name} not found above {AppContext.BaseDirectory}");
+        throw new FileNotFoundException($"{string.Join('/', relative)} not found above {AppContext.BaseDirectory}");
     }
 
     /// <summary>Splits a read-only report script into its statements (a statement ends with a line ending in ';'; full-line comments dropped) keyed by its first <c>'ID' AS chk</c>.</summary>

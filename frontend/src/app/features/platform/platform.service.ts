@@ -3,8 +3,8 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import type {
-  CreatePlatformCompanyRequest, CreatedPlatformCompany, CurrencyItem, PlatformCompany, PlatformCurrencyOption,
-  SetPlatformCompanyStatusRequest, UnitItem, UpsertCurrencyRequest, UpsertUnitRequest,
+  CreatePlatformCompanyRequest, CreatedPlatformCompany, CurrencyItem, DbReleaseRetryResponse, DbReleaseRunDetailDto, DbReleasesOverviewDto, DbScriptDetailDto, PlatformCompany, PlatformCurrencyOption,
+  RetryDbReleaseRequest, SetPlatformCompanyStatusRequest, UnitItem, UpsertCurrencyRequest, UpsertUnitRequest,
 } from './platform.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/platform`;
@@ -60,5 +60,22 @@ export class PlatformService {
 
   setCurrencyActive(id: string, isActive: boolean): Observable<void> {
     return this.http.post<void>(`${BASE_URL}/currencies/${id}/status`, { isActive });
+  }
+
+  dbReleases(runs?: number): Observable<DbReleasesOverviewDto> {
+    const params = runs ? { runs: String(runs) } : undefined;
+    return this.http.get<DbReleasesOverviewDto>(`${BASE_URL}/db-releases`, { params });
+  }
+
+  retryDbRelease(request: RetryDbReleaseRequest): Observable<DbReleaseRetryResponse> {
+    return this.http.post<DbReleaseRetryResponse>(`${BASE_URL}/db-releases/retry`, request);
+  }
+
+  dbReleaseRun(id: string): Observable<DbReleaseRunDetailDto> {
+    return this.http.get<DbReleaseRunDetailDto>(`${BASE_URL}/db-releases/runs/${id}`);
+  }
+
+  dbScript(id: string): Observable<DbScriptDetailDto> {
+    return this.http.get<DbScriptDetailDto>(`${BASE_URL}/db-releases/scripts/${id}`);
   }
 }

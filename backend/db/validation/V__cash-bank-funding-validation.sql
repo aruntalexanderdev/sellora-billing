@@ -1,6 +1,8 @@
+-- sellora:description Cash/bank funding and reversal C1-C5
+-- Applied by Sellora.DbMigrator on every deploy (docs/features/db-release-automation.md); can still be run by hand with psql.
 -- Phase 07 cash/bank funding and reversal: validation (C1-C5). Read-only; EVERY query must return no rows.
 -- Run after applying AddCashBankFundingAndReversal and before release sign-off:
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/cash-bank-funding-validation.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/db/validation/V__cash-bank-funding-validation.sql
 -- Balances are derived: SUM(active In) - SUM(active Out) of BaseAmount per account. For the list of accounts below 0 see cash-bank-negative-balances.sql.
 
 -- C1 Funding rows: Type = Funding exactly when FundingSource is set; always In, always on an account.

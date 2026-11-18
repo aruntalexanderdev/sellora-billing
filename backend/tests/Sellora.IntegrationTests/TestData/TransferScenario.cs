@@ -189,15 +189,15 @@ public sealed record TransferScenario(LocationScenario L, Guid PenId, Guid Pc, G
     }
 }
 
-/// <summary>Runs <c>scripts/sql/stock-transfers-validation.sql</c> (V1-V8) exactly as shipped: every statement must return no rows.</summary>
+/// <summary>Runs <c>backend/db/validation/V__stock-transfers-validation.sql</c> (V1-V8) exactly as shipped: every statement must return no rows.</summary>
 public static class TransferValidation
 {
     public static string ScriptPath()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "scripts", "sql", "stock-transfers-validation.sql"))) dir = dir.Parent;
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "backend", "db", "validation", "V__stock-transfers-validation.sql"))) dir = dir.Parent;
         Assert.NotNull(dir);
-        return Path.Combine(dir!.FullName, "scripts", "sql", "stock-transfers-validation.sql");
+        return Path.Combine(dir!.FullName, "backend", "db", "validation", "V__stock-transfers-validation.sql");
     }
 
     /// <summary>The script's statements. Lines tagged <c>-- [P06: text]</c> use schema that exists only from Phase 06: <paramref name="phase06Schema"/> false replaces each tagged line with its text (older-schema migration tests).</summary>

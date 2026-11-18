@@ -46,3 +46,4 @@ jobs:
     with:
       environment: claude-dev
       deploy_frontend: true
+      run_migrations: true # db-release-automation: claude-dev first; enable for dev once a claude-dev run is green

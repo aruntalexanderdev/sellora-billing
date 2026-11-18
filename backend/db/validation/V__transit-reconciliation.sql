@@ -1,3 +1,5 @@
+-- sellora:description Transit reconciliation (queries 1-9)
+-- Applied by Sellora.DbMigrator on every deploy (docs/features/db-release-automation.md); can still be run by hand with psql.
 -- FI-D34..D41 transit reconciliation. Every query must return no rows. Read-only; safe on production.
 -- Assumptions: Transit stock is the company Transit location (StockLocations.LocationType = 'Transit'); quantities are base units per product; sums are per product, never across products.
 -- A consumed reservation's BaseQty is the quantity actually dispatched (the unloaded remainder is released and not part of it).

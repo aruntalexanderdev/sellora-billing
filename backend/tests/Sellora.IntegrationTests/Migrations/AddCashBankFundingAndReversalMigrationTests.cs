@@ -174,17 +174,17 @@ public class AddCashBankFundingAndReversalMigrationTests(PostgresFixture postgre
     private static string ScriptDir()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "scripts", "sql", "cash-bank-funding-validation.sql"))) dir = dir.Parent;
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "backend", "db", "validation", "V__cash-bank-funding-validation.sql"))) dir = dir.Parent;
         Assert.NotNull(dir);
-        return Path.Combine(dir!.FullName, "scripts", "sql");
+        return Path.Combine(dir!.FullName, "backend", "db", "validation");
     }
 
     private static string NegativeBalancesSql() =>
-        File.ReadAllText(Path.Combine(ScriptDir(), "cash-bank-negative-balances.sql")).Trim().TrimEnd(';');
+        File.ReadAllText(Path.Combine(ScriptDir(), "V__cash-bank-negative-balances.sql")).Trim().TrimEnd(';');
 
     private static async Task AssertValidationCleanAsync(TestDatabase database)
     {
-        var sql = string.Join('\n', File.ReadAllLines(Path.Combine(ScriptDir(), "cash-bank-funding-validation.sql")).Where(l => !l.TrimStart().StartsWith("--")));
+        var sql = string.Join('\n', File.ReadAllLines(Path.Combine(ScriptDir(), "V__cash-bank-funding-validation.sql")).Where(l => !l.TrimStart().StartsWith("--")));
         var statements = sql.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(s => s.Length > 0).ToList();
         Assert.Equal(5, statements.Count); // C1..C5
         foreach (var statement in statements)

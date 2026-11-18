@@ -224,8 +224,8 @@ public static class ReceiptHttp
     private static int TransitScriptQueryCount()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "scripts", "sql", "transit-reconciliation.sql"))) dir = dir.Parent;
-        var text = File.ReadAllText(Path.Combine(dir!.FullName, "scripts", "sql", "transit-reconciliation.sql"));
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "backend", "db", "validation", "V__transit-reconciliation.sql"))) dir = dir.Parent;
+        var text = File.ReadAllText(Path.Combine(dir!.FullName, "backend", "db", "validation", "V__transit-reconciliation.sql"));
         var code = string.Join('\n', text.Split('\n').Where(l => !l.TrimStart().StartsWith("--", StringComparison.Ordinal)));
         return code.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Count(x => x.StartsWith("SELECT", StringComparison.Ordinal) || x.StartsWith("WITH", StringComparison.Ordinal));

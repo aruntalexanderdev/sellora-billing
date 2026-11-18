@@ -3,17 +3,17 @@ using Sellora.Domain.Permissions;
 
 namespace Sellora.Tests.Permissions;
 
-/// <summary>Phase 4 O-4 — scripts/sql/seed-permissions.sql must mirror <see cref="PermissionCatalog.All"/> exactly (code, module, action, description), so production seeding cannot drift from the application's catalogue.</summary>
+/// <summary>Phase 4 O-4 — backend/db/repeatable/R__seed-permissions.sql must mirror <see cref="PermissionCatalog.All"/> exactly (code, module, action, description), so production seeding cannot drift from the application's catalogue.</summary>
 public partial class PermissionSeedScriptTests
 {
     internal static string ScriptPath()
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
         {
-            var candidate = Path.Combine(dir.FullName, "scripts", "sql", "seed-permissions.sql");
+            var candidate = Path.Combine(dir.FullName, "backend", "db", "repeatable", "R__seed-permissions.sql");
             if (File.Exists(candidate)) return candidate;
         }
-        throw new FileNotFoundException("scripts/sql/seed-permissions.sql not found above " + AppContext.BaseDirectory);
+        throw new FileNotFoundException("backend/db/repeatable/R__seed-permissions.sql not found above " + AppContext.BaseDirectory);
     }
 
     internal static List<(string Code, string Module, string Action, string Description)> ParseScript() =>

@@ -1,3 +1,5 @@
+-- sellora:description Stock reservations reconciliation
+-- Applied by Sellora.DbMigrator on every deploy (docs/features/db-release-automation.md); can still be run by hand with psql.
 -- FI-D5 reconciliation: StockItems.ReservedQuantity must equal the sum of Active StockReservations per (location, product), and
 -- 0 <= ReservedQuantity <= QuantityOnHand. Every query must return no rows. Read-only; safe on production.
 

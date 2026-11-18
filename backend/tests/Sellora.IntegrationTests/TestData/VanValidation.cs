@@ -3,15 +3,15 @@ using Sellora.IntegrationTests.Infrastructure;
 
 namespace Sellora.IntegrationTests.TestData;
 
-/// <summary>Runs <c>scripts/sql/van-operations-validation.sql</c> (R1-R5) exactly as shipped: every statement must return no rows (reuses the statement splitter of <see cref="TransferValidation"/>).</summary>
+/// <summary>Runs <c>backend/db/validation/V__van-operations-validation.sql</c> (R1-R5) exactly as shipped: every statement must return no rows (reuses the statement splitter of <see cref="TransferValidation"/>).</summary>
 public static class VanValidation
 {
     public static string ScriptPath()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "scripts", "sql", "van-operations-validation.sql"))) dir = dir.Parent;
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "backend", "db", "validation", "V__van-operations-validation.sql"))) dir = dir.Parent;
         Assert.NotNull(dir);
-        return Path.Combine(dir!.FullName, "scripts", "sql", "van-operations-validation.sql");
+        return Path.Combine(dir!.FullName, "backend", "db", "validation", "V__van-operations-validation.sql");
     }
 
     public static List<string> Statements()

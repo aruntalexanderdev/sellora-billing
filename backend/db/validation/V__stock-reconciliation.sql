@@ -1,10 +1,12 @@
+-- sellora:description Stock ledger = stock balances = batch balances; tenancy structure
+-- Applied by Sellora.DbMigrator on every deploy (docs/features/db-release-automation.md); can still be run by hand with psql.
 -- Stock reconciliation + tenancy structure invariants. Read-only; EVERY query must return no rows when healthy. Ids only, no PII.
 -- Run after the release script, after any stock-affecting smoke test, and as a periodic health check:
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/stock-reconciliation.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/db/validation/V__stock-reconciliation.sql
 -- Stock invariant (skill stock-ledger-invariants), per (company, StockLocationId, ProductId):
 --   SUM(StockMovements.QuantityBaseUnits) = StockItems.QuantityOnHand = SUM(BatchLocationBalances.RemainingBaseQty)
 --   and per batch SUM(BatchLocationBalances over locations) = PurchaseBatches.RemainingBaseQty.
--- Transit is an ordinary location here (its rows must reconcile too). Transfer-specific rules: scripts/sql/stock-transfers-validation.sql.
+-- Transit is an ordinary location here (its rows must reconcile too). Transfer-specific rules: backend/db/validation/V__stock-transfers-validation.sql.
 -- Quantities are never summed across products: every aggregate is grouped by product (and location or company).
 -- Section S = stock, section C = company / branch / access structure.
 

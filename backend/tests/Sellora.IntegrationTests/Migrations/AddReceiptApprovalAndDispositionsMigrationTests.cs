@@ -393,8 +393,8 @@ public class AddReceiptApprovalAndDispositionsMigrationTests(PostgresFixture pos
     private static string ScriptPath()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "scripts", "sql", "transit-reconciliation.sql"))) dir = dir.Parent;
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "backend", "db", "validation", "V__transit-reconciliation.sql"))) dir = dir.Parent;
         Assert.NotNull(dir);
-        return Path.Combine(dir!.FullName, "scripts", "sql", "transit-reconciliation.sql");
+        return Path.Combine(dir!.FullName, "backend", "db", "validation", "V__transit-reconciliation.sql");
     }
 }

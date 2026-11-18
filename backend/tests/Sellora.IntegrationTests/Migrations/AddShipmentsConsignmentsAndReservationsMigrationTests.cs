@@ -295,8 +295,8 @@ public class AddShipmentsConsignmentsAndReservationsMigrationTests(PostgresFixtu
     private static string ScriptPath()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "scripts", "sql", "stock-reservations-reconciliation.sql"))) dir = dir.Parent;
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "backend", "db", "validation", "V__stock-reservations-reconciliation.sql"))) dir = dir.Parent;
         Assert.NotNull(dir);
-        return Path.Combine(dir!.FullName, "scripts", "sql", "stock-reservations-reconciliation.sql");
+        return Path.Combine(dir!.FullName, "backend", "db", "validation", "V__stock-reservations-reconciliation.sql");
     }
 }

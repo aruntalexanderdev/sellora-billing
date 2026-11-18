@@ -1,8 +1,10 @@
+-- sellora:description Permission catalogue seed (inserts missing codes only)
+-- Applied by Sellora.DbMigrator on every deploy (docs/features/db-release-automation.md); can still be run by hand with psql.
 -- Idempotent seed of the permission catalogue (Phase 4 O-4). Mirrors PermissionCatalog.All; rows already present are left untouched
 -- (ON CONFLICT ("Code") DO NOTHING), so it is safe to re-run on every release. Ids are random (gen_random_uuid()), like the
 -- application seeder (Guid.NewGuid()); nothing references them by value.
 -- It does not grant anything to roles: Administrator receives every catalogue code through PermissionResolver.
--- Run:  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/seed-permissions.sql
+-- Run:  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/db/repeatable/R__seed-permissions.sql
 -- Regenerate when PermissionCatalog changes (a test guards against drift).
 
 INSERT INTO "Permissions" ("Id", "Code", "Module", "Action", "Description")

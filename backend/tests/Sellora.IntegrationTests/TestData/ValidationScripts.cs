@@ -4,17 +4,17 @@ using Sellora.IntegrationTests.Infrastructure;
 
 namespace Sellora.IntegrationTests.TestData;
 
-/// <summary>Runs a read-only scripts/sql validation script statement by statement against a test database; every statement must return zero rows (FI-D43b/c).</summary>
+/// <summary>Runs a read-only backend/db/validation (V__) script statement by statement against a test database; every statement must return zero rows (FI-D43b/c).</summary>
 public static class ValidationScripts
 {
     public static string Text(string name)
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
         {
-            var candidate = Path.Combine(dir.FullName, "scripts", "sql", name);
+            var candidate = Path.Combine(dir.FullName, "backend", "db", "validation", "V__" + name);
             if (File.Exists(candidate)) return File.ReadAllText(candidate);
         }
-        throw new FileNotFoundException($"scripts/sql/{name} not found above {AppContext.BaseDirectory}");
+        throw new FileNotFoundException($"backend/db/validation/V__{name} not found above {AppContext.BaseDirectory}");
     }
 
     public static List<(string Id, string Sql)> Statements(string file)

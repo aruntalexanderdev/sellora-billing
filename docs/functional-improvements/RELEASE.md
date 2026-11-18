@@ -40,7 +40,13 @@ Scope: phases 01, 08, 07, 02, 03, 04, 05, 06 of `IMPLEMENTATION_SPEC.md` (decisi
 
 ## 2. Database migrations (apply in this order)
 
-Applied by **one reviewed idempotent script**, never by startup auto-migrate (D10; `Database:ApplyMigrationsOnStartup=false`).
+Never by startup auto-migrate (D10; `Database:ApplyMigrationsOnStartup=false`). Two ways, depending on the environment:
+
+- **Where the `migrate-db` pipeline job is enabled** (claude-dev first, then dev, prod later behind approval; see
+  `docs/features/db-release-automation.md`): the deploy builds an EF migration bundle and `Sellora.DbMigrator` applies the
+  pending migrations, then the `backend/db/` scripts, then every `backend/db/validation/V__*.sql`, and records each attempt in the
+  `ops` journal (`/platform/db-releases`). A failure blocks the API deploy. No manual step.
+- **Manual fallback** (an environment without the job): one reviewed idempotent script, as below.
 
 | # | Migration | Phase | Type | Data backfill |
 |---|---|---|---|---|
@@ -99,8 +105,8 @@ Review `release-fi.sql` before it runs. Each migration's header comment lists it
 - [ ] Owner approval recorded for this deployment.
 - [ ] Backup taken and restore proven (§3).
 - [ ] Pre-check queries return zero rows on production:
-  - `scripts/sql/stock-items-negative-check.sql` (migration #3 would fail otherwise);
-  - `scripts/sql/stock-reconciliation.sql`.
+  - `backend/db/validation/V__stock-items-negative-check.sql` (migration #3 would fail otherwise);
+  - `backend/db/validation/V__stock-reconciliation.sql`.
 - [ ] `release-fi.sql` generated from the release commit and reviewed; dry-run on the restored copy is clean.
 
 **Apply**
@@ -133,16 +139,17 @@ Review `release-fi.sql` before it runs. Each migration's header comment lists it
 
 | Script | Covers |
 |---|---|
-| `scripts/sql/stock-reconciliation.sql` | ledger = on-hand per item, batches |
-| `scripts/sql/stock-items-negative-check.sql` | no negative stock |
-| `scripts/sql/stock-transfers-validation.sql` | transfer counters, batches = Transit, completion (V1 to V8) |
-| `scripts/sql/transit-reconciliation.sql` | reservations = dispatched, receipts = counters, Transit = open batches, dispositions (queries 1 to 9) |
-| `scripts/sql/stock-reservations-reconciliation.sql` | active reservations = `StockItems.ReservedQuantity` |
-| `scripts/sql/van-operations-validation.sql` | van flows |
-| `scripts/sql/cash-bank-funding-validation.sql`, `cash-bank-negative-balances.sql` | balanced ledger, reversals, no negative balances where disallowed |
-| `scripts/sql/unit-restructuring-validation.sql` | unit-conversion invariants |
+| `backend/db/validation/V__stock-reconciliation.sql` | ledger = on-hand per item, batches |
+| `backend/db/validation/V__stock-items-negative-check.sql` | no negative stock |
+| `backend/db/validation/V__stock-transfers-validation.sql` | transfer counters, batches = Transit, completion (V1 to V8) |
+| `backend/db/validation/V__transit-reconciliation.sql` | reservations = dispatched, receipts = counters, Transit = open batches, dispositions (queries 1 to 9) |
+| `backend/db/validation/V__stock-reservations-reconciliation.sql` | active reservations = `StockItems.ReservedQuantity` |
+| `backend/db/validation/V__van-operations-validation.sql` | van flows |
+| `backend/db/validation/V__cash-bank-funding-validation.sql`, `V__cash-bank-negative-balances.sql` (informational, `on-violation: warn`) | balanced ledger, reversals, no negative balances where disallowed |
+| `backend/db/validation/V__unit-restructuring-validation.sql` | unit-conversion invariants |
 
-Run them with `psql -v ON_ERROR_STOP=1 -f <script>`. All are read-only and safe on production.
+With the `migrate-db` job these run on every deploy (read-only transaction; `on-violation` warn in dev/claude-dev, block in prod unless a script's
+header says otherwise) and the result is on `/platform/db-releases`. By hand: `psql -v ON_ERROR_STOP=1 -f <script>`. All are read-only and safe on production.
 
 ---
 

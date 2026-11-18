@@ -1,6 +1,8 @@
+-- sellora:description Stock transfers V1-V8
+-- Applied by Sellora.DbMigrator on every deploy (docs/features/db-release-automation.md); can still be run by hand with psql.
 -- Phase 9 stock transfers: validation (V1-V8). Read-only; EVERY query must return no rows.
 -- Run after applying AddStockTransfers, after any transfer flow in tests/smoke, and before the release sign-off:
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/stock-transfers-validation.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/db/validation/V__stock-transfers-validation.sql
 -- Transit is an ordinary location here: its StockItems / movements / balances must equal the in-transit quantities (V4).
 
 -- V1 per (location, product): QOH = SUM(movements), including Transit.
