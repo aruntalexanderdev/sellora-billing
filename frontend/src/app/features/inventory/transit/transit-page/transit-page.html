@@ -1,0 +1,92 @@
+<div class="page-head">
+  <div>
+    <h1>Transit</h1>
+    <p>Dispatched consignments and what is still on the way. Quantities are in base units; damaged, rejected and missing stay in transit until resolved.</p>
+  </div>
+</div>
+
+<div class="tabs" role="tablist" data-testid="tabs">
+  @for (v of views; track v) {
+    <button type="button" role="tab" class="tab" [class.active]="view() === v" [attr.aria-selected]="view() === v" [attr.data-testid]="'tab-' + v" (click)="setView(v)">{{ viewLabels[v] }}</button>
+  }
+</div>
+
+<ui-company-view-toggle permission="Shipments.View" (changed)="onCompanyViewChange()" />
+
+<div class="filters">
+  <input type="search" class="search" data-testid="search" placeholder="Search consignment, shipment, location…" [value]="search()" (change)="onSearch($any($event.target).value)" />
+</div>
+
+<app-load-error [message]="errorMessage()" />
+
+<div class="table-card">
+  @if (loading()) {
+    <p class="muted pad" data-testid="loading">Loading…</p>
+  } @else if (items().length === 0) {
+    <p class="muted pad" data-testid="empty">Nothing in the {{ viewLabels[view()].toLowerCase() }} view.</p>
+  } @else {
+    <table>
+      <thead>
+        <tr><th></th><th>Consignment</th><th>Shipment</th><th>From</th><th>To</th><th>Dispatched</th><th>Status</th><th class="num">Receipts</th></tr>
+      </thead>
+      <tbody>
+        @for (t of items(); track t.consignmentId) {
+          <tr data-testid="transit-row">
+            <td><button type="button" class="expander" data-testid="expand" [attr.aria-expanded]="expanded().has(t.consignmentId)" (click)="toggle(t.consignmentId)">{{ expanded().has(t.consignmentId) ? '▾' : '▸' }}</button></td>
+            <td>
+              <a [routerLink]="['/inventory/consignments', t.consignmentId]" data-testid="consignment-link">{{ t.consignmentNo }}</a>
+              <div class="sub">{{ t.direction === 'incoming' ? 'Incoming' : 'Outgoing' }}</div>
+            </td>
+            <td>{{ t.shipmentNo }}<div class="sub">{{ mode(t.transportMode) }}{{ t.transportReference ? ' · ' + t.transportReference : '' }}</div></td>
+            <td>{{ place(t.source) }}</td>
+            <td>{{ place(t.destination) }}</td>
+            <td>{{ t.dispatchedAt ? t.dispatchedAt.slice(0, 16).replace('T', ' ') : '—' }}</td>
+            <td>
+              <ui-badge [text]="t.status" [tone]="tone(t.status)" />
+              @if (t.hasDiscrepancy) {
+                <ui-badge text="Discrepancy" tone="bad" data-testid="discrepancy-badge" />
+              }
+            </td>
+            <td class="num">{{ t.receiptCount }}@if (t.unpostedReceiptCount > 0) {<div class="sub" data-testid="unposted">{{ t.unpostedReceiptCount }} not posted</div>}</td>
+          </tr>
+          @if (expanded().has(t.consignmentId)) {
+            <tr class="lines-row" data-testid="transit-lines">
+              <td></td>
+              <td colspan="7">
+                <table class="inner">
+                  <thead>
+                    <tr>
+                      <th>Product</th><th class="num">Dispatched</th><th class="num">Accepted</th><th class="num">Damaged</th><th class="num">Rejected</th>
+                      <th class="num">Missing</th><th class="num">Posted</th><th class="num">Outstanding</th><th class="num">In transit</th><th class="num">Open discrepancy</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (l of t.lines; track l.consignmentLineId) {
+                      <tr data-testid="transit-line">
+                        <td>{{ l.productName }}<div class="sub">{{ l.productSku }} · {{ l.baseUnitCode }}</div></td>
+                        <td class="num">{{ qty(l.dispatchedBaseQty) }}</td>
+                        <td class="num">{{ qty(l.acceptedBaseQty) }}</td>
+                        <td class="num">{{ qty(l.damagedBaseQty) }}</td>
+                        <td class="num">{{ qty(l.rejectedBaseQty) }}</td>
+                        <td class="num">{{ qty(l.missingBaseQty) }}</td>
+                        <td class="num">{{ qty(l.postedBaseQty) }}</td>
+                        <td class="num">{{ qty(l.outstandingBaseQty) }}</td>
+                        <td class="num">{{ qty(l.inTransitBaseQty) }}</td>
+                        <td class="num" data-testid="open-discrepancy">{{ qty(l.openDiscrepancyBaseQty) }}@if (l.dispositionedDamagedBaseQty + l.dispositionedRejectedBaseQty + l.dispositionedMissingBaseQty > 0) {<div class="sub">resolved {{ qty(l.dispositionedDamagedBaseQty + l.dispositionedRejectedBaseQty + l.dispositionedMissingBaseQty) }}</div>}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  }
+  <div class="pager">
+    <span class="muted">{{ total() }} consignment{{ total() === 1 ? '' : 's' }}</span>
+    <ui-button [disabled]="page() <= 1" (onClick)="previous()">Previous</ui-button>
+    <ui-button [disabled]="!hasMore()" (onClick)="next()">Next</ui-button>
+  </div>
+</div>

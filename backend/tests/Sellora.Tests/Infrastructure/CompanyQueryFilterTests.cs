@@ -67,15 +67,15 @@ public class CompanyQueryFilterTests
     }
 
     [Fact]
-    public void Model_CompanyOwnedTypes_AreTheThirtySevenDesignedTypes()
+    public void Model_CompanyOwnedTypes_AreTheDesignedTypes()
     {
         using var db = NewDb(TestCompany.Context);
         var owned = ModelTypes(db).Select(t => t.ClrType).Where(t => typeof(ICompanyOwned).IsAssignableFrom(t)).Select(t => t.Name).Order().ToArray();
         string[] expected =
         [
-            "AuditEvent", "BatchLocationBalance", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
-            "FinancialTransaction", "GovernanceMemberPermission", "IdempotencyKey", "Product", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
-            "Role", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "StockTransfer", "StockTransferLine", "StockTransferLineBatch", "StockTransferReceipt", "StockTransferReceiptLine", "Supplier", "Tax", "UserBranchAssignment", "UserRoleAssignment", "Vehicle", "Warehouse",
+            "AuditEvent", "BatchLocationBalance", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Consignment", "ConsignmentDisposition", "ConsignmentDispositionLine", "ConsignmentLine", "ConsignmentReceipt", "ConsignmentReceiptLine", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
+            "FinancialTransaction", "GovernanceMemberPermission", "IdempotencyKey", "Product", "ProductCategory", "ProductSubcategory", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
+            "Role", "SalesInvoice", "SalesReturn", "Shipment", "ShipmentVehicle", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "StockReservation", "StockTransfer", "StockTransferLine", "StockTransferLineBatch", "StockTransferReceipt", "StockTransferReceiptLine", "Supplier", "Tax", "UserBranchAssignment", "UserRoleAssignment", "Vehicle", "Warehouse",
         ];
         Assert.Equal(expected, owned);
     }
@@ -87,7 +87,8 @@ public class CompanyQueryFilterTests
         using var db = NewDb(TestCompany.Context);
         // Phase 9: StockTransfer.BranchId is the creating branch (mandatory); its Source/DestinationBranchId are differently named snapshots.
         string[] required = ["PurchaseOrder", "PurchaseReturn", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockTransfer"];
-        string[] optional = ["Expense", "FinancialAccount"];
+        // Phase 04: Shipment.BranchId is the owning/source branch, NULL for a company-level source location.
+        string[] optional = ["Expense", "FinancialAccount", "Shipment"];
         // DocumentSequence.BranchId is nullable too: NULL = company-level series (EXP); it is a counter scope, not a document tag.
         string[] counterScope = ["DocumentSequence"];
         // Phase 3: StockLocation.BranchId is optional (store/warehouse require it by CHECK; Transit/Vehicle/CompanyWarehouse are company-level).
@@ -133,7 +134,7 @@ public class CompanyQueryFilterTests
     {
         // Phase 5 T2: the named "Branch" filter narrows the five documents (mandatory BranchId) and Expenses/FinancialAccounts (NULL stays visible).
         using var db = NewDb(TestCompany.Context);
-        string[] expected = ["Expense", "FinancialAccount", "PurchaseOrder", "PurchaseReturn", "SalesInvoice", "SalesReturn", "StockAdjustment", "StockTransfer"];
+        string[] expected = ["Expense", "FinancialAccount", "PurchaseOrder", "PurchaseReturn", "SalesInvoice", "SalesReturn", "Shipment", "StockAdjustment", "StockTransfer"];
         var actual = ModelTypes(db)
             .Where(t => t.GetDeclaredQueryFilters().Any(f => f.Key == BranchQueryFilter.Name))
             .Select(t => t.ClrType.Name).Order().ToArray();

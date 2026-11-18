@@ -5,10 +5,8 @@ import { ActivatedRouteSnapshot, Router, RouterStateSnapshot, UrlTree, provideRo
 import { environment } from '../../../environments/environment';
 import { ContextService } from '../context/context.service';
 import { contextInterceptor } from '../http/context.interceptor';
-import { ALL_BRANCHES } from '../context/context.models';
-import { BranchPickerService } from '../../shared/ui/branch-picker/branch-picker.service';
 import { me, storeSession, tick } from '../testing/auth-fixtures';
-import { authGuard, governanceGuard, permissionGuard, requiresBranchGuard } from './auth.guard';
+import { authGuard, governanceGuard, permissionGuard } from './auth.guard';
 
 const ME_URL = `${environment.apiBaseUrl}/auth/me`;
 const route = {} as ActivatedRouteSnapshot;
@@ -121,105 +119,5 @@ describe('route guards', () => {
       expect(await run(governanceGuard())).toBe(true);
       expect(asUrl(await run(governanceGuard('Company.Governance.ManageOwners')), router)).toContain('/permission-denied');
     });
-  });
-});
-
-describe('requiresBranchGuard (D13)', () => {
-  const ANY = ['Sales.Create', 'Sales.View'];
-  const branchRoute = (requires = true) =>
-    ({ data: { requiresBranch: requires }, routeConfig: { canActivate: [permissionGuard('Sales.Create')] } }) as unknown as ActivatedRouteSnapshot;
-  const runBranch = (r: ActivatedRouteSnapshot, url = '/sales/new') =>
-    TestBed.runInInjectionContext(() => requiresBranchGuard(r, state(url))) as Promise<boolean | UrlTree>;
-
-  async function allMode() {
-    const s = setup();
-    sessionStorage.setItem(branchKeyFor(), ALL_BRANCHES);
-    const done = s.ctx.hydrate();
-    s.http.expectOne(ME_URL).flush(me({ permissions: ['Sales.View'], permissionsAnyBranch: ANY }));
-    await done;
-    return { ...s, picker: TestBed.inject(BranchPickerService) };
-  }
-  const branchKeyFor = () => 'sellora.branch.u1.c1';
-
-  it('passes routes without the flag and branch-scoped sessions without asking', async () => {
-    const { ctx, http } = setup();
-    const done = ctx.hydrate();
-    http.expectOne(ME_URL).flush(me({ permissions: ANY }));
-    await done;
-    const picker = TestBed.inject(BranchPickerService);
-    expect(await runBranch(branchRoute())).toBe(true);
-    expect(picker.active()).toBeNull();
-    expect(await runBranch(branchRoute(false))).toBe(true);
-  });
-
-  it('in All-branches mode asks for a branch; picking one switches the working branch and re-runs the navigation', async () => {
-    const { ctx, http, router, picker } = await allMode();
-    expect(ctx.isAllBranches()).toBe(true);
-    const pending = runBranch(branchRoute(), '/sales/new');
-    await tick();
-    expect(picker.active()?.branches.map((b) => b.id)).toEqual(['b-main', 'b-north']);
-    picker.respond('b-north');
-    await tick();
-    const req = http.expectOne(ME_URL);
-    expect(req.request.headers.get('X-Branch-Id')).toBe('b-north');
-    req.flush(me({ permissions: ['Sales.View', 'Sales.Create'] }));
-    expect(asUrl(await pending, router)).toBe('/sales/new');
-    expect(ctx.isAllBranches()).toBe(false);
-    expect(ctx.workingBranchId()).toBe('b-north');
-    expect(await runBranch(branchRoute())).toBe(true); // second pass is silent
-  });
-
-  it('cancelling the picker cancels the navigation and keeps All branches', async () => {
-    const { ctx, picker, router } = await allMode();
-    router.navigated = true; // in-app navigation: cancelling just stays put
-    const pending = runBranch(branchRoute());
-    await tick();
-    picker.respond(null);
-    expect(await pending).toBe(false);
-    expect(ctx.isAllBranches()).toBe(true);
-  });
-
-  it('initial navigation (guard runs before any shell exists): the picker opens and cancel lands on /dashboard, not a blank page', async () => {
-    const { ctx, router, picker } = await allMode();
-    expect(router.navigated).toBe(false); // nothing has been activated yet
-    const pending = runBranch(branchRoute(), '/sales/new');
-    await tick();
-    expect(picker.active()).not.toBeNull(); // the picker service is usable without any shell
-    picker.respond(null);
-    expect(asUrl(await pending, router)).toBe('/dashboard');
-    expect(ctx.isAllBranches()).toBe(true);
-  });
-
-  it('initial navigation: picking a branch re-runs the deep link', async () => {
-    const { http, router, picker } = await allMode();
-    const pending = runBranch(branchRoute(), '/purchases/new');
-    await tick();
-    picker.respond('b-north');
-    await tick();
-    http.expectOne(ME_URL).flush(me({ permissions: ['Sales.View', 'Sales.Create'] }));
-    expect(asUrl(await pending, router)).toBe('/purchases/new');
-  });
-
-  it('does not prompt for a screen the user cannot open anyway (the permission guard denies)', async () => {
-    const { ctx, http } = setup();
-    sessionStorage.setItem(branchKeyFor(), ALL_BRANCHES);
-    const done = ctx.hydrate();
-    http.expectOne(ME_URL).flush(me({ permissions: ['Sales.View'], permissionsAnyBranch: ['Sales.View'] }));
-    await done;
-    const picker = TestBed.inject(BranchPickerService);
-    expect(await runBranch(branchRoute())).toBe(true);
-    expect(picker.active()).toBeNull();
-  });
-
-  it('a switch that fails to load keeps All branches and cancels the navigation', async () => {
-    const { ctx, http, picker, router } = await allMode();
-    router.navigated = true;
-    const pending = runBranch(branchRoute());
-    await tick();
-    picker.respond('b-north');
-    await tick();
-    http.expectOne(ME_URL).flush('boom', { status: 500, statusText: 'err' });
-    expect(await pending).toBe(false);
-    expect(ctx.isAllBranches()).toBe(true);
   });
 });

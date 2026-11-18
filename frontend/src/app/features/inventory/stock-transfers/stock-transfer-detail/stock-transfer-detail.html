@@ -13,7 +13,7 @@
   </div>
 
   <div class="status-row">
-    <ui-badge [text]="t.status" [tone]="tone(t.status)" />
+    <ui-badge [text]="statusText(t.status)" [tone]="tone(t.status)" />
     <span class="muted">{{ t.sourceBranch.code || t.sourceBranch.name || 'Company' }} → {{ t.destinationBranch.code || t.destinationBranch.name || 'Company' }}</span>
   </div>
 
@@ -34,19 +34,26 @@
     @if (can('reject')) {
       <ui-button variant="destructive" data-testid="act-reject" (onClick)="open('reject')">Reject</ui-button>
     }
-    @if (can('dispatch')) {
-      <ui-button variant="primary" data-testid="act-dispatch" (onClick)="open('dispatch')">Dispatch</ui-button>
-    }
     @if (can('receive')) {
       <ui-button variant="primary" data-testid="act-receive" (onClick)="open('receive')">Receive</ui-button>
     }
     @if (can('resolve')) {
       <ui-button data-testid="act-resolve" (onClick)="open('resolve')">Resolve outstanding</ui-button>
     }
+    @if (can('close')) {
+      <ui-button data-testid="act-close" (onClick)="open('close')">Close remaining</ui-button>
+    }
     @if (can('cancel')) {
       <ui-button variant="destructive" data-testid="act-cancel" (onClick)="open('cancel')">Cancel transfer</ui-button>
     }
   </div>
+
+  @if (shipmentDispatchHint()) {
+    <div class="note-box" data-testid="dispatch-hint">
+      Dispatch is done from a shipment: allocate and load this request on a shipment, then dispatch it there.
+      <a routerLink="/inventory/stock-transfers/ready-for-shipment">Ready for shipment</a> · <a routerLink="/inventory/shipments">Shipments</a>
+    </div>
+  }
 
   @switch (panel()) {
     @case ('reject') {
@@ -55,8 +62,8 @@
     @case ('cancel') {
       <app-reason-prompt title="Cancel this transfer" confirmLabel="Cancel transfer" [destructive]="true" [busy]="busy()" [error]="actionError()" (confirmed)="confirmReason('cancel', $event)" (cancelled)="close()" />
     }
-    @case ('dispatch') {
-      <app-transfer-dispatch-dialog [transfer]="t" [submission]="submissionFor('dispatch')" (done)="onUpdated($event, 'Transfer dispatched.')" (cancelled)="close()" />
+    @case ('close') {
+      <app-reason-prompt title="Close the remaining quantity (short)" confirmLabel="Close remaining" [destructive]="true" [busy]="busy()" [error]="actionError()" (confirmed)="confirmClose($event)" (cancelled)="close()" />
     }
     @case ('receive') {
       <app-transfer-receive-dialog [transfer]="t" [submission]="submissionFor('receive')" (done)="onUpdated($event, 'Receipt recorded.')" (cancelled)="close()" />
@@ -89,7 +96,7 @@
     <table class="lines" data-testid="lines">
       <thead>
         <tr>
-          <th>#</th><th>Product</th><th class="num">Requested</th><th class="num">Dispatched</th>
+          <th>#</th><th>Product</th><th class="num">Requested</th><th class="num">Allocated</th><th class="num">Closed</th><th class="num">Remaining</th><th class="num">Dispatched</th>
           <th class="num">Received</th><th class="num">Damaged</th><th class="num">Written off</th><th class="num">Returned</th><th class="num">Outstanding</th>
         </tr>
       </thead>
@@ -102,6 +109,9 @@
               {{ entered(l.requestedQty) }} {{ l.unitCode }}
               <div class="sub">= {{ base(l, l.requestedBaseQty) }} {{ l.baseUnitCode }} (1 {{ l.unitCode }} = {{ factor(l.conversionFactorToBase) }})</div>
             </td>
+            <td class="num" [attr.data-testid]="'allocated-' + l.lineNo">{{ base(l, l.allocatedBaseQty) }} {{ l.baseUnitCode }}<div class="sub">{{ inLineUnit(l, l.allocatedBaseQty) }}</div></td>
+            <td class="num" [attr.data-testid]="'closed-' + l.lineNo">{{ base(l, l.closedBaseQty) }} {{ l.baseUnitCode }}<div class="sub">{{ inLineUnit(l, l.closedBaseQty) }}</div></td>
+            <td class="num" [attr.data-testid]="'remaining-' + l.lineNo"><strong>{{ base(l, l.remainingBaseQty) }} {{ l.baseUnitCode }}</strong><div class="sub">{{ inLineUnit(l, l.remainingBaseQty) }}</div></td>
             <td class="num">
               @if (dispatched(l)) {
                 {{ entered(l.dispatchedQty) }} {{ l.dispatchUnitCode }}
@@ -119,14 +129,14 @@
           @if (l.batches.length > 0) {
             <tr class="batch-row">
               <td></td>
-              <td colspan="8">
+              <td colspan="11">
                 <table class="batches" [attr.data-testid]="'batches-' + l.lineNo">
                   <thead><tr><th>Batch</th><th class="num">Unit cost</th><th class="num">Dispatched</th><th class="num">Received</th><th class="num">Damaged</th><th class="num">Written off</th><th class="num">Returned</th><th class="num">Outstanding</th></tr></thead>
                   <tbody>
                     @for (b of l.batches; track b.purchaseBatchId) {
                       <tr>
                         <td>{{ b.internalBatchNo }}</td>
-                        <td class="num">{{ b.unitCost }}</td>
+                        <td class="num" data-testid="batch-cost">{{ cost(b.unitCost) }}</td>
                         <td class="num">{{ base(l, b.dispatchedBaseQty) }}</td>
                         <td class="num">{{ base(l, b.receivedBaseQty) }}</td>
                         <td class="num">{{ base(l, b.damagedBaseQty) }}</td>
@@ -143,6 +153,29 @@
         }
       </tbody>
     </table>
+  </div>
+
+  <div class="detail-card">
+    <div class="card-title">History</div>
+    @if (historyError(); as e) {
+      <div class="server-error" role="alert" data-testid="history-error">{{ e }}</div>
+    }
+    <ul class="timeline" data-testid="history">
+      @for (h of history(); track $index) {
+        <li>
+          <strong>{{ h.action }}</strong>
+          @if (h.fromStatus || h.toStatus) {
+            <span class="muted"> · {{ h.fromStatus ? statusText(h.fromStatus) : '—' }} → {{ h.toStatus ? statusText(h.toStatus) : '—' }}</span>
+          }
+          <span class="muted"> · {{ h.at | date: 'd MMM y, HH:mm' }}{{ h.actorName ? ' · ' + h.actorName : '' }}</span>
+          @if (h.reason) {
+            <div class="note">{{ h.reason }}</div>
+          }
+        </li>
+      } @empty {
+        <li class="muted">No history yet.</li>
+      }
+    </ul>
   </div>
 
   @if (t.receipts.length > 0) {

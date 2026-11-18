@@ -150,6 +150,38 @@ else
 {
     app.Logger.LogInformation(
         "Database:ApplyMigrationsOnStartup is false; EF Core migrations and seed data were not applied on startup.");
+
+    // D10 guard: with startup migration off, a deployment can run code ahead of its schema (new tables/columns missing), which
+    // otherwise only shows up as failing queries. Report it loudly at startup; Database:FailOnPendingMigrations=true refuses to start.
+    var failOnPending = app.Configuration.GetValue("Database:FailOnPendingMigrations", false);
+    List<string> pending;
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        pending = (await scope.ServiceProvider.GetRequiredService<SelloraDbContext>().Database.GetPendingMigrationsAsync()).ToList();
+    }
+    catch (Exception ex) when (!failOnPending)
+    {
+        app.Logger.LogWarning(ex, "Could not check the database for pending EF Core migrations at startup.");
+        pending = [];
+    }
+
+    if (pending.Count > 0)
+    {
+        app.Logger.LogError(
+            "Database schema is behind the application: {Count} pending EF Core migration(s): {Migrations}. Requests that use the new " +
+            "tables/columns will fail until the reviewed idempotent migration script is applied (D10). /health reports 503 until then.",
+            pending.Count, string.Join(", ", pending));
+        if (failOnPending)
+        {
+            throw new InvalidOperationException(
+                $"Refusing to start: {pending.Count} pending EF Core migration(s) and Database:FailOnPendingMigrations is true.");
+        }
+    }
+    else
+    {
+        app.Logger.LogInformation("Database schema is up to date: no pending EF Core migrations.");
+    }
 }
 
 /*
@@ -184,7 +216,12 @@ app.MapControllers();
 app.MapGet("/health", async (SelloraDbContext db) =>
 {
     var canConnect = await db.Database.CanConnectAsync();
-    return canConnect ? Results.Ok(new { status = "healthy", database = "connected" }) : Results.StatusCode(503);
+    if (!canConnect) return Results.StatusCode(503);
+    // A schema behind the code is unhealthy (D10 guard). Only the count is public; names are in the startup log.
+    var pendingMigrations = (await db.Database.GetPendingMigrationsAsync()).Count();
+    return pendingMigrations == 0
+        ? Results.Ok(new { status = "healthy", database = "connected", pendingMigrations })
+        : Results.Json(new { status = "unhealthy", database = "connected", reason = "pending_migrations", pendingMigrations }, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
 app.Run();

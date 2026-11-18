@@ -122,7 +122,7 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.NotFound, pay.StatusCode);
         Assert.True(ret.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.BadRequest, "return of an invisible invoice: " + (int)ret.StatusCode);
         Assert.NotEqual(HttpStatusCode.OK, ret.StatusCode);
-        var after = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/sales/{saleId}"));
+        var after = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/sales/{saleId}", branch: y)); // FI-D11: the admin reads y with y as the active branch
         Assert.Equal(due, after.GetProperty("dueAmount").GetDecimal());
     }
 
@@ -182,7 +182,7 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         var options = (await GetJsonAsync(user, "/api/v1/financial-accounts/options")).EnumerateArray().Select(IdOf).ToArray();
         var transactions = await GetJsonAsync(user, "/api/v1/financial-transactions?pageSize=100");
         var accountIds = transactions.GetProperty("items").EnumerateArray().Select(t => t.TryGetProperty("accountId", out var a) && a.ValueKind == JsonValueKind.String ? a.GetGuid() : (Guid?)null).ToArray();
-        var adminTransactions = await JsonAsync(await w.SendAsync(HttpMethod.Get, "/api/v1/financial-transactions?pageSize=100"));
+        var adminTransactions = await JsonAsync(await w.SendAsync(HttpMethod.Get, "/api/v1/financial-transactions?pageSize=100", branch: y)); // FI-D11: admin reads at Y
 
         Assert.Contains(shared, accounts); Assert.DoesNotContain(tagY, accounts);
         Assert.Contains(shared, options); Assert.DoesNotContain(tagY, options);
@@ -206,7 +206,7 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
 
         var profit = await GetJsonAsync(user, "/api/v1/reports/profit-summary");
         var sales = Ids(await GetJsonAsync(user, "/api/v1/reports/sales?pageSize=100"));
-        var adminX = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/reports/profit-summary?branchId={x}"));
+        var adminX = await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/reports/profit-summary?branchId={x}", branch: x)); // FI-D11: branchId must be the active branch
 
         Assert.Equal(1, profit.GetProperty("invoiceCount").GetInt32());
         Assert.Equal(40m, profit.GetProperty("salesRevenue").GetDecimal());
@@ -348,13 +348,16 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         var (x, _) = await w.NewBranchAsync(); var (y, _) = await w.NewBranchAsync();
         var user = await r.CreateAsync("ru", r.StaffRoleId, CompanyAccessScope.AssignedBranches, [x, y], primary: x);
         var saleY = IdOf(await JsonAsync(await w.SaleAsync(y)));
-        Assert.Equal(HttpStatusCode.OK, (await user.Client.GetAsync($"/api/v1/sales/{saleY}")).StatusCode);
+        // FI-D11: reads cover the ACTIVE branch only (primary x without a header), so branch y is addressed explicitly.
+        Assert.Equal(HttpStatusCode.OK, (await SendAsAsync(r, user, HttpMethod.Get, $"/api/v1/sales/{saleY}", header: y)).StatusCode);
         var access = await r.GetAccessAsync(user.Id);
         var assignmentY = access.GetProperty("current").EnumerateArray().Single(a => a.GetProperty("branchId").GetGuid() == y).GetProperty("id").GetGuid();
 
         Assert.Equal(HttpStatusCode.OK, (await r.AccessAsync(HttpMethod.Post, user.Id, $"/assignments/{assignmentY}/end", new EndAssignmentRequest("rota change"))).StatusCode);
 
         Assert.Equal(HttpStatusCode.NotFound, (await user.Client.GetAsync($"/api/v1/sales/{saleY}")).StatusCode);
+        var detailWithHeader = await SendAsAsync(r, user, HttpMethod.Get, $"/api/v1/sales/{saleY}", header: y);
+        Assert.Equal(HttpStatusCode.Forbidden, detailWithHeader.StatusCode); // the same token can no longer even address y
         var header = await SendAsAsync(r, user, HttpMethod.Get, "/api/v1/sales", header: y);
         Assert.Equal("branch_access_denied", await header.ProblemCodeAsync());
         Assert.DoesNotContain(y, (await GetJsonAsync(user, "/api/v1/branches/accessible")).EnumerateArray().Select(IdOf));
@@ -368,10 +371,13 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         var user = await r.CreateAtAsync(x);
         var saleY = IdOf(await JsonAsync(await w.SaleAsync(y)));
         Assert.Equal(HttpStatusCode.NotFound, (await user.Client.GetAsync($"/api/v1/sales/{saleY}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await SendAsAsync(r, user, HttpMethod.Get, $"/api/v1/sales/{saleY}", header: y)).StatusCode);
 
         await RestrictedUserWorld.JsonOkAsync(await r.AccessAsync(HttpMethod.Post, user.Id, "/assignments", new AddAssignmentRequest(y, false, "cover")));
 
-        Assert.Equal(HttpStatusCode.OK, (await user.Client.GetAsync($"/api/v1/sales/{saleY}")).StatusCode);
+        // FI-D11: y is now allowed but still not the ACTIVE branch (primary x): it is read through the header.
+        Assert.Equal(HttpStatusCode.NotFound, (await user.Client.GetAsync($"/api/v1/sales/{saleY}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsAsync(r, user, HttpMethod.Get, $"/api/v1/sales/{saleY}", header: y)).StatusCode);
     }
 
     [Fact]
@@ -383,10 +389,11 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         var saleY = IdOf(await JsonAsync(await w.SaleAsync(y)));
 
         await RestrictedUserWorld.JsonOkAsync(await r.AccessAsync(HttpMethod.Put, user.Id, "/scope", new SetAccessScopeRequest(CompanyAccessScope.CompanyWide, null, null, "promoted")));
-        Assert.Equal(HttpStatusCode.OK, (await user.Client.GetAsync($"/api/v1/sales/{saleY}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsAsync(r, user, HttpMethod.Get, $"/api/v1/sales/{saleY}", header: y)).StatusCode); // FI-D11: active branch via header
 
         await RestrictedUserWorld.JsonOkAsync(await r.AccessAsync(HttpMethod.Put, user.Id, "/scope", new SetAccessScopeRequest(CompanyAccessScope.AssignedBranches, [x], x, "demoted")));
         Assert.Equal(HttpStatusCode.NotFound, (await user.Client.GetAsync($"/api/v1/sales/{saleY}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await SendAsAsync(r, user, HttpMethod.Get, $"/api/v1/sales/{saleY}", header: y)).StatusCode);
     }
 
     [Fact]
@@ -426,7 +433,7 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         Assert.DoesNotContain(whYId, warehouses); Assert.Contains(whCompanyId, warehouses);
         Assert.Equal(HttpStatusCode.NotFound, (await user.Client.GetAsync($"/api/v1/warehouses/{whYId}")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await user.Client.GetAsync($"/api/v1/warehouses/{whCompanyId}")).StatusCode);
-        var yStore = (await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/stock-locations?branchId={y}"))).EnumerateArray().First(l => l.GetProperty("locationType").GetString() == "BranchStore");
+        var yStore = (await JsonAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/stock-locations?branchId={y}", branch: y))).EnumerateArray().First(l => l.GetProperty("locationType").GetString() == "BranchStore");
         Assert.Equal(HttpStatusCode.NotFound, (await user.Client.GetAsync($"/api/v1/stock-locations/{IdOf(yStore)}")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await user.Client.GetAsync($"/api/v1/stock-locations?branchId={y}")).StatusCode);
     }
@@ -490,7 +497,7 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         var r = await RestrictedUserWorld.GetWorldAsync(postgres); var w = r.World;
         var (x, _) = await w.NewBranchAsync(); var (y, _) = await w.NewBranchAsync();
         // 8b: a branch sells from its OWN store, so a batch of another branch's purchase can only sit at x's store after a transfer (Phase 9):
-        // purchase at y's store, then a real transfer y -> x (create, approve, dispatch at y; receive at x).
+        // purchase at y's store, then a transfer y -> x (create, approve, legacy-dispatched state seeded; receive at x).
         var purchaseY = await JsonAsync(await w.PurchaseAsync(y, qty: 4000m));
         var yStore = await StoreOfAsync(w, y); var xStore = await StoreOfAsync(w, x);
         var transfer = await RestrictedUserWorld.JsonOkAsync(await w.SendAsync(HttpMethod.Post, "/api/v1/stock-transfers",
@@ -498,9 +505,10 @@ public class RestrictedUserApiTests(PostgresFixture postgres)
         var transferId = IdOf(transfer);
         var approved = await RestrictedUserWorld.JsonOkAsync(await w.SendAsync(HttpMethod.Post, $"/api/v1/stock-transfers/{transferId}/approve", branch: y));
         var lineId = approved.GetProperty("lines")[0].GetProperty("id").GetGuid();
-        var dispatched = await RestrictedUserWorld.JsonOkAsync(await w.SendAsync(HttpMethod.Post, $"/api/v1/stock-transfers/{transferId}/dispatch",
-            new DispatchStockTransferRequest([new DispatchStockTransferLineRequest(lineId, w.ProductUnitId, 4000m)]), branch: y));
-        Assert.Equal("Dispatched", dispatched.GetProperty("status").GetString());
+        await using (var seedDb = w.Host.Database.CreateDbContext(w.CompanyId)) // FI-D3: production dispatches through shipments; seed the legacy-dispatched state this receive scenario needs
+        {
+            await Sellora.IntegrationTests.TestData.LegacyTransferSeed.DispatchAsync(seedDb, w.AdminId, transferId, [new Sellora.Domain.Stock.DispatchStockTransferLineInput(lineId, w.ProductUnitId, 4000m)]);
+        }
         var received = await RestrictedUserWorld.JsonOkAsync(await w.SendAsync(HttpMethod.Post, $"/api/v1/stock-transfers/{transferId}/receipts",
             new ReceiveStockTransferRequest(null, [new ReceiveStockTransferLineRequest(lineId, w.ProductUnitId, 4000m, 0m)]), branch: x));
         Assert.Equal("Completed", received.GetProperty("transfer").GetProperty("status").GetString());

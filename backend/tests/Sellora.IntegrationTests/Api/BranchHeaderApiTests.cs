@@ -149,7 +149,8 @@ public class BranchHeaderApiTests(PostgresFixture postgres)
         var w = await GetAsync(postgres);
         var (id, _) = await w.NewBranchAsync();
 
-        Assert.Equal(HttpStatusCode.OK, (await w.SendAsync(HttpMethod.Get, $"{route}?branchId={id}")).StatusCode);
+        // FI-D11: an explicit branchId is accepted for the ACTIVE branch (header) — a different allowed branch needs scope=company.
+        Assert.Equal(HttpStatusCode.OK, (await w.SendAsync(HttpMethod.Get, $"{route}?branchId={id}", branch: id)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await w.SendAsync(HttpMethod.Get, route)).StatusCode);
     }
 }

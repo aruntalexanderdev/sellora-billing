@@ -2,8 +2,8 @@ import type { ApiProblem } from '../../../core/auth/auth.models';
 import { problemMessage } from '../../../core/http/api-errors';
 import { IdempotentSubmission } from '../../../core/idempotency';
 import { convert, formatQuantity, hasAtMostDecimals, round10 } from '../../../shared/units/unit-conversion';
+import { STOCK_TRANSFER_STATUS_LABELS } from './stock-transfers.models';
 import type {
-  DispatchStockTransferRequest,
   ReceiveStockTransferRequest,
   ResolveStockTransferRequest,
   StockTransferLine,
@@ -12,7 +12,7 @@ import type {
 } from './stock-transfers.models';
 
 /** Phase 9 D2 state machine + D8 permissions, as the UI needs them (the server stays authoritative). */
-export type TransferAction = 'edit' | 'submit' | 'approve' | 'reject' | 'cancel' | 'dispatch' | 'receive' | 'resolve';
+export type TransferAction = 'edit' | 'submit' | 'approve' | 'reject' | 'cancel' | 'receive' | 'resolve' | 'close';
 
 const ACTION_PERMISSION: Record<TransferAction, string> = {
   edit: 'StockTransfers.Create',
@@ -20,9 +20,9 @@ const ACTION_PERMISSION: Record<TransferAction, string> = {
   approve: 'StockTransfers.Approve',
   reject: 'StockTransfers.Approve',
   cancel: 'StockTransfers.Cancel',
-  dispatch: 'StockTransfers.Dispatch',
   receive: 'StockTransfers.Receive',
   resolve: 'StockTransfers.Resolve',
+  close: 'StockTransfers.Approve',
 };
 
 const ACTION_STATUSES: Record<TransferAction, readonly StockTransferStatus[]> = {
@@ -31,12 +31,12 @@ const ACTION_STATUSES: Record<TransferAction, readonly StockTransferStatus[]> = 
   approve: ['Requested'],
   reject: ['Requested'],
   cancel: ['Draft', 'Requested', 'Approved'],
-  dispatch: ['Approved'],
   receive: ['Dispatched', 'PartiallyReceived'],
   resolve: ['Dispatched', 'PartiallyReceived'],
+  close: ['Approved', 'PartiallyFulfilled'],
 };
 
-export const ACTION_ORDER: readonly TransferAction[] = ['edit', 'submit', 'approve', 'reject', 'dispatch', 'receive', 'resolve', 'cancel'];
+export const ACTION_ORDER: readonly TransferAction[] = ['edit', 'submit', 'approve', 'reject', 'receive', 'resolve', 'close', 'cancel'];
 
 export function hasOutstanding(lines: readonly Pick<StockTransferLine, 'outstandingBaseQty'>[]): boolean {
   return lines.some((l) => l.outstandingBaseQty > 0);
@@ -44,13 +44,15 @@ export function hasOutstanding(lines: readonly Pick<StockTransferLine, 'outstand
 
 /** Actions to offer: permission AND status (receive / resolve additionally need goods still in transit). */
 export function availableActions(
-  transfer: { status: StockTransferStatus; lines: readonly Pick<StockTransferLine, 'outstandingBaseQty'>[] },
+  transfer: { status: StockTransferStatus; lines: readonly Pick<StockTransferLine, 'outstandingBaseQty' | 'dispatchedBaseQty'>[] },
   hasPermission: (code: string) => boolean,
 ): TransferAction[] {
   return ACTION_ORDER.filter((a) => {
     if (!ACTION_STATUSES[a].includes(transfer.status)) return false;
     if (!hasPermission(ACTION_PERMISSION[a])) return false;
     if ((a === 'receive' || a === 'resolve') && !hasOutstanding(transfer.lines)) return false;
+    // Close remaining: PartiallyFulfilled, or Approved with something already dispatched (the server checks allocations).
+    if (a === 'close' && transfer.status === 'Approved' && !transfer.lines.some((l) => l.dispatchedBaseQty > 0)) return false;
     return true;
   });
 }
@@ -59,15 +61,44 @@ export function actionPermission(action: TransferAction): string {
   return ACTION_PERMISSION[action];
 }
 
+export function statusLabel(status: StockTransferStatus): string {
+  return STOCK_TRANSFER_STATUS_LABELS[status] ?? status;
+}
+
+/** Inverse of statusLabel for the list filter dropdown; null when the text is not a status label. */
+export function statusFromLabel(label: string): StockTransferStatus | null {
+  const hit = (Object.entries(STOCK_TRANSFER_STATUS_LABELS) as [StockTransferStatus, string][]).find(([, l]) => l === label);
+  return hit ? hit[0] : null;
+}
+
+export const CLOSE_REASON_MAX = 500;
+
+export function validateCloseReason(reason: string | null | undefined): string | null {
+  const text = (reason ?? '').trim();
+  if (!text) return 'A reason is required.';
+  if (text.length > CLOSE_REASON_MAX) return `Reason can be at most ${CLOSE_REASON_MAX} characters.`;
+  return null;
+}
+
+/** Server 400 on close (keys `reason`, `status`) -> one message; null when the problem has no field errors. */
+export function closeProblemMessage(problem: ApiProblem | null | undefined): string | null {
+  const errors = problem?.errors ?? {};
+  const msgs = ['reason', 'status'].flatMap((k) => Object.entries(errors).filter(([f]) => f.toLowerCase() === k).flatMap(([, m]) => m));
+  return msgs.length > 0 ? msgs.join(' ') : null;
+}
+
 export function statusTone(status: StockTransferStatus): 'good' | 'warn' | 'bad' | 'info' | 'mute' {
   switch (status) {
     case 'Completed':
+    case 'Fulfilled':
       return 'good';
     case 'Rejected':
     case 'Cancelled':
       return 'bad';
     case 'Dispatched':
     case 'PartiallyReceived':
+    case 'PartiallyFulfilled':
+    case 'Closed':
       return 'warn';
     case 'Requested':
     case 'Approved':
@@ -134,33 +165,6 @@ export interface RowErrors {
 }
 
 export const hasErrors = (e: RowErrors): boolean => Object.keys(e.rows).length > 0 || e.form !== null;
-
-// ---- Dispatch ----
-
-export interface DispatchRow {
-  lineId: string;
-  unit: UnitRef | null;
-  quantity: number | null;
-  requestedBaseQty: number;
-}
-
-/** Every line is listed; 0 = not shipped; dispatched <= requested (base); at least one line > 0 (Phase 9 D3). */
-export function validateDispatch(rows: readonly DispatchRow[]): RowErrors {
-  const errors: RowErrors = { rows: {}, form: null };
-  rows.forEach((r, i) => {
-    const e = qtyError(r.quantity, r.unit, 'Enter a quantity (0 = not shipped).');
-    if (e) errors.rows[i] = e;
-    else if (r.unit && round10(r.quantity! * r.unit.conversionFactorToBase) > r.requestedBaseQty) {
-      errors.rows[i] = 'Cannot dispatch more than requested.';
-    }
-  });
-  if (!hasErrors(errors) && !rows.some((r) => r.quantity! > 0)) errors.form = 'Dispatch at least one line (every line is 0).';
-  return errors;
-}
-
-export function buildDispatchRequest(rows: readonly DispatchRow[]): DispatchStockTransferRequest {
-  return { lines: rows.map((r) => ({ lineId: r.lineId, productUnitId: r.unit!.id, quantity: r.quantity! })) };
-}
 
 // ---- Receive ----
 

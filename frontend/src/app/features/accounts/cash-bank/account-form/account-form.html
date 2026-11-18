@@ -37,6 +37,18 @@
       </div>
     </div>
 
+    @if (kind() === 'Bank') {
+      <label class="field-label" style="margin-top: 16px">Overdraft limit</label>
+      <input type="number" step="0.01" min="0" formControlName="overdraftLimit" class="field-input" data-testid="overdraft-limit" />
+      <div class="field-hint">How far below zero this account may go. Transfers and reversals beyond it are rejected. 0 = no overdraft.</div>
+      @if (form.controls.overdraftLimit.errors?.['min']) {
+        <div class="field-error">Overdraft limit can't be negative.</div>
+      }
+      @if (form.controls.overdraftLimit.errors?.['server']) {
+        <div class="field-error">{{ form.controls.overdraftLimit.errors?.['server'] }}</div>
+      }
+    }
+
     @if (!isEdit()) {
       <div class="grid-2">
         <div>

@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { permissionGuard, requiresBranchGuard } from '../../core/auth/auth.guard';
+import { permissionGuard } from '../../core/auth/auth.guard';
 import { unsavedChangesGuard } from '../../core/unsaved-changes.guard';
 
 export const INVENTORY_ROUTES: Routes = [
@@ -38,9 +38,9 @@ export const INVENTORY_ROUTES: Routes = [
   {
     path: 'stock-adjustments/new',
     loadComponent: () => import('./stock-adjustments/stock-adjustment-form/stock-adjustment-form').then((m) => m.StockAdjustmentForm),
-    canActivate: [permissionGuard('Inventory.Adjust'), requiresBranchGuard],
+    canActivate: [permissionGuard('Inventory.Adjust')],
     canDeactivate: [unsavedChangesGuard],
-    data: { group: 'Inventory', page: 'Adjust Stock', requiresBranch: true },
+    data: { group: 'Inventory', page: 'Adjust Stock' },
   },
   {
     path: 'stock-adjustments/:id',
@@ -55,6 +55,12 @@ export const INVENTORY_ROUTES: Routes = [
     data: { group: 'Inventory', page: 'Stock Details' },
   },
   {
+    path: 'categories',
+    loadComponent: () => import('../masters/product-categories/product-categories').then((m) => m.ProductCategories),
+    canActivate: [permissionGuard(['Inventory.View', 'Inventory.Categories'])],
+    data: { group: 'Inventory', page: 'Product Categories' },
+  },
+  {
     path: 'pricing',
     loadComponent: () => import('./pricing/pricing-page/pricing-page').then((m) => m.PricingPage),
     canActivate: [permissionGuard('Inventory.Price')],
@@ -67,23 +73,72 @@ export const INVENTORY_ROUTES: Routes = [
     data: { group: 'Inventory', page: 'Stock Transfers' },
   },
   {
+    path: 'stock-transfers/ready-for-shipment',
+    loadComponent: () => import('./stock-transfers/ready-for-shipment/ready-for-shipment').then((m) => m.ReadyForShipment),
+    canActivate: [permissionGuard('StockTransfers.Dispatch')],
+    data: { group: 'Inventory', page: 'Ready for shipment' },
+  },
+  {
     path: 'stock-transfers/new',
     loadComponent: () => import('./stock-transfers/stock-transfer-form/stock-transfer-form').then((m) => m.StockTransferForm),
-    canActivate: [permissionGuard('StockTransfers.Create'), requiresBranchGuard],
+    canActivate: [permissionGuard('StockTransfers.Create')],
     canDeactivate: [unsavedChangesGuard],
-    data: { group: 'Inventory', page: 'New transfer', requiresBranch: true },
+    data: { group: 'Inventory', page: 'New transfer' },
   },
   {
     path: 'stock-transfers/:id/edit',
     loadComponent: () => import('./stock-transfers/stock-transfer-form/stock-transfer-form').then((m) => m.StockTransferForm),
-    canActivate: [permissionGuard('StockTransfers.Create'), requiresBranchGuard],
+    canActivate: [permissionGuard('StockTransfers.Create')],
     canDeactivate: [unsavedChangesGuard],
-    data: { group: 'Inventory', page: 'Edit transfer', requiresBranch: true },
+    data: { group: 'Inventory', page: 'Edit transfer' },
   },
   {
     path: 'stock-transfers/:id',
     loadComponent: () => import('./stock-transfers/stock-transfer-detail/stock-transfer-detail').then((m) => m.StockTransferDetail),
     canActivate: [permissionGuard('StockTransfers.View')],
     data: { group: 'Inventory', page: 'Transfer details' },
+  },
+  {
+    path: 'shipments',
+    loadComponent: () => import('./shipments/shipment-list/shipment-list').then((m) => m.ShipmentList),
+    canActivate: [permissionGuard('Shipments.View')],
+    data: { group: 'Inventory', page: 'Shipments' },
+  },
+  {
+    path: 'shipments/new',
+    loadComponent: () => import('./shipments/shipment-form/shipment-form').then((m) => m.ShipmentForm),
+    canActivate: [permissionGuard('Shipments.Plan')],
+    canDeactivate: [unsavedChangesGuard],
+    data: { group: 'Inventory', page: 'New shipment' },
+  },
+  {
+    path: 'shipments/:id',
+    loadComponent: () => import('./shipments/shipment-detail/shipment-detail').then((m) => m.ShipmentDetail),
+    canActivate: [permissionGuard('Shipments.View')],
+    data: { group: 'Inventory', page: 'Shipment' },
+  },
+  {
+    path: 'consignments',
+    loadComponent: () => import('./consignments/consignment-list/consignment-list').then((m) => m.ConsignmentList),
+    canActivate: [permissionGuard(['Shipments.View', 'StockTransfers.Receive', 'StockTransfers.View'])],
+    data: { group: 'Inventory', page: 'Consignments' },
+  },
+  {
+    path: 'consignments/:id',
+    loadComponent: () => import('./consignments/consignment-detail/consignment-detail').then((m) => m.ConsignmentDetailPage),
+    canActivate: [permissionGuard(['Shipments.View', 'StockTransfers.Receive', 'StockTransfers.View'])],
+    data: { group: 'Inventory', page: 'Consignment' },
+  },
+  {
+    path: 'transit',
+    loadComponent: () => import('./transit/transit-page/transit-page').then((m) => m.TransitPage),
+    canActivate: [permissionGuard(['Shipments.View', 'StockTransfers.Receive', 'StockTransfers.View'])],
+    data: { group: 'Inventory', page: 'Transit' },
+  },
+  {
+    path: 'stock-reservations',
+    loadComponent: () => import('./stock-reservations/reservation-list/reservation-list').then((m) => m.ReservationList),
+    canActivate: [permissionGuard('Shipments.View')],
+    data: { group: 'Inventory', page: 'Stock reservations' },
   },
 ];

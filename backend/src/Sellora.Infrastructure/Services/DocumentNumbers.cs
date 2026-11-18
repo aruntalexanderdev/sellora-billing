@@ -16,6 +16,8 @@ internal static class DocumentSeries
     public const string StockAdjustment = "ADJ";
     public const string Expense = "EXP";
     public const string Transfer = "TRF";
+    public const string Shipment = "SHP";
+    public const string Consignment = "CON";
 }
 
 /// <summary>

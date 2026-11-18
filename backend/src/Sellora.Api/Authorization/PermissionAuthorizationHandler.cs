@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Abstractions;
 using Sellora.Infrastructure.Data;
 
@@ -12,7 +11,7 @@ namespace Sellora.Api.Authorization;
 /// scope to those branches so other branches' documents are invisible. Scoped (reads the membership context and database).
 /// </summary>
 public sealed class PermissionAuthorizationHandler(
-    IEffectivePermissionService permissions, IMembershipContext membership, BranchContext branchContext, SelloraDbContext db)
+    IEffectivePermissionService permissions, IMembershipContext membership, BranchContext branchContext)
     : AuthorizationHandler<PermissionRequirement>
 {
     protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
@@ -21,24 +20,23 @@ public sealed class PermissionAuthorizationHandler(
 
         var ct = (context.Resource as HttpContext)?.RequestAborted ?? CancellationToken.None;
         var set = await permissions.GetCurrentAsync(ct);
-        var permitted = set.PermittedBranches(requirement.PermissionCode);
-
-        if (permitted is null)
+        // Any-of: a company-wide grant of any listed code passes; otherwise the branch scopes of every held code are unioned (one code = the single-code rule).
+        HashSet<Guid>? union = null;
+        foreach (var code in requirement.PermissionCodes)
         {
-            context.Succeed(requirement);
-            return;
+            var held = set.PermittedBranches(code);
+            if (held is null)
+            {
+                context.Succeed(requirement);
+                return;
+            }
+            (union ??= []).UnionWith(held);
         }
+        IReadOnlySet<Guid> permitted = union ?? [];
         if (permitted.Count == 0) return;
 
-        var working = branchContext.RequestedBranchId ?? branchContext.PrimaryBranchId;
-        if (working is null)
-        {
-            var companyId = db.CompanyContext.CompanyId;
-            working = await db.Branches.IgnoreQueryFilters([CompanyQueryFilter.Name])
-                .Where(b => b.CompanyId == companyId && b.IsDefault)
-                .Select(b => (Guid?)b.Id)
-                .FirstOrDefaultAsync(ct);
-        }
+        // Active branch is resolved once by CompanyContextMiddleware (header, primary, company default).
+        var working = branchContext.ActiveBranchId;
         if (working is not { } id || !permitted.Contains(id) || !branchContext.CanAccess(id)) return;
 
         branchContext.Narrow(permitted);

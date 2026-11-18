@@ -6,6 +6,8 @@
   <button type="button" class="report-print-btn" (click)="print()">Print</button>
 </div>
 
+<ui-company-view-toggle permission="Reports.Accounts" (changed)="onCompanyViewChange()" />
+
 <div class="report-filters no-print">
   <app-report-date-filter
     [from]="dateFrom()" [to]="dateTo()"
@@ -48,6 +50,21 @@
       </tbody>
     </table>
   </div>
+
+  <h2 class="report-section">Capital, loans and other funding</h2>
+  <div class="report-table-wrap" data-testid="funding-section">
+    <table class="report-table">
+      <tbody>
+        @for (f of r.fundingBySource; track f.source) {
+          <tr><td class="indent">{{ sourceLabel(f.source) }}</td><td class="num">{{ fmt(f.amount) }}</td></tr>
+        } @empty {
+          <tr><td class="indent muted">No funding recorded in this period.</td><td class="num">{{ fmt(0) }}</td></tr>
+        }
+        <tr class="total-row"><td>Total funding</td><td class="num" data-testid="funding-total">{{ fmt(r.fundingTotal) }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="report-note">Funding is shown separately and is not part of money received from customers above.</p>
 
   @if (r.months.length > 0) {
     <h2 class="report-section">By month</h2>

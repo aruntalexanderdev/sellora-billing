@@ -1,7 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { StockTransfersService, stockTransferListParams } from './stock-transfers.service';
+import { StockTransfersService, readyForShipmentParams, stockTransferListParams } from './stock-transfers.service';
 
 describe('stockTransferListParams', () => {
   it('sends paging and only the filters that are set', () => {
@@ -33,11 +33,30 @@ describe('StockTransfersService', () => {
 
     service.reject('t1', 'no', 'k').subscribe();
     expect(http.expectOne((r) => r.url.endsWith('/t1/reject')).request.body).toEqual({ reason: 'no' });
-    service.dispatch('t1', { lines: [] }, 'k2').subscribe();
-    expect(http.expectOne((r) => r.url.endsWith('/t1/dispatch')).request.headers.get('Idempotency-Key')).toBe('k2');
     service.receive('t1', { notes: null, lines: [] }, 'k3').subscribe();
     expect(http.expectOne((r) => r.url.endsWith('/t1/receipts')).request.headers.get('Idempotency-Key')).toBe('k3');
     service.resolve('t1', { reason: 'r', lines: [] }, 'k4').subscribe();
     expect(http.expectOne((r) => r.url.endsWith('/t1/resolve')).request.headers.get('Idempotency-Key')).toBe('k4');
+  });
+});
+
+describe('Phase 03 service calls', () => {
+  it('readyForShipmentParams sends paging, filters and scope only when the Company view is on', () => {
+    expect(readyForShipmentParams({}, false)).toEqual({ page: '1', pageSize: '20' });
+    expect(readyForShipmentParams({ sourceLocationId: 's', search: 'TRF', page: 2, pageSize: 10 }, true)).toEqual({ page: '2', pageSize: '10', sourceLocationId: 's', search: 'TRF', scope: 'company' });
+  });
+
+  it('close, ready-for-shipment and history hit the contract routes', () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    const service = TestBed.inject(StockTransfersService);
+    const http = TestBed.inject(HttpTestingController);
+    service.close('t1', 'why', 'k').subscribe();
+    const close = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/stock-transfers/t1/close'));
+    expect(close.request.body).toEqual({ reason: 'why' });
+    service.readyForShipment({ sourceLocationId: 's' }).subscribe();
+    const q = http.expectOne((r) => r.url.endsWith('/stock-transfers/ready-for-shipment'));
+    expect(q.request.params.get('sourceLocationId')).toBe('s');
+    service.history('t1').subscribe();
+    http.expectOne((r) => r.method === 'GET' && r.url.endsWith('/stock-transfers/t1/history'));
   });
 });

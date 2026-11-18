@@ -28,6 +28,10 @@ describe('shell navigation', () => {
       ['Company.Vehicles.View', '/company/vehicles'],
       ['StockLocations.View', '/company/stock-locations'],
       ['StockTransfers.View', '/inventory/stock-transfers'],
+      ['Shipments.View', '/inventory/shipments'],
+      ['Shipments.View', '/inventory/stock-reservations'],
+      ['StockTransfers.Receive', '/inventory/consignments'],
+      ['StockTransfers.Receive', '/inventory/transit'],
       ['Sales.Create', '/sales/van'],
     ];
     for (const [perm, link] of cases) {

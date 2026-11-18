@@ -1,0 +1,42 @@
+<div class="page-head">
+  <div>
+    <h1>Shipments</h1>
+    <p>Plan how approved transfer requests leave a source location: vehicles, consignments per destination, and loading.</p>
+  </div>
+  <div class="head-actions">
+    @if (canPlan()) {
+      <ui-button variant="primary" data-testid="new-shipment" (onClick)="goToCreate()">+ New shipment</ui-button>
+    }
+  </div>
+</div>
+
+<ui-company-view-toggle permission="Shipments.View" (changed)="onCompanyViewChange()" />
+
+<div class="report-filters">
+  <div class="report-filter-field" data-testid="source-filter">
+    <label class="report-filter-label">Source</label>
+    <app-location-select purpose="filter" label="Source" allLabel="All sources" [value]="sourceLocationId()" (valueChange)="onSourceChange($event)" />
+  </div>
+</div>
+
+<app-load-error [message]="errorMessage()" />
+
+<ui-data-table
+  [cols]="cols"
+  [rows]="rows()"
+  [state]="state()"
+  [showSearch]="true"
+  [searchValue]="search()"
+  searchPlaceholder="Search shipment, consignment, reference, provider…"
+  (searchChange)="onSearch($event)"
+  [filters]="filters()"
+  emptyTitle="No shipments match these filters"
+  emptyBody="Clear the filters, or plan a new shipment."
+  [emptyAction]="canPlan() ? '+ New shipment' : null"
+  (emptyActionClick)="goToCreate()"
+  (retry)="retry()"
+  [footerText]="total() + ' shipment' + (total() === 1 ? '' : 's')"
+  [page]="page()"
+  [hasMore]="hasMore()"
+  (pageChange)="onPageChange($event)"
+/>

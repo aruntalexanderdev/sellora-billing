@@ -1,4 +1,5 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, effect, inject } from '@angular/core';
+import { ContextService } from '../../../core/context/context.service';
 import { Observable, shareReplay } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { ProductsService } from '../products/products.service';
@@ -10,6 +11,15 @@ import type { UnitRef } from './stock-transfer-rules';
 export class ProductUnitsLookup {
   private readonly products = inject(ProductsService);
   private readonly cache = new Map<string, Observable<ProductUnit[]>>();
+
+  constructor() {
+    // Branch/permission context changed: drop cached lookups so nothing is served across branches.
+    const context = inject(ContextService);
+    effect(() => {
+      context.contextVersion();
+      this.cache.clear();
+    });
+  }
 
   units(productId: string): Observable<ProductUnit[]> {
     let cached = this.cache.get(productId);

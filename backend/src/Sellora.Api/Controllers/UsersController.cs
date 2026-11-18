@@ -29,7 +29,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         pageSize = Math.Clamp(pageSize, 1, 100);
 
         var companyId = db.CompanyContext.RequireCompanyId();
-        var query = CompanyUsers().AsQueryable();
+        var query = VisibleUsers().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -125,7 +125,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     [Authorize(Policy = "Users.View")]
     public async Task<ActionResult<UserDetailDto>> Get(Guid id, CancellationToken ct)
     {
-        var user = await CompanyUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await VisibleUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
         return Ok(await BuildDetailAsync(user, ct));
     }
@@ -216,7 +216,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
-        var user = await CompanyUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await VisibleUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         var actor = access.Actor;
@@ -234,7 +234,10 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         }
         // Phase 7 compat: RoleId = "set the single company role". Unchanged = the user's only Active company role.
         var currentRoleIds = (await ActiveRolesAsync([user.Id], ct)).GetValueOrDefault(user.Id)?.Where(r => r.ScopeType == RoleScope.Company).Select(r => r.Id).ToList() ?? [];
-        var roleChanged = request.RoleId is { } requested && !(currentRoleIds.Count == 1 && currentRoleIds[0] == requested);
+        // FI-D14: a branch-scoped actor can only reach users without a company role and can never set one (R4), so RoleId is not a role change
+        // for them - this endpoint edits the profile; branch roles go through role-assignments.
+        var roleChanged = actor.IsCompanyWide
+            && request.RoleId is { } requested && !(currentRoleIds.Count == 1 && currentRoleIds[0] == requested);
         // Nobody changes their own role. Together with "only Administrators change Administrator accounts",
         // "nobody disables themselves" and the access-management lock (which re-loads the caller, so two
         // Administrators cannot remove each other concurrently), at least one active Administrator always remains.
@@ -244,11 +247,14 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         }
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
+        var before = new { user.FirstName, user.LastName, user.Username, user.Email, user.PhoneNumber };
         user.FirstName = request.FirstName.Trim();
         user.LastName = request.LastName.Trim();
         user.Username = request.Username.Trim();
         user.Email = request.Email.Trim();
         user.PhoneNumber = request.PhoneNumber;
+        AppendAudit(actor, AuditActions.UserUpdated, user.Id, before,
+            new { user.FirstName, user.LastName, user.Username, user.Email, user.PhoneNumber, RoleId = roleChanged ? request.RoleId : null });
         await db.SaveChangesAsync(ct);
 
         if (roleChanged)
@@ -276,7 +282,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     public async Task<IActionResult> SetStatus(Guid id, SetUserStatusRequest request, CancellationToken ct)
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
-        var user = await CompanyUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await VisibleUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         var actor = access.Actor;
@@ -289,7 +295,9 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
 
         if (await ProtectedTargetAsync(user.Id, actor, ct) is { } protectedResult) return protectedResult;
 
+        var previousStatus = user.Status;
         user.Status = request.Status;
+        AppendAudit(actor, AuditActions.UserStatusChanged, user.Id, new { Status = previousStatus.ToString() }, new { Status = request.Status.ToString() });
         await db.SaveChangesAsync(ct);
         // Phase 7 D9 (defence in depth): disabling the last company-wide Administrator is refused (the scope rolls back on failure).
         if (request.Status == UserStatus.Disabled && await TargetHoldsAdministratorAsync(user.Id, ct))
@@ -312,7 +320,7 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     public async Task<ActionResult<ResetPasswordResponse>> ResetPassword(Guid id, CancellationToken ct)
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
-        var user = await CompanyUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
+        var user = await VisibleUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         var actor = access.Actor;
@@ -323,6 +331,8 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
 
         var temporaryPassword = GenerateTemporaryPassword();
         user.PasswordHash = passwordHasher.Hash(temporaryPassword);
+        // Never the password or hash: the event only records that a reset happened.
+        AppendAudit(actor, AuditActions.UserPasswordReset, user.Id, null, new { PasswordReset = true });
         await db.SaveChangesAsync(ct);
         await access.CommitAsync(ct);
 
@@ -335,6 +345,48 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     {
         var companyId = db.CompanyContext.RequireCompanyId();
         return db.Users.Where(u => db.UserCompanyMemberships.Any(m => m.UserId == u.Id && m.CompanyId == companyId));
+    }
+
+    /// <summary>
+    /// Phase 01 (FI-D14): company users the actor may see/administer. A CompanyWide actor (allowed set null) sees every company user; a branch-scoped
+    /// actor only users whose active branch allocations all lie within the actor's branches and who hold no active company-scope role (else 404).
+    /// </summary>
+    private IQueryable<User> VisibleUsers()
+    {
+        var query = CompanyUsers();
+        if (db.BranchContext.AllowedBranchIds is not { } allowedSet) return query;
+
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var allowed = allowedSet.ToArray();
+        // FI-D14: a branch-limited actor reaches only users that work wholly inside its branches - an AssignedBranches membership with at least
+        // one active allocation, every active allocation and every active branch role inside the actor's branches, and no company role.
+        // Company-wide members and users without any allocation are company administration (404 for the branch actor).
+        return query.Where(u => db.UserCompanyMemberships.Any(m => m.UserId == u.Id && m.CompanyId == companyId
+            && m.AccessScope == CompanyAccessScope.AssignedBranches
+            && db.UserBranchAssignments.Any(a => a.CompanyId == companyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active)
+            && !db.UserBranchAssignments.Any(a => a.CompanyId == companyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active && !allowed.Contains(a.BranchId))
+            && !db.UserRoleAssignments.Any(r => r.CompanyId == companyId && r.UserCompanyMembershipId == m.Id && r.Status == AssignmentStatus.Active
+                && (r.ScopeType == RoleScope.Company || (r.BranchId != null && !allowed.Contains(r.BranchId.Value))))));
+    }
+
+    private void AppendAudit(AccessManagementActor actor, string action, Guid targetUserId, object? before, object? after)
+    {
+        var json = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        var correlation = HttpContext.TraceIdentifier;
+        db.AuditEvents.Add(new AuditEvent
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = db.CompanyContext.RequireCompanyId(),
+            OccurredAt = DateTimeOffset.UtcNow,
+            ActorUserId = actor.UserId,
+            Action = action,
+            TargetType = AuditTargets.User,
+            TargetId = targetUserId,
+            SubjectUserId = targetUserId,
+            Before = before is null ? null : System.Text.Json.JsonSerializer.Serialize(before, json),
+            After = after is null ? null : System.Text.Json.JsonSerializer.Serialize(after, json),
+            CorrelationId = correlation is { Length: > 64 } ? correlation[..64] : correlation,
+        });
     }
 
     private async Task<bool> TargetHoldsAdministratorAsync(Guid userId, CancellationToken ct)

@@ -128,36 +128,6 @@ public class StockTransferPermissionTests
         Assert.Equal(StockTransferStatus.Approved, approved!.Status);
     }
 
-    [Fact]
-    public async Task Dispatch_NeedsTheSourceToFit_AndTheCompanyLevelCodeBypasses()
-    {
-        var (w, t) = await AtAsync(StockTransferStatus.Approved);
-        var line = t.Lines.Single();
-        var input = new DispatchStockTransferInput([new DispatchStockTransferLineInput(line.Id, w.Box, 2m)]);
-
-        Assert.Equal("stockLocationId", await FieldOrNullAsync(() => w.DispatchAsync(t.Id, input, w.Blr, None)));
-        Assert.Equal("stockLocationId", await FieldOrNullAsync(() => w.DispatchAsync(t.Id, input, w.Blr, Only("StockTransfers.Receive"))));
-        Assert.Equal(StockTransferStatus.Approved, (await w.ReloadAsync(t.Id)).Status);
-        Assert.Equal(0m, await w.QohAsync(w.L.Transit));
-
-        await w.DispatchAsync(t.Id, input, w.Blr, Only("StockTransfers.Dispatch")); // company-wide Dispatch: any working branch
-        Assert.Equal(StockTransferStatus.Dispatched, (await w.ReloadAsync(t.Id)).Status);
-    }
-
-    [Fact]
-    public async Task Dispatch_FromAnotherBranchsVehicle_IsRefusedWithoutTheCode_EvenForAHolderAtTheWorkingBranch()
-    {
-        var w = await TransferWorld.CreateAsync();
-        await w.StockPenAsync(w.L.BlrVan, 50m);
-        var t = await w.CreateTransferAsync(w.L.BlrVan, w.L.CompanyWarehouse, [w.Pen(w.Box, 1m)], submit: true);
-        await w.ApproveAsync(t.Id);
-        var line = (await w.ReloadAsync(t.Id)).Lines.Single();
-        var input = new DispatchStockTransferInput([new DispatchStockTransferLineInput(line.Id, w.Box, 1m)]);
-
-        Assert.Equal("stockLocationId", await FieldOrNullAsync(() => w.DispatchAsync(t.Id, input, w.Main, FakeScopedPermissions.AtBranch(w.Main, "StockTransfers.Dispatch"))));
-        Assert.Null(await FieldOrNullAsync(() => w.DispatchAsync(t.Id, input, w.Blr, FakeScopedPermissions.AtBranch(w.Blr, "StockTransfers.Dispatch")))); // the van's own branch
-    }
-
     // ---- receive: the destination ---------------------------------------------------------------------------------------------------
 
     [Fact]
@@ -242,33 +212,6 @@ public class StockTransferPermissionTests
     }
 
     [Theory]
-    [InlineData("main-to-blr", null)]                    // source is the allocated branch
-    [InlineData("blr-to-main", "stockLocationId")]       // source is BLR's store: outside the allocation
-    [InlineData("company-to-blr", null)]                 // company-level source is open to any member
-    [InlineData("blr-van-to-main", "stockLocationId")]
-    public async Task Dispatch_RestrictedMemberWithCompanyLevelCode_NeedsTheSourceInsideItsAllocation(string scenario, string? field)
-    {
-        var w = await TransferWorld.CreateAsync();
-        var (src, dst) = scenario switch
-        {
-            "main-to-blr" => (w.L.MainStore, w.L.BlrStore),
-            "blr-to-main" => (w.L.BlrStore, w.L.MainStore),
-            "company-to-blr" => (w.L.CompanyWarehouse, w.L.BlrStore),
-            _ => (w.L.BlrVan, w.L.MainStore),
-        };
-        await w.StockPenAsync(src, 100m);
-        var t = await w.ApprovedAsync(src, dst, w.Pen(w.Box, 2m));
-        var line = (await w.ReloadAsync(t.Id)).Lines.Single();
-
-        await using var db = w.Db(w.Main, Only(w.Main));
-        var input = new DispatchStockTransferInput([new(line.Id, w.Box, 2m)]);
-        var actual = await FieldOrNullAsync(() => new StockTransferService(db, Only("StockTransfers.Dispatch")).DispatchAsync(t.Id, input, w.W.UserId));
-
-        Assert.Equal(field, actual);
-        Assert.Equal(field is null ? StockTransferStatus.Dispatched : StockTransferStatus.Approved, (await w.ReloadAsync(t.Id)).Status);
-    }
-
-    [Theory]
     [InlineData("blr-store", "blr-warehouse", "stockLocationId")]  // both endpoints outside the allocation
     [InlineData("blr-van", "blr-store", "stockLocationId")]
     [InlineData("main-store", "blr-store", null)]                   // source inside
@@ -337,16 +280,4 @@ public class StockTransferPermissionTests
         Assert.Equal(field is null ? StockTransferStatus.Completed : StockTransferStatus.Dispatched, (await w.ReloadAsync(t.Id)).Status);
     }
 
-    [Fact]
-    public async Task Dispatch_WithoutAPermissionService_FailsClosedForACompanyWarehouseSource()
-    {
-        var w = await TransferWorld.CreateAsync();
-        await w.StockPenAsync(w.L.CompanyWarehouse, 100m);
-        var t = await w.ApprovedAsync(w.L.CompanyWarehouse, w.L.MainStore, w.Pen(w.Box, 1m));
-        var line = (await w.ReloadAsync(t.Id)).Lines.Single();
-
-        await using var db = w.Db(w.Main);
-        await Assert.ThrowsAsync<DomainValidationException>(() => new StockTransferService(db, null).DispatchAsync(t.Id, new DispatchStockTransferInput([new(line.Id, w.Box, 1m)]), w.W.UserId));
-        Assert.Equal(0m, await w.QohAsync(w.L.Transit));
-    }
 }

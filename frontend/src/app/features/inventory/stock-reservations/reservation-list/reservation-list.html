@@ -1,0 +1,72 @@
+<div class="page-head">
+  <div>
+    <h1>Stock reservations</h1>
+    <p>Stock held for shipment allocations, oldest first. Releasing a reservation cancels its allocation and frees the stock.</p>
+  </div>
+</div>
+
+<ui-company-view-toggle permission="Shipments.View" (changed)="onCompanyViewChange()" />
+
+<div class="report-filters">
+  <div class="report-filter-field">
+    <label class="report-filter-label" for="res-status">Status</label>
+    <select id="res-status" class="report-filter-input" data-testid="status-filter" [value]="status()" (change)="onStatus($any($event.target).value)">
+      @for (s of statuses; track s) {
+        <option [value]="s" [selected]="s === status()">{{ s }}</option>
+      }
+    </select>
+  </div>
+  <div class="report-filter-field" data-testid="location-filter">
+    <label class="report-filter-label">Location</label>
+    <app-location-select purpose="filter" label="Location" allLabel="All locations" [value]="locationId()" (valueChange)="onLocation($event)" />
+  </div>
+</div>
+
+<app-load-error [message]="errorMessage()" />
+
+@if (releasing(); as r) {
+  <app-reason-prompt [title]="'Release reservation for ' + r.productName" confirmLabel="Release" [destructive]="true" [busy]="busy()" [error]="releaseError()" (confirmed)="confirmRelease($event)" (cancelled)="cancelRelease()" />
+}
+
+<div class="table-card">
+  @if (loading()) {
+    <p class="muted pad" data-testid="loading">Loading…</p>
+  } @else if (items().length === 0) {
+    <p class="muted pad" data-testid="empty">No {{ status().toLowerCase() }} reservations.</p>
+  } @else {
+    <table>
+      <thead>
+        <tr><th>Reserved</th><th>Age</th><th>Product</th><th class="num">Quantity</th><th>Source</th><th>Destination</th><th>Shipment</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        @for (r of items(); track r.id) {
+          <tr data-testid="reservation-row">
+            <td>{{ r.createdAt | date: 'mediumDate' }}<div class="sub">{{ r.createdBy }}</div></td>
+            <td data-testid="age">{{ r.ageDays }} d</td>
+            <td>{{ r.productName }}<div class="sub">{{ r.productSku }}{{ r.transferNo ? ' · ' + r.transferNo : '' }}</div></td>
+            <td class="num">{{ qty(r) }} {{ r.baseUnitCode }}</td>
+            <td>{{ place(r.source) }}</td>
+            <td>{{ place(r.destination) }}</td>
+            <td><a [routerLink]="['/inventory/shipments', r.shipmentId]">{{ r.shipmentNo }}</a><div class="sub">{{ r.consignmentNo }}</div></td>
+            <td>
+              <ui-badge [text]="r.status" [tone]="tone(r.status)" />
+              @if (r.status === 'Released') {
+                <div class="sub">{{ r.releaseReason }}</div>
+              }
+            </td>
+            <td class="num">
+              @if (canReleaseRow(r)) {
+                <ui-button variant="destructive" data-testid="release" (onClick)="startRelease(r)">Release</ui-button>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+  <div class="pager">
+    <span class="muted">{{ total() }} reservation{{ total() === 1 ? '' : 's' }}</span>
+    <ui-button [disabled]="page() <= 1" (onClick)="previous()">Previous</ui-button>
+    <ui-button [disabled]="!hasMore()" (onClick)="next()">Next</ui-button>
+  </div>
+</div>

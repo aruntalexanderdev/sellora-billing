@@ -68,7 +68,7 @@ public class ProductUnitEndpointsTests
     }
 
     private static ProductsController Products(Fixture f) => WithContext(new ProductsController(f.Db, new ProductService(f.Db)));
-    private static PricingController Pricing(Fixture f) => WithContext(new PricingController(f.Db, new PricingService(f.Db)), f.User.Id);
+    private static PricingController Pricing(Fixture f) => WithContext(new PricingController(f.Db, new PricingService(f.Db), new FakeEffectivePermissions("Inventory.Price", "Inventory.View")), f.User.Id);
 
     private static T Ok<T>(ActionResult<T> result) => (T)Assert.IsType<OkObjectResult>(result.Result).Value!;
 
@@ -184,7 +184,7 @@ public class ProductUnitEndpointsTests
     public async Task ProductsCreate_SeveralHierarchyErrors_ValidationProblemCarriesEveryError()
     {
         var f = await SeedAsync();
-        var request = new UpsertProductRequest("STN-PEN-2", "Gel Pen", "Stationery", f.PcUnit.Id, f.Tax.Id, 0m,
+        var request = new UpsertProductRequest("STN-PEN-2", "Gel Pen", null, null, f.PcUnit.Id, f.Tax.Id, 0m,
         [
             Req(f.PcUnit.Id, null, 1m, barcode: "12 34"),
             Req(f.BoxUnit.Id, f.BoxUnit.Id, 10m),
@@ -208,7 +208,7 @@ public class ProductUnitEndpointsTests
         var dozen = TestUnits.New("Dozen", "dz", MeasurementCategory.Count, 0, null);
         f.Db.Units.Add(dozen);
         await f.Db.SaveChangesAsync();
-        var request = new UpsertProductRequest("STN-PEN", "Ball Pen", "Stationery", dozen.Id, f.Tax.Id, 0m,
+        var request = new UpsertProductRequest("STN-PEN", "Ball Pen", null, null, dozen.Id, f.Tax.Id, 0m,
         [
             Req(dozen.Id, null, 1m, f.Pc.Id),
             Req(f.BoxUnit.Id, dozen.Id, 12m, f.Box.Id),
@@ -413,7 +413,7 @@ public class ProductUnitEndpointsTests
     {
         var f = await SeedAsync();
 
-        var problem = Problem((await Products(f).Create(new UpsertProductRequest("BIG", "Big", null, f.PcUnit.Id, f.Tax.Id, 0m, FiftyOneRows(f)), default)).Result!);
+        var problem = Problem((await Products(f).Create(new UpsertProductRequest("BIG", "Big", null, null, f.PcUnit.Id, f.Tax.Id, 0m, FiftyOneRows(f)), default)).Result!);
 
         Assert.Equal(V.TooManyUnitsMessage, Assert.Single(Assert.Single(problem.Errors, e => e.Key == "Units").Value));
         Assert.Single(problem.Errors);
@@ -424,7 +424,7 @@ public class ProductUnitEndpointsTests
     {
         var f = await SeedAsync();
 
-        var problem = Problem((await Products(f).Update(f.Pen.Id, new UpsertProductRequest("STN-PEN", "Ball Pen", null, f.PcUnit.Id, f.Tax.Id, 0m, FiftyOneRows(f)), default)).Result!);
+        var problem = Problem((await Products(f).Update(f.Pen.Id, new UpsertProductRequest("STN-PEN", "Ball Pen", null, null, f.PcUnit.Id, f.Tax.Id, 0m, FiftyOneRows(f)), default)).Result!);
 
         Assert.Equal(new[] { "Units" }, problem.Errors.Keys);
     }

@@ -51,7 +51,7 @@ public class SalesEndpointsTests
         db.AddRange(user.Role, user, tax, inr, settings, supplier, customer, pc, box, hctn, fctn);
         await db.SaveChangesAsync();
 
-        var pen = await new ProductService(db).CreateProductAsync(new UpsertProductInput("STN-PEN", "Ball Pen", null, pc.Id, tax.Id, 0m,
+        var pen = await new ProductService(db).CreateProductAsync(new UpsertProductInput("STN-PEN", "Ball Pen", null, null, pc.Id, tax.Id, 0m,
         [
             Item(pc.Id, null, null, PcCode), Item(box.Id, pc.Id, 10m, BoxCode), Item(hctn.Id, box.Id, 5m), Item(fctn.Id, hctn.Id, 2m),
         ]));

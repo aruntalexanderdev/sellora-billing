@@ -56,6 +56,13 @@ export const ACCOUNTS_ROUTES: Routes = [
     data: { group: 'Accounts', page: 'Edit account' },
   },
   {
+    path: 'cash-bank/:id/fund',
+    loadComponent: () => import('./cash-bank/fund-form/fund-form').then((m) => m.FundForm),
+    canActivate: [permissionGuard('CashBank.Fund')],
+    canDeactivate: [unsavedChangesGuard],
+    data: { group: 'Accounts', page: 'Add funds' },
+  },
+  {
     path: 'cash-bank/:id',
     loadComponent: () => import('./cash-bank/account-detail/account-detail').then((m) => m.AccountDetail),
     canActivate: [permissionGuard('CashBank.View')],

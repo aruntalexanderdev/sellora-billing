@@ -45,6 +45,7 @@ public static class IsolationCases
         new("FinancialAccountsController.List", _ => "/api/v1/financial-accounts"),
         new("FinancialAccountsController.Options", _ => "/api/v1/financial-accounts/options"),
         new("FinancialAccountsController.Get", i => $"/api/v1/financial-accounts/{i.AccountId}", Detail: true),
+        new("FinancialAccountsController.Statement", i => $"/api/v1/financial-accounts/{i.AccountId}/statement", Detail: true),
         new("FinancialTransactionsController.List", _ => "/api/v1/financial-transactions", ShowsRowIds: false), // items are empty today: see FinancialTransactionsList_ItemsMatchTheReportedTotal
         new("PurchasesController.List", _ => "/api/v1/purchases"),
         new("PurchasesController.Get", i => $"/api/v1/purchases/{i.PurchaseId}", Detail: true),
@@ -125,9 +126,9 @@ public static class IsolationCases
         new("VehiclesController.Create", "other company's branch", Post, (own, other) =>
             ("/api/v1/vehicles", new CreateVehicleRequest("ISO-X", "Cross branch", "Van", other.BranchId))),
         new("ProductsController.Create", "other company's tax", Post, (own, other) =>
-            ("/api/v1/products", new UpsertProductRequest("ISO-1", "Isolation", null, own.BaseUnitId, other.TaxId, 0m, [EachUnit(own)]))),
+            ("/api/v1/products", new UpsertProductRequest("ISO-1", "Isolation", null, null, own.BaseUnitId, other.TaxId, 0m, [EachUnit(own)]))),
         new("ProductsController.Update", "other company's product", Put, (own, other) =>
-            ($"/api/v1/products/{other.ProductId}", new UpsertProductRequest("STN-PEN", "Hijacked", null, own.BaseUnitId, own.TaxId, 0m, [EachUnit(own)]))),
+            ($"/api/v1/products/{other.ProductId}", new UpsertProductRequest("STN-PEN", "Hijacked", null, null, own.BaseUnitId, own.TaxId, 0m, [EachUnit(own)]))),
         new("ProductsController.SetActive", "other company's product", Post, (own, other) =>
             ($"/api/v1/products/{other.ProductId}/status", new SetActiveRequest(false))),
         new("ProductsController.Delete", "other company's product", Delete, (own, other) =>
@@ -168,6 +169,8 @@ public static class IsolationCases
             ("/api/v1/financial-accounts/transfers", new TransferRequest(own.AccountId, other.AccountId, 1m, Today, null))),
         new("FinancialAccountsController.Transfer", "from other company's account", Post, (own, other) =>
             ("/api/v1/financial-accounts/transfers", new TransferRequest(other.AccountId, own.AccountId, 1m, Today, null))),
+        new("FinancialAccountsController.Fund", "other company's account", Post, (own, other) =>
+            ($"/api/v1/financial-accounts/{other.AccountId}/fundings", new FundingRequest(FundingSource.Loan, 1m, Today, null, null, null, null, null))),
         new("FinancialAccountsController.Reconcile", "other company's account", Post, (own, other) =>
             ($"/api/v1/financial-accounts/{other.AccountId}/reconcile", new ReconcileRequest([Guid.NewGuid()]))),
         new("FinancialAccountsController.Unreconcile", "other company's account", Post, (own, other) =>
@@ -259,6 +262,8 @@ public static class IsolationCases
         // Phase 6: the platform surface never reads company data (no company context: company-owned queries fail closed); the governance catalogue is global.
         "PlatformAuthController.Login", "PlatformCompaniesController.List", "PlatformCompaniesController.Currencies", "PlatformCompaniesController.Create",
         "PlatformCompaniesController.SetStatus", "GovernanceController.Permissions",
+        // DB release automation: platform admin only (PlatformPolicies.Admin); reads the environment-wide ops journal, never company rows.
+        "PlatformDbReleasesController.Overview", "PlatformDbReleasesController.Run", "PlatformDbReleasesController.Script", "PlatformDbReleasesController.Retry",
         "AuthController.Login", "AuthController.Refresh", "AuthController.SwitchCompany", "AuthController.Logout", "AuthController.Me",
     ];
 
@@ -269,6 +274,8 @@ public static class IsolationCases
         "UsersController.List", "UsersController.Get", "UsersController.Create", "UsersController.Update", "UsersController.SetStatus", "UsersController.ResetPassword",
         "SettingsController.Update", "BranchesController.Create", "SuppliersController.Create", "CustomersController.Create", "TaxesController.Create",
         "ExpenseCategoriesController.Create", "FinancialAccountsController.Create", "ExchangeRatesController.Create",
+        // Phase 07: reversing another company's transaction id is a 404 and writes nothing - CashBankOperationsApiTests.Reverse_AnotherCompanysTransaction_IsNotFound_AndUnknownIdIsNotFound.
+        "FinancialTransactionsController.Reverse",
         // Phase 5 access API: a user (or assignment) of another company answers 404 - UserAccessApiTests.Get_UnknownUserAndNonMemberAndForeignCompanyUser_AreNotFound_WithIdenticalBodies
         // (read, events and a write against a foreign-company user); assignments carry their own company id and composite FKs (AddUserBranchAssignmentsMigrationTests constraint test).
         "UserAccessController.Get", "UserAccessController.Events", "UserAccessController.SetScope", "UserAccessController.AddAssignment",
@@ -278,5 +285,25 @@ public static class IsolationCases
         "StockTransfersController.List", "StockTransfersController.Get", "StockTransfersController.Create", "StockTransfersController.Update", "StockTransfersController.Submit",
         "StockTransfersController.Approve", "StockTransfersController.Reject", "StockTransfersController.Cancel", "StockTransfersController.Dispatch",
         "StockTransfersController.Receive", "StockTransfersController.Resolve",
+        // Functional improvements Phase 03: TransferRequestFulfilmentApiTests.OtherCompanysTransfer_IsA404ForCloseAndHistory_AndNeverInTheReadyQueue (same IsolationWorld).
+        "StockTransfersController.Close", "StockTransfersController.History", "StockTransfersController.ReadyForShipment",
+        // Functional improvements Phase 04: ShipmentsApiTests.OtherCompanysShipmentConsignmentAndReservation_Are404_ForReadsAndEveryWrite_AndNothingChanges (same IsolationWorld):
+        // the other company's shipment / consignment / reservation is never listed, its detail is a 404 and every write on it (update, cancel, vehicles, allocations, assign, load,
+        // release) is a 404; creates naming its source location / vehicle / request line are a 400 on the field.
+        "ShipmentsController.List", "ShipmentsController.Get", "ShipmentsController.Create", "ShipmentsController.Update", "ShipmentsController.Cancel",
+        "ShipmentsController.AddVehicle", "ShipmentsController.RemoveVehicle", "ShipmentsController.Allocate", "ShipmentsController.ChangeAllocation",
+        "ShipmentsController.CancelAllocation", "ShipmentsController.AssignVehicle", "ShipmentsController.CancelConsignment", "ShipmentsController.Load",
+        "ConsignmentsController.List", "ConsignmentsController.Get", "StockReservationsController.List", "StockReservationsController.Release",
+        // Functional improvements Phase 05: ShipmentsApiTests.OtherCompanysShipmentConsignmentAndReservation_Are404_ForReadsAndEveryWrite_AndNothingChanges (same IsolationWorld) also covers the
+        // shipment dispatch, the consignment receipts (record / post / list / get) and the transit views: the other company's ids are 404 and no transit row of it is ever listed;
+        // ShipmentDispatchApiTests covers the in-company destination / source isolation of the same endpoints.
+        "ShipmentsController.Dispatch", "ConsignmentsController.RecordReceipt", "ConsignmentsController.PostReceipt", "ConsignmentsController.ListReceipts",
+        "ConsignmentsController.GetReceipt", "TransitController.List",
+        // Functional improvements Phase 06: the same ShipmentsApiTests isolation test also covers receipt approve / reject and the dispositions (record / list): the other company's consignment is a 404.
+        "ConsignmentsController.ApproveReceipt", "ConsignmentsController.RejectReceipt", "ConsignmentsController.RecordDisposition", "ConsignmentsController.ListDispositions",
+        // Phase 08: category / subcategory masters - ProductCategoriesApiTests.OtherCompanysCategory_IsNeverListedAnd404OnUpdateAndStatus (never listed, 404 on every write)
+        // and Product_WithAnotherCompanysCategoryOrSubcategory_Is400AndChangesNothing (product create/update naming a foreign category / subcategory is a 400).
+        "ProductCategoriesController.List", "ProductCategoriesController.Create", "ProductCategoriesController.Update", "ProductCategoriesController.SetActive",
+        "ProductCategoriesController.CreateSubcategory", "ProductCategoriesController.UpdateSubcategory", "ProductCategoriesController.SetSubcategoryActive",
     ];
 }

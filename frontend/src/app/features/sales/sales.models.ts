@@ -43,6 +43,8 @@ export interface SaleCatalogProduct {
   sku: string;
   name: string;
   category: string | null;
+  categoryId?: string | null;
+  subcategoryId?: string | null;
   baseUnitLabel: string;
   quantityOnHand: number;
   taxRatePercent: number;

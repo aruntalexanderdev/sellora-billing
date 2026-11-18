@@ -13,6 +13,8 @@ public class PermissionPolicyProvider : IAuthorizationPolicyProvider
 {
     private static readonly HashSet<string> KnownPermissionCodes = PermissionCatalog.All.Select(p => p.Code).ToHashSet();
     private static readonly HashSet<string> KnownGovernanceCodes = GovernancePermissionCatalog.All.Select(p => p.Code).ToHashSet();
+    /// <summary>Separates the codes of an any-of policy name, e.g. "StockTransfers.Receive|StockTransfers.ApproveReceipt".</summary>
+    public const char AnyOfSeparator = '|';
     private readonly DefaultAuthorizationPolicyProvider _fallback;
 
     public PermissionPolicyProvider(IOptions<AuthorizationOptions> options)
@@ -55,6 +57,19 @@ public class PermissionPolicyProvider : IAuthorizationPolicyProvider
                 .AddRequirements(new PermissionRequirement(policyName))
                 .Build();
             return Task.FromResult<AuthorizationPolicy?>(policy);
+        }
+
+        // Any-of permission policy: "CodeA|CodeB" (every part a known permission code); the caller needs at least one.
+        if (policyName.Contains(AnyOfSeparator))
+        {
+            var codes = policyName.Split(AnyOfSeparator);
+            if (codes.Length > 1 && codes.All(KnownPermissionCodes.Contains))
+            {
+                return Task.FromResult<AuthorizationPolicy?>(new AuthorizationPolicyBuilder()
+                    .RequireAuthenticatedUser()
+                    .AddRequirements(new PermissionRequirement(codes))
+                    .Build());
+            }
         }
 
         return _fallback.GetPolicyAsync(policyName);

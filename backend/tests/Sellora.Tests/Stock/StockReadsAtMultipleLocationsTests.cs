@@ -259,7 +259,7 @@ public class StockReadsAtMultipleLocationsTests
         var lw = await SeedAsync();
         await using var db = lw.W.Db();
 
-        var rows = Ok(await new PricingController(db, new PricingService(db)).List(null, default));
+        var rows = Ok(await new PricingController(db, new PricingService(db), new Sellora.Tests.TestData.FakeEffectivePermissions("Inventory.Price", "Inventory.View")).List(null, default));
 
         var row = Assert.Single(rows);
         Assert.Equal(2600m / 150m, row.CostPerUnit); // base unit, factor 1

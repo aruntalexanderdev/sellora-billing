@@ -60,36 +60,14 @@ describe('Shell header selectors', () => {
   it('shows only the branch selector with several branches and one company', async () => {
     const { el } = await mount(me({ allowedBranches: [MAIN, NORTH] }));
     expect(select(el, 'Branch')).not.toBeNull();
-    expect(Array.from(select(el, 'Branch')!.options).map((o) => o.textContent?.trim())).toEqual(['All branches', 'Main Branch', 'North Branch']);
+    expect(Array.from(select(el, 'Branch')!.options).map((o) => o.textContent?.trim())).toEqual(['Main Branch', 'North Branch']);
     expect(select(el, 'Branch')!.value).toBe(MAIN.id);
     expect(select(el, 'Company')).toBeNull();
   });
 
-  it('D13: offers All branches (not with a single assigned branch); a company-wide member gets it even with one branch', async () => {
-    const one = await mount(me({ allowedBranches: [MAIN] }));
+  it('FI-D11: there is no All branches option; a single-branch user gets no branch selector, even company-wide', async () => {
+    const one = await mount(me({ allowedBranches: [MAIN], accessScope: 'CompanyWide' }));
     expect(select(one.el, 'Branch')).toBeNull();
-    TestBed.resetTestingModule();
-    const wide = await mount(me({ allowedBranches: [MAIN], accessScope: 'CompanyWide' }));
-    expect(Array.from(select(wide.el, 'Branch')!.options).map((o) => o.textContent?.trim())).toEqual(['All branches', 'Main Branch']);
-  });
-
-  it('D13: choosing All branches shows it in the header and sidebar, sends no header and uses permissionsAnyBranch for the nav', async () => {
-    const { fixture, ctx, http, el } = await mount(me({ permissions: ['Sales.View'], permissionsAnyBranch: ['Sales.View', 'Inventory.View'] }));
-    expect(navLinks(el)).not.toContain('Products');
-
-    choose(fixture, select(el, 'Branch')!, 'all');
-    await tick();
-    const req = http.expectOne(ME_URL);
-    expect(req.request.headers.has('X-Branch-Id')).toBe(false);
-    req.flush(me({ permissions: ['Sales.View'], permissionsAnyBranch: ['Sales.View', 'Inventory.View'] }));
-    await tick();
-    await fixture.whenStable();
-    fixture.detectChanges();
-
-    expect(ctx.isAllBranches()).toBe(true);
-    expect(select(el, 'Branch')!.value).toBe('all');
-    expect(el.querySelector('.sb-branch')?.textContent?.trim()).toBe('All branches');
-    expect(navLinks(el)).toContain('Products');
   });
 
   it('shows only the company selector with several companies and one branch', async () => {

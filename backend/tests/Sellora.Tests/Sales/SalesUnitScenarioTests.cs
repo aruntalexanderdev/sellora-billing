@@ -65,7 +65,7 @@ public class SalesUnitScenarioTests
         new(id, unitId, innerUnitId, qty, null, barcode, true, sellable, false, false, active);
 
     private static UpsertProductInput Input(Fixture f, string sku, Guid baseUnitId, params ProductUnitInputItem[] units) =>
-        new(sku, "Ball Pen", "Stationery", baseUnitId, f.Tax.Id, 0m, units);
+        new(sku, "Ball Pen", null, null, baseUnitId, f.Tax.Id, 0m, units);
 
     private static async Task<Dictionary<Guid, ProductUnit>> RowsAsync(Fixture f, Guid productId) =>
         (await f.Db.ProductUnits.AsNoTracking().Where(u => u.ProductId == productId).ToListAsync()).ToDictionary(u => u.UnitId);
@@ -504,7 +504,9 @@ public class SalesUnitScenarioTests
 
         await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 100.01m)), "Lines", "Discount on Ball Pen cannot exceed the line amount of 100.00.");
         await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: -1m)), "Lines", "Discount cannot be negative.");
-        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 12.34567m)), "Lines", "Discount can have at most 4 decimal places.");
+        // FI-D24: a discount is a money amount - at most the base currency's decimals (2 here), no longer 4.
+        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 12.34567m)), "Lines", "Discount can have at most 2 decimal places.");
+        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 1.005m)), "Lines", "Discount can have at most 2 decimal places.");
         Assert.Empty(await f.Db.SalesInvoices.ToListAsync());
 
         var free = await SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 100m));

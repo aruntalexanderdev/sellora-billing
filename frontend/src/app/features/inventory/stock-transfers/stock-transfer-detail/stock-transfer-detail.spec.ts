@@ -13,7 +13,7 @@ import { dispatchedLine, line, transfer } from '../test-fixtures';
 const ALL = ['StockTransfers.View', 'StockTransfers.Create', 'StockTransfers.Approve', 'StockTransfers.Dispatch', 'StockTransfers.Receive', 'StockTransfers.Cancel', 'StockTransfers.Resolve'];
 
 function setup(t: StockTransfer, permissions: string[] = ALL, overrides: Record<string, unknown> = {}) {
-  const service = { get: vi.fn(() => of(t)), submit: vi.fn(() => of(t)), approve: vi.fn(() => of(t)), reject: vi.fn(() => of(t)), cancel: vi.fn(() => of(t)), ...overrides };
+  const service = { get: vi.fn(() => of(t)), history: vi.fn(() => of([])), close: vi.fn(() => of(t)), submit: vi.fn(() => of(t)), approve: vi.fn(() => of(t)), reject: vi.fn(() => of(t)), cancel: vi.fn(() => of(t)), ...overrides };
   TestBed.configureTestingModule({
     imports: [StockTransferDetail],
     providers: [
@@ -42,7 +42,10 @@ describe('StockTransferDetail action visibility', () => {
   const cases: [StockTransferStatus, string[]][] = [
     ['Draft', ['edit', 'submit', 'cancel']],
     ['Requested', ['approve', 'reject', 'cancel']],
-    ['Approved', ['dispatch', 'cancel']],
+    ['Approved', ['cancel', 'close']], // dispatched > 0 on the fixture line
+    ['PartiallyFulfilled', ['close']],
+    ['Fulfilled', []],
+    ['Closed', []],
     ['Dispatched', ['receive', 'resolve']],
     ['PartiallyReceived', ['receive', 'resolve']],
     ['Completed', []],
@@ -219,5 +222,92 @@ describe('StockTransferDetail actions', () => {
       submitDialog(el, fixture);
       expect(keys[1]).not.toBe(keys[0]);
     });
+  });
+});
+
+describe('StockTransferDetail close remaining, history and cost (Phase 03)', () => {
+  const ready = () => transfer('Approved', [line()]);
+  const partial = () => transfer('PartiallyFulfilled', [dispatchedLine({ remainingBaseQty: 20, allocatedBaseQty: 0, closedBaseQty: 0 })]);
+
+  it('offers Close remaining for PartiallyFulfilled', () => {
+    expect(setup(partial()).buttons()).toContain('close');
+  });
+
+  it('does not offer Close remaining for Approved with nothing dispatched', () => {
+    expect(setup(ready()).buttons()).not.toContain('close');
+  });
+
+  it('offers Close remaining for Approved once something was dispatched', () => {
+    expect(setup(transfer('Approved', [dispatchedLine()])).buttons()).toContain('close');
+  });
+
+  it('hides Close remaining without StockTransfers.Approve', () => {
+    expect(setup(partial(), ['StockTransfers.View', 'StockTransfers.Dispatch']).buttons()).not.toContain('close');
+  });
+
+  it('requires a reason before calling the API', () => {
+    const { click, fixture, el, service } = setup(partial());
+    click('close');
+    (Array.from(el.querySelectorAll('app-reason-prompt button')).find((b) => b.textContent?.includes('Close remaining')) as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(service.close).not.toHaveBeenCalled();
+    expect(el.textContent).toContain('A reason is required.');
+  });
+
+  it('posts the trimmed reason and shows the returned detail', () => {
+    const closed = transfer('Closed', [dispatchedLine()], { closedAt: '2026-11-07T10:00:00Z', closedByName: 'admin', closureReason: 'Short supply' });
+    const { click, fixture, el, service } = setup(partial(), ALL, { close: vi.fn(() => of(closed)) });
+    click('close');
+    const ta = el.querySelector('app-reason-prompt textarea') as HTMLTextAreaElement;
+    ta.value = '  Short supply ';
+    ta.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    (Array.from(el.querySelectorAll('app-reason-prompt button')).find((b) => b.textContent?.includes('Close remaining')) as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(service.close).toHaveBeenCalledWith('t1', 'Short supply', expect.any(String));
+    expect(el.textContent).toContain('Closed (short)');
+    expect(el.querySelector('[data-testid="act-close"]')).toBeNull();
+  });
+
+  it('maps server 400 reason/status errors into the prompt', () => {
+    const err = new HttpErrorResponse({ status: 400, error: { status: 400, title: 'Bad', errors: { status: ['Nothing has been dispatched.'], reason: ['Reason too long.'] } } });
+    const { click, fixture, el } = setup(partial(), ALL, { close: vi.fn(() => throwError(() => err)) });
+    click('close');
+    const ta = el.querySelector('app-reason-prompt textarea') as HTMLTextAreaElement;
+    ta.value = 'x';
+    ta.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    (Array.from(el.querySelectorAll('app-reason-prompt button')).find((b) => b.textContent?.includes('Close remaining')) as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const text = el.querySelector('app-reason-prompt .server-error')?.textContent ?? '';
+    expect(text).toContain('Reason too long.');
+    expect(text).toContain('Nothing has been dispatched.');
+  });
+
+  it('shows the new status labels and allocated/closed/remaining quantities', () => {
+    const { el } = setup(transfer('Approved', [line({ allocatedBaseQty: 10, closedBaseQty: 0, remainingBaseQty: 40 })]));
+    expect(el.querySelector('ui-badge')?.textContent).toContain('Ready for shipment');
+    expect(el.querySelector('[data-testid="remaining-1"]')?.textContent).toContain('40 pc');
+    expect(el.querySelector('[data-testid="remaining-1"]')?.textContent).toContain('4 box');
+    expect(el.querySelector('[data-testid="allocated-1"]')?.textContent).toContain('1 box');
+  });
+
+  it('renders the history timeline with status labels and reasons', () => {
+    const history = [
+      { at: '2026-11-06T10:00:00Z', action: 'Approved', fromStatus: 'Requested', toStatus: 'Approved', actorName: 'admin', reason: null },
+      { at: '2026-11-07T10:00:00Z', action: 'Closed', fromStatus: 'PartiallyFulfilled', toStatus: 'Closed', actorName: 'ops', reason: 'Short supply' },
+    ];
+    const { el } = setup(partial(), ALL, { history: vi.fn(() => of(history)) });
+    const items = Array.from(el.querySelectorAll('[data-testid="history"] li')).map((li) => li.textContent ?? '');
+    expect(items).toHaveLength(2);
+    expect(items[0]).toContain('Requested → Ready for shipment');
+    expect(items[1]).toContain('Partially fulfilled → Closed (short)');
+    expect(items[1]).toContain('Short supply');
+  });
+
+  it('shows an em dash for a null batch unit cost', () => {
+    const l = dispatchedLine({ batches: [{ purchaseBatchId: 'pb1', internalBatchNo: 'B-1', unitCost: null, dispatchedBaseQty: 10, receivedBaseQty: 0, damagedBaseQty: 0, writtenOffBaseQty: 0, returnedBaseQty: 0, outstandingBaseQty: 10 }] });
+    const { el } = setup(transfer('Dispatched', [l]));
+    expect(el.querySelector('[data-testid="batch-cost"]')?.textContent?.trim()).toBe('—');
   });
 });

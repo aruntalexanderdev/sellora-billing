@@ -230,6 +230,10 @@ Scripts are ordered EfMigration, Data, Repeatable, Validation, then by name. Dat
 - File moves (done in step 2): `seed-permissions.sql` → `backend/db/repeatable/R__seed-permissions.sql`; `stock-reconciliation.sql`,
   `stock-transfers-validation.sql`, `unit-restructuring-validation.sql`, `van-operations-validation.sql` → `backend/db/validation/V__*.sql`;
   `unit-restructuring-profile.sql`, `grant-platform-admin.sql`, `delete-product.sql` stay in `scripts/sql/`. Done in delivery step 2.
+- File moves after merging `analyse_copy` (functional improvements, PR 23): `transit-reconciliation.sql`, `stock-reservations-reconciliation.sql`,
+  `cash-bank-funding-validation.sql`, `stock-items-negative-check.sql` → `backend/db/validation/V__*.sql` (environment default);
+  `cash-bank-negative-balances.sql` → `V__cash-bank-negative-balances.sql` with `-- sellora:on-violation warn` (informational: accounts below
+  zero from before Phase 07 are expected, so it must never block a prod deploy). Test helpers and `docs/functional-improvements/RELEASE.md` point there.
 
 ## Deployment notes
 Operations (release, approval, restore, setup checklist): `docs/operations/database-release-runbook.md`.

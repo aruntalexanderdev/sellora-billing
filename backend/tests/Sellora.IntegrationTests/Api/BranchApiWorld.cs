@@ -43,6 +43,9 @@ public sealed class BranchApiWorld
         finally { Gate.Release(); }
     }
 
+    /// <summary>A world of its own (a fresh database + host), for tests whose data must not touch the shared world's global reconciliation checks or company settings.</summary>
+    public static Task<BranchApiWorld> CreateDedicatedAsync(PostgresFixture postgres) => BuildAsync(postgres);
+
     private static async Task<BranchApiWorld> BuildAsync(PostgresFixture postgres)
     {
         var host = await ApiHost.StartAsync(postgres);

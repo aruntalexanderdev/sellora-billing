@@ -11,9 +11,6 @@
 }
 @if (showBranchSelect()) {
   <select class="hd-select" aria-label="Branch" title="Switch branch" (change)="onBranch($event)">
-    @if (canChooseAll()) {
-      <option [value]="allBranches" [selected]="branchId() === allBranches">All branches</option>
-    }
     @for (b of branches(); track b.id) {
       <option [value]="b.id" [selected]="b.id === branchId()">{{ b.name }}</option>
     }

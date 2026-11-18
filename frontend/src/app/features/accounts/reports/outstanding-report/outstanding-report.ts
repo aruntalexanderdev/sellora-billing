@@ -5,6 +5,7 @@ import type { DataTableColumn, DataTableRow, DataTableState } from '../../../../
 import { AccountsReportsService } from '../accounts-reports.service';
 import { ReportDateFilter } from '../report-date-filter/report-date-filter';
 import type { OutstandingReport as OutstandingReportModel } from '../accounts-reports.models';
+import { UiCompanyViewToggle } from '../../../../shared/ui/company-view-toggle/company-view-toggle';
 
 const PAGE_SIZE = 20;
 const money = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -13,7 +14,7 @@ const money = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 
 @Component({
   selector: 'app-outstanding-report',
   standalone: true,
-  imports: [UiDataTable, ReportDateFilter],
+  imports: [UiCompanyViewToggle, UiDataTable, ReportDateFilter],
   templateUrl: './outstanding-report.html',
   styleUrl: '../accounts-report.scss',
 })
@@ -87,6 +88,11 @@ export class OutstandingReport implements OnInit {
 
   onPageChange(page: number): void {
     this.page.set(page);
+    this.load();
+  }
+
+  onCompanyViewChange(): void {
+    this.page.set(1);
     this.load();
   }
 

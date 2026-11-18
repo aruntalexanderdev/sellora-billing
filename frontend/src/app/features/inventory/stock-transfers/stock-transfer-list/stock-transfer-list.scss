@@ -1,2 +1,8 @@
 @use '../../../../shared/styles/page-head';
 @use '../../../../shared/styles/report-filters';
+
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}

@@ -35,10 +35,12 @@ export interface SalesListQuery {
 export class SalesService {
   private readonly http = inject(HttpClient);
 
-  catalog(search?: string, stockLocationId?: string | null): Observable<SaleCatalogProduct[]> {
+  catalog(search?: string, stockLocationId?: string | null, categoryId?: string | null, subcategoryId?: string | null): Observable<SaleCatalogProduct[]> {
     const params: Record<string, string> = {};
     if (search) params['search'] = search;
     if (stockLocationId) params['stockLocationId'] = stockLocationId;
+    if (categoryId) params['categoryId'] = categoryId;
+    if (subcategoryId) params['subcategoryId'] = subcategoryId;
     return this.http.get<SaleCatalogProduct[]>(`${BASE_URL}/catalog`, { params });
   }
 

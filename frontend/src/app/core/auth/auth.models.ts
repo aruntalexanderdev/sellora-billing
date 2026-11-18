@@ -50,8 +50,8 @@ export interface AuthenticatedUser {
 
 /** Mirrors MeResponse: UserSummaryDto + companies + governance; permissions are those at the working branch. */
 export interface MeResponse extends AuthenticatedUser {
-  /** D13: company-level codes plus codes held at any allowed branch. Used for navigation in All-branches mode; absent on older servers. */
-  permissionsAnyBranch?: string[];
+  /** FI-D11: codes held company-level; gates the "Company view" (`scope=company`). Absent on older servers. */
+  companyPermissions?: string[];
   companies: CompanyOption[];
   governance: GovernanceHint | null;
 }

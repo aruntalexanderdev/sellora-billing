@@ -24,17 +24,43 @@ public sealed class SelloraApiFactory(string connectionString, IReadOnlyDictiona
     public const string Audience = "sellora-test";
     public static readonly string SigningKey = Convert.ToBase64String(Enumerable.Range(1, 32).Select(i => (byte)i).ToArray());
 
+    /// <summary>Error-level log entries of the hosted API (unhandled exceptions behind a 500), so a test that sees a 500 can say why.</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<string> ServerErrors { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.ConfigureLogging(logging => Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddEnumerable(logging.Services, Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<Microsoft.Extensions.Logging.ILoggerProvider>(new ErrorCaptureProvider(ServerErrors))));
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:SelloraDb", connectionString);
         builder.UseSetting("Jwt:Issuer", Issuer);
         builder.UseSetting("Jwt:Audience", Audience);
         builder.UseSetting("Jwt:SigningKey", SigningKey);
-        builder.UseSetting("Jwt:AccessTokenMinutes", "15");
+        // Shared worlds (BranchApiWorld.GetAsync etc.) log in ONCE and are reused by every test class for the whole run (~40 min on CI).
+        // A production-like 15 min lifetime made whichever class reached a shared world after 15 min fail with 401 (order-dependent),
+        // so the test host issues tokens that outlive a full suite run. Production keeps its configured lifetime (appsettings).
+        builder.UseSetting("Jwt:AccessTokenMinutes", "240");
         builder.UseSetting("Jwt:RefreshTokenDays", "14");
         builder.UseSetting("Database:ApplyMigrationsOnStartup", "true");
         foreach (var (key, value) in settings ?? new Dictionary<string, string>()) builder.UseSetting(key, value);
+    }
+}
+
+internal sealed class ErrorCaptureProvider(System.Collections.Concurrent.ConcurrentQueue<string> sink) : Microsoft.Extensions.Logging.ILoggerProvider
+{
+    public Microsoft.Extensions.Logging.ILogger CreateLogger(string categoryName) => new Capture(categoryName, sink);
+    public void Dispose() { }
+
+    private sealed class Capture(string category, System.Collections.Concurrent.ConcurrentQueue<string> sink) : Microsoft.Extensions.Logging.ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => logLevel >= Microsoft.Extensions.Logging.LogLevel.Error;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (!IsEnabled(logLevel)) return;
+            var text = category + ": " + formatter(state, exception) + (exception is null ? "" : " :: " + exception);
+            sink.Enqueue(text.Length > 3000 ? text[..3000] : text);
+            while (sink.Count > 50) sink.TryDequeue(out _);
+        }
     }
 }
 
@@ -57,9 +83,9 @@ public sealed class ApiHost : IAsyncDisposable
 
     public static async Task<ApiHost> StartAsync(PostgresFixture postgres, IReadOnlyDictionary<string, string>? settings = null)
     {
-        var database = await postgres.CreateDatabaseAsync(migrate: false);
+        var database = await postgres.CreateDatabaseAsync(); // copy of the migrated template (CI speed-up)
         var factory = new SelloraApiFactory(database.ConnectionString, settings);
-        using var warmup = factory.CreateClient(); // builds the host: migrations + seed
+        using var warmup = factory.CreateClient(); // builds the host: startup migration (nothing pending) + seed
         return new ApiHost(database, factory);
     }
 

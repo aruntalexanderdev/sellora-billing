@@ -23,6 +23,10 @@ public class ReleaseRehearsalTests(PostgresFixture postgres, ITestOutputHelper o
 {
     private const string Baseline = "20260920114635_AddIdempotencyKeysAndCancelledBy";
 
+    /// <summary>First functional-improvements migration. Every migration of the assembly from here on (FI-D43b, through the release head, whatever it is) must be in the one idempotent script and in the applied history.</summary>
+    private const string FirstFunctionalImprovementMigration = "20261110015257_AddStockLocations";
+    private const string RequiredThrough = "20261117095458_AddReceiptApprovalAndDispositions";
+
     // Deployable scripts live under backend/db (applied by Sellora.DbMigrator); manual/operator ones stay in scripts/sql.
     private static string SqlFile(string name)
     {
@@ -149,15 +153,21 @@ public class ReleaseRehearsalTests(PostgresFixture postgres, ITestOutputHelper o
         // 1. Production baseline (= origin/main) + legacy business data.
         var sw = Stopwatch.StartNew();
         string script;
+        List<string> allMigrations;
         await using (var db = database.CreateDbContext())
         {
             await db.GetService<IMigrator>().MigrateAsync(Baseline);
             script = db.GetService<IMigrator>().GenerateScript(Baseline, null, MigrationsSqlGenerationOptions.Idempotent);
+            allMigrations = db.GetService<IMigrationsAssembly>().Migrations.Keys.Where(m => string.CompareOrdinal(m, Baseline) >= 0).Order(StringComparer.Ordinal).ToList();
         }
         await ExecuteAsync(database, Sql);
         output.WriteLine($"baseline + seed + script generation: {sw.ElapsedMilliseconds} ms; idempotent script: {script.Split('\n').Length} lines, {script.Length} chars");
         Assert.Contains("20261104121850_IntroduceProductUnits", script);
         Assert.Contains("20261111040145_AddStockTransfers", script);
+        var fiMigrations = allMigrations.Where(m => string.CompareOrdinal(m, FirstFunctionalImprovementMigration) >= 0).ToList();
+        Assert.Contains(RequiredThrough, fiMigrations);
+        Assert.True(fiMigrations.Count >= 14, $"expected at least the 14 FI migrations, assembly has {fiMigrations.Count}");
+        foreach (var migration in fiMigrations) Assert.Contains($"'{migration}'", script);
         Assert.Equal(["20260920114635_AddIdempotencyKeysAndCancelledBy"], (await AppliedAsync(database)).Where(m => string.CompareOrdinal(m, Baseline) >= 0).ToList());
 
         // 2. Pre-release profile (analysis 22.1): informative counts, P9* guard-copy queries and P10 reconciliation return zero rows.
@@ -197,6 +207,8 @@ public class ReleaseRehearsalTests(PostgresFixture postgres, ITestOutputHelper o
         }
         var afterFirstSchema = await SchemaSignatureAsync(database);
         var afterFirstHistory = await AppliedAsync(database);
+        Assert.Equal(allMigrations, afterFirstHistory.Where(m => string.CompareOrdinal(m, Baseline) >= 0).ToList()); // applied history = the full list, nothing missing, nothing extra, in order
+        Assert.Equal(fiMigrations, afterFirstHistory.Where(m => string.CompareOrdinal(m, FirstFunctionalImprovementMigration) >= 0).ToList());
         var afterFirstData = await BeforeAfterAsync(database);
         var afterFirstUnits = await RowsAsync(database, """SELECT "Id"::text || ' ' || "UnitId" || ' ' || COALESCE("InnerProductUnitId"::text, '-') || ' ' || "InnerQuantity" || ' ' || "ConversionFactorToBase" || ' ' || "IsBaseUnit" FROM "ProductUnits" ORDER BY 1""");
         var afterFirstSeq = await RowsAsync(database, """SELECT COUNT(*)::text FROM "StockLocations" UNION ALL SELECT COUNT(*)::text FROM "BatchLocationBalances" UNION ALL SELECT COUNT(*)::text FROM "Branches" UNION ALL SELECT COUNT(*)::text FROM "Companies" """);
@@ -220,6 +232,15 @@ public class ReleaseRehearsalTests(PostgresFixture postgres, ITestOutputHelper o
         Assert.Contains("S1", stockIds);
         await AssertZeroRowsAsync(database, "stock-transfers-validation.sql", 8);
         await AssertZeroRowsAsync(database, "van-operations-validation.sql", 3);
+        await AssertZeroRowsAsync(database, "transit-reconciliation.sql", 9);
+        await AssertZeroRowsAsync(database, "stock-reservations-reconciliation.sql", 4);
+        await AssertZeroRowsAsync(database, "cash-bank-funding-validation.sql", 5);
+        await AssertZeroRowsAsync(database, "cash-bank-negative-balances.sql", 1);
+        await AssertZeroRowsAsync(database, "stock-items-negative-check.sql", 1);
+        // legacy free-text Products.Category backfilled into company category masters (FI-D43a: the text column stays)
+        Assert.Empty(await RowsAsync(database, """SELECT "Id"::text FROM "Products" WHERE "CategoryId" IS NULL AND btrim(COALESCE("Category", '')) <> '' """));
+        Assert.Equal(["Grocery", "Stationery"], (await RowsAsync(database, """SELECT "Name" FROM "ProductCategories" ORDER BY 1""")).Select(r => r[0]).ToList());
+        Assert.Equal(4L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Products" p JOIN "ProductCategories" c ON c."Id" = p."CategoryId" AND c."CompanyId" = p."CompanyId" AND lower(c."Name") = lower(p."Category")"""));
         output.WriteLine($"validation scripts: {sw.ElapsedMilliseconds} ms");
 
         // 6. Zero change to history (analysis 22.7 / 26 #8).
