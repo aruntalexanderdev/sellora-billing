@@ -31,9 +31,7 @@ public sealed record Phase06World(BranchApiWorld W, RestrictedUserWorld R) : IAs
 
     public static async Task<Phase06World> FreshAsync(PostgresFixture postgres)
     {
-        // Earlier test classes leave one idle pooled connection per database they created (~90 by the time these classes run, against the container's 100-connection cap):
-        // close the idle ones so a new world (and a 6-way race) is never refused with 53300. In-use connections are untouched.
-        Npgsql.NpgsqlConnection.ClearAllPools();
+        // FI-D43h: no manual pool clearing; PostgresFixture.ConnectionStringFor prunes idle connections of every test database within seconds.
         var w = await BranchApiWorld.CreateDedicatedAsync(postgres);
         return new Phase06World(w, await RestrictedUserWorld.CreateDedicatedAsync(w));
     }
@@ -70,19 +68,26 @@ public static class ReceiptHttp
         finally { RoleGate.Release(); }
     }
 
+    /// <summary>Role-name part for a code set: the codes joined when short, else a stable hash (role names are limited to 80 characters).</summary>
+    private static string RoleTag(string[] codes)
+    {
+        var joined = string.Join("", codes.Select(c => c.Replace(".", "")));
+        return joined.Length <= 40 ? joined : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(joined)))[..16];
+    }
+
     /// <summary>A user allocated to <paramref name="branch"/> only, holding <paramref name="codes"/> as a branch role at that branch.</summary>
     public static async Task<RestrictedUser> BranchUserAsync(RestrictedUserWorld r, Guid branch, params string[] codes)
     {
         var user = await r.CreateAsync("rc", await RoleAsync(r.World, "harmless", ["Sales.View"]), CompanyAccessScope.AssignedBranches, [branch], branch);
         var assigned = await r.World.SendAsync(HttpMethod.Post, $"/api/v1/users/{user.Id}/roles",
-            new AssignRoleRequest(await RoleAsync(r.World, "br" + string.Join("", codes.Select(c => c.Replace(".", ""))), codes, RoleScope.Branch, branch), null));
+            new AssignRoleRequest(await RoleAsync(r.World, "br" + RoleTag(codes), codes, RoleScope.Branch, branch), null));
         Assert.Equal(HttpStatusCode.Created, assigned.StatusCode);
         return user;
     }
 
     /// <summary>A user holding <paramref name="codes"/> through a company-wide role, allocated to <paramref name="branches"/> only (company-level permission, branch-limited reach).</summary>
     public static async Task<RestrictedUser> CompanyRoleUserAsync(RestrictedUserWorld r, Guid[] branches, params string[] codes) =>
-        await r.CreateAsync("rcc", await RoleAsync(r.World, "co" + string.Join("", codes.Select(c => c.Replace(".", ""))), codes), CompanyAccessScope.AssignedBranches, branches, branches[0]);
+        await r.CreateAsync("rcc", await RoleAsync(r.World, "co" + RoleTag(codes), codes), CompanyAccessScope.AssignedBranches, branches, branches[0]);
 
     // ---- the company receipt policy (FI-D39) ----------------------------------------------------------------------------------------------
 

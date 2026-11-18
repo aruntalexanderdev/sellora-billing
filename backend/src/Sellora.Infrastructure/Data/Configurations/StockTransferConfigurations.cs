@@ -25,6 +25,7 @@ public class StockTransferConfiguration : IEntityTypeConfiguration<StockTransfer
         builder.HasIndex(t => new { t.CompanyId, t.TransferNo }, "IX_StockTransfers_CompanyId_TransferNo").IsUnique();
         builder.HasIndex(t => new { t.CompanyId, t.Status }, "IX_StockTransfers_CompanyId_Status");
         builder.HasIndex(t => new { t.CompanyId, t.BranchId, t.CreatedAt }, "IX_StockTransfers_CompanyId_BranchId_CreatedAt");
+        builder.HasIndex(t => new { t.CompanyId, t.Status, t.ApprovedAt }, "IX_StockTransfers_CompanyId_Status_ApprovedAt");
         // Usage check (HasOpenTransfers): open transfers touching a location.
         builder.HasIndex(t => new { t.CompanyId, t.SourceLocationId }, "IX_StockTransfers_Source_Open").HasFilter(OpenFilter);
         builder.HasIndex(t => new { t.CompanyId, t.DestinationLocationId }, "IX_StockTransfers_Destination_Open").HasFilter(OpenFilter);

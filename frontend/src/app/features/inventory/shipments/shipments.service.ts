@@ -21,6 +21,7 @@ export function shipmentListParams(query: ShipmentListQuery, companyView: boolea
   if (query.mode) params['mode'] = query.mode;
   if (query.sourceLocationId) params['sourceLocationId'] = query.sourceLocationId;
   if (query.search) params['search'] = query.search;
+  if (query.stockTransferId) params['stockTransferId'] = query.stockTransferId;
   if (companyView) params['scope'] = 'company';
   return params;
 }

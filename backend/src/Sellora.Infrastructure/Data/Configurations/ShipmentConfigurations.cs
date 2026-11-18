@@ -101,6 +101,7 @@ public class ConsignmentConfiguration : IEntityTypeConfiguration<Consignment>
         // One active consignment per destination per shipment.
         builder.HasIndex(c => new { c.ShipmentId, c.DestinationLocationId }, "IX_Consignments_ShipmentId_Destination_Active").IsUnique().HasFilter("\"Status\" <> 'Cancelled'");
         builder.HasIndex(c => new { c.CompanyId, c.DestinationLocationId }, "IX_Consignments_CompanyId_DestinationLocationId");
+        builder.HasIndex(c => new { c.CompanyId, c.Status, c.DispatchedAt }, "IX_Consignments_CompanyId_Status_DispatchedAt");
         builder.HasIndex(c => new { c.CompanyId, c.DestinationBranchId }, "IX_Consignments_CompanyId_DestinationBranchId").HasFilter("\"DestinationBranchId\" IS NOT NULL");
         builder.HasIndex(c => new { c.ShipmentId, c.ShipmentVehicleId }, "IX_Consignments_ShipmentId_ShipmentVehicleId").HasFilter("\"ShipmentVehicleId\" IS NOT NULL");
 
@@ -154,6 +155,11 @@ public class ConsignmentLineConfiguration : IEntityTypeConfiguration<Consignment
         }
 
         builder.HasIndex(l => new { l.ConsignmentId, l.StockTransferLineId }, "IX_ConsignmentLines_ConsignmentId_TransferLine_Active").IsUnique().HasFilter("\"Status\" = 'Active'");
+        // Kept explicitly: EF would otherwise drop the plain FK index in favour of the partial one below, and a partial index cannot serve FK checks.
+        builder.HasIndex(l => new { l.CompanyId, l.ConsignmentId }, "IX_ConsignmentLines_CompanyId_ConsignmentId");
+        // Transit "discrepancies" view: the predicate mirrors TransitController's open-discrepancy expression term for term so Postgres can match it.
+        builder.HasIndex(l => new { l.CompanyId, l.ConsignmentId }, "IX_ConsignmentLines_CompanyId_ConsignmentId_OpenDiscrepancy")
+            .HasFilter("\"Status\" = 'Active' AND \"DamagedBaseQty\" + \"RejectedBaseQty\" + \"MissingBaseQty\" - \"DispositionedDamagedBaseQty\" - \"DispositionedRejectedBaseQty\" - \"DispositionedMissingBaseQty\" > 0");
         builder.HasIndex(l => new { l.CompanyId, l.StockTransferLineId }, "IX_ConsignmentLines_CompanyId_StockTransferLineId");
         builder.HasIndex(l => new { l.CompanyId, l.StockTransferId }, "IX_ConsignmentLines_CompanyId_StockTransferId");
         builder.HasIndex(l => new { l.ProductId, l.ProductUnitId }, "IX_ConsignmentLines_ProductId_ProductUnitId");

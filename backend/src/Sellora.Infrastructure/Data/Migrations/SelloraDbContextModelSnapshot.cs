@@ -463,6 +463,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex(new[] { "CompanyId", "DestinationLocationId" }, "IX_Consignments_CompanyId_DestinationLocationId");
 
+                    b.HasIndex(new[] { "CompanyId", "Status", "DispatchedAt" }, "IX_Consignments_CompanyId_Status_DispatchedAt");
+
                     b.HasIndex(new[] { "ShipmentId", "DestinationLocationId" }, "IX_Consignments_ShipmentId_Destination_Active")
                         .IsUnique()
                         .HasFilter("\"Status\" <> 'Cancelled'");
@@ -713,9 +715,12 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CompanyId", "ConsignmentId");
-
                     b.HasIndex("CompanyId", "ProductId");
+
+                    b.HasIndex(new[] { "CompanyId", "ConsignmentId" }, "IX_ConsignmentLines_CompanyId_ConsignmentId");
+
+                    b.HasIndex(new[] { "CompanyId", "ConsignmentId" }, "IX_ConsignmentLines_CompanyId_ConsignmentId_OpenDiscrepancy")
+                        .HasFilter("\"Status\" = 'Active' AND \"DamagedBaseQty\" + \"RejectedBaseQty\" + \"MissingBaseQty\" - \"DispositionedDamagedBaseQty\" - \"DispositionedRejectedBaseQty\" - \"DispositionedMissingBaseQty\" > 0");
 
                     b.HasIndex(new[] { "CompanyId", "StockTransferId" }, "IX_ConsignmentLines_CompanyId_StockTransferId");
 
@@ -1379,13 +1384,21 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("AccountId", "TransactionDate");
 
-                    b.HasIndex("CompanyId", "AccountId");
-
                     b.HasIndex("CompanyId", "CustomerId");
 
                     b.HasIndex("TransactionDate", "CreatedAt");
 
                     b.HasIndex("Type", "Status");
+
+                    b.HasIndex(new[] { "CompanyId", "AccountId", "Status" }, "IX_FinancialTransactions_CompanyId_AccountId_Status");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "CompanyId", "AccountId", "Status" }, "IX_FinancialTransactions_CompanyId_AccountId_Status"), new[] { "Direction", "BaseAmount", "ReconciledAt" });
+
+                    b.HasIndex(new[] { "CompanyId", "TransactionDate", "CreatedAt", "Id" }, "IX_FinancialTransactions_CompanyId_Date_CreatedAt_Id")
+                        .IsDescending(false, true, true, false);
+
+                    b.HasIndex(new[] { "CompanyId", "TransferGroupId" }, "IX_FinancialTransactions_CompanyId_TransferGroupId")
+                        .HasFilter("\"TransferGroupId\" IS NOT NULL");
 
                     b.ToTable("FinancialTransactions", t =>
                         {
@@ -3649,6 +3662,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasFilter("\"SourceBranchId\" IS NOT NULL");
 
                     b.HasIndex(new[] { "CompanyId", "Status" }, "IX_StockTransfers_CompanyId_Status");
+
+                    b.HasIndex(new[] { "CompanyId", "Status", "ApprovedAt" }, "IX_StockTransfers_CompanyId_Status_ApprovedAt");
 
                     b.HasIndex(new[] { "CompanyId", "TransferNo" }, "IX_StockTransfers_CompanyId_TransferNo")
                         .IsUnique();

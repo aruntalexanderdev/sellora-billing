@@ -168,6 +168,8 @@ export interface ShipmentListQuery {
   mode?: TransportMode;
   sourceLocationId?: string | null;
   search?: string;
+  /** FI-D43d: shipments carrying any line of this transfer request. */
+  stockTransferId?: string | null;
   page?: number;
   pageSize?: number;
 }

@@ -56,7 +56,7 @@ type Has = (code: string) => boolean;
 
 export interface ChainServices {
   transfers: Pick<StockTransfersService, 'create' | 'submit' | 'approve' | 'get'>;
-  shipments: Pick<ShipmentsService, 'create' | 'addVehicle' | 'allocate' | 'assignVehicle' | 'load' | 'dispatch' | 'get'>;
+  shipments: Pick<ShipmentsService, 'create' | 'addVehicle' | 'allocate' | 'assignVehicle' | 'load' | 'dispatch' | 'get' | 'list'>;
   consignments: Pick<ConsignmentsService, 'receipts' | 'recordReceipt' | 'postReceipt'>;
   vehicles: Pick<VehiclesService, 'list'>;
 }
@@ -75,6 +75,11 @@ function stop(transfer: StockTransfer | null, completed: ChainStep[], step: Chai
 }
 
 const live = (s: Shipment): Consignment[] => s.consignments.filter((c) => c.status !== 'Cancelled');
+
+/** FI-D43d: a shipment the van chain may resume: Road + own fleet from the transfer's source, carrying an Active line of the transfer. */
+export const adoptable = (s: Shipment, transfer: StockTransfer): boolean =>
+  s.status !== 'Cancelled' && s.transportMode === 'Road' && s.transportVia === 'OwnFleet' && s.source.id === transfer.from.id
+  && live(s).some((c) => c.lines.some((l) => l.status === 'Active' && transfer.lines.some((tl) => tl.id === l.stockTransferLineId)));
 
 /**
  * Runs the chain. Pass `existing` to resume a transfer a previous run left part-way. Each step first reads the server state (shipment graph,
@@ -164,6 +169,24 @@ export async function runVanChain(
   if (blocked) return blocked;
   let shipment: Shipment;
   {
+    // FI-D43d: a run resumed by ANOTHER user (idempotency keys are per user) first looks for a live shipment already carrying this transfer.
+    if (!keys.shipmentId) {
+      // Best effort: a failed lookup (e.g. no Shipments.View) falls back to create, which is what the run did before.
+      // Only a van-style shipment (Road, own fleet, same source) carrying an Active line of THIS transfer is adopted; anything else
+      // (a carrier or planner-made shipment, another source) is left alone and the run creates its own, as before.
+      try {
+        const found = await firstValueFrom(svc.shipments.list({ stockTransferId: transfer.id, pageSize: 20 }));
+        for (const item of found.items.filter((x) => x.status !== 'Cancelled')) {
+          const candidate = await firstValueFrom(svc.shipments.get(item.id));
+          if (adoptable(candidate, transfer)) {
+            keys.shipmentId = candidate.id;
+            break;
+          }
+        }
+      } catch {
+        /* fall through to create */
+      }
+    }
     const r = await attempt('shipment', null, async () =>
       keys.shipmentId
         ? firstValueFrom(svc.shipments.get(keys.shipmentId))

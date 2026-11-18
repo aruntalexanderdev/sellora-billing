@@ -27,7 +27,7 @@ public class ShipmentsController(IShipmentService shipments, SelloraDbContext db
     [CompanyScopeRead]
     public async Task<ActionResult<PagedResult<ShipmentListItemDto>>> List(
         [FromQuery] ShipmentStatus? status, [FromQuery] TransportMode? mode, [FromQuery] Guid? sourceLocationId, [FromQuery] string? search,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] Guid? stockTransferId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -40,6 +40,10 @@ public class ShipmentsController(IShipmentService shipments, SelloraDbContext db
         var query = db.Shipments.AsNoTracking().Where(s => sources.Contains(s.SourceLocationId));
         if (status is not null) query = query.Where(s => s.Status == status);
         if (mode is not null) query = query.Where(s => s.TransportMode == mode);
+        // FI-D43d: shipments that currently carry one transfer request: an Active line of it in a non-cancelled consignment.
+        if (stockTransferId is { } transferId)
+            query = query.Where(s => db.Consignments.Any(c => c.ShipmentId == s.Id && c.Status != ConsignmentStatus.Cancelled
+                && c.Lines.Any(l => l.StockTransferId == transferId && l.Status == ConsignmentLineStatus.Active)));
 
         var lookups = await ShipmentLookups.LoadAsync(db, ct);
         var term = search?.Trim();

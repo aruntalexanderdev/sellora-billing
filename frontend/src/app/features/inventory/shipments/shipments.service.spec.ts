@@ -13,6 +13,7 @@ describe('list params', () => {
     expect(shipmentListParams({ status: 'Loading', mode: 'Air', sourceLocationId: 's', search: 'AWB', page: 2, pageSize: 10 }, true)).toEqual({
       page: '2', pageSize: '10', status: 'Loading', mode: 'Air', sourceLocationId: 's', search: 'AWB', scope: 'company',
     });
+    expect(shipmentListParams({ stockTransferId: 't1' }, false)).toEqual({ page: '1', pageSize: '20', stockTransferId: 't1' });
   });
 
   it('consignments: direction is always sent', () => {

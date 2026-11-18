@@ -18,6 +18,9 @@ function fake(vehicles = [{ id: 'v1', stockLocationId: 'van', isActive: true }])
   const completed = transfer('Completed', [dispatchedLine({ outstandingBaseQty: 0, receivedBaseQty: 50 })]);
   const state = { shipment: null as Shipment | null, receipts: [] as ConsignmentReceipt[] };
   const created = new Map<string, Shipment>();
+  // Which transfer the fake's current shipment carries (the chain looks it up by transfer before creating).
+  let lastLookup: string | null = null;
+  let shipmentTransfer: string | null = null;
   const set = (s: Shipment) => (state.shipment = s);
   const cur = () => state.shipment!;
   const withCons = (fn: (c: ReturnType<typeof consignment>) => ReturnType<typeof consignment>, over: Partial<Shipment> = {}) =>
@@ -26,10 +29,20 @@ function fake(vehicles = [{ id: 'v1', stockLocationId: 'van', isActive: true }])
   const shipments = {
     // Idempotent like the server: a key seen before replays the shipment it created.
     create: vi.fn((_r: unknown, k: string) => {
-      if (!created.has(k)) created.set(k, set(shipmentFixture('Draft', { consignments: [], vehicles: [] })));
+      if (!created.has(k)) {
+        created.set(k, set(shipmentFixture('Draft', { consignments: [], vehicles: [] })));
+        shipmentTransfer = lastLookup;
+      }
       return of(cur());
     }),
     get: vi.fn((_id: string) => of(cur())),
+    // FI-D43d: shipments carrying a line of the transfer (the fake has one transfer, so any allocated shipment matches).
+    list: vi.fn((q: { stockTransferId?: string | null }) => {
+      lastLookup = q.stockTransferId ?? null;
+      const s = state.shipment;
+      const items = s && shipmentTransfer === q.stockTransferId && s.consignments.some((c) => c.lines.length > 0) ? [{ id: s.id, status: s.status }] : [];
+      return of({ items, total: items.length, page: 1, pageSize: 20 });
+    }),
     addVehicle: vi.fn((_id: string, _r: unknown) =>
       of(set({ ...cur(), vehicles: [{ id: 'sv1', sequence: 1, vehicleId: 'v1', vehicleNumber: 'V1', vehicleName: null, externalVehicleNumber: null, externalDescription: null, driverName: null, driverPhone: null }] }))),
     allocate: vi.fn((_id: string, r: { stockTransferLineId: string; productUnitId: string; quantity: number }, _k: string) =>
@@ -183,13 +196,39 @@ describe('runVanChain', () => {
 
     const second = await runVanChain(f.svc, null, f.approved, has(ALL), new ChainKeys(), options);
     expect(second.stoppedAt).toBeNull();
-    // Same transfer-derived create key: the server replays the existing shipment; no extra allocation, vehicle or load either.
-    expect(f.shipments.create.mock.calls[1][1]).toBe(f.shipments.create.mock.calls[0][1]);
+    // FI-D43d: the resumed run finds the shipment carrying this transfer (works for ANOTHER user too, whose create key would differ),
+    // so it never calls create again; no extra allocation, vehicle or load either.
+    expect(f.shipments.list).toHaveBeenLastCalledWith(expect.objectContaining({ stockTransferId: f.approved.id }));
+    expect(f.shipments.create).toHaveBeenCalledTimes(1);
     expect(f.state.shipment!.id).toBe('s1');
     expect(f.shipments.allocate).toHaveBeenCalledTimes(1);
     expect(f.shipments.addVehicle).toHaveBeenCalledTimes(1);
     expect(f.shipments.load).toHaveBeenCalledTimes(1);
     expect(f.shipments.dispatch.mock.calls[1][1]).toBe(f.shipments.dispatch.mock.calls[0][1]);
+  });
+
+  it('resume when the shipment lookup fails falls back to the transfer-derived create key (server replays the shipment)', async () => {
+    const f = fake();
+    f.shipments.dispatch.mockReturnValueOnce(throwError(net));
+    await runVanChain(f.svc, request, null, has(ALL), new ChainKeys(), options);
+    f.shipments.list.mockReturnValueOnce(throwError(net));
+    const second = await runVanChain(f.svc, null, f.approved, has(ALL), new ChainKeys(), options);
+    expect(second.stoppedAt).toBeNull();
+    expect(f.shipments.create.mock.calls[1][1]).toBe(f.shipments.create.mock.calls[0][1]);
+    expect(f.shipments.allocate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not adopt a shipment it did not plan (carrier / other source) found by the transfer lookup', async () => {
+    const f = fake();
+    f.shipments.dispatch.mockReturnValueOnce(throwError(net));
+    await runVanChain(f.svc, request, null, has(ALL), new ChainKeys(), options);
+    // Someone re-planned the transfer onto a carrier shipment: the lookup finds it, but the van chain must leave it alone.
+    f.state.shipment = { ...f.state.shipment!, id: 's9', transportVia: 'ExternalProvider' };
+    f.shipments.get.mockClear();
+    await runVanChain(f.svc, null, f.approved, has(ALL), new ChainKeys(), options);
+    expect(f.shipments.get).toHaveBeenCalledWith('s9');
+    expect(f.shipments.addVehicle).toHaveBeenCalledTimes(1);
+    expect(f.shipments.create).toHaveBeenCalledTimes(2);
   });
 
   it('stops on a server rejection and links the transfer as it stands', async () => {
