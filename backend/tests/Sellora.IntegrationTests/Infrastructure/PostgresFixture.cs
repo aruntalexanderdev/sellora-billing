@@ -64,6 +64,19 @@ public sealed class PostgresFixture : IAsyncLifetime
         {
             await db.Database.MigrateAsync();
         }
+        // The server ends a closed session asynchronously; copying while it is still listed fails with 55006 "being accessed by other users".
+        await using (var connection = new NpgsqlConnection(ConnectionString))
+        {
+            await connection.OpenAsync();
+            for (var attempt = 0; ; attempt++)
+            {
+                await using var check = connection.CreateCommand();
+                check.CommandText = $"SELECT count(*) FROM pg_stat_activity WHERE datname = '{TemplateName}'";
+                if ((long)(await check.ExecuteScalarAsync())! == 0) break;
+                if (attempt >= 100) throw new InvalidOperationException($"{TemplateName} still has open sessions after migrating it.");
+                await Task.Delay(50);
+            }
+        }
         await ExecuteAdminAsync($"ALTER DATABASE \"{TemplateName}\" WITH IS_TEMPLATE true ALLOW_CONNECTIONS false");
     }
 
