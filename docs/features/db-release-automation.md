@@ -6,7 +6,7 @@ size: L
 
 Review page (plan, workflow, UI prototype, answered questions): https://claude.ai/artifact/FyLELaZd9qLahrk2KvU1YQ
 Owner answers 2026-11-18: all recommendations Q1–Q17 accepted. Q10 resolved (nothing to baseline, see Decisions D11).
-Current step: **POC done locally (steps 1–4, 6); step 5 waits on OQ1.** Next gate: confirm D13 + approve the design → `design-approved`.
+Current step: **POC done locally (steps 1–4, 6); step 5 waits on OQ1.** D13 confirmed (own Npgsql runner). Next gate: answer OQ1 + approve "Database design" and "API contract" → `design-approved`.
 
 ## Problem
 The deploy pipeline (`.github/workflows/_deploy-template.yml`) generates the idempotent EF migration script, publishes it as the
@@ -96,7 +96,7 @@ Unit tests: `backend/tests/Sellora.Tests/DbMigrator/ScriptPlannerTests.cs` (plan
 ### POC findings
 - F1 **DbUp would add little.** It gives ordering and a success-only journal. We would have to replace its journal, add checksums,
   run-on-change, failure recording, read-only validation with row capture and the advisory lock ourselves. The POC runner does all
-  of that in ~800 lines of plain Npgsql (already a dependency) with no extra package. Proposed: change D13 to "own runner on Npgsql".
+  of that in ~800 lines of plain Npgsql (already a dependency) with no extra package. Owner confirmed: D13 changed to "own runner on Npgsql".
 - F2 Scripts removed from the package (replaced failed scripts, deleted validations) kept showing as Failed. Added status `Removed`
   (succeeded data scripts keep `Succeeded`: they are history).
 - F3 The EF bundle has its own migration lock (EF 9+) and logs it once per migration; the migrator hides that noise and the normal
@@ -157,7 +157,7 @@ Draft, finalised in the design phase.
   runbooks; EF migrations track themselves. `Baselined` status is kept for future manual applies.
 - D12 (Q12) Date + sequence naming. (Q13) 10 min default timeout. (Q15) Platform admins only. (Q16) GitHub failure email + page status.
   (Q17) Page shows script SQL read only.
-- D13 (Q14) Tool: DbUp with a custom journal. **POC proposes changing this to an own runner on Npgsql (F1) — awaiting owner confirmation.**
+- D13 (Q14, revised after POC F1, owner confirmed 2026-11-18) Tool: own runner on Npgsql (`Sellora.DbMigrator`). No DbUp/Flyway dependency.
 - File moves: `seed-permissions.sql` → `backend/db/repeatable/R__seed-permissions.sql`; `stock-reconciliation.sql`,
   `stock-transfers-validation.sql`, `unit-restructuring-validation.sql`, `van-operations-validation.sql` → `backend/db/validation/V__*.sql`;
   `unit-restructuring-profile.sql`, `grant-platform-admin.sql`, `delete-product.sql` stay in `scripts/sql/`. Done in delivery step 2.
