@@ -17,19 +17,20 @@ const catalog: PermissionCatalogEntry[] = [
   { code: 'Roles.Create', module: 'Administration', action: 'Create', description: 'Create roles', scope: 'CompanyOnly' },
 ];
 
-function mount(perms: string[], working: string | null = null) {
+function mount(perms: string[], working: string | null = null, id: string | null = null, codes: string[] = ['Sales.View']) {
   const create = vi.fn(() => of({}));
+  const update = vi.fn(() => of({}));
   const has = (c: string) => perms.includes(c);
   TestBed.configureTestingModule({
     imports: [RoleForm],
     providers: [
       provideRouter([]),
-      { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({}) } } },
+      { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap(id ? { id } : {}) } } },
       { provide: AuthService, useValue: { hasPermission: has } },
       { provide: ContextService, useValue: { hasPermission: has, workingBranchId: () => working, workingBranch: () => (working ? { id: working, name: 'North' } : null) } },
       { provide: PermissionsService, useValue: { list: () => of(catalog) } },
       { provide: UserAccessService, useValue: { branches: () => of([{ id: 'b1', code: 'N', name: 'North', isDefault: false }]) } },
-      { provide: RolesService, useValue: { create, update: vi.fn(), get: vi.fn() } },
+      { provide: RolesService, useValue: { create, update, get: () => of({ id: 'r1', name: 'Cashier', description: null, isSystem: false, isActive: true, permissionCodes: codes, scopeType: 'Branch', branchId: 'b1', branchName: 'North', holdsBranchAdministration: codes.some((c) => c.startsWith('Branch.')) }) } },
     ],
   });
   vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
@@ -104,5 +105,32 @@ describe('RoleForm branch-only mode (Branch.Roles.Manage without Roles.Create)',
     component.submit();
     fixture.detectChanges();
     expect(el.textContent).toContain('Not allowed.');
+  });
+});
+
+describe('RoleForm branchOnly is per action (FI-D45)', () => {
+  it('edit with Roles.Edit but not Roles.Create is not branch-only; create without Roles.Create is', () => {
+    expect(mount(['Roles.Edit'], null, 'r1').component.branchOnly).toBe(false);
+    TestBed.resetTestingModule();
+    expect(mount(['Branch.Roles.Manage'], null, 'r1').component.branchOnly).toBe(true);
+    TestBed.resetTestingModule();
+    expect(mount(['Roles.Edit']).component.branchOnly).toBe(true);
+  });
+
+  it('branch-only edit of a role holding admin codes shows a read-only notice and never saves', () => {
+    const { component, el, fixture, update } = mount(['Branch.Roles.Manage'], null, 'r1', ['Sales.View', 'Branch.Users.Create']);
+    fixture.detectChanges();
+    expect(component.readOnlyAdminRole()).toBe(true);
+    expect(el.querySelector('[data-testid="admin-role-notice"]')).not.toBeNull();
+    component.submit();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('branch-only edit of an ordinary role stays editable; a company editor is never read-only', () => {
+    const plain = mount(['Branch.Roles.Manage'], null, 'r1');
+    expect(plain.component.readOnlyAdminRole()).toBe(false);
+    TestBed.resetTestingModule();
+    const company = mount(['Roles.Edit'], null, 'r1', ['Sales.View', 'Branch.Users.Create']);
+    expect(company.component.readOnlyAdminRole()).toBe(false);
   });
 });

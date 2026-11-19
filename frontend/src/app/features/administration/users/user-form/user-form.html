@@ -63,6 +63,7 @@
         <label class="field-label">Phone</label>
         <input type="text" formControlName="phoneNumber" class="field-input" />
       </div>
+      @if (!branchEdit) {
       <div>
         <label class="field-label">Role</label>
         <select formControlName="roleId" class="field-input">
@@ -78,6 +79,7 @@
           <div class="field-error">{{ form.get('roleId')?.errors?.['server'] }}</div>
         }
       </div>
+      }
     </div>
 
     @if (!isEdit()) {

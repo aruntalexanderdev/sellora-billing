@@ -12,7 +12,7 @@ import type { PermissionCatalogEntry } from '../../permissions/permissions.model
 import { applyProblem, toProblem } from '../../../../core/http/api-errors';
 import type { AccessibleBranch } from '../../../../shared/branches/branch-select';
 import { UserAccessService } from '../../users/user-access/user-access.service';
-import { buildCreateRoleRequest, buildUpdateRoleRequest, eligibleCatalog, pruneSelection, withoutBranchAdminCodes } from '../roles.logic';
+import { buildCreateRoleRequest, buildUpdateRoleRequest, eligibleCatalog, holdsBranchAdminCode, pruneSelection, withoutBranchAdminCodes } from '../roles.logic';
 import { ContextService } from '../../../../core/context/context.service';
 import type { RoleScope } from '../roles.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
@@ -50,11 +50,13 @@ export class RoleForm implements OnInit, HasUnsavedChanges {
   private readonly auth = inject(AuthService);
   private readonly context = inject(ContextService);
 
-  /** Branch.Roles.Manage without Roles.Create: only Branch-scope roles may be created. */
-  readonly branchOnly = !this.auth.hasPermission('Roles.Create');
-
   readonly roleId = this.route.snapshot.paramMap.get('id');
   readonly isEdit = computed(() => this.roleId !== null && this.roleId !== 'new');
+
+  /** Per action (FI-D45): create without Roles.Create, or edit without Roles.Edit, is the branch path (Branch.Roles.Manage). */
+  readonly branchOnly = !this.auth.hasPermission(this.roleId !== null && this.roleId !== 'new' ? 'Roles.Edit' : 'Roles.Create');
+  /** Branch path editing a role that already holds branch administration codes: the server refuses, so the page is read-only. */
+  readonly readOnlyAdminRole = signal(false);
 
   readonly form = this.fb.nonNullable.group({
     name: ['', Validators.required],
@@ -144,6 +146,7 @@ export class RoleForm implements OnInit, HasUnsavedChanges {
           const set = new Set(role.permissionCodes);
           this.selected.set(set);
           this.initialSelected = new Set(set);
+          this.readOnlyAdminRole.set(this.branchOnly && holdsBranchAdminCode(set));
         },
       });
     }
@@ -176,6 +179,7 @@ export class RoleForm implements OnInit, HasUnsavedChanges {
 
   submit(): void {
     this.serverError.set(null);
+    if (this.readOnlyAdminRole()) return;
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       return;

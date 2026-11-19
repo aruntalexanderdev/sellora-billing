@@ -49,8 +49,8 @@ export class RoleList implements OnInit {
   readonly canCreate = computed(() => this.auth.hasPermission('Roles.Create') || this.auth.hasPermission('Branch.Roles.Manage'));
 
   /** Per-row gating: company roles need Roles.*, branch roles Roles.* or Branch.Roles.Manage. */
-  can(r: Pick<RoleListItem, 'scopeType'>, code: 'Roles.Edit' | 'Roles.Duplicate' | 'Roles.Disable'): boolean {
-    return canManageRole((c) => this.auth.hasPermission(c), r.scopeType, code);
+  can(r: Pick<RoleListItem, 'scopeType'> & Partial<Pick<RoleListItem, 'holdsBranchAdministration'>>, code: 'Roles.Edit' | 'Roles.Duplicate' | 'Roles.Disable'): boolean {
+    return canManageRole((c) => this.auth.hasPermission(c), r.scopeType, code, r.holdsBranchAdministration);
   }
 
   readonly rows = computed<DataTableRow[]>(() =>

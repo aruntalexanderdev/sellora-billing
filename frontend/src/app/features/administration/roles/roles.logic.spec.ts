@@ -48,6 +48,15 @@ describe('server scope preferred over the fallback list', () => {
   });
 });
 
+describe('canManageRole branch administration (FI-D45)', () => {
+  const has = (...c: string[]) => (x: string) => c.includes(x);
+  it('Branch.Roles.Manage cannot manage a role holding branch administration; the company code can', () => {
+    expect(canManageRole(has('Branch.Roles.Manage'), 'Branch', 'Roles.Edit', true)).toBe(false);
+    expect(canManageRole(has('Branch.Roles.Manage'), 'Branch', 'Roles.Edit', false)).toBe(true);
+    expect(canManageRole(has('Roles.Edit'), 'Branch', 'Roles.Edit', true)).toBe(true);
+  });
+});
+
 describe('canManageRole', () => {
   const has = (...codes: string[]) => (c: string) => codes.includes(c);
   it('company roles need the Roles.* code; branch roles also accept Branch.Roles.Manage', () => {

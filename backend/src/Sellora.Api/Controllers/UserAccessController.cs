@@ -6,6 +6,7 @@ using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Permissions;
 using Sellora.Infrastructure.Data;
 
 namespace Sellora.Api.Controllers;
@@ -17,14 +18,21 @@ namespace Sellora.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/users/{id:guid}/access")]
-public class UserAccessController(SelloraDbContext db, IUserAccessService access) : ControllerBase
+public class UserAccessController(SelloraDbContext db, IUserAccessService access, IEffectivePermissionService effective) : ControllerBase
 {
     private const string ManagePolicy = "Company.Users.ManageBranchAccess";
 
     [HttpGet]
-    [Authorize(Policy = "Users.View")]
+    [Authorize(Policy = "Users.View|Branch.Users.View")]
     public async Task<ActionResult<UserAccessDto>> Get(Guid id, CancellationToken ct)
     {
+        // Phase 01b: on the branch path the target must pass the same visibility filter as GET api/v1/users/{id} (else 404).
+        var branchMode = UserVisibility.IsBranchMode(await effective.GetCurrentAsync(ct), "Users.View", PermissionCatalog.BranchUsersView);
+        if (branchMode)
+        {
+            var actorId = Guid.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("sub")?.Value, out var uid) ? uid : Guid.Empty;
+            if (!await (await UserVisibility.VisibleUsersAsync(db, true, actorId, ct)).AnyAsync(u => u.Id == id, ct)) return NotFound();
+        }
         var view = await BuildViewAsync(id, ct);
         return view is null ? NotFound() : Ok(view);
     }

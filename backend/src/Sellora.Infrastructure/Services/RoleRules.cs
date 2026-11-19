@@ -31,7 +31,8 @@ public static class RoleRules
         if (scope == RoleScope.Company) return actor.Effective.HasCompanyLevel("Roles.View");
         if (branchId is not { } b || !await ReachesAsync(db, actor, b, ct)) return false;
         return actor.Effective.HasCompanyLevel("Roles.View") || actor.Effective.HasAtBranch(PermissionCatalog.BranchRolesView, b)
-            || actor.Effective.HasAtBranch(PermissionCatalog.BranchRolesManage, b);
+            || actor.Effective.HasAtBranch(PermissionCatalog.BranchRolesManage, b)
+            || actor.Effective.HasAtBranch(PermissionCatalog.BranchUsersAssignRoles, b); // pick roles to assign
     }
 
     /// <summary>R2/R3: company roles need the company-level code and a CompanyWide actor; branch roles the same company path or Branch.Roles.Manage at the branch.</summary>

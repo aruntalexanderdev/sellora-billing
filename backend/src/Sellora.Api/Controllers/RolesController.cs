@@ -135,8 +135,13 @@ public class RolesController(
             .GroupBy(a => a.RoleId).Select(g => new { RoleId = g.Key, Count = g.Count() }).ToListAsync(ct);
         var countById = counts.ToDictionary(c => c.RoleId, c => c.Count);
         var branchNames = await BranchNamesAsync(rows, ct);
+        var adminCodes = PermissionCatalog.BranchAdministrationCodes.ToArray();
+        var holders = (await db.RolePermissions.AsNoTracking()
+            .Where(rp => ids.Contains(rp.RoleId) && adminCodes.Contains(rp.Permission.Code))
+            .Select(rp => rp.RoleId).Distinct().ToListAsync(ct)).ToHashSet();
         return rows.Select(r => new RoleListItemDto(r.Id, r.Name, r.Description, r.IsSystem, r.IsActive, countById.GetValueOrDefault(r.Id),
-            r.ScopeType, r.BranchId, r.BranchId is { } b ? branchNames.GetValueOrDefault(b) : null)).ToList();
+            r.ScopeType, r.BranchId, r.BranchId is { } b ? branchNames.GetValueOrDefault(b) : null,
+            r.IsSystem || holders.Contains(r.Id))).ToList();
     }
 
     private async Task<RoleDetailDto> ToDetailAsync(Role role, CancellationToken ct)

@@ -48,6 +48,8 @@ export class UserForm implements OnInit, HasUnsavedChanges {
     this.userId !== null && this.userId !== 'new' ? 'Users.Edit' : 'Users.Create',
     this.userId !== null && this.userId !== 'new' ? 'Branch.Users.Edit' : 'Branch.Users.Create',
   ) === 'branch';
+  /** Branch edit: the role is not part of the form (managed on the Access & roles page; the PUT omits roleId). */
+  readonly branchEdit = this.branchMode && this.userId !== null && this.userId !== 'new';
   readonly workingBranchName = computed(() => this.context.workingBranch()?.name ?? 'the working branch');
 
   readonly form = this.fb.nonNullable.group({
@@ -62,11 +64,17 @@ export class UserForm implements OnInit, HasUnsavedChanges {
   });
 
   ngOnInit(): void {
+    if (this.branchEdit) this.form.removeControl('roleId' as never);
     // Branch mode never requests company roles (403 for a branch-only admin): active branch roles of the working branch only.
     const roles$ = this.branchMode
       ? this.rolesService.list({ scope: 'Branch', branchId: this.context.workingBranchId() ?? this.context.workingBranch()?.id ?? null })
       : this.rolesService.list();
-    roles$.subscribe({ next: (roles) => this.roles.set(roles.filter((r) => r.isActive)) });
+    // FI-D45: in branch mode roles holding branch administration codes are company-granted only.
+    if (!this.branchEdit) {
+      roles$.subscribe({
+        next: (roles) => this.roles.set(roles.filter((r) => r.isActive && !(this.branchMode && r.holdsBranchAdministration))),
+      });
+    }
 
     if (this.isEdit()) {
       this.form.get('password')?.clearValidators();
@@ -78,7 +86,7 @@ export class UserForm implements OnInit, HasUnsavedChanges {
             username: u.username,
             email: u.email,
             phoneNumber: u.phoneNumber ?? '',
-            roleId: this.branchMode ? this.branchRoleOf(u) : (u.roleId ?? ''),
+            ...(this.branchEdit ? {} : { roleId: u.roleId ?? '' }),
           }),
       });
     } else {
@@ -109,7 +117,7 @@ export class UserForm implements OnInit, HasUnsavedChanges {
           username: v.username,
           email: v.email,
           phoneNumber: v.phoneNumber || null,
-          roleId: v.roleId,
+          ...(this.branchEdit ? {} : { roleId: v.roleId }),
         })
       : this.usersService.create({
           firstName: v.firstName,
@@ -134,12 +142,6 @@ export class UserForm implements OnInit, HasUnsavedChanges {
         this.applyServerErrors(err);
       },
     });
-  }
-
-  /** The user's active role in the working branch, if any (UserDetail.roleId is the first company role). */
-  private branchRoleOf(u: { roles?: { id: string; scopeType: string; branchId: string | null }[] | null }): string {
-    const branchId = this.context.workingBranchId() ?? this.context.workingBranch()?.id ?? null;
-    return u.roles?.find((r) => r.scopeType === 'Branch' && r.branchId === branchId)?.id ?? '';
   }
 
   private applyServerErrors(err: HttpErrorResponse): void {

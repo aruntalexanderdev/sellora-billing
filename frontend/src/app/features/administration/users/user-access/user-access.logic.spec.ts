@@ -64,7 +64,7 @@ describe('request builders', () => {
 
 describe('assignableRoles', () => {
   const role = (over: Partial<RoleListItem>): RoleListItem => ({
-    id: 'r', name: 'R', description: null, isSystem: false, isActive: true, userCount: 0, scopeType: 'Company', branchId: null, branchName: null, ...over,
+    id: 'r', name: 'R', description: null, isSystem: false, isActive: true, userCount: 0, scopeType: 'Company', branchId: null, branchName: null, holdsBranchAdministration: false, ...over,
   });
   const roles = [
     role({ id: 'c1' }), role({ id: 'c2', isActive: false }),
@@ -73,6 +73,11 @@ describe('assignableRoles', () => {
 
   it('company scope: active company roles only', () => {
     expect(assignableRoles(roles, 'Company', null).map((r) => r.id)).toEqual(['c1']);
+  });
+  it('excludes roles holding branch administration when asked (branch-path actor)', () => {
+    const withAdmin = [role({ id: 'b1', scopeType: 'Branch', branchId: 'x' }), role({ id: 'b3', scopeType: 'Branch', branchId: 'x', holdsBranchAdministration: true })];
+    expect(assignableRoles(withAdmin, 'Branch', 'x', true).map((r) => r.id)).toEqual(['b1']);
+    expect(assignableRoles(withAdmin, 'Branch', 'x').map((r) => r.id)).toEqual(['b1', 'b3']);
   });
   it('branch scope: active roles of the chosen branch only', () => {
     expect(assignableRoles(roles, 'Branch', 'x').map((r) => r.id)).toEqual(['b1']);

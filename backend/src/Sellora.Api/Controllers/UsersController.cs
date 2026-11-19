@@ -32,8 +32,8 @@ public class UsersController(
         pageSize = Math.Clamp(pageSize, 1, 100);
 
         var companyId = db.CompanyContext.RequireCompanyId();
-        var branchMode = IsBranchMode(await effective.GetCurrentAsync(ct), "Users.View", PermissionCatalog.BranchUsersView);
-        var query = await VisibleUsersAsync(branchMode, CurrentUserId(), ct);
+        var branchMode = UserVisibility.IsBranchMode(await effective.GetCurrentAsync(ct), "Users.View", PermissionCatalog.BranchUsersView);
+        var query = await UserVisibility.VisibleUsersAsync(db, branchMode, CurrentUserId(), ct);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -129,8 +129,8 @@ public class UsersController(
     [Authorize(Policy = "Users.View|Branch.Users.View")]
     public async Task<ActionResult<UserDetailDto>> Get(Guid id, CancellationToken ct)
     {
-        var branchMode = IsBranchMode(await effective.GetCurrentAsync(ct), "Users.View", PermissionCatalog.BranchUsersView);
-        var user = await (await VisibleUsersAsync(branchMode, CurrentUserId(), ct)).SingleOrDefaultAsync(u => u.Id == id, ct);
+        var branchMode = UserVisibility.IsBranchMode(await effective.GetCurrentAsync(ct), "Users.View", PermissionCatalog.BranchUsersView);
+        var user = await (await UserVisibility.VisibleUsersAsync(db, branchMode, CurrentUserId(), ct)).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
         return Ok(await BuildDetailAsync(user, ct));
     }
@@ -189,7 +189,7 @@ public class UsersController(
 
         try
         {
-            if (IsBranchMode(actor.Effective, "Users.Create", PermissionCatalog.BranchUsersCreate))
+            if (UserVisibility.IsBranchMode(actor.Effective, "Users.Create", PermissionCatalog.BranchUsersCreate))
             {
                 // Phase 01b (FI-D44, §6.4 exception): the server places the user in the active branch only - AssignedBranches, one primary allocation
                 // there - and ignores any client-supplied scope/branches. The initial role must be an active role of that branch (R4 + FI-D45 checks).
@@ -201,6 +201,13 @@ public class UsersController(
                 }
                 await roleAssignments.StageInitialBranchRoleAsync(actor.ToRoleActor(HttpContext.TraceIdentifier), membership, role!.Id, workingId, ct);
                 await userAccess.InitializeNewMembershipAsync(ToAccessActor(actor), membership, isAdministratorRole: false, selection: null, ct);
+                // Defence in depth: exactly one staged allocation for the new membership, in the working branch (the scope rolls back on 400).
+                var staged = db.UserBranchAssignments.Local.Where(a => a.UserCompanyMembershipId == membership.Id).ToList();
+                if (staged.Count != 1 || staged[0].BranchId != workingId)
+                {
+                    ModelState.AddModelError("branchId", "The user must be allocated only to the active branch.");
+                    return ValidationProblem(ModelState);
+                }
             }
             else
             {
@@ -244,8 +251,8 @@ public class UsersController(
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
         var actor = access.Actor;
-        var branchMode = IsBranchMode(actor.Effective, "Users.Edit", PermissionCatalog.BranchUsersEdit);
-        var user = await (await VisibleUsersAsync(branchMode, actor.UserId, ct)).SingleOrDefaultAsync(u => u.Id == id, ct);
+        var branchMode = UserVisibility.IsBranchMode(actor.Effective, "Users.Edit", PermissionCatalog.BranchUsersEdit);
+        var user = await (await UserVisibility.VisibleUsersAsync(db, branchMode, actor.UserId, ct)).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         if (!actor.IsAdministrator && await TargetHoldsAdministratorAsync(user.Id, ct)) return AdministratorAccountForbidden();
@@ -312,8 +319,8 @@ public class UsersController(
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
         var actor = access.Actor;
-        var branchMode = IsBranchMode(actor.Effective, "Users.Disable", PermissionCatalog.BranchUsersDisable);
-        var user = await (await VisibleUsersAsync(branchMode, actor.UserId, ct)).SingleOrDefaultAsync(u => u.Id == id, ct);
+        var branchMode = UserVisibility.IsBranchMode(actor.Effective, "Users.Disable", PermissionCatalog.BranchUsersDisable);
+        var user = await (await UserVisibility.VisibleUsersAsync(db, branchMode, actor.UserId, ct)).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         if (user.Id == actor.UserId && request.Status == UserStatus.Disabled)
@@ -351,8 +358,8 @@ public class UsersController(
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
         var actor = access.Actor;
-        var branchMode = IsBranchMode(actor.Effective, "Users.ResetPassword", PermissionCatalog.BranchUsersResetPassword);
-        var user = await (await VisibleUsersAsync(branchMode, actor.UserId, ct)).SingleOrDefaultAsync(u => u.Id == id, ct);
+        var branchMode = UserVisibility.IsBranchMode(actor.Effective, "Users.ResetPassword", PermissionCatalog.BranchUsersResetPassword);
+        var user = await (await UserVisibility.VisibleUsersAsync(db, branchMode, actor.UserId, ct)).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
         if (!actor.IsAdministrator && await TargetHoldsAdministratorAsync(user.Id, ct)) return AdministratorAccountForbidden();
@@ -369,51 +376,6 @@ public class UsersController(
 
         return Ok(new ResetPasswordResponse(temporaryPassword));
     }
-
-    /// <summary>Users that have a membership (any status) in the current company. Users is a platform table, so every
-    /// action that reads or changes ANOTHER user goes through this scope (L1): other tenants' users are 404.</summary>
-    private IQueryable<User> CompanyUsers()
-    {
-        var companyId = db.CompanyContext.RequireCompanyId();
-        return db.Users.Where(u => db.UserCompanyMemberships.Any(m => m.UserId == u.Id && m.CompanyId == companyId));
-    }
-
-    /// <summary>
-    /// Phase 01 (FI-D14) + Phase 01b (FI-D44/FI-D45): company users the actor may see/administer. A CompanyWide actor in company mode (allowed set
-    /// null) sees every company user. Otherwise - a branch-limited actor, or any actor on the branch path (<paramref name="branchMode"/>: only the
-    /// Branch.Users.* code, no company-level Users.* code) - only users that work wholly inside the actor's branches and are not company administration
-    /// (else 404). The branch set is the request's allowed set (already narrowed to the branches where the branch code is held), or every company
-    /// branch for a company-wide actor holding the branch code company-level.
-    /// </summary>
-    private async Task<IQueryable<User>> VisibleUsersAsync(bool branchMode, Guid actorUserId, CancellationToken ct)
-    {
-        var query = CompanyUsers();
-        var allowedSet = db.BranchContext.AllowedBranchIds;
-        if (allowedSet is null && !branchMode) return query;
-
-        var companyId = db.CompanyContext.RequireCompanyId();
-        var allowed = allowedSet?.ToArray() ?? await db.Branches.Where(b => b.CompanyId == companyId).Select(b => b.Id).ToArrayAsync(ct);
-        var adminCodes = PermissionCatalog.BranchAdministrationCodes.ToArray();
-        // FI-D14: a branch-limited actor reaches only users that work wholly inside its branches - an AssignedBranches membership with at least
-        // one active allocation, every active allocation and every active branch role inside the actor's branches, and no company role.
-        // Company-wide members and users without any allocation are company administration (404 for the branch actor).
-        // FI-D45 (owner-confirmed): holders of a branch administration code are company administration too, and the actor never administers itself
-        // here (self-service endpoints are separate).
-        return query.Where(u => u.Id != actorUserId && db.UserCompanyMemberships.Any(m => m.UserId == u.Id && m.CompanyId == companyId
-            && m.AccessScope == CompanyAccessScope.AssignedBranches
-            && db.UserBranchAssignments.Any(a => a.CompanyId == companyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active)
-            && !db.UserBranchAssignments.Any(a => a.CompanyId == companyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active && !allowed.Contains(a.BranchId))
-            && !db.UserRoleAssignments.Any(r => r.CompanyId == companyId && r.UserCompanyMembershipId == m.Id && r.Status == AssignmentStatus.Active
-                && (r.ScopeType == RoleScope.Company || (r.BranchId != null && !allowed.Contains(r.BranchId.Value))
-                    || db.RolePermissions.Any(rp => rp.RoleId == r.RoleId && adminCodes.Contains(rp.Permission.Code))))));
-    }
-
-    /// <summary>
-    /// Phase 01b: the branch path applies when the caller lacks <paramref name="companyCode"/> company-level but holds <paramref name="branchCode"/>
-    /// (at some branch, or company-level). A caller holding neither keeps the company-path checks (the policy refuses it before this point anyway).
-    /// </summary>
-    private static bool IsBranchMode(EffectivePermissionSet set, string companyCode, string branchCode) =>
-        !set.HasCompanyLevel(companyCode) && (set.HasCompanyLevel(branchCode) || set.PermittedBranches(branchCode) is { Count: > 0 });
 
     private Guid CurrentUserId() =>
         Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub"), out var id) ? id : Guid.Empty;

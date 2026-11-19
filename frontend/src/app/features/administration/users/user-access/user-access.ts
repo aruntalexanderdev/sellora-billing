@@ -116,6 +116,11 @@ export class UserAccessPage implements OnInit {
     () => this.context.hasPermission('Company.Users.AssignRoles') || this.context.hasPermission('Branch.Users.AssignRoles'),
   );
 
+  /** Company-path role assignment (company roles, any branch, branch-administration roles); a branch-only admin assigns branch roles of their branch. */
+  readonly companyAssign = computed(() => this.context.hasPermission('Company.Users.AssignRoles'));
+  /** Allocations, scope and membership controls need the company codes; a branch-only admin only sees status + roles. */
+  readonly canViewAllocations = computed(() => this.canManage() || this.context.hasPermission('Users.View'));
+
   readonly form = this.fb.nonNullable.group({
     reason: [''],
     branchId: [''],
@@ -123,7 +128,7 @@ export class UserAccessPage implements OnInit {
     makePrimary: [false],
     accessScope: ['AssignedBranches' as CompanyAccessScope],
     primaryBranchId: [''],
-    roleScope: ['Company' as RoleScope],
+    roleScope: [(this.context.hasPermission('Company.Users.AssignRoles') ? 'Company' : 'Branch') as RoleScope],
     roleId: [''],
   });
 
@@ -185,13 +190,13 @@ export class UserAccessPage implements OnInit {
     this.service.branches().subscribe({ next: (b) => this.branches.set(b), error: () => this.branches.set([]) });
     this.loadAccess();
     this.loadRoles();
-    if (this.tab() === 'audit') this.loadEvents(1);
+    if (this.tab() === 'audit' && this.canManage()) this.loadEvents(1);
   }
 
   setTab(tab: Tab): void {
     this.tab.set(tab);
     this.closePanel();
-    if (tab === 'audit' && !this.events()) this.loadEvents(1);
+    if (tab === 'audit' && this.canManage() && !this.events()) this.loadEvents(1);
   }
 
   loadAccess(): void {
@@ -229,7 +234,7 @@ export class UserAccessPage implements OnInit {
 
   open(panel: Panel): void {
     this.banner.set(null);
-    this.form.reset({ accessScope: panel.kind === 'scope' ? this.otherScope() : 'AssignedBranches' });
+    this.form.reset({ accessScope: panel.kind === 'scope' ? this.otherScope() : 'AssignedBranches', roleScope: this.companyAssign() ? 'Company' : 'Branch' });
     this.selectedBranchIds.set(new Set());
     this.panel.set(panel);
     if (panel.kind === 'assignRole') this.loadAssignable();
@@ -281,7 +286,7 @@ export class UserAccessPage implements OnInit {
       return;
     }
     this.rolesService.list({ scope: roleScope, branchId: roleScope === 'Branch' ? branchId : null }).subscribe({
-      next: (roles) => this.assignable.set(assignableRoles(roles, roleScope, branchId || null)),
+      next: (roles) => this.assignable.set(assignableRoles(roles, roleScope, branchId || null, !this.companyAssign())),
       error: (err: HttpErrorResponse) => {
         this.assignable.set([]);
         this.banner.set(applyProblem(this.form, toProblem(err)));
@@ -359,7 +364,7 @@ export class UserAccessPage implements OnInit {
         }
         this.toast.show(done);
         this.panel.set(null);
-        if (this.events()) this.loadEvents(1); // keep the audit tab fresh
+        if (this.events() && this.canManage()) this.loadEvents(1); // keep the audit tab fresh
       },
       error: (err: HttpErrorResponse) => {
         this.busy.set(false);

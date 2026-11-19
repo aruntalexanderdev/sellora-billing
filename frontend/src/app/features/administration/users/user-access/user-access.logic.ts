@@ -80,6 +80,8 @@ export function endRoleRequest(reason: string): EndRoleAssignmentRequest {
 }
 
 /** Roles that may be assigned in the chosen scope: active, matching scope (and branch for branch roles). */
-export function assignableRoles(roles: RoleListItem[], scope: RoleScope, branchId: string | null): RoleListItem[] {
-  return roles.filter((r) => r.isActive && (r.scopeType ?? 'Company') === scope && (scope === 'Company' || r.branchId === branchId));
+export function assignableRoles(
+  roles: RoleListItem[], scope: RoleScope, branchId: string | null, excludeBranchAdministration = false,
+): RoleListItem[] {
+  return roles.filter((r) => r.isActive && !(excludeBranchAdministration && r.holdsBranchAdministration) && (r.scopeType ?? 'Company') === scope && (scope === 'Company' || r.branchId === branchId));
 }
