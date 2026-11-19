@@ -32,7 +32,7 @@ export const NAV_DEF: NavGroupDef[] = [
     label: 'Administration',
     items: [
       // User access (branch allocations, roles) is a tab inside a user: /administration/users/:id/access.
-      { label: 'Users', routerLink: '/administration/users', permission: 'Users.View' },
+      { label: 'Users', routerLink: '/administration/users', permission: ['Users.View', 'Branch.Users.View'] },
       { label: 'Roles & Permissions', routerLink: '/administration/roles', permission: ['Roles.View', 'Branch.Roles.View'] },
       { label: 'Permissions', routerLink: '/administration/permissions', permission: 'Permissions.View' },
       { label: 'Units', routerLink: '/administration/units', permission: 'Masters.View' },

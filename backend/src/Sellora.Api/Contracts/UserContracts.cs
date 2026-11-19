@@ -40,7 +40,8 @@ public record UpdateUserRequest(
     [Required, MaxLength(60)] string Username,
     [Required, EmailAddress, MaxLength(200)] string Email,
     [MaxLength(30)] string? PhoneNumber,
-    [Required] Guid? RoleId
+    // Phase 01b: optional. Null = profile-only edit (roles unchanged); the branch path always omits it and never changes roles here.
+    Guid? RoleId = null
 );
 
 public record SetUserStatusRequest(UserStatus Status);

@@ -7,6 +7,11 @@
 
 <div class="form-layout">
   <div class="form-card details-card">
+    @if (readOnlyAdminRole()) {
+      <div class="info-banner" data-testid="admin-role-notice">
+        This role grants branch administration permissions, which only a company administrator can change. It is shown read-only.
+      </div>
+    }
     @if (serverError()) {
       <div class="server-error">{{ serverError() }}</div>
     }
@@ -55,14 +60,19 @@
           @if (form.get('branchId')?.errors?.['server']) {
             <div class="field-error">{{ form.get('branchId')?.errors?.['server'] }}</div>
           }
-          <div class="field-hint">Branch roles can only hold branch-eligible permissions.</div>
+          <div class="field-hint">
+            @if (branchOnly && form.controls.branchId.disabled) {
+              This role is created in your working branch.
+            }
+            Branch roles can only hold branch-eligible permissions.
+          </div>
         }
       }
 
       <div class="summary-line">{{ selectedCount() }} of {{ totalCount() }} permissions selected</div>
 
       <div class="actions">
-        <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save role' }}</ui-button>
+        <ui-button type="submit" variant="primary" [disabled]="saving() || readOnlyAdminRole()">{{ saving() ? 'Saving…' : 'Save role' }}</ui-button>
         <a routerLink="/administration/roles" class="cancel-link">Cancel</a>
       </div>
     </form>

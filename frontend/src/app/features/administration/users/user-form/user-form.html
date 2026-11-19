@@ -10,6 +10,10 @@
     <div class="server-error">{{ serverError() }}</div>
   }
 
+  @if (branchMode && !isEdit()) {
+    <div class="info-banner" data-testid="branch-banner">This user will be added to {{ workingBranchName() }}.</div>
+  }
+
   <form [formGroup]="form" (ngSubmit)="submit()">
     <div class="grid-2">
       <div>
@@ -59,6 +63,7 @@
         <label class="field-label">Phone</label>
         <input type="text" formControlName="phoneNumber" class="field-input" />
       </div>
+      @if (!branchEdit) {
       <div>
         <label class="field-label">Role</label>
         <select formControlName="roleId" class="field-input">
@@ -74,6 +79,7 @@
           <div class="field-error">{{ form.get('roleId')?.errors?.['server'] }}</div>
         }
       </div>
+      }
     </div>
 
     @if (!isEdit()) {

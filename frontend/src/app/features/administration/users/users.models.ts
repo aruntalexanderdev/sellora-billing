@@ -44,5 +44,6 @@ export interface UpdateUserRequest {
   username: string;
   email: string;
   phoneNumber?: string | null;
-  roleId: string;
+  /** Omitted by a branch-only administrator (roles are managed on the Access & roles page). */
+  roleId?: string;
 }

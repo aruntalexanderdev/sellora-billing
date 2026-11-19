@@ -34,6 +34,23 @@ public class RoleAssignmentsController(
             return NotFound();
         }
 
+        // Phase 01b read rule: a branch-path viewer reaches only users with an active allocation at a branch where it may assign roles (and that it
+        // reaches); users only in other branches, company-wide members and unallocated users are 404. The view itself stays filtered below (Phase 7).
+        if (!companyView)
+        {
+            IReadOnlyCollection<Guid>? assignBranches = null;
+            if (actor.Effective.PermittedBranches(PermissionCatalog.BranchUsersAssignRoles) is { } held)
+            {
+                var reachable = new List<Guid>();
+                foreach (var b in held) if (await RoleRules.ReachesAsync(db, actor, b, ct)) reachable.Add(b);
+                assignBranches = reachable;
+            }
+            else if (db.BranchContext.AllowedBranchIds is { } allowedBranches)
+            {
+                assignBranches = allowedBranches.ToList();
+            }
+            if (!await UserVisibility.IsAllocatedWithinAsync(db, id, assignBranches, ct)) return NotFound();
+        }
         var view = await BuildViewAsync(id, ct);
         if (view is null) return NotFound();
         if (companyView) return Ok(view);

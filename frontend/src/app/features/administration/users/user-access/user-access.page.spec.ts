@@ -45,7 +45,7 @@ function mount(perms: string[], query: Record<string, string> = {}) {
       provideRouter([]),
       { provide: UserAccessService, useValue: service },
       { provide: UsersService, useValue: { get: () => of({ firstName: 'Ravi', lastName: 'Kumar' }) } },
-      { provide: RolesService, useValue: { list: vi.fn(() => of([{ id: 'r1', name: 'Cashier', description: null, isSystem: false, isActive: true, userCount: 1, scopeType: 'Company', branchId: null, branchName: null }])) } },
+      { provide: RolesService, useValue: { list: vi.fn(() => of([{ id: 'r1', name: 'Cashier', description: null, isSystem: false, isActive: true, userCount: 1, scopeType: 'Company', branchId: null, branchName: null, holdsBranchAdministration: false }])) } },
       { provide: ContextService, useValue: { hasPermission: (c: string) => perms.includes(c) } },
       { provide: ToastService, useValue: toast },
       { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: 'u9' }), queryParamMap: convertToParamMap(query) } } },
@@ -227,5 +227,41 @@ describe('UserAccessPage audited actions send the reason', () => {
     submit();
     expect(el.querySelector('form.panel')).not.toBeNull();
     expect(el.querySelector('#alloc-branch')!.parentElement!.textContent).toContain('Branch is inactive.');
+  });
+});
+
+describe('UserAccessPage for a branch-only administrator (Branch.Users.View + Branch.Users.AssignRoles)', () => {
+  const BRANCH_ADMIN = ['Branch.Users.View', 'Branch.Users.AssignRoles'];
+
+  it('requests only access + roles of the user: no events, allocations or scope controls', () => {
+    const { el, service, component } = mount(BRANCH_ADMIN);
+    expect(service.get).toHaveBeenCalledWith('u9');
+    expect(service.roles).toHaveBeenCalledWith('u9');
+    expect(service.events).not.toHaveBeenCalled();
+    expect(tabs(el)).toEqual(['Access', 'Roles']);
+    expect(el.textContent).not.toContain('Current allocations');
+    expect(el.textContent).not.toContain('Change access scope');
+    expect(component.canViewAllocations()).toBe(false);
+  });
+
+  it('assigns branch roles only and excludes roles holding branch administration', () => {
+    const { component, click, el, fixture } = mount(BRANCH_ADMIN, { tab: 'roles' });
+    const rolesService = TestBed.inject(RolesService) as unknown as { list: ReturnType<typeof vi.fn> };
+    const r = (id: string, admin: boolean) => ({ id, name: id, description: null, isSystem: false, isActive: true, userCount: 0, scopeType: 'Branch', branchId: 'b1', branchName: 'Main', holdsBranchAdministration: admin });
+    rolesService.list.mockReturnValue(of([r('plain', false), r('admin', true)]));
+    click('+ Assign role');
+    expect(Array.from(el.querySelectorAll('#role-scope option')).map((o) => (o as HTMLOptionElement).value)).toEqual(['Branch']);
+    component.form.patchValue({ branchId: 'b1' });
+    component.loadAssignable();
+    fixture.detectChanges();
+    expect(component.assignable().map((x) => x.id)).toEqual(['plain']);
+  });
+
+  it('a company assigner still sees roles holding branch administration', () => {
+    const { component, click } = mount(MANAGE, { tab: 'roles' });
+    const rolesService = TestBed.inject(RolesService) as unknown as { list: ReturnType<typeof vi.fn> };
+    rolesService.list.mockReturnValue(of([{ id: 'adm', name: 'adm', description: null, isSystem: false, isActive: true, userCount: 0, scopeType: 'Company', branchId: null, branchName: null, holdsBranchAdministration: true }]));
+    click('+ Assign role');
+    expect(component.assignable().map((x) => x.id)).toEqual(['adm']);
   });
 });

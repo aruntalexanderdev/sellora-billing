@@ -67,7 +67,10 @@ public class AccessManagementConcurrencyTests(PostgresFixture postgres)
     };
 
     private static UsersController As(SelloraDbContext db, User actor) => new(db, new FakeHasher(), new Sellora.Infrastructure.Services.UserAccessService(db),
-        new Sellora.Infrastructure.Services.RoleAssignmentService(db, new Sellora.Infrastructure.Services.UserAccessService(db)))
+        new Sellora.Infrastructure.Services.RoleAssignmentService(db, new Sellora.Infrastructure.Services.UserAccessService(db)),
+        // Writes read the caller's permissions inside AccessManagementScope; the injected service is only used by GET list/detail.
+        new Sellora.Infrastructure.Services.EffectivePermissionService(db,
+            new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions { SizeLimit = 1024 }), new MembershipContext()))
     {
         ControllerContext = new ControllerContext
         {

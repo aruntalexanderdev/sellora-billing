@@ -13,6 +13,8 @@ export interface RoleListItem {
   scopeType: RoleScope;
   branchId: string | null;
   branchName: string | null;
+  /** The role holds at least one branch administration code (FI-D45); only a company-path actor may change it. */
+  holdsBranchAdministration: boolean;
 }
 
 /** Mirrors RoleDetailDto. */
