@@ -21,6 +21,24 @@ Each phase is a separate Claude Code task. Stop after planning for approval, the
 
 **Gate:** Source audit, migration impact and API/UI changes reviewed; focused tests pass before proceeding.
 
+## Phase 01b — Branch-Admin User Administration (follow-up to Phase 01, FI-D44/FI-D45)
+
+**Goal:** Branch administrators create and manage users and roles of their active branch only.
+
+**Implementation tasks**
+- Add `Branch.Users.View/Create/Edit/Disable/ResetPassword` (branch-eligible); user endpoints accept company `Users.*` OR the branch code at the active branch.
+- Branch-path user creation: server-forced AssignedBranches + [active branch] + primary; initial branch role of that branch only, codes held by the creator; audited.
+- Branch administration codes grantable only through the company path (FI-D45); peer branch admins and self are not targets.
+- Roles screen: branch-only actor's role branch is the active branch (locked). Users screen: branch mode hides scope/branch fields and company roles.
+
+**Acceptance criteria**
+- [ ] Branch A admin creates a user who is allocated to Branch A only, with a Branch A role; crafted company/branch ids are ignored or rejected.
+- [ ] Branch A admin cannot see, edit, disable or reset Branch B users, company-role users, peer branch admins or itself (404).
+- [ ] Branch A admin cannot grant a company role, a code it does not hold, or any branch administration code; cannot change allocations.
+- [ ] Company admin behaviour unchanged; every branch-path action is audited.
+
+**Gate:** Plan approved before code; backend + frontend tests pass; code review before reporting done.
+
 ## Phase 02 — Sales and Transfer Validation
 
 **Goal:** Fix invalid sales values and insufficient-stock transfer defects before the new workflow.
