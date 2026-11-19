@@ -1,10 +1,8 @@
 name: Deploy claude-dev
 
 # Deploys branch claude_dev → GitHub environment "claude-dev" (API + frontend).
-# Rollout step 1: the push trigger is enabled so this workflow runs at all ("Run workflow" needs the file on the default
-# branch, which it is not on). Until step 2 retires dev_sellora-billing-dev-api-claude.yml and
-# azure-static-web-apps-wonderful-bay-04d447700.yml, a push touching backend/** also starts the legacy API deploy (no migrations),
-# and every push also starts the legacy frontend deploy. Step 2 moves both out of .github/workflows/ once a run here is green.
+# Push-triggered since rollout step 1; the legacy claude-dev workflows were retired in step 2
+# (.github/workflows-retired/), so this is the only workflow that deploys claude-dev.
 on:
   push:
     branches: [claude_dev]

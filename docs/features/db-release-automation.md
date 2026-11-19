@@ -323,8 +323,7 @@ instead of argv, no row values in logs/summary + HTML-escaped summary, `--plan` 
 3. Azure: give the claude-dev deploy managed identity **Contributor** on the Postgres Flexible Server (firewall rules).
 4. App Service `sellora-billing-dev-api-claude`: set `Database__ApplyMigrationsOnStartup=false` (D4). The repo default is already false.
 5. Merge to `claude_dev` and run **Deploy claude-dev** manually. Expected: `migrate-db` green with a "Database scripts" job summary,
-   then the API deploy. Note: the legacy push-triggered `dev_sellora-billing-dev-api-claude.yml` deploys without migrating; retire it
-   as `deploy-claude-dev.yml` already plans.
+   then the API deploy. Done 2026-11-19 (Release 3.1 green); the legacy claude-dev workflows are retired to `.github/workflows-retired/`.
 
 ### Running the migrator locally (macOS/Linux, any Postgres 16)
 ```bash
