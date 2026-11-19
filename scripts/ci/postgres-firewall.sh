@@ -27,15 +27,15 @@ case "$action" in
       echo "rule=$rule" >> "$GITHUB_OUTPUT"
     fi
     az postgres flexible-server firewall-rule create \
-      --resource-group "$AZURE_POSTGRES_RESOURCE_GROUP" --name "$AZURE_POSTGRES_SERVER" \
-      --rule-name "$rule" --start-ip-address "$ip" --end-ip-address "$ip" --output none
+      --resource-group "$AZURE_POSTGRES_RESOURCE_GROUP" --server-name "$AZURE_POSTGRES_SERVER" \
+      --name "$rule" --start-ip-address "$ip" --end-ip-address "$ip" --output none
     # No wait here: a new rule can take a few seconds to apply, and Sellora.DbMigrator retries its first connection (5 x 10 s).
     echo "Firewall rule $rule opened."
     ;;
   close)
     # A rule that does not exist (open never ran, or already removed) is not an error.
     az postgres flexible-server firewall-rule delete \
-      --resource-group "$AZURE_POSTGRES_RESOURCE_GROUP" --name "$AZURE_POSTGRES_SERVER" \
-      --rule-name "$rule" --yes --output none || echo "Firewall rule $rule was not present or could not be removed."
+      --resource-group "$AZURE_POSTGRES_RESOURCE_GROUP" --server-name "$AZURE_POSTGRES_SERVER" \
+      --name "$rule" --yes --output none || echo "Firewall rule $rule was not present or could not be removed."
     ;;
 esac
