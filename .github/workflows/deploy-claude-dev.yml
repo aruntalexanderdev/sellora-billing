@@ -41,6 +41,8 @@ jobs:
     name: Deploy
     needs: ci
     uses: ./.github/workflows/_deploy-template.yml
+    # Environment secrets reach a reusable workflow only when the caller passes them (the vars context works without this).
+    secrets: inherit
     permissions:
       contents: read
       id-token: write
