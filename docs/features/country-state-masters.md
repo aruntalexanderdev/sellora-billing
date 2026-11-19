@@ -1,6 +1,6 @@
 # Country and State Masters
 
-status: requirements-approved
+status: design-approved
 <!-- draft → requirements-approved → design-approved → db-done → backend-done → frontend-done → reviewed → done -->
 size: L (two new tables + relinking four existing address owners)
 
