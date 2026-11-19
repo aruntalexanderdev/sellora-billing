@@ -26,11 +26,11 @@ public class UserAccessController(SelloraDbContext db, IUserAccessService access
     [Authorize(Policy = "Users.View|Branch.Users.View")]
     public async Task<ActionResult<UserAccessDto>> Get(Guid id, CancellationToken ct)
     {
-        // Phase 01b: the target must pass the same visibility filter as GET api/v1/users/{id} (else 404) - on the branch path AND for a
-        // FI-D14 branch-limited company-role actor (company mode with a narrowed allowed set). A CompanyWide actor in company mode is unfiltered.
+        // Phase 01b read rule: a CompanyWide actor in company mode reads everyone; on the branch path, and for a FI-D14 branch-limited actor
+        // (allowed set narrowed), the target needs an active allocation in the caller's (narrowed) branches, else 404 - no probing of other branches.
         var branchMode = UserVisibility.IsBranchMode(await effective.GetCurrentAsync(ct), "Users.View", PermissionCatalog.BranchUsersView);
-        var actorId = Guid.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("sub")?.Value, out var uid) ? uid : Guid.Empty;
-        if (!await (await UserVisibility.VisibleUsersAsync(db, branchMode, actorId, ct)).AnyAsync(u => u.Id == id, ct)) return NotFound();
+        var allowed = db.BranchContext.AllowedBranchIds;
+        if ((branchMode || allowed is not null) && !await UserVisibility.IsAllocatedWithinAsync(db, id, allowed?.ToList(), ct)) return NotFound();
         var view = await BuildViewAsync(id, ct);
         return view is null ? NotFound() : Ok(view);
     }

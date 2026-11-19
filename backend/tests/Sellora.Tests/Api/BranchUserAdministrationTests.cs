@@ -533,19 +533,24 @@ public class BranchUserAdministrationTests
     }
 
     [Fact]
-    public async Task AccessGet_BranchAdmin_ReachesBranchStaffOnly()
+    public async Task AccessGet_BranchAdmin_ReadsUsersAllocatedInItsBranchOnly()
     {
         var e = Seed();
 
-        AssertOk((await Access(BranchDb(e, e.A), e.AdminA).Get(e.StaffA.Id, default)).Result!);
-        foreach (var target in new[] { e.StaffB, e.PeerAdmin, e.AdminA, e.CompanyUser })
+        // Read rule (Phase 01b): an active allocation in the caller's branch is enough to read the access view (writes keep FI-D14/FI-D45).
+        foreach (var target in new[] { e.StaffA, e.PeerAdmin, e.AdminA })
+        {
+            AssertOk((await Access(BranchDb(e, e.A), e.AdminA).Get(target.Id, default)).Result!);
+        }
+        // Only in another branch, company-wide, or unallocated: 404 (no probing).
+        foreach (var target in new[] { e.StaffB, e.CompanyUser, e.CompanyAdmin })
         {
             Assert.IsType<NotFoundResult>((await Access(BranchDb(e, e.A), e.AdminA).Get(target.Id, default)).Result);
         }
     }
 
     [Fact]
-    public async Task RoleAssignmentsGet_BranchAdmin_SeesBranchStaffWithOnlyBranchRolesAndOthersAre404()
+    public async Task RoleAssignmentsGet_BranchAdmin_SeesOnlyBranchRolesOfUsersAllocatedThere_OthersAre404()
     {
         var e = Seed();
 
@@ -553,7 +558,10 @@ public class BranchUserAdministrationTests
         var view = Assert.IsType<UserRoleAssignmentsDto>(ok.Value);
         Assert.All(view.Current, r => Assert.Equal((RoleScope.Branch, (Guid?)e.A.Id), (r.ScopeType, r.BranchId)));
         Assert.Contains(view.Current, r => r.RoleId == e.StaffRoleA.Id);
-        foreach (var target in new[] { e.StaffB, e.CompanyAdmin, e.PeerAdmin, e.CompanyUser })
+        // A peer allocated at A is readable (Phase 7 semantics), filtered to A's branch roles; assigning/ending its admin role stays refused (FI-D45).
+        var peer = Assert.IsType<UserRoleAssignmentsDto>(Assert.IsType<OkObjectResult>((await Assignments(BranchDb(e, e.A), e.AdminA).Get(e.PeerAdmin.Id, default)).Result).Value);
+        Assert.All(peer.Current, r => Assert.Equal((RoleScope.Branch, (Guid?)e.A.Id), (r.ScopeType, r.BranchId)));
+        foreach (var target in new[] { e.StaffB, e.CompanyAdmin, e.CompanyUser })
         {
             Assert.IsType<NotFoundResult>((await Assignments(BranchDb(e, e.A), e.AdminA).Get(target.Id, default)).Result);
         }

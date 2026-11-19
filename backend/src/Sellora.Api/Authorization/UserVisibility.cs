@@ -48,6 +48,22 @@ internal static class UserVisibility
     }
 
     /// <summary>
+    /// Phase 01b read rule for the access view (GET users/{id}/access) and the role-assignment view (GET users/{id}/roles): a non-company-wide caller
+    /// reaches only users with at least one ACTIVE allocation in <paramref name="branchIds"/> (null = every company branch). Users only in other
+    /// branches, company-wide members and unallocated users are 404. Unlike <see cref="VisibleUsersAsync"/> (the administration target rule), this
+    /// keeps the approved Phase 5/7 read semantics: a multi-branch member or a company-role holder working in the caller's branch stays readable
+    /// (the role view is still filtered to the caller's branches); writes keep the FI-D14/FI-D45 rules.
+    /// </summary>
+    public static async Task<bool> IsAllocatedWithinAsync(SelloraDbContext db, Guid userId, IReadOnlyCollection<Guid>? branchIds, CancellationToken ct)
+    {
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var set = branchIds?.ToArray() ?? await db.Branches.Where(b => b.CompanyId == companyId).Select(b => b.Id).ToArrayAsync(ct);
+        return await db.UserCompanyMemberships.AnyAsync(m => m.UserId == userId && m.CompanyId == companyId
+            && db.UserBranchAssignments.Any(a => a.CompanyId == companyId && a.UserCompanyMembershipId == m.Id
+                && a.Status == AssignmentStatus.Active && set.Contains(a.BranchId)), ct);
+    }
+
+    /// <summary>
     /// Phase 01b: the branch path applies when the caller lacks <paramref name="companyCode"/> company-level but holds <paramref name="branchCode"/>
     /// (at some branch, or company-level). A caller holding neither keeps the company-path checks (the policy refuses it before this point anyway).
     /// </summary>
