@@ -1,3 +1,7 @@
+# RETIRED 2026-11-19: replaced by .github/workflows/deploy-claude-dev.yml (CI -> migrate-db -> API -> frontend).
+# Kept for reference only. Do NOT move this file back into .github/workflows/: it deploys to claude-dev without
+# running database migrations, and would deploy alongside Deploy claude-dev on every push.
+
 name: Azure Static Web Apps CI/CD
 
 on:

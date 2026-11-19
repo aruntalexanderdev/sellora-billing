@@ -1,16 +1,15 @@
 name: Deploy claude-dev
 
 # Deploys branch claude_dev → GitHub environment "claude-dev" (API + frontend).
-# Rollout: manual only for now. When a manual run is green, enable the push trigger below and delete
-# dev_sellora-billing-dev-api-claude.yml and azure-static-web-apps-wonderful-bay-04d447700.yml in the
-# same commit, so one push never deploys twice.
+# Push-triggered since rollout step 1; the legacy claude-dev workflows were retired in step 2
+# (.github/workflows-retired/), so this is the only workflow that deploys claude-dev.
 on:
-  # push:
-  #   branches: [claude_dev]
-  #   paths-ignore:
-  #     - "docs/**"
-  #     - "**/*.md"
-  #     - ".claude/**"
+  push:
+    branches: [claude_dev]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".claude/**"
   workflow_dispatch:
 
 permissions:
@@ -40,6 +39,8 @@ jobs:
     name: Deploy
     needs: ci
     uses: ./.github/workflows/_deploy-template.yml
+    # Environment secrets reach a reusable workflow only when the caller passes them (the vars context works without this).
+    secrets: inherit
     permissions:
       contents: read
       id-token: write
