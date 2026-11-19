@@ -490,4 +490,139 @@ public class BranchUserAdministrationTests
 
         Assert.Subset(new HashSet<string>(names), new HashSet<string> { "adminA", "peerA", "staffA", "staffB", "companyUser", "companyAdmin" });
     }
+
+    // ---- Review fixes: access, role-assignment views, optional RoleId, role list ----
+
+    private static ControllerContext Ctx(User actor) => new()
+    {
+        HttpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, actor.Id.ToString())], "test")),
+        },
+    };
+
+    private static UserAccessController Access(SelloraDbContext db, User actor) =>
+        new(db, new UserAccessService(db), Rbac.Effective(db, Rbac.ContextOf(db, actor.Id))) { ControllerContext = Ctx(actor) };
+
+    private static RoleAssignmentsController Assignments(SelloraDbContext db, User actor)
+    {
+        var membership = Rbac.ContextOf(db, actor.Id);
+        var access = new UserAccessService(db);
+        return new RoleAssignmentsController(db, new RoleAssignmentService(db, access), Rbac.Effective(db, membership), membership) { ControllerContext = Ctx(actor) };
+    }
+
+    private static RolesController RolesApi(SelloraDbContext db, User actor)
+    {
+        var membership = Rbac.ContextOf(db, actor.Id);
+        return new RolesController(db, new RoleService(db), Rbac.Effective(db, membership), membership) { ControllerContext = Ctx(actor) };
+    }
+
+    private static void AssertOk(ActionResult result) => Assert.IsType<OkObjectResult>(result);
+
+    [Fact]
+    public async Task AccessGet_Fid14ActorWithCompanyRoleAtBranchA_SeesOnlyBranchAUsers()
+    {
+        var e = Seed();
+        var viewerRole = e.W.CompanyRole("Company User Viewer", "Users.View");
+        var (viewer, _) = e.W.BranchMemberWith("viewerA", viewerRole, e.A);
+        // The viewer holds a company role, so it is a branch-limited actor on the company path (allowed set {A}).
+        // BranchMemberWith assigned that company role as the viewer's only role.
+        Assert.IsType<NotFoundResult>((await Access(BranchDb(e, e.A), viewer).Get(e.StaffB.Id, default)).Result);
+        Assert.IsType<NotFoundResult>((await Access(BranchDb(e, e.A), viewer).Get(e.CompanyAdmin.Id, default)).Result);
+        AssertOk((await Access(BranchDb(e, e.A), viewer).Get(e.StaffA.Id, default)).Result!);
+    }
+
+    [Fact]
+    public async Task AccessGet_BranchAdmin_ReachesBranchStaffOnly()
+    {
+        var e = Seed();
+
+        AssertOk((await Access(BranchDb(e, e.A), e.AdminA).Get(e.StaffA.Id, default)).Result!);
+        foreach (var target in new[] { e.StaffB, e.PeerAdmin, e.AdminA, e.CompanyUser })
+        {
+            Assert.IsType<NotFoundResult>((await Access(BranchDb(e, e.A), e.AdminA).Get(target.Id, default)).Result);
+        }
+    }
+
+    [Fact]
+    public async Task RoleAssignmentsGet_BranchAdmin_SeesBranchStaffWithOnlyBranchRolesAndOthersAre404()
+    {
+        var e = Seed();
+
+        var ok = Assert.IsType<OkObjectResult>((await Assignments(BranchDb(e, e.A), e.AdminA).Get(e.StaffA.Id, default)).Result);
+        var view = Assert.IsType<UserRoleAssignmentsDto>(ok.Value);
+        Assert.All(view.Current, r => Assert.Equal((RoleScope.Branch, (Guid?)e.A.Id), (r.ScopeType, r.BranchId)));
+        Assert.Contains(view.Current, r => r.RoleId == e.StaffRoleA.Id);
+        foreach (var target in new[] { e.StaffB, e.CompanyAdmin, e.PeerAdmin, e.CompanyUser })
+        {
+            Assert.IsType<NotFoundResult>((await Assignments(BranchDb(e, e.A), e.AdminA).Get(target.Id, default)).Result);
+        }
+    }
+
+    [Fact]
+    public async Task RoleAssignmentsGet_CompanyAdministrator_SeesAnyone()
+    {
+        var e = Seed();
+
+        foreach (var target in new[] { e.StaffA, e.StaffB, e.PeerAdmin, e.CompanyUser, e.AdminA })
+        {
+            AssertOk((await Assignments(e.W.Db, e.CompanyAdmin).Get(target.Id, default)).Result!);
+        }
+    }
+
+    [Fact]
+    public async Task Update_BranchAdminWithNullRoleId_EditsProfileAndKeepsRoles()
+    {
+        var e = Seed();
+        var request = new UpdateUserRequest("Stan", "Staff", e.StaffA.Username, "renamed@selloramart.in", null);
+
+        var result = await AsBranchAdmin(e).Update(e.StaffA.Id, request, default);
+
+        AssertOk(result.Result!);
+        var user = await e.W.Db.Users.AsNoTracking().SingleAsync(u => u.Id == e.StaffA.Id);
+        Assert.Equal(("Stan", "renamed@selloramart.in"), (user.FirstName, user.Email));
+        Assert.Equal([e.StaffRoleA.Id], await Rbac.ActiveRoleIdsAsync(e.W.Db, e.StaffA.Id));
+    }
+
+    [Fact]
+    public async Task Update_CompanyAdministratorWithNullRoleId_EditsProfileAndKeepsRoles()
+    {
+        var e = Seed();
+        var request = new UpdateUserRequest("Cathy", "Cash", e.CompanyUser.Username, "cathy@selloramart.in", null);
+
+        var result = await AsCompanyAdmin(e).Update(e.CompanyUser.Id, request, default);
+
+        AssertOk(result.Result!);
+        Assert.Equal("Cathy", (await e.W.Db.Users.AsNoTracking().SingleAsync(u => u.Id == e.CompanyUser.Id)).FirstName);
+        Assert.Equal([e.CompanyCashier.Id], await Rbac.ActiveRoleIdsAsync(e.W.Db, e.CompanyUser.Id));
+    }
+
+    [Fact]
+    public async Task RolesList_ActorHoldingOnlyBranchUsersAssignRolesAtA_ListsBranchARolesAndNotFoundForB()
+    {
+        var e = Seed();
+        var assignOnly = e.W.BranchRole("A Assigner", e.A, "Branch.Users.AssignRoles", "Sales.View");
+        var (assigner, _) = e.W.BranchMemberWith("assigner", assignOnly, e.A);
+
+        var ok = Assert.IsType<OkObjectResult>((await RolesApi(BranchDb(e, e.A), assigner).List(RoleScope.Branch, e.A.Id, default)).Result);
+        var items = Assert.IsAssignableFrom<IReadOnlyList<RoleListItemDto>>(ok.Value);
+        Assert.Contains(items, r => r.Id == e.StaffRoleA.Id);
+        Assert.All(items, r => Assert.Equal(e.A.Id, r.BranchId));
+
+        var other = (await RolesApi(BranchDb(e, e.A), assigner).List(RoleScope.Branch, e.B.Id, default)).Result;
+        Assert.True(other is NotFoundResult || (other is OkObjectResult o && o.Value is IReadOnlyList<RoleListItemDto> { Count: 0 }));
+    }
+
+    [Fact]
+    public async Task RolesList_HoldsBranchAdministration_IsTrueOnlyForRolesWithAdminCodes()
+    {
+        var e = Seed();
+
+        var ok = Assert.IsType<OkObjectResult>((await RolesApi(e.W.Db, e.CompanyAdmin).List(RoleScope.Branch, e.A.Id, default)).Result);
+        var items = Assert.IsAssignableFrom<IReadOnlyList<RoleListItemDto>>(ok.Value);
+
+        Assert.True(items.Single(r => r.Id == e.AdminRoleA.Id).HoldsBranchAdministration);
+        Assert.True(items.Single(r => r.Id == e.ManagerRoleA.Id).HoldsBranchAdministration);
+        Assert.False(items.Single(r => r.Id == e.StaffRoleA.Id).HoldsBranchAdministration);
+    }
 }
