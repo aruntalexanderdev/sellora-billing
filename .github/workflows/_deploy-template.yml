@@ -301,8 +301,8 @@ jobs:
           backup="pre-migrate-${{ github.run_id }}-${{ github.run_attempt }}"
           restore_point="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           az postgres flexible-server backup create \
-            --resource-group "${{ vars.AZURE_POSTGRES_RESOURCE_GROUP }}" --name "${{ vars.AZURE_POSTGRES_SERVER }}" \
-            --backup-name "$backup" --output none
+            --resource-group "${{ vars.AZURE_POSTGRES_RESOURCE_GROUP }}" --server-name "${{ vars.AZURE_POSTGRES_SERVER }}" \
+            --name "$backup" --output none
           {
             echo "### Database backup"
             echo "- On-demand backup: \`$backup\`"
