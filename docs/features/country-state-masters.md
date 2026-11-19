@@ -512,6 +512,7 @@ _Pending (step 2)._
 - D11 (owner, 2026-11-19) A GSTIN counts only in the strict official format (2-digit state code + PAN with letters); all-digit Gulf tax numbers (UAE TRN, Saudi/Bahrain VAT) are never treated as Indian.
 - D12 (owner, 2026-11-19) A Branch with no GSTIN of its own uses the company GSTIN for the D9 fallback **only when its State text is blank**; non-blank unmatched text stays unlinked and appears in the unmatched report.
 - D13 (owner, 2026-11-19) Suppliers are linked (Country = India + State) from their own GSTIN prefix (strict format); suppliers without a valid GSTIN stay unlinked.
+- D14 (db-engineer, 2026-11-19) Deliberate deviation: the frozen backfill/GeoSeedData punctuation class is written with ARE/regex escapes (`[.'\u2019\u2018`]`), not the literal curly quotes and doubled quote shown in section 7. Behaviour is identical (validated on PG16, C and C.UTF-8). The SHA-pinned resource is not edited.
 
 ## Deployment notes
 Additive migration + seed + backfill; legacy text columns retained. Run the validation SQL after deploy and share unmatched rows.

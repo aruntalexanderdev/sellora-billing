@@ -42,7 +42,7 @@ public class GeoSeedDataTests
     [InlineData("32-Kerala", "32 kerala")]
     [InlineData("J&K", "j and k")]
     [InlineData("Ha'il", "hail")]
-    [InlineData("Kerala 　﻿State", "kerala state")]
+    [InlineData("Kerala\u00A0\u3000\uFEFFState", "kerala state")]
     [InlineData("  \t ", null)]
     public void Normalize_matches_the_documented_rules(string input, string? expected)
         => Assert.Equal(expected, GeoSeedData.Normalize(input));
@@ -50,7 +50,7 @@ public class GeoSeedDataTests
     [Fact]
     public void Blank_means_whitespace_only_and_punctuation_is_not_blank()
     {
-        Assert.True(GeoSeedData.IsBlank("\t 　"));
+        Assert.True(GeoSeedData.IsBlank("\t\u00A0\u3000"));
         Assert.False(GeoSeedData.IsBlank("-"));
     }
 
