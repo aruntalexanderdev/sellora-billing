@@ -71,8 +71,8 @@ must be compatible with that build; migrations are additive first (see skill `ef
   If the holder is a finished/dead run, `SELECT pg_terminate_backend(<pid>);` then retry. Never terminate a run that is still applying scripts.
 - **Leftover firewall rules** `gh-migrate-*` (a cancelled run may skip cleanup):
   ```bash
-  az postgres flexible-server firewall-rule list -g <rg> -n <server> --query "[?starts_with(name,'gh-migrate-')].name" -o tsv
-  az postgres flexible-server firewall-rule delete -g <rg> -n <server> --rule-name <rule> --yes
+  az postgres flexible-server firewall-rule list -g <rg> --server-name <server> --query "[?starts_with(name,'gh-migrate-')].name" -o tsv
+  az postgres flexible-server firewall-rule delete -g <rg> --server-name <server> --name <rule> --yes
   ```
 - **Interrupted run**: the next migrator run marks the old `Running` journal row as Failed automatically; just run the release again.
 - A cancelled or failed `db-plan` changes nothing (read-only).
