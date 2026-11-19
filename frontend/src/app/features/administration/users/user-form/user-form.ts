@@ -66,11 +66,11 @@ export class UserForm implements OnInit, HasUnsavedChanges {
   ngOnInit(): void {
     if (this.branchEdit) this.form.removeControl('roleId' as never);
     // Branch mode never requests company roles (403 for a branch-only admin): active branch roles of the working branch only.
-    const roles$ = this.branchMode
-      ? this.rolesService.list({ scope: 'Branch', branchId: this.context.workingBranchId() ?? this.context.workingBranch()?.id ?? null })
-      : this.rolesService.list();
-    // FI-D45: in branch mode roles holding branch administration codes are company-granted only.
     if (!this.branchEdit) {
+      const roles$ = this.branchMode
+        ? this.rolesService.list({ scope: 'Branch', branchId: this.context.workingBranchId() ?? this.context.workingBranch()?.id ?? null })
+        : this.rolesService.list();
+      // FI-D45: in branch mode roles holding branch administration codes are company-granted only.
       roles$.subscribe({
         next: (roles) => this.roles.set(roles.filter((r) => r.isActive && !(this.branchMode && r.holdsBranchAdministration))),
       });

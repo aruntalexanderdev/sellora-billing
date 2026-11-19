@@ -34,6 +34,12 @@ public class RoleAssignmentsController(
             return NotFound();
         }
 
+        // Phase 01b: a branch-path viewer (no company-level Users.View / Company.Users.AssignRoles) only reaches users the Users endpoints show it
+        // (wholly inside its branches, no company role, not a branch administrator, not itself); everyone else is 404.
+        if (!companyView && !await (await UserVisibility.VisibleUsersAsync(db, branchMode: true, actor.UserId, ct)).AnyAsync(u => u.Id == id, ct))
+        {
+            return NotFound();
+        }
         var view = await BuildViewAsync(id, ct);
         if (view is null) return NotFound();
         if (companyView) return Ok(view);

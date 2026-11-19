@@ -36,7 +36,7 @@ function mount(perms: string[], working: string | null = null, id: string | null
   vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
   const fixture = TestBed.createComponent(RoleForm);
   fixture.detectChanges();
-  return { fixture, component: fixture.componentInstance, el: fixture.nativeElement as HTMLElement, create };
+  return { fixture, component: fixture.componentInstance, el: fixture.nativeElement as HTMLElement, create, update };
 }
 
 const scopeOptions = (el: HTMLElement) => Array.from(el.querySelectorAll<HTMLOptionElement>('#role-scope option')).map((o) => o.value);
