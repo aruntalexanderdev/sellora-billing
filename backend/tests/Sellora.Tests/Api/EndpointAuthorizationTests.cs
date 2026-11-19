@@ -332,7 +332,7 @@ public class EndpointAuthorizationTests
     // ---- Phase 5: user branch access ----------------------------------------------------------------------------------------------
 
     [Theory]
-    [InlineData("Get", "Users.View")]
+    [InlineData("Get", "Users.View|Branch.Users.View")] // Phase 01b (FI-D44): branch admins open the access view of users they can see
     [InlineData("Events", "Company.Users.ManageBranchAccess")]
     [InlineData("SetScope", "Company.Users.ManageBranchAccess")]
     [InlineData("AddAssignment", "Company.Users.ManageBranchAccess")]

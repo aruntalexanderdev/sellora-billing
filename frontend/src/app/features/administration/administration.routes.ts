@@ -7,20 +7,20 @@ export const ADMINISTRATION_ROUTES: Routes = [
   {
     path: 'users',
     loadComponent: () => import('./users/user-list/user-list').then((m) => m.UserList),
-    canActivate: [permissionGuard('Users.View')],
+    canActivate: [permissionGuard(['Users.View', 'Branch.Users.View'])],
     data: { group: 'Administration', page: 'Users' },
   },
   {
     path: 'users/new',
     loadComponent: () => import('./users/user-form/user-form').then((m) => m.UserForm),
-    canActivate: [permissionGuard('Users.Create')],
+    canActivate: [permissionGuard(['Users.Create', 'Branch.Users.Create'])],
     canDeactivate: [unsavedChangesGuard],
     data: { group: 'Administration', page: 'Invite user' },
   },
   {
     path: 'users/:id/edit',
     loadComponent: () => import('./users/user-form/user-form').then((m) => m.UserForm),
-    canActivate: [permissionGuard('Users.Edit')],
+    canActivate: [permissionGuard(['Users.Edit', 'Branch.Users.Edit'])],
     canDeactivate: [unsavedChangesGuard],
     data: { group: 'Administration', page: 'Edit user' },
   },
@@ -113,7 +113,7 @@ export const ADMINISTRATION_ROUTES: Routes = [
     path: 'users/:id/access',
     loadComponent: () => import('./users/user-access/user-access').then((m) => m.UserAccessPage),
     // Users.View reads the access view and role assignments; the write actions are gated inside by Company.Users.ManageBranchAccess / *.AssignRoles.
-    canActivate: [permissionGuard('Users.View')],
+    canActivate: [permissionGuard(['Users.View', 'Branch.Users.View'])],
     data: { group: 'Administration', page: 'User access' },
   },
   {

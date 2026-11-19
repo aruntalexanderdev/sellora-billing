@@ -6,9 +6,11 @@ import type { DataTableColumn, DataTableRow, DataTableState } from '../../../../
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { ConfirmDialogService } from '../../../../shared/ui/confirm-dialog/confirm-dialog.service';
 import { AuthService } from '../../../../core/auth/auth.service';
+import { ContextService } from '../../../../core/context/context.service';
 import { UsersService } from '../users.service';
 import { RolesService } from '../../roles/roles.service';
 import type { RoleListItem } from '../../roles/roles.models';
+import { userAdminMode } from '../users.logic';
 import type { UserListItem } from '../users.models';
 
 const COLS: DataTableColumn[] = [
@@ -32,6 +34,7 @@ export class UserList implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmDialogService);
   private readonly auth = inject(AuthService);
+  private readonly context = inject(ContextService);
   private readonly router = inject(Router);
 
   readonly cols = COLS;
@@ -42,11 +45,11 @@ export class UserList implements OnInit {
   readonly total = signal(0);
   readonly roles = signal<RoleListItem[]>([]);
 
-  readonly canCreate = computed(() => this.auth.hasPermission('Users.Create'));
+  readonly canCreate = computed(() => this.auth.hasAnyPermission(['Users.Create', 'Branch.Users.Create']));
   readonly hasMore = computed(() => this.page() * 20 < this.total());
-  readonly canEdit = computed(() => this.auth.hasPermission('Users.Edit'));
-  readonly canDisable = computed(() => this.auth.hasPermission('Users.Disable'));
-  readonly canResetPassword = computed(() => this.auth.hasPermission('Users.ResetPassword'));
+  readonly canEdit = computed(() => this.auth.hasAnyPermission(['Users.Edit', 'Branch.Users.Edit']));
+  readonly canDisable = computed(() => this.auth.hasAnyPermission(['Users.Disable', 'Branch.Users.Disable']));
+  readonly canResetPassword = computed(() => this.auth.hasAnyPermission(['Users.ResetPassword', 'Branch.Users.ResetPassword']));
 
   readonly rows = computed<DataTableRow[]>(() =>
     this.items().map((u) => ({
@@ -71,7 +74,11 @@ export class UserList implements OnInit {
   );
 
   ngOnInit(): void {
-    this.rolesService.list().subscribe({ next: (roles) => this.roles.set(roles) });
+    // Branch-only admins get 403 on company roles: list the working branch's roles instead.
+    const branchId = this.context.workingBranchId() ?? this.context.workingBranch()?.id ?? null;
+    const branchMode = userAdminMode((c) => this.auth.hasPermission(c), 'Users.View', 'Branch.Users.View') === 'branch';
+    const roles$ = branchMode ? this.rolesService.list({ scope: 'Branch', branchId }) : this.rolesService.list();
+    roles$.subscribe({ next: (roles) => this.roles.set(roles) });
     this.load();
   }
 

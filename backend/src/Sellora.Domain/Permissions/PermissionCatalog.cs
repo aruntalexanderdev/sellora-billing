@@ -24,12 +24,31 @@ public static class PermissionCatalog
         "Customers.View", // Phase 11 D15: branch cashiers pick named customers at POS (customers stay company master data)
         "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",
         BranchRolesView, BranchRolesManage, BranchUsersAssignRoles,
+        BranchUsersView, BranchUsersCreate, BranchUsersEdit, BranchUsersDisable, BranchUsersResetPassword, // Phase 01b, FI-D44
     };
 
     public const string CompanyUsersAssignRoles = "Company.Users.AssignRoles";
     public const string BranchRolesView = "Branch.Roles.View";
     public const string BranchRolesManage = "Branch.Roles.Manage";
     public const string BranchUsersAssignRoles = "Branch.Users.AssignRoles";
+    public const string BranchUsersView = "Branch.Users.View";
+    public const string BranchUsersCreate = "Branch.Users.Create";
+    public const string BranchUsersEdit = "Branch.Users.Edit";
+    public const string BranchUsersDisable = "Branch.Users.Disable";
+    public const string BranchUsersResetPassword = "Branch.Users.ResetPassword";
+
+    /// <summary>
+    /// Branch administration codes (FI-D45): only a company administrator (company path) may put them into a role, assign or end such a role,
+    /// or edit, duplicate or deactivate a role holding them. Their holders are company administration for the FI-D14 target rule.
+    /// </summary>
+    public static readonly IReadOnlySet<string> BranchAdministrationCodes = new HashSet<string>(StringComparer.Ordinal)
+    {
+        BranchRolesView, BranchRolesManage, BranchUsersAssignRoles,
+        BranchUsersView, BranchUsersCreate, BranchUsersEdit, BranchUsersDisable, BranchUsersResetPassword,
+    };
+
+    /// <summary>True when <paramref name="code"/> is a branch administration code (FI-D45).</summary>
+    public static bool IsBranchAdministration(string code) => BranchAdministrationCodes.Contains(code);
 
     /// <summary>True when a branch-scoped role may hold <paramref name="code"/>.</summary>
     public static bool IsBranchEligible(string code) => BranchEligibleCodes.Contains(code);
@@ -58,6 +77,13 @@ public static class PermissionCatalog
         new(BranchRolesView, "Administration", "View", "View the roles scoped to the branch."),
         new(BranchRolesManage, "Administration", "Manage", "Create, edit, duplicate and deactivate roles scoped to the branch."),
         new(BranchUsersAssignRoles, "Administration", "AssignRoles", "Assign and end branch roles for users allocated to the branch."),
+
+        // Administration — Branch user administration (Phase 01b, FI-D44): users wholly inside the branch, never company administration
+        new(BranchUsersView, "Administration", "View", "View the users allocated to the branch."),
+        new(BranchUsersCreate, "Administration", "Create", "Create users who are allocated to the active branch with one of its roles."),
+        new(BranchUsersEdit, "Administration", "Edit", "Edit the details of users allocated to the branch."),
+        new(BranchUsersDisable, "Administration", "Disable", "Activate or deactivate users allocated to the branch."),
+        new(BranchUsersResetPassword, "Administration", "ResetPassword", "Reset the password of users allocated to the branch."),
 
         // Administration — Permissions catalogue (read-only)
         new("Permissions.View", "Administration", "View", "View the read-only system permission catalogue."),

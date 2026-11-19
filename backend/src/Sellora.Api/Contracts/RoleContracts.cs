@@ -6,7 +6,8 @@ namespace Sellora.Api.Contracts;
 /// <summary><c>UserCount</c> = Active assignments of the role in the current company (Phase 7: no longer a global count).</summary>
 public record RoleListItemDto(
     Guid Id, string Name, string? Description, bool IsSystem, bool IsActive, int UserCount,
-    RoleScope ScopeType = RoleScope.Company, Guid? BranchId = null, string? BranchName = null);
+    RoleScope ScopeType = RoleScope.Company, Guid? BranchId = null, string? BranchName = null,
+    bool HoldsBranchAdministration = false);
 
 public record RoleDetailDto(
     Guid Id, string Name, string? Description, bool IsSystem, bool IsActive, string[] PermissionCodes,

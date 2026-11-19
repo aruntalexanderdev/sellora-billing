@@ -14,7 +14,32 @@ export const BRANCH_ELIGIBLE_CODES: ReadonlySet<string> = new Set([
   'Customers.View',
   'Reports.Sales', 'Reports.Purchase', 'Reports.Stock', 'Reports.Movement',
   'Branch.Roles.View', 'Branch.Roles.Manage', 'Branch.Users.AssignRoles',
+  'Branch.Users.View', 'Branch.Users.Create', 'Branch.Users.Edit', 'Branch.Users.Disable', 'Branch.Users.ResetPassword',
 ]);
+
+/**
+ * Branch administration codes (FI-D45): only the company path may put them in a role. Branch-path actors (Roles.Create-less) must not
+ * be offered them; the server rejects them regardless.
+ */
+export const BRANCH_ADMIN_CODES: ReadonlySet<string> = new Set([
+  'Branch.Users.View', 'Branch.Users.Create', 'Branch.Users.Edit', 'Branch.Users.Disable', 'Branch.Users.ResetPassword',
+  'Branch.Roles.View', 'Branch.Roles.Manage', 'Branch.Users.AssignRoles',
+]);
+
+/** True when any of the codes is a branch administration code. */
+export function holdsBranchAdminCode(codes: Iterable<string>): boolean {
+  for (const c of codes) if (BRANCH_ADMIN_CODES.has(c)) return true;
+  return false;
+}
+
+export function isBranchAdminCode(code: string): boolean {
+  return BRANCH_ADMIN_CODES.has(code);
+}
+
+/** Catalogue without branch administration codes (used when the actor is on the branch path). */
+export function withoutBranchAdminCodes(catalog: PermissionCatalogEntry[]): PermissionCatalogEntry[] {
+  return catalog.filter((e) => !isBranchAdminCode(e.code));
+}
 
 export function isBranchEligible(entry: Pick<PermissionCatalogEntry, 'code' | 'scope'>): boolean {
   return entry.scope ? entry.scope === 'CompanyOrBranch' : BRANCH_ELIGIBLE_CODES.has(entry.code);
@@ -57,6 +82,10 @@ export function scopeLabel(r: { scopeType: RoleScope; branchName: string | null 
  * UI mirror of RoleRules.CanManageAsync (server stays authoritative): company roles need the company-level `Roles.*` code,
  * branch roles need that code or Branch.Roles.Manage.
  */
-export function canManageRole(has: (code: string) => boolean, scope: RoleScope, companyCode: string): boolean {
-  return has(companyCode) || (scope === 'Branch' && has('Branch.Roles.Manage'));
+export function canManageRole(
+  has: (code: string) => boolean, scope: RoleScope, companyCode: string, holdsBranchAdministration = false,
+): boolean {
+  if (has(companyCode)) return true;
+  // FI-D45: a role holding branch administration codes is changed by the company path only (server: branch_administration_company_only).
+  return scope === 'Branch' && !holdsBranchAdministration && has('Branch.Roles.Manage');
 }

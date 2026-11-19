@@ -6,6 +6,7 @@ using Sellora.Api.Authorization;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Permissions;
 using Sellora.Infrastructure.Data;
 
 namespace Sellora.Api.Controllers;
@@ -17,14 +18,19 @@ namespace Sellora.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/users/{id:guid}/access")]
-public class UserAccessController(SelloraDbContext db, IUserAccessService access) : ControllerBase
+public class UserAccessController(SelloraDbContext db, IUserAccessService access, IEffectivePermissionService effective) : ControllerBase
 {
     private const string ManagePolicy = "Company.Users.ManageBranchAccess";
 
     [HttpGet]
-    [Authorize(Policy = "Users.View")]
+    [Authorize(Policy = "Users.View|Branch.Users.View")]
     public async Task<ActionResult<UserAccessDto>> Get(Guid id, CancellationToken ct)
     {
+        // Phase 01b read rule: a CompanyWide actor in company mode reads everyone; on the branch path, and for a FI-D14 branch-limited actor
+        // (allowed set narrowed), the target needs an active allocation in the caller's (narrowed) branches, else 404 - no probing of other branches.
+        var branchMode = UserVisibility.IsBranchMode(await effective.GetCurrentAsync(ct), "Users.View", PermissionCatalog.BranchUsersView);
+        var allowed = db.BranchContext.AllowedBranchIds;
+        if ((branchMode || allowed is not null) && !await UserVisibility.IsAllocatedWithinAsync(db, id, allowed?.ToList(), ct)) return NotFound();
         var view = await BuildViewAsync(id, ct);
         return view is null ? NotFound() : Ok(view);
     }

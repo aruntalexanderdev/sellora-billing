@@ -25,6 +25,7 @@ public sealed class RoleService(SelloraDbContext db) : IRoleService
         var name = ValidateName(input.Name);
         var codes = ValidateCodes(input.PermissionCodes, scope);
         await RequireUniqueNameAsync(name, scope, branchId, null, ct);
+        RoleRules.RequireCompanyPathForBranchAdministration(actor, "Roles.Create", codes);
         if (RoleRules.NotHeld(actor, scope, branchId, codes) is { Count: > 0 } notHeld)
         {
             throw new DomainValidationException("permissionCodes", RoleRules.NotHeldMessage(notHeld));
@@ -72,6 +73,8 @@ public sealed class RoleService(SelloraDbContext db) : IRoleService
 
         // Only codes being added must be held by the actor; keeping or removing existing ones is allowed (R1).
         var existing = role.RolePermissions.Select(rp => rp.Permission.Code).ToHashSet(StringComparer.Ordinal);
+        // FI-D45: a role that holds or would hold branch administration codes is changed only through the company path.
+        RoleRules.RequireCompanyPathForBranchAdministration(actor, "Roles.Edit", existing.Concat(codes));
         if (RoleRules.NotHeld(actor, role.ScopeType, role.BranchId, codes.Except(existing)) is { Count: > 0 } notHeld)
         {
             throw new DomainValidationException("permissionCodes", RoleRules.NotHeldMessage(notHeld));
@@ -102,6 +105,7 @@ public sealed class RoleService(SelloraDbContext db) : IRoleService
         await RequireManageAsync(actor, source.ScopeType, source.BranchId, "Roles.Duplicate", ct);
 
         var sourceCodes = source.IsSystem ? RoleRules.AllCodes.ToList() : source.RolePermissions.Select(rp => rp.Permission.Code).ToList();
+        RoleRules.RequireCompanyPathForBranchAdministration(actor, "Roles.Duplicate", sourceCodes);
         if (RoleRules.NotHeld(actor, source.ScopeType, source.BranchId, sourceCodes) is { Count: > 0 } notHeld)
         {
             throw RoleRules.Forbidden(RoleErrorCodes.RoleEscalationForbidden, $"You cannot duplicate this role. {RoleRules.NotHeldMessage(notHeld)}");
@@ -142,6 +146,7 @@ public sealed class RoleService(SelloraDbContext db) : IRoleService
         {
             throw new RoleRuleException(RoleErrorCodes.SystemRoleProtected, "The Administrator role is a system role and cannot be disabled.");
         }
+        RoleRules.RequireCompanyPathForBranchAdministration(actor, "Roles.Disable", role.RolePermissions.Select(rp => rp.Permission.Code));
         if (role.IsActive == isActive) return;
 
         if (!isActive)

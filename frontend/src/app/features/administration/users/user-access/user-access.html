@@ -72,7 +72,9 @@
     @if (p.kind === 'assignRole') {
       <label class="field-label" for="role-scope">Role scope</label>
       <select id="role-scope" formControlName="roleScope" class="field-input" (change)="loadAssignable()">
-        <option value="Company">Company role</option>
+        @if (companyAssign()) {
+          <option value="Company">Company role</option>
+        }
         <option value="Branch">Branch role</option>
       </select>
       @if (form.controls.roleScope.value === 'Branch') {
@@ -137,6 +139,7 @@
         </div>
       </div>
 
+      @if (canViewAllocations()) {
       <div class="card-head">
         <h2>Current allocations</h2>
         @if (canManage() && a.status !== 'Revoked') {
@@ -150,6 +153,7 @@
 
       <div class="card-head" style="margin-top: 20px"><h2>Allocation history</h2></div>
       <ui-data-table [cols]="historyCols" [rows]="historyRows()" [state]="state()" emptyTitle="No history" emptyBody="Ended allocations appear here." />
+      }
     } @else if (state() === 'error') {
       <div class="server-error">Could not load this user's access. <a href="javascript:void 0" (click)="loadAccess()">Retry</a></div>
     } @else {

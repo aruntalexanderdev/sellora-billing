@@ -21,6 +21,13 @@ public interface IRoleAssignmentService
     Task StageInitialCompanyRoleAsync(RoleActor actor, UserCompanyMembership membership, Guid roleId, CancellationToken ct = default);
 
     /// <summary>
+    /// Phase 01b (FI-D44): stages the initial branch-role assignment of a user created by a branch administrator. The role must be an active branch
+    /// role of <paramref name="branchId"/> (the active branch the membership is allocated to in the same save); same R4 and FI-D45 checks as
+    /// <see cref="AssignAsync"/> except the target lookups.
+    /// </summary>
+    Task StageInitialBranchRoleAsync(RoleActor actor, UserCompanyMembership membership, Guid roleId, Guid branchId, CancellationToken ct = default);
+
+    /// <summary>
     /// Compat for PUT users (RoleId = "set the single company role"): ends the other Active company-role assignments and adds this one.
     /// No-op when the role is already the only company role. Saves.
     /// </summary>

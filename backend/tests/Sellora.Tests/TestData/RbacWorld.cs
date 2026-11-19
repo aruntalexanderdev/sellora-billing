@@ -13,7 +13,9 @@ namespace Sellora.Tests.TestData;
 /// </summary>
 public sealed class RbacWorld
 {
-    public SelloraDbContext Db { get; } = TestDb.NewInMemory();
+    /// <summary>Store options, so tests can open further contexts (e.g. with a branch-limited scope) over the same data.</summary>
+    public DbContextOptions<SelloraDbContext> Options { get; } = new DbContextOptionsBuilder<SelloraDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+    public SelloraDbContext Db { get; }
     public Dictionary<string, Permission> Permissions { get; }
     public Branch B1 { get; } = BranchBuilder.Extra("B1");
     public Branch B2 { get; } = BranchBuilder.Extra("B2");
@@ -21,6 +23,7 @@ public sealed class RbacWorld
 
     public RbacWorld()
     {
+        Db = TestCompany.NewDb(Options);
         Permissions = PermissionCatalog.All
             .Select(p => new Permission { Id = Guid.NewGuid(), Code = p.Code, Module = p.Module, Action = p.Action, Description = p.Description })
             .ToDictionary(p => p.Code);
