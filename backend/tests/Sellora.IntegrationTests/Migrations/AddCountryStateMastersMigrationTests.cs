@@ -90,6 +90,8 @@ public class AddCountryStateMastersMigrationTests(PostgresFixture postgres)
     /// <summary>A branch probe: <paramref name="Label"/> is the branch name (the key of every assertion).</summary>
     private sealed record BranchProbe(string Label, string? State, string? Gstin);
 
+    private static int branchCodeSequence;
+
     private static async Task<Dictionary<string, Guid>> InsertBranchesAsync(TestDatabase d, Guid company, IReadOnlyList<BranchProbe> probes)
     {
         var ids = new Dictionary<string, Guid>();
@@ -106,7 +108,7 @@ public class AddCountryStateMastersMigrationTests(PostgresFixture postgres)
                 """, connection);
             command.Parameters.AddWithValue("id", id);
             command.Parameters.AddWithValue("company", company);
-            command.Parameters.AddWithValue("code", "P" + i);
+            command.Parameters.AddWithValue("code", "P" + Interlocked.Increment(ref branchCodeSequence).ToString("D5")); // Code is varchar(6) and unique per company (IX_Branches_CompanyId_Code): never reuse across calls
             command.Parameters.AddWithValue("name", p.Label);
             command.Parameters.AddWithValue("state", (object?)p.State ?? DBNull.Value);
             command.Parameters.AddWithValue("gstin", (object?)p.Gstin ?? DBNull.Value);
