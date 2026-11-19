@@ -16,6 +16,8 @@ public class PermissionScopeCatalogueTests
         "Customers.View",
         "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",
         "Branch.Roles.View", "Branch.Roles.Manage", "Branch.Users.AssignRoles",
+        // Phase 01b (FI-D44): branch user administration
+        "Branch.Users.View", "Branch.Users.Create", "Branch.Users.Edit", "Branch.Users.Disable", "Branch.Users.ResetPassword",
     ];
 
     [Fact]

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Permissions;
 using Sellora.Domain.Roles;
 using Sellora.Infrastructure.Data;
 
@@ -68,6 +69,20 @@ public sealed class RoleAssignmentService(SelloraDbContext db, IUserAccessServic
         {
             throw new DomainValidationException("roleId", "Select a company role.");
         }
+        await AuthorizeAsync(actor, role, ct);
+        RequireActiveRole(role);
+        Stage(actor, membership, role, "Initial role");
+    }
+
+    public async Task StageInitialBranchRoleAsync(RoleActor actor, UserCompanyMembership membership, Guid roleId, Guid branchId, CancellationToken ct = default)
+    {
+        var role = await LoadRoleAsync(actor, roleId, "roleId", ct);
+        if (role.ScopeType != RoleScope.Branch || role.BranchId != branchId)
+        {
+            throw new DomainValidationException("roleId", "Select a role of the active branch.");
+        }
+        // Same R4 checks as AssignAsync (Branch.Users.AssignRoles at the branch, codes held, FI-D45). The target's allocation at the branch is staged
+        // in the same save by IUserAccessService.InitializeNewMembershipAsync, so RequireBranchAllocationAsync (which reads saved rows) is not used here.
         await AuthorizeAsync(actor, role, ct);
         RequireActiveRole(role);
         Stage(actor, membership, role, "Initial role");
@@ -158,6 +173,11 @@ public sealed class RoleAssignmentService(SelloraDbContext db, IUserAccessServic
             throw RoleRules.Forbidden(RoleErrorCodes.AdministratorAssignmentForbidden, "Only Administrators can assign or end the Administrator role.");
         }
         var codes = await RoleRules.CodesOfAsync(db, role, ct);
+        // FI-D45: roles holding branch administration codes are assigned and ended only by a company administrator.
+        if (role.ScopeType == RoleScope.Branch)
+        {
+            RoleRules.RequireCompanyPathForBranchAdministration(actor, PermissionCatalog.CompanyUsersAssignRoles, codes);
+        }
         if (RoleRules.NotHeld(actor, role.ScopeType, role.BranchId, codes) is { Count: > 0 } notHeld)
         {
             throw RoleRules.Forbidden(RoleErrorCodes.RoleEscalationForbidden,

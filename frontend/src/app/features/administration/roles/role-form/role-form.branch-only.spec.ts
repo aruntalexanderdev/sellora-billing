@@ -12,10 +12,12 @@ import { RoleForm } from './role-form';
 
 const catalog: PermissionCatalogEntry[] = [
   { code: 'Sales.View', module: 'Sales', action: 'View', description: 'View sales', scope: 'CompanyOrBranch' },
+  { code: 'Branch.Users.Create', module: 'Administration', action: 'Create', description: 'Create branch users', scope: 'CompanyOrBranch' },
+  { code: 'Branch.Roles.Manage', module: 'Administration', action: 'Manage', description: 'Manage branch roles', scope: 'CompanyOrBranch' },
   { code: 'Roles.Create', module: 'Administration', action: 'Create', description: 'Create roles', scope: 'CompanyOnly' },
 ];
 
-function mount(perms: string[]) {
+function mount(perms: string[], working: string | null = null) {
   const create = vi.fn(() => of({}));
   const has = (c: string) => perms.includes(c);
   TestBed.configureTestingModule({
@@ -24,7 +26,7 @@ function mount(perms: string[]) {
       provideRouter([]),
       { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({}) } } },
       { provide: AuthService, useValue: { hasPermission: has } },
-      { provide: ContextService, useValue: { hasPermission: has } },
+      { provide: ContextService, useValue: { hasPermission: has, workingBranchId: () => working, workingBranch: () => (working ? { id: working, name: 'North' } : null) } },
       { provide: PermissionsService, useValue: { list: () => of(catalog) } },
       { provide: UserAccessService, useValue: { branches: () => of([{ id: 'b1', code: 'N', name: 'North', isDefault: false }]) } },
       { provide: RolesService, useValue: { create, update: vi.fn(), get: vi.fn() } },
@@ -55,6 +57,24 @@ describe('RoleForm branch-only mode (Branch.Roles.Manage without Roles.Create)',
     expect(el.textContent).toContain('Choose the branch this role belongs to.');
   });
 
+  it('presets and locks the branch to the working branch and sends it', () => {
+    const { component, el, create } = mount(['Branch.Roles.Manage'], 'b1');
+    expect(component.form.controls.branchId.value).toBe('b1');
+    expect(component.form.controls.branchId.disabled).toBe(true);
+    expect(el.querySelector('#role-branch')!.hasAttribute('disabled')).toBe(true);
+    component.form.patchValue({ name: 'Cashier' });
+    component.submit();
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ scopeType: 'Branch', branchId: 'b1' }));
+  });
+
+  it('hides branch administration codes from a branch-only actor but not from a company admin', () => {
+    expect(mount(['Branch.Roles.Manage'], 'b1').component.visibleCatalog().map((e) => e.code)).toEqual(['Sales.View']);
+    TestBed.resetTestingModule();
+    const company = mount(['Roles.Create']).component;
+    company.form.controls.scopeType.setValue('Branch');
+    expect(company.visibleCatalog().map((e) => e.code)).toEqual(['Sales.View', 'Branch.Users.Create', 'Branch.Roles.Manage']);
+  });
+
   it('only offers branch-eligible permissions', () => {
     const { component, el } = mount(['Branch.Roles.Manage']);
     expect(component.visibleCatalog().map((e) => e.code)).toEqual(['Sales.View']);
@@ -74,7 +94,7 @@ describe('RoleForm branch-only mode (Branch.Roles.Manage without Roles.Create)',
     expect(component.branchOnly).toBe(false);
     expect(scopeOptions(el)).toEqual(['Company', 'Branch']);
     expect(component.form.controls.scopeType.enabled).toBe(true);
-    expect(component.visibleCatalog().map((e) => e.code)).toEqual(['Sales.View', 'Roles.Create']);
+    expect(component.visibleCatalog().map((e) => e.code)).toEqual(['Sales.View', 'Branch.Users.Create', 'Branch.Roles.Manage', 'Roles.Create']);
   });
 
   it('renders a server scopeType error on a branch-only form under the scope control', () => {

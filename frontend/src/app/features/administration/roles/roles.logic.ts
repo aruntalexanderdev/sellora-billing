@@ -14,7 +14,26 @@ export const BRANCH_ELIGIBLE_CODES: ReadonlySet<string> = new Set([
   'Customers.View',
   'Reports.Sales', 'Reports.Purchase', 'Reports.Stock', 'Reports.Movement',
   'Branch.Roles.View', 'Branch.Roles.Manage', 'Branch.Users.AssignRoles',
+  'Branch.Users.View', 'Branch.Users.Create', 'Branch.Users.Edit', 'Branch.Users.Disable', 'Branch.Users.ResetPassword',
 ]);
+
+/**
+ * Branch administration codes (FI-D45): only the company path may put them in a role. Branch-path actors (Roles.Create-less) must not
+ * be offered them; the server rejects them regardless.
+ */
+export const BRANCH_ADMIN_CODES: ReadonlySet<string> = new Set([
+  'Branch.Users.View', 'Branch.Users.Create', 'Branch.Users.Edit', 'Branch.Users.Disable', 'Branch.Users.ResetPassword',
+  'Branch.Roles.View', 'Branch.Roles.Manage', 'Branch.Users.AssignRoles',
+]);
+
+export function isBranchAdminCode(code: string): boolean {
+  return BRANCH_ADMIN_CODES.has(code);
+}
+
+/** Catalogue without branch administration codes (used when the actor is on the branch path). */
+export function withoutBranchAdminCodes(catalog: PermissionCatalogEntry[]): PermissionCatalogEntry[] {
+  return catalog.filter((e) => !isBranchAdminCode(e.code));
+}
 
 export function isBranchEligible(entry: Pick<PermissionCatalogEntry, 'code' | 'scope'>): boolean {
   return entry.scope ? entry.scope === 'CompanyOrBranch' : BRANCH_ELIGIBLE_CODES.has(entry.code);

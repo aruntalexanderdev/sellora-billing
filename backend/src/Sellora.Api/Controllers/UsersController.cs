@@ -9,6 +9,7 @@ using Sellora.Api.Validation;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Auth;
 using Sellora.Domain.Entities;
+using Sellora.Domain.Permissions;
 using Sellora.Domain.Roles;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
@@ -17,10 +18,12 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/users")]
-public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher, IUserAccessService userAccess, IRoleAssignmentService roleAssignments) : ControllerBase
+public class UsersController(
+    SelloraDbContext db, IPasswordHasher passwordHasher, IUserAccessService userAccess, IRoleAssignmentService roleAssignments, IEffectivePermissionService effective)
+    : ControllerBase
 {
     [HttpGet]
-    [Authorize(Policy = "Users.View")]
+    [Authorize(Policy = "Users.View|Branch.Users.View")]
     public async Task<ActionResult<PagedResult<UserListItemDto>>> List(
         [FromQuery] string? search, [FromQuery] Guid? roleId, [FromQuery] UserStatus? status,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
@@ -29,7 +32,8 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         pageSize = Math.Clamp(pageSize, 1, 100);
 
         var companyId = db.CompanyContext.RequireCompanyId();
-        var query = VisibleUsers().AsQueryable();
+        var branchMode = IsBranchMode(await effective.GetCurrentAsync(ct), "Users.View", PermissionCatalog.BranchUsersView);
+        var query = await VisibleUsersAsync(branchMode, CurrentUserId(), ct);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -122,16 +126,17 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     }
 
     [HttpGet("{id:guid}")]
-    [Authorize(Policy = "Users.View")]
+    [Authorize(Policy = "Users.View|Branch.Users.View")]
     public async Task<ActionResult<UserDetailDto>> Get(Guid id, CancellationToken ct)
     {
-        var user = await VisibleUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
+        var branchMode = IsBranchMode(await effective.GetCurrentAsync(ct), "Users.View", PermissionCatalog.BranchUsersView);
+        var user = await (await VisibleUsersAsync(branchMode, CurrentUserId(), ct)).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
         return Ok(await BuildDetailAsync(user, ct));
     }
 
     [HttpPost]
-    [Authorize(Policy = "Users.Create")]
+    [Authorize(Policy = "Users.Create|Branch.Users.Create")]
     public async Task<ActionResult<UserDetailDto>> Create(CreateUserRequest request, CancellationToken ct)
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
@@ -184,11 +189,27 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
 
         try
         {
-            // Phase 7 compat: RoleId = the initial company-role assignment (R4: Company.Users.AssignRoles, CompanyWide actor, codes held).
-            await roleAssignments.StageInitialCompanyRoleAsync(actor.ToRoleActor(HttpContext.TraceIdentifier), membership, role!.Id, ct);
-            // Initial access (Phase 5, D12/O1): scope + allocations (audited) are staged in the same save as the user and membership.
-            await userAccess.InitializeNewMembershipAsync(ToAccessActor(actor), membership, role.IsSystem,
-                new AccessSelection(request.AccessScope, request.BranchIds, request.PrimaryBranchId), ct);
+            if (IsBranchMode(actor.Effective, "Users.Create", PermissionCatalog.BranchUsersCreate))
+            {
+                // Phase 01b (FI-D44, §6.4 exception): the server places the user in the active branch only - AssignedBranches, one primary allocation
+                // there - and ignores any client-supplied scope/branches. The initial role must be an active role of that branch (R4 + FI-D45 checks).
+                // The active branch resolved by CompanyContextMiddleware (header, primary, default) and checked by the permission handler;
+                // InitializeNewMembershipAsync allocates to the same branch (BranchRules.ResolveWorkingBranchAsync uses the same order).
+                if (db.BranchContext.ActiveBranchId is not { } workingId || !actor.Effective.HasAtBranch(PermissionCatalog.BranchUsersCreate, workingId))
+                {
+                    return AccessProblems.Create(StatusCodes.Status403Forbidden, "You are not allowed to create users in this branch.", RoleErrorCodes.RoleManagementForbidden);
+                }
+                await roleAssignments.StageInitialBranchRoleAsync(actor.ToRoleActor(HttpContext.TraceIdentifier), membership, role!.Id, workingId, ct);
+                await userAccess.InitializeNewMembershipAsync(ToAccessActor(actor), membership, isAdministratorRole: false, selection: null, ct);
+            }
+            else
+            {
+                // Phase 7 compat: RoleId = the initial company-role assignment (R4: Company.Users.AssignRoles, CompanyWide actor, codes held).
+                await roleAssignments.StageInitialCompanyRoleAsync(actor.ToRoleActor(HttpContext.TraceIdentifier), membership, role!.Id, ct);
+                // Initial access (Phase 5, D12/O1): scope + allocations (audited) are staged in the same save as the user and membership.
+                await userAccess.InitializeNewMembershipAsync(ToAccessActor(actor), membership, role.IsSystem,
+                    new AccessSelection(request.AccessScope, request.BranchIds, request.PrimaryBranchId), ct);
+            }
         }
         catch (AccessManagementForbiddenException ex)
         {
@@ -197,6 +218,12 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         catch (RoleRuleException ex)
         {
             return AccessProblems.Rule(ex);
+        }
+        catch (AccessTargetNotFoundException)
+        {
+            // A branch role the actor cannot reach (another branch) is indistinguishable from an unknown role.
+            ModelState.AddModelError("roleId", "Select a valid role.");
+            return ValidationProblem(ModelState);
         }
         catch (DomainValidationException ex) when (ex.Field is "roleId")
         {
@@ -210,16 +237,17 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Policy = "Users.Edit")]
+    [Authorize(Policy = "Users.Edit|Branch.Users.Edit")]
     public async Task<ActionResult<UserDetailDto>> Update(Guid id, UpdateUserRequest request, CancellationToken ct)
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
-        var user = await VisibleUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
+        var actor = access.Actor;
+        var branchMode = IsBranchMode(actor.Effective, "Users.Edit", PermissionCatalog.BranchUsersEdit);
+        var user = await (await VisibleUsersAsync(branchMode, actor.UserId, ct)).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
-        var actor = access.Actor;
         if (!actor.IsAdministrator && await TargetHoldsAdministratorAsync(user.Id, ct)) return AdministratorAccountForbidden();
         if (await BelongsToAnotherCompanyAsync(user.Id, ct)) return SharedAccountForbidden();
         if (await ProtectedTargetAsync(user.Id, actor, ct) is { } protectedResult) return protectedResult;
@@ -236,7 +264,8 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
         var currentRoleIds = (await ActiveRolesAsync([user.Id], ct)).GetValueOrDefault(user.Id)?.Where(r => r.ScopeType == RoleScope.Company).Select(r => r.Id).ToList() ?? [];
         // FI-D14: a branch-scoped actor can only reach users without a company role and can never set one (R4), so RoleId is not a role change
         // for them - this endpoint edits the profile; branch roles go through role-assignments.
-        var roleChanged = actor.IsCompanyWide
+        // Phase 01b: the branch path (Branch.Users.Edit without company-level Users.Edit) never changes company roles either.
+        var roleChanged = !branchMode && actor.IsCompanyWide
             && request.RoleId is { } requested && !(currentRoleIds.Count == 1 && currentRoleIds[0] == requested);
         // Nobody changes their own role. Together with "only Administrators change Administrator accounts",
         // "nobody disables themselves" and the access-management lock (which re-loads the caller, so two
@@ -278,14 +307,15 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     }
 
     [HttpPost("{id:guid}/status")]
-    [Authorize(Policy = "Users.Disable")]
+    [Authorize(Policy = "Users.Disable|Branch.Users.Disable")]
     public async Task<IActionResult> SetStatus(Guid id, SetUserStatusRequest request, CancellationToken ct)
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
-        var user = await VisibleUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
+        var actor = access.Actor;
+        var branchMode = IsBranchMode(actor.Effective, "Users.Disable", PermissionCatalog.BranchUsersDisable);
+        var user = await (await VisibleUsersAsync(branchMode, actor.UserId, ct)).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
-        var actor = access.Actor;
         if (user.Id == actor.UserId && request.Status == UserStatus.Disabled)
         {
             return Problem(statusCode: 400, title: "You cannot disable your own account.");
@@ -316,14 +346,15 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     }
 
     [HttpPost("{id:guid}/reset-password")]
-    [Authorize(Policy = "Users.ResetPassword")]
+    [Authorize(Policy = "Users.ResetPassword|Branch.Users.ResetPassword")]
     public async Task<ActionResult<ResetPasswordResponse>> ResetPassword(Guid id, CancellationToken ct)
     {
         await using var access = await AccessManagementScope.BeginAsync(db, User, ct);
-        var user = await VisibleUsers().SingleOrDefaultAsync(u => u.Id == id, ct);
+        var actor = access.Actor;
+        var branchMode = IsBranchMode(actor.Effective, "Users.ResetPassword", PermissionCatalog.BranchUsersResetPassword);
+        var user = await (await VisibleUsersAsync(branchMode, actor.UserId, ct)).SingleOrDefaultAsync(u => u.Id == id, ct);
         if (user is null) return NotFound();
 
-        var actor = access.Actor;
         if (!actor.IsAdministrator && await TargetHoldsAdministratorAsync(user.Id, ct)) return AdministratorAccountForbidden();
         if (await BelongsToAnotherCompanyAsync(user.Id, ct)) return SharedAccountForbidden();
 
@@ -348,26 +379,44 @@ public class UsersController(SelloraDbContext db, IPasswordHasher passwordHasher
     }
 
     /// <summary>
-    /// Phase 01 (FI-D14): company users the actor may see/administer. A CompanyWide actor (allowed set null) sees every company user; a branch-scoped
-    /// actor only users whose active branch allocations all lie within the actor's branches and who hold no active company-scope role (else 404).
+    /// Phase 01 (FI-D14) + Phase 01b (FI-D44/FI-D45): company users the actor may see/administer. A CompanyWide actor in company mode (allowed set
+    /// null) sees every company user. Otherwise - a branch-limited actor, or any actor on the branch path (<paramref name="branchMode"/>: only the
+    /// Branch.Users.* code, no company-level Users.* code) - only users that work wholly inside the actor's branches and are not company administration
+    /// (else 404). The branch set is the request's allowed set (already narrowed to the branches where the branch code is held), or every company
+    /// branch for a company-wide actor holding the branch code company-level.
     /// </summary>
-    private IQueryable<User> VisibleUsers()
+    private async Task<IQueryable<User>> VisibleUsersAsync(bool branchMode, Guid actorUserId, CancellationToken ct)
     {
         var query = CompanyUsers();
-        if (db.BranchContext.AllowedBranchIds is not { } allowedSet) return query;
+        var allowedSet = db.BranchContext.AllowedBranchIds;
+        if (allowedSet is null && !branchMode) return query;
 
         var companyId = db.CompanyContext.RequireCompanyId();
-        var allowed = allowedSet.ToArray();
+        var allowed = allowedSet?.ToArray() ?? await db.Branches.Where(b => b.CompanyId == companyId).Select(b => b.Id).ToArrayAsync(ct);
+        var adminCodes = PermissionCatalog.BranchAdministrationCodes.ToArray();
         // FI-D14: a branch-limited actor reaches only users that work wholly inside its branches - an AssignedBranches membership with at least
         // one active allocation, every active allocation and every active branch role inside the actor's branches, and no company role.
         // Company-wide members and users without any allocation are company administration (404 for the branch actor).
-        return query.Where(u => db.UserCompanyMemberships.Any(m => m.UserId == u.Id && m.CompanyId == companyId
+        // FI-D45 (owner-confirmed): holders of a branch administration code are company administration too, and the actor never administers itself
+        // here (self-service endpoints are separate).
+        return query.Where(u => u.Id != actorUserId && db.UserCompanyMemberships.Any(m => m.UserId == u.Id && m.CompanyId == companyId
             && m.AccessScope == CompanyAccessScope.AssignedBranches
             && db.UserBranchAssignments.Any(a => a.CompanyId == companyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active)
             && !db.UserBranchAssignments.Any(a => a.CompanyId == companyId && a.UserCompanyMembershipId == m.Id && a.Status == AssignmentStatus.Active && !allowed.Contains(a.BranchId))
             && !db.UserRoleAssignments.Any(r => r.CompanyId == companyId && r.UserCompanyMembershipId == m.Id && r.Status == AssignmentStatus.Active
-                && (r.ScopeType == RoleScope.Company || (r.BranchId != null && !allowed.Contains(r.BranchId.Value))))));
+                && (r.ScopeType == RoleScope.Company || (r.BranchId != null && !allowed.Contains(r.BranchId.Value))
+                    || db.RolePermissions.Any(rp => rp.RoleId == r.RoleId && adminCodes.Contains(rp.Permission.Code))))));
     }
+
+    /// <summary>
+    /// Phase 01b: the branch path applies when the caller lacks <paramref name="companyCode"/> company-level but holds <paramref name="branchCode"/>
+    /// (at some branch, or company-level). A caller holding neither keeps the company-path checks (the policy refuses it before this point anyway).
+    /// </summary>
+    private static bool IsBranchMode(EffectivePermissionSet set, string companyCode, string branchCode) =>
+        !set.HasCompanyLevel(companyCode) && (set.HasCompanyLevel(branchCode) || set.PermittedBranches(branchCode) is { Count: > 0 });
+
+    private Guid CurrentUserId() =>
+        Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub"), out var id) ? id : Guid.Empty;
 
     private void AppendAudit(AccessManagementActor actor, string action, Guid targetUserId, object? before, object? after)
     {

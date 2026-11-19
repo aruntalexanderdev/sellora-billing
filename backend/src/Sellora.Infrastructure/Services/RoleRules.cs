@@ -43,6 +43,27 @@ public static class RoleRules
         return companyPath || (await ReachesAsync(db, actor, b, ct) && actor.Effective.HasAtBranch(PermissionCatalog.BranchRolesManage, b));
     }
 
+    /// <summary>The company path for <paramref name="companyCode"/>: a CompanyWide actor holding the code company-level (Q1).</summary>
+    public static bool IsCompanyPath(RoleActor actor, string companyCode) => actor.IsCompanyWide && actor.Effective.HasCompanyLevel(companyCode);
+
+    /// <summary>FI-D45: the branch administration codes among <paramref name="codes"/>, sorted.</summary>
+    public static List<string> BranchAdministrationIn(IEnumerable<string> codes) =>
+        codes.Where(PermissionCatalog.IsBranchAdministration).Distinct(StringComparer.Ordinal).OrderBy(c => c, StringComparer.Ordinal).ToList();
+
+    /// <summary>
+    /// FI-D45: branch administration codes are granted (role create/edit/duplicate), changed (role edit/deactivate) and assigned or ended only through
+    /// the company path; a branch-path actor gets 403 <see cref="RoleErrorCodes.BranchAdministrationCompanyOnly"/>.
+    /// </summary>
+    public static void RequireCompanyPathForBranchAdministration(RoleActor actor, string companyCode, IEnumerable<string> codes)
+    {
+        if (IsCompanyPath(actor, companyCode)) return;
+        if (BranchAdministrationIn(codes) is { Count: > 0 } admin)
+        {
+            throw Forbidden(RoleErrorCodes.BranchAdministrationCompanyOnly,
+                $"Branch administration permissions can only be granted or changed by a company administrator: {string.Join(", ", admin)}.");
+        }
+    }
+
     /// <summary>R4: company role needs Company.Users.AssignRoles + CompanyWide actor; branch role the same path or Branch.Users.AssignRoles at the branch (with reach).</summary>
     public static async Task<bool> CanAssignAsync(SelloraDbContext db, RoleActor actor, Role role, CancellationToken ct)
     {

@@ -26,6 +26,8 @@ public static class RoleErrorCodes
     public const string SystemRoleProtected = "system_role_protected";
     public const string LastAdministratorProtected = "last_administrator_protected";
     public const string ReferenceDataPlatformManaged = "reference_data_platform_managed";
+    /// <summary>FI-D45: branch administration codes are granted, assigned and changed only through the company path.</summary>
+    public const string BranchAdministrationCompanyOnly = "branch_administration_company_only";
 }
 
 /// <summary>A role/assignment business rule violation that is not a single-field validation error. Maps to 400 with <see cref="Code"/>.</summary>

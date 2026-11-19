@@ -4,7 +4,10 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
+import { AuthService } from '../../../../core/auth/auth.service';
+import { ContextService } from '../../../../core/context/context.service';
 import { UsersService } from '../users.service';
+import { userAdminMode } from '../users.logic';
 import { RolesService } from '../../roles/roles.service';
 import type { RoleListItem } from '../../roles/roles.models';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
@@ -24,6 +27,8 @@ export class UserForm implements OnInit, HasUnsavedChanges {
   private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
+  private readonly context = inject(ContextService);
 
   readonly roles = signal<RoleListItem[]>([]);
   readonly saving = signal(false);
@@ -37,6 +42,14 @@ export class UserForm implements OnInit, HasUnsavedChanges {
   readonly userId = this.route.snapshot.paramMap.get('id');
   readonly isEdit = computed(() => this.userId !== null && this.userId !== 'new');
 
+  /** FI-D44: a holder of only the Branch.Users.* code administers users of the working branch (server forces scope/branch). */
+  readonly branchMode = userAdminMode(
+    (c) => this.auth.hasPermission(c),
+    this.userId !== null && this.userId !== 'new' ? 'Users.Edit' : 'Users.Create',
+    this.userId !== null && this.userId !== 'new' ? 'Branch.Users.Edit' : 'Branch.Users.Create',
+  ) === 'branch';
+  readonly workingBranchName = computed(() => this.context.workingBranch()?.name ?? 'the working branch');
+
   readonly form = this.fb.nonNullable.group({
     firstName: ['', Validators.required],
     lastName: ['', Validators.required],
@@ -49,7 +62,11 @@ export class UserForm implements OnInit, HasUnsavedChanges {
   });
 
   ngOnInit(): void {
-    this.rolesService.list().subscribe({ next: (roles) => this.roles.set(roles.filter((r) => r.isActive)) });
+    // Branch mode never requests company roles (403 for a branch-only admin): active branch roles of the working branch only.
+    const roles$ = this.branchMode
+      ? this.rolesService.list({ scope: 'Branch', branchId: this.context.workingBranchId() ?? this.context.workingBranch()?.id ?? null })
+      : this.rolesService.list();
+    roles$.subscribe({ next: (roles) => this.roles.set(roles.filter((r) => r.isActive)) });
 
     if (this.isEdit()) {
       this.form.get('password')?.clearValidators();
@@ -61,7 +78,7 @@ export class UserForm implements OnInit, HasUnsavedChanges {
             username: u.username,
             email: u.email,
             phoneNumber: u.phoneNumber ?? '',
-            roleId: u.roleId ?? '',
+            roleId: this.branchMode ? this.branchRoleOf(u) : (u.roleId ?? ''),
           }),
       });
     } else {
@@ -117,6 +134,12 @@ export class UserForm implements OnInit, HasUnsavedChanges {
         this.applyServerErrors(err);
       },
     });
+  }
+
+  /** The user's active role in the working branch, if any (UserDetail.roleId is the first company role). */
+  private branchRoleOf(u: { roles?: { id: string; scopeType: string; branchId: string | null }[] | null }): string {
+    const branchId = this.context.workingBranchId() ?? this.context.workingBranch()?.id ?? null;
+    return u.roles?.find((r) => r.scopeType === 'Branch' && r.branchId === branchId)?.id ?? '';
   }
 
   private applyServerErrors(err: HttpErrorResponse): void {

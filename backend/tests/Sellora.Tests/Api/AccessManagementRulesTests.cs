@@ -76,7 +76,8 @@ public class AccessManagementRulesTests
     {
         f.Db.ChangeTracker.Clear();
         var access = new Sellora.Infrastructure.Services.UserAccessService(f.Db);
-        return new UsersController(f.Db, new FakeHasher(), access, new Sellora.Infrastructure.Services.RoleAssignmentService(f.Db, access)) { ControllerContext = As(actor) };
+        return new UsersController(f.Db, new FakeHasher(), access, new Sellora.Infrastructure.Services.RoleAssignmentService(f.Db, access),
+            Rbac.Effective(f.Db, Rbac.ContextOf(f.Db, actor.Id))) { ControllerContext = As(actor) };
     }
 
     private static RolesController Roles(Fixture f, User actor)

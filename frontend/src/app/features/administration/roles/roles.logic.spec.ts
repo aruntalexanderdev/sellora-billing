@@ -1,5 +1,5 @@
 import type { PermissionCatalogEntry } from '../permissions/permissions.models';
-import { canManageRole, buildCreateRoleRequest, buildUpdateRoleRequest, eligibleCatalog, isBranchEligible, pruneSelection, scopeLabel } from './roles.logic';
+import { canManageRole, buildCreateRoleRequest, buildUpdateRoleRequest, eligibleCatalog, isBranchEligible, pruneSelection, scopeLabel, BRANCH_ADMIN_CODES, isBranchAdminCode, withoutBranchAdminCodes } from './roles.logic';
 
 const entry = (code: string, scope?: PermissionCatalogEntry['scope']): PermissionCatalogEntry => ({ code, module: 'M', action: 'A', description: '', scope });
 const catalog = [entry('Sales.View'), entry('Sales.Create'), entry('Inventory.Edit'), entry('Masters.Edit'), entry('Branch.Roles.Manage')];
@@ -55,5 +55,27 @@ describe('canManageRole', () => {
     expect(canManageRole(has('Branch.Roles.Manage'), 'Branch', 'Roles.Edit')).toBe(true);
     expect(canManageRole(has('Roles.Edit'), 'Company', 'Roles.Edit')).toBe(true);
     expect(canManageRole(has('Branch.Roles.View'), 'Branch', 'Roles.Edit')).toBe(false);
+  });
+});
+
+describe('branch administration codes (FI-D44/FI-D45)', () => {
+  const users = ['Branch.Users.View', 'Branch.Users.Create', 'Branch.Users.Edit', 'Branch.Users.Disable', 'Branch.Users.ResetPassword'];
+
+  it('the five Branch.Users.* codes are branch-eligible (fallback list)', () => {
+    for (const code of users) expect(isBranchEligible(entry(code))).toBe(true);
+  });
+
+  it('admin codes cover Branch.Users.*, Branch.Roles.View/Manage and Branch.Users.AssignRoles', () => {
+    for (const code of [...users, 'Branch.Roles.View', 'Branch.Roles.Manage', 'Branch.Users.AssignRoles']) {
+      expect(isBranchAdminCode(code)).toBe(true);
+      expect(BRANCH_ADMIN_CODES.has(code)).toBe(true);
+    }
+    expect(isBranchAdminCode('Sales.View')).toBe(false);
+    expect(isBranchAdminCode('Users.Create')).toBe(false);
+  });
+
+  it('withoutBranchAdminCodes strips only admin codes', () => {
+    const list = [entry('Sales.View'), entry('Branch.Users.Create'), entry('Branch.Roles.Manage'), entry('Users.Create')];
+    expect(withoutBranchAdminCodes(list).map((e) => e.code)).toEqual(['Sales.View', 'Users.Create']);
   });
 });

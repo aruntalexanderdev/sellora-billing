@@ -55,7 +55,12 @@
           @if (form.get('branchId')?.errors?.['server']) {
             <div class="field-error">{{ form.get('branchId')?.errors?.['server'] }}</div>
           }
-          <div class="field-hint">Branch roles can only hold branch-eligible permissions.</div>
+          <div class="field-hint">
+            @if (branchOnly && form.controls.branchId.disabled) {
+              This role is created in your working branch.
+            }
+            Branch roles can only hold branch-eligible permissions.
+          </div>
         }
       }
 

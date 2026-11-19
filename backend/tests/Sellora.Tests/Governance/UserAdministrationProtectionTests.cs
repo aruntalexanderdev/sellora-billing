@@ -27,7 +27,8 @@ public class UserAdministrationProtectionTests
     private static UsersController Users(GovernanceWorld w, User actor)
     {
         w.Db.ChangeTracker.Clear();
-        return new UsersController(w.Db, new FakeHasher(), new UserAccessService(w.Db), new RoleAssignmentService(w.Db, new UserAccessService(w.Db)))
+        return new UsersController(w.Db, new FakeHasher(), new UserAccessService(w.Db), new RoleAssignmentService(w.Db, new UserAccessService(w.Db)),
+            Rbac.Effective(w.Db, Rbac.ContextOf(w.Db, actor.Id)))
         {
             ControllerContext = new ControllerContext
             {
