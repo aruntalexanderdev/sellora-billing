@@ -1,0 +1,315 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+using Sellora.Domain.Entities;
+
+namespace Sellora.Infrastructure.Data;
+
+/// <summary>
+/// Country/State seed rows, alias map and normaliser (docs/features/country-state-masters.md Appendix A/B, section 2). Used by
+/// <see cref="DbSeeder"/> for dev/InMemory (those never run migrations) and by tests. The migration seeds the same rows from the frozen
+/// embedded SQL (Data/Migrations/Sql); a Postgres drift test compares the two. Ids are deterministic (md5, as <c>DbSeeder.Md5Guid</c>).
+/// </summary>
+public static class GeoSeedData
+{
+    public sealed record CountrySeed(string Code, string Iso3Code, string Name);
+    public sealed record StateSeed(string CountryCode, string Code, string Name, StateKind Kind, string? GstStateCode);
+    /// <summary>One alias of Appendix B: <paramref name="Alias"/> (un-normalised, as listed) resolves to state <paramref name="CountryCode"/>-<paramref name="StateCode"/>;
+    /// <paramref name="IndiaOnly"/> aliases apply only with India context (a valid Indian GSTIN).</summary>
+    public sealed record AliasSeed(string Alias, string CountryCode, string StateCode, bool IndiaOnly);
+
+    public static Guid CountryId(string code) => Md5Guid("sellora:country:" + code);
+    public static Guid StateId(string countryCode, string code) => Md5Guid("sellora:state:" + countryCode + "-" + code);
+
+    private static Guid Md5Guid(string text) => Guid.Parse(Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(text))));
+
+    // The explicit whitespace class shared with pg_temp.geo_norm and the SQL blank test: written as escapes (never literal invisible
+    // characters), never \s (its meaning differs between PG ctype and .NET). Trim(' ') only trims ASCII space after the collapse.
+    private const string WhitespaceClass = @"[\t\n\v\f\r \u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]";
+    private static readonly Regex Separators = new(@"[-_/,]", RegexOptions.CultureInvariant);
+    private static readonly Regex Punctuation = new(@"[.\u0027\u2019\u2018`]", RegexOptions.CultureInvariant);
+    private static readonly Regex Whitespace = new(WhitespaceClass + "+", RegexOptions.CultureInvariant);
+
+    /// <summary>C# twin of <c>pg_temp.geo_norm</c>: lower-case; "&amp;" to " and "; "-", "_", "/", "," to space; remove . ' (U+2019) (U+2018) `;
+    /// collapse whitespace; trim ASCII spaces; empty gives null. Case folding is ASCII-parity only (PG lower() under C collation).</summary>
+    public static string? Normalize(string? text)
+    {
+        var s = (text ?? "").ToLowerInvariant().Replace("&", " and ");
+        s = Separators.Replace(s, " ");
+        s = Punctuation.Replace(s, "");
+        s = Whitespace.Replace(s, " ").Trim(' ');
+        return s.Length == 0 ? null : s;
+    }
+
+    /// <summary>True when <paramref name="text"/> is empty after removing ONLY the whitespace class (punctuation-only text is NOT blank).</summary>
+    public static bool IsBlank(string? text) => Whitespace.Replace(text ?? "", "").Length == 0;
+
+    /// <summary>Strict official GSTIN format (D11) applied after upper(btrim()): state code + PAN + entity digit + Z + checksum character.</summary>
+    public static readonly Regex GstinFormat = new(@"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$", RegexOptions.CultureInvariant);
+
+    public static IReadOnlyList<CountrySeed> Countries { get; } =
+    [
+        new("IN", "IND", "India"),
+        new("AE", "ARE", "United Arab Emirates"),
+        new("SA", "SAU", "Saudi Arabia"),
+        new("QA", "QAT", "Qatar"),
+        new("KW", "KWT", "Kuwait"),
+        new("BH", "BHR", "Bahrain"),
+        new("OM", "OMN", "Oman"),
+    ];
+
+    public static IReadOnlyList<StateSeed> States { get; } =
+    [
+        new("IN", "JK", "Jammu and Kashmir", StateKind.UnionTerritory, "01"),
+        new("IN", "HP", "Himachal Pradesh", StateKind.State, "02"),
+        new("IN", "PB", "Punjab", StateKind.State, "03"),
+        new("IN", "CH", "Chandigarh", StateKind.UnionTerritory, "04"),
+        new("IN", "UK", "Uttarakhand", StateKind.State, "05"),
+        new("IN", "HR", "Haryana", StateKind.State, "06"),
+        new("IN", "DL", "Delhi", StateKind.UnionTerritory, "07"),
+        new("IN", "RJ", "Rajasthan", StateKind.State, "08"),
+        new("IN", "UP", "Uttar Pradesh", StateKind.State, "09"),
+        new("IN", "BR", "Bihar", StateKind.State, "10"),
+        new("IN", "SK", "Sikkim", StateKind.State, "11"),
+        new("IN", "AR", "Arunachal Pradesh", StateKind.State, "12"),
+        new("IN", "NL", "Nagaland", StateKind.State, "13"),
+        new("IN", "MN", "Manipur", StateKind.State, "14"),
+        new("IN", "MZ", "Mizoram", StateKind.State, "15"),
+        new("IN", "TR", "Tripura", StateKind.State, "16"),
+        new("IN", "ML", "Meghalaya", StateKind.State, "17"),
+        new("IN", "AS", "Assam", StateKind.State, "18"),
+        new("IN", "WB", "West Bengal", StateKind.State, "19"),
+        new("IN", "JH", "Jharkhand", StateKind.State, "20"),
+        new("IN", "OD", "Odisha", StateKind.State, "21"),
+        new("IN", "CG", "Chhattisgarh", StateKind.State, "22"),
+        new("IN", "MP", "Madhya Pradesh", StateKind.State, "23"),
+        new("IN", "GJ", "Gujarat", StateKind.State, "24"),
+        new("IN", "DH", "Dadra and Nagar Haveli and Daman and Diu", StateKind.UnionTerritory, "26"),
+        new("IN", "MH", "Maharashtra", StateKind.State, "27"),
+        new("IN", "KA", "Karnataka", StateKind.State, "29"),
+        new("IN", "GA", "Goa", StateKind.State, "30"),
+        new("IN", "LD", "Lakshadweep", StateKind.UnionTerritory, "31"),
+        new("IN", "KL", "Kerala", StateKind.State, "32"),
+        new("IN", "TN", "Tamil Nadu", StateKind.State, "33"),
+        new("IN", "PY", "Puducherry", StateKind.UnionTerritory, "34"),
+        new("IN", "AN", "Andaman and Nicobar Islands", StateKind.UnionTerritory, "35"),
+        new("IN", "TS", "Telangana", StateKind.State, "36"),
+        new("IN", "AP", "Andhra Pradesh", StateKind.State, "37"),
+        new("IN", "LA", "Ladakh", StateKind.UnionTerritory, "38"),
+        new("AE", "AZ", "Abu Dhabi", StateKind.Emirate, null),
+        new("AE", "AJ", "Ajman", StateKind.Emirate, null),
+        new("AE", "DU", "Dubai", StateKind.Emirate, null),
+        new("AE", "FU", "Fujairah", StateKind.Emirate, null),
+        new("AE", "RK", "Ras Al Khaimah", StateKind.Emirate, null),
+        new("AE", "SH", "Sharjah", StateKind.Emirate, null),
+        new("AE", "UQ", "Umm Al Quwain", StateKind.Emirate, null),
+        new("SA", "01", "Riyadh", StateKind.Region, null),
+        new("SA", "02", "Makkah", StateKind.Region, null),
+        new("SA", "03", "Madinah", StateKind.Region, null),
+        new("SA", "04", "Eastern Province", StateKind.Region, null),
+        new("SA", "05", "Al Qassim", StateKind.Region, null),
+        new("SA", "06", "Ha'il", StateKind.Region, null),
+        new("SA", "07", "Tabuk", StateKind.Region, null),
+        new("SA", "08", "Northern Borders", StateKind.Region, null),
+        new("SA", "09", "Jazan", StateKind.Region, null),
+        new("SA", "10", "Najran", StateKind.Region, null),
+        new("SA", "11", "Al Bahah", StateKind.Region, null),
+        new("SA", "12", "Al Jawf", StateKind.Region, null),
+        new("SA", "14", "Asir", StateKind.Region, null),
+        new("QA", "DA", "Doha", StateKind.Municipality, null),
+        new("QA", "KH", "Al Khor and Al Thakhira", StateKind.Municipality, null),
+        new("QA", "MS", "Al Shamal", StateKind.Municipality, null),
+        new("QA", "RA", "Al Rayyan", StateKind.Municipality, null),
+        new("QA", "SH", "Al Shahaniya", StateKind.Municipality, null),
+        new("QA", "US", "Umm Salal", StateKind.Municipality, null),
+        new("QA", "WA", "Al Wakrah", StateKind.Municipality, null),
+        new("QA", "ZA", "Al Daayen", StateKind.Municipality, null),
+        new("KW", "AH", "Al Ahmadi", StateKind.Governorate, null),
+        new("KW", "FA", "Al Farwaniyah", StateKind.Governorate, null),
+        new("KW", "HA", "Hawalli", StateKind.Governorate, null),
+        new("KW", "JA", "Al Jahra", StateKind.Governorate, null),
+        new("KW", "KU", "Capital", StateKind.Governorate, null),
+        new("KW", "MU", "Mubarak Al-Kabeer", StateKind.Governorate, null),
+        new("BH", "13", "Capital", StateKind.Governorate, null),
+        new("BH", "14", "Southern", StateKind.Governorate, null),
+        new("BH", "15", "Muharraq", StateKind.Governorate, null),
+        new("BH", "17", "Northern", StateKind.Governorate, null),
+        new("OM", "BJ", "South Al Batinah", StateKind.Governorate, null),
+        new("OM", "BS", "North Al Batinah", StateKind.Governorate, null),
+        new("OM", "BU", "Al Buraimi", StateKind.Governorate, null),
+        new("OM", "DA", "Ad Dakhiliyah", StateKind.Governorate, null),
+        new("OM", "MA", "Muscat", StateKind.Governorate, null),
+        new("OM", "MU", "Musandam", StateKind.Governorate, null),
+        new("OM", "SJ", "South Ash Sharqiyah", StateKind.Governorate, null),
+        new("OM", "SS", "North Ash Sharqiyah", StateKind.Governorate, null),
+        new("OM", "WU", "Al Wusta", StateKind.Governorate, null),
+        new("OM", "ZA", "Ad Dhahirah", StateKind.Governorate, null),
+        new("OM", "ZU", "Dhofar", StateKind.Governorate, null),
+    ];
+
+    /// <summary>Appendix B alias map, generated 1:1. Normalised aliases are unique and never equal a state name or ISO code (drift test).</summary>
+    public static IReadOnlyList<AliasSeed> Aliases { get; } =
+    [
+        new("andaman and nicobar", "IN", "AN", false),
+        new("a&n islands", "IN", "AN", false),
+        new("andaman nicobar", "IN", "AN", false),
+        new("andaman", "IN", "AN", false),
+        new("andhra", "IN", "AP", false),
+        new("andhrapradesh", "IN", "AP", false),
+        new("andra pradesh", "IN", "AP", false),
+        new("arunachal", "IN", "AR", false),
+        new("behar", "IN", "BR", false),
+        new("ct", "IN", "CG", true),
+        new("chattisgarh", "IN", "CG", false),
+        new("chhatisgarh", "IN", "CG", false),
+        new("chattisgadh", "IN", "CG", false),
+        new("chandigarh ut", "IN", "CH", false),
+        new("dnhdd", "IN", "DH", true),
+        new("dnh", "IN", "DH", true),
+        new("dn", "IN", "DH", true),
+        new("dd", "IN", "DH", true),
+        new("dadra and nagar haveli", "IN", "DH", false),
+        new("daman and diu", "IN", "DH", false),
+        new("daman", "IN", "DH", false),
+        new("diu", "IN", "DH", false),
+        new("new delhi", "IN", "DL", false),
+        new("nct of delhi", "IN", "DL", false),
+        new("nct delhi", "IN", "DL", false),
+        new("national capital territory of delhi", "IN", "DL", false),
+        new("gujrat", "IN", "GJ", false),
+        new("himachal", "IN", "HP", false),
+        new("hariyana", "IN", "HR", false),
+        new("jharkand", "IN", "JH", false),
+        new("j&k", "IN", "JK", false),
+        new("jammu kashmir", "IN", "JK", false),
+        new("jammu", "IN", "JK", false),
+        new("kashmir", "IN", "JK", false),
+        new("karnatak", "IN", "KA", false),
+        new("keralam", "IN", "KL", false),
+        new("ladak", "IN", "LA", false),
+        new("leh", "IN", "LA", false),
+        new("leh ladakh", "IN", "LA", false),
+        new("lakshdweep", "IN", "LD", false),
+        new("maharastra", "IN", "MH", false),
+        new("orissa", "IN", "OD", false),
+        new("odissa", "IN", "OD", false),
+        new("panjab", "IN", "PB", false),
+        new("pondicherry", "IN", "PY", false),
+        new("pondichery", "IN", "PY", false),
+        new("puduchery", "IN", "PY", false),
+        new("pondy", "IN", "PY", false),
+        new("rajastan", "IN", "RJ", false),
+        new("tamilnadu", "IN", "TN", false),
+        new("tg", "IN", "TS", true),
+        new("telengana", "IN", "TS", false),
+        new("uttaranchal", "IN", "UK", false),
+        new("uttranchal", "IN", "UK", false),
+        new("uttrakhand", "IN", "UK", false),
+        new("uttarkhand", "IN", "UK", false),
+        new("bengal", "IN", "WB", false),
+        new("paschim banga", "IN", "WB", false),
+        new("abu zaby", "AE", "AZ", false),
+        new("abu zabi", "AE", "AZ", false),
+        new("abudhabi", "AE", "AZ", false),
+        new("auh", "AE", "AZ", false),
+        new("al ain", "AE", "AZ", false),
+        new("dubayy", "AE", "DU", false),
+        new("dxb", "AE", "DU", false),
+        new("ash shariqah", "AE", "SH", false),
+        new("al sharjah", "AE", "SH", false),
+        new("shj", "AE", "SH", false),
+        new("umm al qaywayn", "AE", "UQ", false),
+        new("umm al qaiwain", "AE", "UQ", false),
+        new("uaq", "AE", "UQ", false),
+        new("ra's al khaymah", "AE", "RK", false),
+        new("ras al khaima", "AE", "RK", false),
+        new("rak", "AE", "RK", false),
+        new("al fujayrah", "AE", "FU", false),
+        new("al fujairah", "AE", "FU", false),
+        new("fujeirah", "AE", "FU", false),
+        new("ar riyad", "SA", "01", false),
+        new("al riyadh", "SA", "01", false),
+        new("mecca", "SA", "02", false),
+        new("mekkah", "SA", "02", false),
+        new("makkah al mukarramah", "SA", "02", false),
+        new("jeddah", "SA", "02", false),
+        new("jiddah", "SA", "02", false),
+        new("medina", "SA", "03", false),
+        new("madina", "SA", "03", false),
+        new("al madinah", "SA", "03", false),
+        new("al madinah al munawwarah", "SA", "03", false),
+        new("eastern region", "SA", "04", false),
+        new("dammam", "SA", "04", false),
+        new("khobar", "SA", "04", false),
+        new("qassim", "SA", "05", false),
+        new("al qasim", "SA", "05", false),
+        new("hayil", "SA", "06", false),
+        new("northern border", "SA", "08", false),
+        new("al hudud ash shamaliyah", "SA", "08", false),
+        new("jizan", "SA", "09", false),
+        new("gizan", "SA", "09", false),
+        new("nejran", "SA", "10", false),
+        new("al baha", "SA", "11", false),
+        new("baha", "SA", "11", false),
+        new("al jouf", "SA", "12", false),
+        new("jouf", "SA", "12", false),
+        new("aseer", "SA", "14", false),
+        new("abha", "SA", "14", false),
+        new("ad dawhah", "QA", "DA", false),
+        new("al doha", "QA", "DA", false),
+        new("al khor", "QA", "KH", false),
+        new("al khawr", "QA", "KH", false),
+        new("al khawr wa adh dhakhirah", "QA", "KH", false),
+        new("ash shamal", "QA", "MS", false),
+        new("shamal", "QA", "MS", false),
+        new("madinat ash shamal", "QA", "MS", false),
+        new("ar rayyan", "QA", "RA", false),
+        new("rayyan", "QA", "RA", false),
+        new("ash shihaniyah", "QA", "SH", false),
+        new("al sheehaniya", "QA", "SH", false),
+        new("shahaniya", "QA", "SH", false),
+        new("umm slal", "QA", "US", false),
+        new("al wakra", "QA", "WA", false),
+        new("wakrah", "QA", "WA", false),
+        new("wakra", "QA", "WA", false),
+        new("az zaayin", "QA", "ZA", false),
+        new("daayen", "QA", "ZA", false),
+        new("kuwait city", "KW", "KU", false),
+        new("hawally", "KW", "HA", false),
+        new("farwaniya", "KW", "FA", false),
+        new("al farwaniya", "KW", "FA", false),
+        new("ahmadi", "KW", "AH", false),
+        new("jahra", "KW", "JA", false),
+        new("mubarak al kabir", "KW", "MU", false),
+        new("manama", "BH", "13", false),
+        new("al janubiyah", "BH", "14", false),
+        new("southern governorate", "BH", "14", false),
+        new("al muharraq", "BH", "15", false),
+        new("ash shamaliyah", "BH", "17", false),
+        new("al shamaliyah", "BH", "17", false),
+        new("northern governorate", "BH", "17", false),
+        new("masqat", "OM", "MA", false),
+        new("zufar", "OM", "ZU", false),
+        new("salalah", "OM", "ZU", false),
+        new("al buraymi", "OM", "BU", false),
+        new("buraimi", "OM", "BU", false),
+        new("al dakhiliyah", "OM", "DA", false),
+        new("dakhiliya", "OM", "DA", false),
+        new("dakhiliyah", "OM", "DA", false),
+        new("shamal al batinah", "OM", "BS", false),
+        new("al batinah north", "OM", "BS", false),
+        new("batinah north", "OM", "BS", false),
+        new("janub al batinah", "OM", "BJ", false),
+        new("al batinah south", "OM", "BJ", false),
+        new("batinah south", "OM", "BJ", false),
+        new("shamal ash sharqiyah", "OM", "SS", false),
+        new("ash sharqiyah north", "OM", "SS", false),
+        new("janub ash sharqiyah", "OM", "SJ", false),
+        new("ash sharqiyah south", "OM", "SJ", false),
+        new("wusta", "OM", "WU", false),
+        new("az zahirah", "OM", "ZA", false),
+        new("al dhahirah", "OM", "ZA", false),
+        new("dhahira", "OM", "ZA", false),
+        new("dhahirah", "OM", "ZA", false),
+    ];
+}

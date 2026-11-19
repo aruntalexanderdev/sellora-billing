@@ -28,4 +28,8 @@ public class Branch : ICompanyOwned
     public Guid? CreatedByUserId { get; set; }
     public DateTimeOffset? UpdatedAt { get; set; }
     public Guid? UpdatedByUserId { get; set; }
+
+    /// <summary>Optional country (BR8). StateId, when set, must belong to it (composite FK).</summary>
+    public Guid? CountryId { get; set; }
+    public Guid? StateId { get; set; }
 }

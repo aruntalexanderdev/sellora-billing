@@ -26,4 +26,8 @@ public class BusinessSettings : ICompanyOwned
 
     public Guid BaseCurrencyId { get; set; }
     public Currency BaseCurrency { get; set; } = null!;
+
+    /// <summary>Optional country (BR8). StateId, when set, must belong to it (composite FK).</summary>
+    public Guid? CountryId { get; set; }
+    public Guid? StateId { get; set; }
 }
