@@ -26,7 +26,8 @@
 --   1. The database must be opted in ONCE by its owner (production never is); the same switch as dev-reset-transactions.sql:
 --        ALTER DATABASE <db> SET sellora.allow_dev_reset = 'on';      (takes effect for new connections)
 --   2. -v confirm=<database name> must name the database you are connected to.
---   3. Nothing is changed without -v apply=1: the default run is a read-only PREVIEW (row counts only, no locks on the tables).
+--   3. Nothing is changed without -v apply=1: the default run is a read-only PREVIEW (row counts only; it takes shared read locks,
+--      which block nothing the API does).
 -- Usage:
 --   psql "$PGCONN" -v ON_ERROR_STOP=1 -v confirm=<db> -f scripts/sql/dev-reset-fresh-setup.sql                                (preview)
 --   psql "$PGCONN" -v ON_ERROR_STOP=1 -v confirm=<db> -v apply=1 -f scripts/sql/dev-reset-fresh-setup.sql                     (reset)
@@ -40,6 +41,10 @@
 -- After the reset: with Database:ApplyMigrationsOnStartup=true (local development) the next API start runs DbSeeder, which puts its
 -- demo masters back into the default company (9 units, 9 products, categories, suppliers, customers, expense categories). Start the
 -- API with Database__ApplyMigrationsOnStartup=false to keep the database empty.
+
+-- Stop at the first error even when the caller forgot -v ON_ERROR_STOP=1 (a failed reset must never go on to print "done").
+\set ON_ERROR_STOP on
+
 \if :{?confirm}
 \else
   \echo 'usage: psql -v ON_ERROR_STOP=1 -v confirm=<database-name> [-v keep=customers,suppliers,categories,expense_categories,accounts] [-v apply=1] -f scripts/sql/dev-reset-fresh-setup.sql'
@@ -74,6 +79,9 @@ FROM (SELECT array_remove(string_to_array(replace(lower(:'keep'), ' ', ''), ',')
 \endif
 
 BEGIN;
+
+-- Do not hang behind a busy database: give up (no change) when a table lock is not granted in time. Covers the row counts too.
+SET LOCAL lock_timeout = '15s';
 
 -- The reset list. keep_token: the keep=<...> value that leaves the table alone. via: truncate = emptied; delete = see note.
 CREATE TEMP TABLE reset_plan (name text PRIMARY KEY, area text NOT NULL, via text NOT NULL, note text NOT NULL) ON COMMIT DROP;
@@ -160,9 +168,6 @@ FROM reset_plan p ORDER BY p.area, p.name;
 EXECUTE reset_report;
 
 \if :apply
-  -- Do not hang behind a busy API: give up (no change) when the table locks are not granted in time.
-  SET LOCAL lock_timeout = '15s';
-
   -- Who the re-created "Main Cash" belongs to: the creator of the company's oldest account, else its earliest active member.
   CREATE TEMP TABLE reset_main_cash ON COMMIT DROP AS
   SELECT c."Id" AS company_id,
