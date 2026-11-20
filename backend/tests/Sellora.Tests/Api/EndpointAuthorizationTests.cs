@@ -448,10 +448,12 @@ public class EndpointAuthorizationTests
         Assert.Equal(
             [
                 "GET PlatformCompaniesController.Currencies", "GET PlatformCompaniesController.List",
+                "GET PlatformDataResetController.Preview", "GET PlatformDataResetController.Status", // platform data reset (Platform:DataResetEnabled)
                 "GET PlatformDbReleasesController.Overview", "GET PlatformDbReleasesController.Run", "GET PlatformDbReleasesController.Script", // db-release-automation step 3
                 "GET PlatformGeographyController.Countries", "GET PlatformGeographyController.CountryLookup", "GET PlatformGeographyController.StateLookup", "GET PlatformGeographyController.States", // country-state-masters D8/D10
                 "GET PlatformReferenceDataController.Currencies", "GET PlatformReferenceDataController.Units",
                 "POST PlatformCompaniesController.Create", "POST PlatformCompaniesController.SetStatus",
+                "POST PlatformDataResetController.Reset", // platform data reset
                 "POST PlatformDbReleasesController.Retry", // db-release-automation step 4
                 "POST PlatformGeographyController.CreateCountry", "POST PlatformGeographyController.CreateState",
                 "POST PlatformGeographyController.SetCountryActive", "POST PlatformGeographyController.SetStateActive",

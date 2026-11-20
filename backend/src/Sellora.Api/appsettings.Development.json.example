@@ -16,6 +16,10 @@
     "RefreshTokenDays": 14
   },
   "Database": {
-    "ApplyMigrationsOnStartup": true
+    "ApplyMigrationsOnStartup": true,
+    "SeedDemoData": true
+  },
+  "Platform": {
+    "DataResetEnabled": true
   }
 }

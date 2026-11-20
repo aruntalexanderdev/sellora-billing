@@ -13,13 +13,19 @@ namespace Sellora.Infrastructure.Data;
 /// other user exists. Seeding always runs with the company context set to <see cref="DefaultTenant.CompanyId"/>: demo data
 /// never lands in another tenant. Everything else
 /// (additional roles, users, business data) is created live through the app per the docx §13 demo scenario.
+/// <para>
+/// The demo masters (units, taxes, suppliers, product categories, products, named customers, expense categories) are only seeded
+/// while <c>seedDemoData</c> is true (configuration <c>Database:SeedDemoData</c>, default true). With false the seeder leaves a
+/// database that was emptied on purpose (scripts/sql/dev-reset-fresh-setup.sql) empty; system data, the walk-in customer and the
+/// Main Cash account are always seeded.
+/// </para>
 /// </summary>
 public static class DbSeeder
 {
     public const string SeedAdminEmail = "admin@selloramart.in";
     public const string SeedAdminPassword = "Passw0rd!23";
 
-    public static async Task SeedAsync(SelloraDbContext db, IPasswordHasher passwordHasher, CancellationToken ct = default)
+    public static async Task SeedAsync(SelloraDbContext db, IPasswordHasher passwordHasher, bool seedDemoData = true, CancellationToken ct = default)
     {
         if (db.CompanyContext.CompanyId != DefaultTenant.CompanyId)
         {
@@ -44,13 +50,17 @@ public static class DbSeeder
             company.Name = settings.BusinessName;
             await db.SaveChangesAsync(ct);
         }
-        var units = await SeedUnitsAsync(db, ct);
-        var taxes = await SeedTaxesAsync(db, ct);
-        await SeedSuppliersAsync(db, currencies, geo, ct);
-        var categories = await SeedProductCategoriesAsync(db, ct);
-        await SeedProductsAsync(db, units, taxes, categories, ct);
-        await SeedCustomersAsync(db, geo, ct);
-        await SeedExpenseCategoriesAsync(db, ct);
+        if (seedDemoData)
+        {
+            var units = await SeedUnitsAsync(db, ct);
+            var taxes = await SeedTaxesAsync(db, ct);
+            await SeedSuppliersAsync(db, currencies, geo, ct);
+            var categories = await SeedProductCategoriesAsync(db, ct);
+            await SeedProductsAsync(db, units, taxes, categories, ct);
+        }
+        // The walk-in customer is system data (POS defaults to it); the named demo customers follow the switch.
+        await SeedCustomersAsync(db, geo, seedDemoData, ct);
+        if (seedDemoData) await SeedExpenseCategoriesAsync(db, ct);
         await SeedMainCashAccountAsync(db, ct);
     }
 
@@ -598,21 +608,24 @@ public static class DbSeeder
         ("Suresh Enterprises", "+91 98407 11223", "45 Anna Nagar, Chennai"),
     ];
 
-    private static async Task SeedCustomersAsync(SelloraDbContext db, GeoLookup geo, CancellationToken ct)
+    private static async Task SeedCustomersAsync(SelloraDbContext db, GeoLookup geo, bool seedDemoData, CancellationToken ct)
     {
         if (!await db.Customers.AnyAsync(c => c.IsWalkIn, ct))
         {
             db.Customers.Add(new Customer { Id = Guid.NewGuid(), Name = "Walk-in Customer", IsWalkIn = true });
         }
 
-        var existingNames = await db.Customers.Select(c => c.Name).ToListAsync(ct);
-        foreach (var (name, phone, address) in CustomerSeed)
+        if (seedDemoData)
         {
-            if (existingNames.Contains(name)) continue;
-            // Demo customers all have Chennai addresses; the walk-in customer stays unlinked.
-            var customer = new Customer { Id = Guid.NewGuid(), Name = name, Phone = phone, Address = address };
-            (customer.CountryId, customer.StateId) = geo.Link("IN", "TN");
-            db.Customers.Add(customer);
+            var existingNames = await db.Customers.Select(c => c.Name).ToListAsync(ct);
+            foreach (var (name, phone, address) in CustomerSeed)
+            {
+                if (existingNames.Contains(name)) continue;
+                // Demo customers all have Chennai addresses; the walk-in customer stays unlinked.
+                var customer = new Customer { Id = Guid.NewGuid(), Name = name, Phone = phone, Address = address };
+                (customer.CountryId, customer.StateId) = geo.Link("IN", "TN");
+                db.Customers.Add(customer);
+            }
         }
         await db.SaveChangesAsync(ct);
     }

@@ -53,3 +53,34 @@ public record SetPlatformCompanyStatusRequest(
     bool IsActive,
     [Required, MaxLength(500)] string Reason
 );
+
+// ---- Data reset (Platform:DataResetEnabled) ----
+
+public record DataResetStatusDto(bool Enabled);
+
+/// <summary>What a reset leaves alone. Customers and suppliers are kept unless wiped; taxes, categories, expense categories and
+/// accounts are removed unless kept.</summary>
+public record DataResetOptionsRequest(
+    bool WipeCustomers = false,
+    bool WipeSuppliers = false,
+    bool KeepTaxes = false,
+    bool KeepCategories = false,
+    bool KeepExpenseCategories = false,
+    bool KeepAccounts = false
+);
+
+/// <summary><see cref="ConfirmDatabase"/> is the name of the connected database, typed by the operator.</summary>
+public record DataResetRequest(
+    [Required, MaxLength(128)] string ConfirmDatabase,
+    bool WipeCustomers = false,
+    bool WipeSuppliers = false,
+    bool KeepTaxes = false,
+    bool KeepCategories = false,
+    bool KeepExpenseCategories = false,
+    bool KeepAccounts = false
+);
+
+public record DataResetTableDto(string Area, string Table, long? RowsBefore, long? RowsAfter, string Action);
+
+/// <summary>A preview (<see cref="Applied"/> false: nothing changed) or the outcome of a reset.</summary>
+public record DataResetReportDto(string Database, bool Applied, string Message, IReadOnlyList<string> KeptMasters, IReadOnlyList<DataResetTableDto> Tables);

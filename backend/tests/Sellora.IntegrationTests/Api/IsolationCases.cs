@@ -258,6 +258,9 @@ public static class IsolationCases
         // Phase 7: units and currencies stay platform rows; their company writes are refused (403 reference_data_platform_managed) and the platform surface manages them.
         "PlatformReferenceDataController.Units", "PlatformReferenceDataController.CreateUnit", "PlatformReferenceDataController.UpdateUnit", "PlatformReferenceDataController.SetUnitActive",
         "PlatformReferenceDataController.Currencies", "PlatformReferenceDataController.CreateCurrency", "PlatformReferenceDataController.UpdateCurrency", "PlatformReferenceDataController.SetCurrencyActive",
+        // Platform data reset (Platform:DataResetEnabled, off by default): platform admin only; a whole-database development reset with no
+        // company scope by design (it empties every company, and returns table names and row counts only). Covered by PlatformDataResetApiTests.
+        "PlatformDataResetController.Status", "PlatformDataResetController.Preview", "PlatformDataResetController.Reset",
         // country-state-masters (D1, D8): Countries/States are global platform rows like units and currencies (no CompanyId); company writes
         // follow the same reference-data guard and the platform console manages them.
         "CountriesController.List", "CountriesController.Get", "CountriesController.Lookup", "CountriesController.Create", "CountriesController.Update", "CountriesController.SetActive",

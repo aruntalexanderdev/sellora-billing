@@ -164,3 +164,34 @@ export interface DbScriptDetailDto {
   sql?: string | null;
   attempts: DbScriptAttemptDto[];
 }
+
+// ---- Data reset (mirrors the backend DTO records) ----
+
+export interface DataResetStatus {
+  enabled: boolean;
+}
+
+export interface DataResetOptions {
+  wipeCustomers: boolean;
+  wipeSuppliers: boolean;
+  keepTaxes: boolean;
+  keepCategories: boolean;
+  keepExpenseCategories: boolean;
+  keepAccounts: boolean;
+}
+
+export interface DataResetTable {
+  area: string;
+  table: string;
+  rowsBefore: number;
+  rowsAfter?: number | null;
+  action: string;
+}
+
+export interface DataResetReport {
+  database: string;
+  applied: boolean;
+  message: string;
+  keptMasters: string[];
+  tables: DataResetTable[];
+}

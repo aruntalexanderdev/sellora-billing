@@ -22,7 +22,9 @@ D2 Platform session (separation, ADR-10): `POST auth/platform/login` (new Platfo
    still gets 403 no_company_access (AuthService.cs:30-34); a platform admin who is also a member gets an ordinary company session with no
    platform rights. Platform tokens on company endpoints already fail (no company_id -> 401 company_context_invalid, middleware :49-68).
 D3 Middleware (CompanyContextMiddleware.cs:38-43): endpoints carrying new `[PlatformEndpoint]` metadata skip company/branch resolution entirely
-   (no company context -> Company filter fails closed, CompanyContext.cs:15-30: no business row reachable even by a coding mistake) and require
+   (no company context -> Company filter fails closed, CompanyContext.cs:15-30: no business row reachable even by a coding mistake; later, deliberate exception: PlatformDataResetController runs the fresh-setup reset script
+   as raw SQL over every company's business tables, only while Platform:DataResetEnabled is true (default false), for Platform.Admin, with one
+   audit row naming the actor; it returns table names and row counts, never business rows) and require
    the platform session claim, else 401 `platform_session_required`. Policy `Platform.Admin` (PlatformAdminRequirement, scoped handler) re-reads
    DB per request: user not Disabled + Active PlatformAdministrators row (revocation immediate), else 403 `platform_admin_required`.
 D4 Company provisioning `POST platform/companies` (CompanyProvisioningService), one tx under the `sellora:access-management` advisory lock

@@ -78,6 +78,8 @@ builder.Services.Configure<PlatformOptions>(builder.Configuration.GetSection(Pla
 builder.Services.AddHttpClient<Sellora.Domain.Releases.IGitHubActionsClient, Sellora.Infrastructure.GitHub.GitHubActionsClient>(
     client => client.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddScoped<IPlatformService, PlatformService>();
+// Platform Console data reset: inert unless Platform:DataResetEnabled is true (development and delivery checks only).
+builder.Services.AddScoped<IDataResetService, DataResetService>();
 
 // CORS (Phase 2 D10): origins come from configuration (Cors:AllowedOrigins; environments override with
 // Cors__AllowedOrigins__0..n). Fail closed: an empty list allows no cross-origin access. Bearer tokens travel in headers
@@ -119,6 +121,13 @@ if (corsOrigins.Length == 0)
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
 
+if (app.Configuration.GetValue($"{PlatformOptions.SectionName}:{nameof(PlatformOptions.DataResetEnabled)}", false))
+{
+    // Loud on purpose: with this switch a platform administrator can erase the business data of every company of this database.
+    app.Logger.LogWarning(
+        "Platform:DataResetEnabled is true: the Platform Console data reset is available. Keep it off in client environments.");
+}
+
 // Startup migrations + idempotent seed data are gated by Database:ApplyMigrationsOnStartup (decision D10).
 // Both the code default and the base appsettings.json are false. Local development opts in through
 // appsettings.Development.json (copy of appsettings.Development.json.example sets true); a dev Azure App Service
@@ -144,7 +153,15 @@ if (applyMigrationsOnStartup)
     // Seeding must see every branch's documents (the "Branch" filter would otherwise make it blind): unrestricted scope.
     scope.ServiceProvider.GetRequiredService<BranchContext>().Set(null, null);
     await db.Database.MigrateAsync();
-    await DbSeeder.SeedAsync(db, hasher);
+    // Database:SeedDemoData=false keeps a database that was emptied on purpose (scripts/sql/dev-reset-fresh-setup.sql) empty: the
+    // demo masters (units, taxes, products, categories, suppliers, customers, expense categories) are not seeded again. System data,
+    // the walk-in customer and the Main Cash account are always seeded.
+    var seedDemoData = app.Configuration.GetValue("Database:SeedDemoData", true);
+    if (!seedDemoData)
+    {
+        app.Logger.LogInformation("Database:SeedDemoData is false; demo masters are not seeded.");
+    }
+    await DbSeeder.SeedAsync(db, hasher, seedDemoData);
 }
 else
 {
