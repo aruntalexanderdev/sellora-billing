@@ -7,6 +7,7 @@ multi-currency accounts, expenses, reports. Modular monolith — do not introduc
 - Backend: .NET 10, ASP.NET Core Web API, EF Core 10 + Npgsql, PostgreSQL, JWT + permission-based RBAC, xUnit.
 - Frontend: Angular 22 (standalone components, signals, reactive forms), TypeScript, RxJS, Vitest.
 - CI: push to `dev` → builds and deploys the API to Azure App Service (`.github/workflows/dev_sellora-billing-dev-api.yml`).
+- Branch flow: work branch (from `analyse_copy`) → PR to `analyse_copy` → PR `analyse_copy` → `claude_dev`, whose merge deploys claude-dev. No direct pushes to `analyse_copy` or `claude_dev`; merge commits only. Details in `CLAUDE.md`, Git.
 
 ## Layout
 - `backend/src/Sellora.Domain` — entities (`Entities/`), module models and `I*Service` interfaces (`Abstractions/`, `Sales/`, ...), `Permissions/PermissionCatalog.cs`.
