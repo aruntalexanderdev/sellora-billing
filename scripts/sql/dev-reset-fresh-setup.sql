@@ -1,26 +1,29 @@
--- DEV/TEST ONLY: returns the business data of a database to a "fresh setup" state: no units, no products, no stock, no purchases,
--- no sales, no accounts movements. It goes further than dev-reset-transactions.sql (transactions only): the masters of the Inventory,
--- Purchases, Sales and Accounts modules and the Unit master are removed too. Operator runbook, run by hand with psql whenever needed;
--- it is NOT a migration and must never be placed in backend/db (the deploy pipeline would run it).
+-- DEV/TEST ONLY: returns the business data of a database to a "fresh setup" state: no units, no taxes, no products, no stock, no
+-- purchases, no sales, no accounts movements. It goes further than dev-reset-transactions.sql (transactions only): the Unit and Tax
+-- masters and the masters of the Inventory and Accounts modules are removed too. Operator runbook, run by hand with psql whenever
+-- needed; it is NOT a migration and must never be placed in backend/db (the deploy pipeline would run it).
 --
 -- Removed (ALL companies; Units are global, so this cannot be limited to one company):
---   Units        Units
+--   Masters      Units, Taxes
 --   Inventory    Products, ProductUnits, SellingPrices, ProductCategories, ProductSubcategories, StockItems, PurchaseBatches,
 --                BatchLocationBalances, StockMovements, StockAdjustments (incl. opening stock), StockReservations, StockTransfers (+ lines,
 --                batches, receipts), Shipments (+ vehicles), Consignments (+ lines, receipts, dispositions)
---   Purchases    PurchaseOrders (+ lines), PurchaseReturns (+ lines), PurchasePayments, Suppliers
---   Sales        SalesInvoices (+ lines, batch consumptions), SalesReturns (+ lines), SalesPayments, Customers
+--   Purchases    PurchaseOrders (+ lines), PurchaseReturns (+ lines), PurchasePayments
+--   Sales        SalesInvoices (+ lines, batch consumptions), SalesReturns (+ lines), SalesPayments
 --   Accounts     FinancialTransactions, Expenses, ExpenseCategories, FinancialAccounts
 --   System       IdempotencyKeys (request replay cache: its stored responses point at removed documents)
+-- Kept by default, removed only on request (wipe=): Customers, Suppliers. Their outstanding amounts are computed from the removed
+--   documents, so they read 0 afterwards.
 -- Put back, because a newly provisioned company has them:
---   * the walk-in customer is never removed (POS defaults to it and no API can create one);
+--   * the walk-in customer is never removed, not even with wipe=customers (POS defaults to it and no API can create one);
 --   * one empty "Main Cash" account per company (as PlatformService creates when a company is provisioned).
 -- Reset: every document number series (INV, PUR, ...) starts again at 1.
--- Kept: companies, branches, stock locations, warehouses, vehicles, users, roles, permissions, governance, business settings, taxes,
+-- Always kept: companies, branches, stock locations, warehouses, vehicles, users, roles, permissions, governance, business settings,
 --   currencies, exchange rates, countries, states, sessions (refresh tokens), audit history, migrations and the ops release journal.
 --
--- keep=<list> keeps some masters (comma separated, no spaces): customers, suppliers, categories (product categories and subcategories),
---   expense_categories, accounts (financial accounts; their balance is computed from transactions, so it reads 0 afterwards).
+-- wipe=<list> also removes masters that are kept by default (comma separated, no spaces): customers, suppliers.
+-- keep=<list> keeps masters that are removed by default: taxes, categories (product categories and subcategories), expense_categories,
+--   accounts (financial accounts; their balance is computed from transactions, so it reads 0 afterwards).
 --
 -- Guards, all required:
 --   1. The database must be opted in ONCE by its owner (production never is); the same switch as dev-reset-transactions.sql:
@@ -31,7 +34,8 @@
 -- Usage:
 --   psql "$PGCONN" -v ON_ERROR_STOP=1 -v confirm=<db> -f scripts/sql/dev-reset-fresh-setup.sql                                (preview)
 --   psql "$PGCONN" -v ON_ERROR_STOP=1 -v confirm=<db> -v apply=1 -f scripts/sql/dev-reset-fresh-setup.sql                     (reset)
---   psql "$PGCONN" -v ON_ERROR_STOP=1 -v confirm=<db> -v keep=customers,suppliers -v apply=1 -f scripts/sql/dev-reset-fresh-setup.sql
+--   psql "$PGCONN" -v ON_ERROR_STOP=1 -v confirm=<db> -v wipe=customers,suppliers -v apply=1 -f scripts/sql/dev-reset-fresh-setup.sql
+--   psql "$PGCONN" -v ON_ERROR_STOP=1 -v confirm=<db> -v keep=taxes,categories -v apply=1 -f scripts/sql/dev-reset-fresh-setup.sql
 --
 -- Single transaction: either everything is removed or nothing is. The tables are emptied with one TRUNCATE without CASCADE, after a
 -- check that no table outside the list references them: when a newer migration adds such a table the script stops (no change)
@@ -39,15 +43,15 @@
 -- them for more than 15 seconds the script fails with no change (stop the API and run it again).
 --
 -- After the reset: with Database:ApplyMigrationsOnStartup=true (local development) the next API start runs DbSeeder, which puts its
--- demo masters back into the default company (9 units, 9 products, categories, suppliers, customers, expense categories). Start the
--- API with Database__ApplyMigrationsOnStartup=false to keep the database empty.
+-- demo masters back into the default company (units, taxes, products, categories, suppliers, customers, expense categories). Start
+-- the API with Database__ApplyMigrationsOnStartup=false to keep the database empty.
 
 -- Stop at the first error even when the caller forgot -v ON_ERROR_STOP=1 (a failed reset must never go on to print "done").
 \set ON_ERROR_STOP on
 
 \if :{?confirm}
 \else
-  \echo 'usage: psql -v ON_ERROR_STOP=1 -v confirm=<database-name> [-v keep=customers,suppliers,categories,expense_categories,accounts] [-v apply=1] -f scripts/sql/dev-reset-fresh-setup.sql'
+  \echo 'usage: psql -v ON_ERROR_STOP=1 -v confirm=<database-name> [-v wipe=customers,suppliers] [-v keep=taxes,categories,expense_categories,accounts] [-v apply=1] -f scripts/sql/dev-reset-fresh-setup.sql'
   \quit
 \endif
 \if :{?apply}
@@ -57,6 +61,10 @@
 \if :{?keep}
 \else
   \set keep ''
+\endif
+\if :{?wipe}
+\else
+  \set wipe ''
 \endif
 
 SELECT current_database() <> :'confirm' AS wrong_db,
@@ -70,11 +78,26 @@ SELECT current_database() <> :'confirm' AS wrong_db,
   \quit
 \endif
 
-SELECT k::text AS keep_list, k @> '{customers}' AS keep_customers, k @> '{accounts}' AS keep_accounts,
-       NOT (k <@ '{customers,suppliers,categories,expense_categories,accounts}') AS bad_keep
-FROM (SELECT array_remove(string_to_array(replace(lower(:'keep'), ' ', ''), ','), '') AS k) parsed \gset
+-- Masters that stay: customers and suppliers unless wipe= names them, plus whatever keep= adds.
+SELECT NOT (k <@ '{customers,suppliers,taxes,categories,expense_categories,accounts}') AS bad_keep,
+       NOT (w <@ '{customers,suppliers}') AS bad_wipe,
+       k && w AS keep_wipe_conflict,
+       kept::text AS keep_list,
+       kept @> '{customers}' AS keep_customers,
+       kept @> '{accounts}' AS keep_accounts
+FROM (SELECT k, w, ARRAY(SELECT unnest('{customers,suppliers}'::text[] || k) EXCEPT SELECT unnest(w) ORDER BY 1) AS kept
+      FROM (SELECT array_remove(string_to_array(replace(lower(:'keep'), ' ', ''), ','), '') AS k,
+                   array_remove(string_to_array(replace(lower(:'wipe'), ' ', ''), ','), '') AS w) args) parsed \gset
 \if :bad_keep
-  \echo 'fresh-setup: unknown value in keep (allowed: customers, suppliers, categories, expense_categories, accounts); nothing changed.'
+  \echo 'fresh-setup: unknown value in keep (allowed: taxes, categories, expense_categories, accounts, customers, suppliers); nothing changed.'
+  \quit
+\endif
+\if :bad_wipe
+  \echo 'fresh-setup: unknown value in wipe (allowed: customers, suppliers); nothing changed.'
+  \quit
+\endif
+\if :keep_wipe_conflict
+  \echo 'fresh-setup: the same value is in keep and in wipe; nothing changed.'
   \quit
 \endif
 
@@ -83,12 +106,13 @@ BEGIN;
 -- Do not hang behind a busy database: give up (no change) when a table lock is not granted in time. Covers the row counts too.
 SET LOCAL lock_timeout = '15s';
 
--- The reset list. keep_token: the keep=<...> value that leaves the table alone. via: truncate = emptied; delete = see note.
+-- The reset list. keep_token: the master group that leaves the table alone when it is kept. via: truncate = emptied; delete = see note.
 CREATE TEMP TABLE reset_plan (name text PRIMARY KEY, area text NOT NULL, via text NOT NULL, note text NOT NULL) ON COMMIT DROP;
 INSERT INTO reset_plan (area, name, via, note)
 SELECT v.area, v.name, v.via, v.note
 FROM (VALUES
-    ('1 Units',     'Units',                             NULL::text,           'truncate', 'remove all'),
+    ('1 Masters',   'Units',                             NULL::text,           'truncate', 'remove all'),
+    ('1 Masters',   'Taxes',                             'taxes',              'truncate', 'remove all'),
     ('2 Inventory', 'Products',                          NULL,                 'truncate', 'remove all'),
     ('2 Inventory', 'ProductUnits',                      NULL,                 'truncate', 'remove all'),
     ('2 Inventory', 'SellingPrices',                     NULL,                 'truncate', 'remove all'),
@@ -164,6 +188,7 @@ SELECT p.area AS "Area", p.name AS "Table",
        p.note AS "Action"
 FROM reset_plan p ORDER BY p.area, p.name;
 
+\echo 'Masters kept (not in the list below):' :keep_list
 \echo 'Rows before reset:'
 EXECUTE reset_report;
 
@@ -198,14 +223,14 @@ EXECUTE reset_report;
 
   INSERT INTO "PlatformAuditEvents" ("Id", "OccurredAt", "ActorUserId", "Action", "TargetType", "TargetId", "CompanyId", "Reason", "Before", "After", "CorrelationId")
   VALUES (gen_random_uuid(), now(), NULL, 'ops.dev_reset_fresh_setup', 'Database', '00000000-0000-0000-0000-000000000000', NULL,
-          'Development reset: units, inventory, purchases, sales and accounts removed, document numbers reset', NULL,
+          'Development reset: units, taxes, inventory, purchases, sales and accounts removed, document numbers reset', NULL,
           jsonb_build_object('database', current_database(), 'via', 'scripts/sql/dev-reset-fresh-setup.sql', 'kept', :'keep_list'), 'ops-script');
 
   \echo 'Rows after reset:'
   EXECUTE reset_report;
 
   COMMIT;
-  \echo 'fresh-setup: done. Units, inventory, purchases, sales and accounts removed; document numbers reset; setup and users kept.'
+  \echo 'fresh-setup: done. Business data removed and document numbers reset; setup and users kept. Masters kept:' :keep_list
   \echo 'fresh-setup: restart the API. With Database:ApplyMigrationsOnStartup=true it seeds its demo masters into the default company again.'
 \else
   ROLLBACK;
