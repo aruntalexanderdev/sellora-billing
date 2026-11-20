@@ -5,12 +5,13 @@ import { AuthService } from '../../../../core/auth/auth.service';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { CurrenciesService } from '../../../administration/currencies/currencies.service';
 import type { BusinessSettings } from '../settings.models';
+import { GeoService } from '../../../../shared/geo/geo.service';
 import { SettingsService } from '../settings.service';
 import { SettingsPage } from './settings-page';
 
 const settings = (over: Partial<BusinessSettings> = {}): BusinessSettings => ({
   id: 's', businessName: 'Acme', addressLine: null, city: null, state: null, gstin: null, phone: null, email: null, invoicePrefix: 'INV',
-  baseCurrencyId: 'cur', baseCurrencyCode: 'INR', baseCurrencySymbol: '₹', companyId: 'co', receiptPostingMode: 'Direct', receiptSeparationOfDuties: false, ...over,
+  baseCurrencyId: 'cur', baseCurrencyCode: 'INR', baseCurrencySymbol: '₹', companyId: 'co', receiptPostingMode: 'Direct', receiptSeparationOfDuties: false, countryId: null, countryName: null, stateId: null, stateName: null, ...over,
 });
 
 function render(s: BusinessSettings, update = vi.fn(() => of(s)), canEdit = true) {
@@ -21,6 +22,7 @@ function render(s: BusinessSettings, update = vi.fn(() => of(s)), canEdit = true
       { provide: CurrenciesService, useValue: { list: () => of([{ id: 'cur', code: 'INR', name: 'Rupee', isActive: true }]) } },
       { provide: AuthService, useValue: { hasPermission: () => canEdit } },
       { provide: ToastService, useValue: { show: vi.fn() } },
+      { provide: GeoService, useValue: { lookupCountries: () => of([{ id: 'in', code: 'IN', name: 'India' }]), lookupStates: () => of([{ id: 'kl', countryId: 'in', code: 'KL', name: 'Kerala', gstStateCode: '32' }]) } },
     ],
   });
   const fixture = TestBed.createComponent(SettingsPage);
@@ -60,5 +62,26 @@ describe('SettingsPage receipt approval (FI-D39)', () => {
   it('is read-only without Masters.Edit', () => {
     const { fixture } = render(settings(), undefined, false);
     expect(fixture.componentInstance.form.disabled).toBe(true);
+  });
+
+  it('PUT posts countryId/stateId and no legacy state (D6, D22)', () => {
+    const { fixture, update } = render(settings({ countryId: 'in', countryName: 'India', stateId: 'kl', stateName: 'Kerala' }));
+    fixture.componentInstance.submit();
+    const body = (update.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(body).toMatchObject({ countryId: 'in', stateId: 'kl' });
+    expect('state' in body).toBe(false);
+  });
+
+  it('clearing the country posts null links', () => {
+    const { fixture, update } = render(settings({ countryId: 'in', countryName: 'India', stateId: 'kl', stateName: 'Kerala' }));
+    fixture.componentInstance.form.patchValue({ countryId: '', stateId: 'kl' });
+    fixture.componentInstance.submit();
+    expect((update.mock.calls[0] as unknown[])[0]).toMatchObject({ countryId: null, stateId: null });
+  });
+
+  it('shows the legacy state text as a read-only hint while no state is linked', () => {
+    const { el } = render(settings({ state: 'Kerla' }));
+    expect(el.querySelector('[data-testid="geo-legacy"]')?.textContent).toContain('Kerla');
+    expect(el.querySelector('input[formControlName="state"]')).toBeNull();
   });
 });

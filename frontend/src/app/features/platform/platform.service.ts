@@ -1,7 +1,11 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import type {
+  CountryDto, CountryListDto, CountryLookupDto, CreateCountryRequest, CreateStateRequest, GeoLookup, GeographyApi, StateDto, StateListDto, StateLookupDto,
+  UpdateCountryRequest, UpdateStateRequest,
+} from '../../shared/geo/geo.models';
 import type {
   CreatePlatformCompanyRequest, CreatedPlatformCompany, CurrencyItem, DbReleaseRetryResponse, DbReleaseRunDetailDto, DbReleasesOverviewDto, DbScriptDetailDto, PlatformCompany, PlatformCurrencyOption,
   RetryDbReleaseRequest, SetPlatformCompanyStatusRequest, UnitItem, UpsertCurrencyRequest, UpsertUnitRequest,
@@ -11,7 +15,7 @@ const BASE_URL = `${environment.apiBaseUrl}/platform`;
 
 /** Platform console API. The platform token is attached by core/platform/platform.interceptor.ts (these are /platform/* paths). */
 @Injectable({ providedIn: 'root' })
-export class PlatformService {
+export class PlatformService implements GeographyApi, GeoLookup {
   private readonly http = inject(HttpClient);
 
   companies(): Observable<PlatformCompany[]> {
@@ -60,6 +64,49 @@ export class PlatformService {
 
   setCurrencyActive(id: string, isActive: boolean): Observable<void> {
     return this.http.post<void>(`${BASE_URL}/currencies/${id}/status`, { isActive });
+  }
+
+  // ---- Countries / states (country-state-masters; platform callers are always writable, no canEdit wrapper) ----
+
+  lookupCountries(): Observable<CountryLookupDto[]> {
+    return this.http.get<CountryLookupDto[]>(`${BASE_URL}/countries`);
+  }
+
+  lookupStates(countryId: string): Observable<StateLookupDto[]> {
+    return this.http.get<StateLookupDto[]>(`${BASE_URL}/states`, { params: new HttpParams().set('countryId', countryId) });
+  }
+
+  listCountries(includeInactive: boolean): Observable<CountryListDto> {
+    return this.http.get<CountryDto[]>(`${BASE_URL}/countries/all`).pipe(map((items) => ({ canEdit: true, items: includeInactive ? items : items.filter((c) => c.isActive) })));
+  }
+
+  createCountry(r: CreateCountryRequest): Observable<CountryDto> {
+    return this.http.post<CountryDto>(`${BASE_URL}/countries`, r);
+  }
+
+  updateCountry(id: string, r: UpdateCountryRequest): Observable<CountryDto> {
+    return this.http.put<CountryDto>(`${BASE_URL}/countries/${id}`, r);
+  }
+
+  setCountryActive(id: string, isActive: boolean): Observable<void> {
+    return this.http.post<void>(`${BASE_URL}/countries/${id}/status`, { isActive });
+  }
+
+  listStates(countryId: string | null, includeInactive: boolean): Observable<StateListDto> {
+    const params = countryId ? new HttpParams().set('countryId', countryId) : undefined;
+    return this.http.get<StateDto[]>(`${BASE_URL}/states/all`, { params }).pipe(map((items) => ({ canEdit: true, items: includeInactive ? items : items.filter((s) => s.isActive) })));
+  }
+
+  createState(r: CreateStateRequest): Observable<StateDto> {
+    return this.http.post<StateDto>(`${BASE_URL}/states`, r);
+  }
+
+  updateState(id: string, r: UpdateStateRequest): Observable<StateDto> {
+    return this.http.put<StateDto>(`${BASE_URL}/states/${id}`, r);
+  }
+
+  setStateActive(id: string, isActive: boolean): Observable<void> {
+    return this.http.post<void>(`${BASE_URL}/states/${id}/status`, { isActive });
   }
 
   dbReleases(runs?: number): Observable<DbReleasesOverviewDto> {

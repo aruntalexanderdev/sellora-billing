@@ -31,7 +31,7 @@ public class EndpointAuthorizationTests
     // a named permission. Adding to this list should be a deliberate decision.
     private static readonly HashSet<string> SignedInOnly =
     [
-        "BranchesController.Accessible", "CurrenciesController.List", "DashboardController.Get", "ExchangeRatesController.Resolve",
+        "BranchesController.Accessible", "CountriesController.Lookup", "StatesController.Lookup", "CurrenciesController.List", "DashboardController.Get", "ExchangeRatesController.Resolve",
         "FinancialAccountsController.Options",
         // Phase 08 (FI-D16, Q5): the category/subcategory read feeds pickers on product, stock and POS screens for any company member; writes need Inventory.Categories.
         "ProductCategoriesController.List",
@@ -256,6 +256,53 @@ public class EndpointAuthorizationTests
         Assert.Contains(policy, Policies(typeof(UnitsController), method));
     }
 
+    // country-state-masters D2/D8/D15: admin reads need Masters.View, writes Masters.Edit (plus the D8 guard in the service); lookups need a signed-in user only;
+    // the company controllers are not platform endpoints; the platform controller requires only PlatformPolicies.Admin.
+    [Theory]
+    [InlineData(typeof(CountriesController), "List", "Masters.View")]
+    [InlineData(typeof(CountriesController), "Get", "Masters.View")]
+    [InlineData(typeof(CountriesController), "Create", "Masters.Edit")]
+    [InlineData(typeof(CountriesController), "Update", "Masters.Edit")]
+    [InlineData(typeof(CountriesController), "SetActive", "Masters.Edit")]
+    [InlineData(typeof(StatesController), "List", "Masters.View")]
+    [InlineData(typeof(StatesController), "Get", "Masters.View")]
+    [InlineData(typeof(StatesController), "Create", "Masters.Edit")]
+    [InlineData(typeof(StatesController), "Update", "Masters.Edit")]
+    [InlineData(typeof(StatesController), "SetActive", "Masters.Edit")]
+    public void CountryAndStateEndpoints_RequireMastersPermission_AndAreNotPlatformEndpoints(Type controller, string action, string policy)
+    {
+        var method = controller.GetMethod(action)!;
+
+        Assert.Contains(policy, Policies(controller, method));
+        Assert.False(IsPlatformEndpoint(controller, method));
+    }
+
+    [Theory]
+    [InlineData(typeof(CountriesController), "Lookup")]
+    [InlineData(typeof(StatesController), "Lookup")]
+    public void CountryAndStateLookups_NeedOnlyASignedInUser(Type controller, string action)
+    {
+        var method = controller.GetMethod(action)!;
+
+        Assert.NotEmpty(controller.GetCustomAttributes<AuthorizeAttribute>(true).Concat(method.GetCustomAttributes<AuthorizeAttribute>(true)));
+        Assert.All(Policies(controller, method), p => Assert.Equal("", p));
+        Assert.Empty(method.GetCustomAttributes<AllowAnonymousAttribute>());
+    }
+
+    [Fact]
+    public void PlatformGeographyController_RequiresOnlyPlatformAdmin_OnEveryAction()
+    {
+        var actions = typeof(PlatformGeographyController).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(m => m.GetCustomAttributes<HttpMethodAttribute>().Any()).ToList();
+
+        Assert.Equal(10, actions.Count);
+        Assert.All(actions, m =>
+        {
+            Assert.Equal([Sellora.Api.Authorization.PlatformPolicies.Admin], Policies(typeof(PlatformGeographyController), m));
+            Assert.True(IsPlatformEndpoint(typeof(PlatformGeographyController), m));
+        });
+    }
+
     [Theory]
     [InlineData(typeof(ProductsController), "PreviewUnits", "Inventory.View", "POST", "unit-preview")]
     [InlineData(typeof(ProductsController), "Create", "Inventory.Create", "POST", null)]
@@ -394,7 +441,7 @@ public class EndpointAuthorizationTests
         || action.GetCustomAttributes<Sellora.Api.Authorization.PlatformEndpointAttribute>(true).Any();
 
     [Fact]
-    public void PlatformEndpoints_AreExactlyTheSixteenPlatformRoutes_EachRequiringOnlyPlatformAdmin()
+    public void PlatformEndpoints_AreExactlyTheTwentyEightPlatformRoutes_EachRequiringOnlyPlatformAdmin()
     {
         var platform = Actions().Where(x => IsPlatformEndpoint(x.Controller, x.Action)).ToList();
 
@@ -402,11 +449,15 @@ public class EndpointAuthorizationTests
             [
                 "GET PlatformCompaniesController.Currencies", "GET PlatformCompaniesController.List",
                 "GET PlatformDbReleasesController.Overview", "GET PlatformDbReleasesController.Run", "GET PlatformDbReleasesController.Script", // db-release-automation step 3
+                "GET PlatformGeographyController.Countries", "GET PlatformGeographyController.CountryLookup", "GET PlatformGeographyController.StateLookup", "GET PlatformGeographyController.States", // country-state-masters D8/D10
                 "GET PlatformReferenceDataController.Currencies", "GET PlatformReferenceDataController.Units",
                 "POST PlatformCompaniesController.Create", "POST PlatformCompaniesController.SetStatus",
                 "POST PlatformDbReleasesController.Retry", // db-release-automation step 4
+                "POST PlatformGeographyController.CreateCountry", "POST PlatformGeographyController.CreateState",
+                "POST PlatformGeographyController.SetCountryActive", "POST PlatformGeographyController.SetStateActive",
                 "POST PlatformReferenceDataController.CreateCurrency",
                 "POST PlatformReferenceDataController.CreateUnit", "POST PlatformReferenceDataController.SetCurrencyActive", "POST PlatformReferenceDataController.SetUnitActive",
+                "PUT PlatformGeographyController.UpdateCountry", "PUT PlatformGeographyController.UpdateState",
                 "PUT PlatformReferenceDataController.UpdateCurrency", "PUT PlatformReferenceDataController.UpdateUnit",
             ],
             platform.Select(x => $"{x.Verb} {x.Controller.Name}.{x.Action.Name}").Order().ToArray());

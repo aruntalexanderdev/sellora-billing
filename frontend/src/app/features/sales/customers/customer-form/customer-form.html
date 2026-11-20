@@ -31,6 +31,10 @@
       </div>
     </div>
 
+    <div class="grid-2">
+      <app-geo-select [countryControl]="form.controls.countryId" [stateControl]="form.controls.stateId" [storedCountry]="storedCountry()" [storedState]="storedState()" idPrefix="cus" />
+    </div>
+
     <div class="actions">
       <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save' }}</ui-button>
       <a routerLink="/sales/customers" class="cancel-link">Cancel</a>

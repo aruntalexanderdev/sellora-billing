@@ -52,7 +52,7 @@ public class PlatformCompaniesController(IPlatformService platform, SelloraDbCon
             request.Gstin, request.AddressLine, request.City, request.State, request.Phone, request.Email,
             new PlatformOwnerInput(request.Owner.UserId,
                 n is null ? null : new PlatformNewOwner(n.FirstName, n.LastName, n.Username, n.Email, n.PhoneNumber, n.Password)),
-            request.Reason);
+            request.Reason, request.CountryId, request.StateId);
 
         try
         {

@@ -11,7 +11,7 @@ import { BranchList } from './branch-list';
 
 const branch = (o: Partial<Branch> = {}): Branch => ({
   id: 'b1', code: 'NTH', name: 'North', addressLine: null, city: 'Pune', state: null, phone: null, email: null, gstin: null,
-  invoicePrefix: null, effectiveInvoicePrefix: 'INV-NTH', isDefault: false, isActive: true, ...o,
+  invoicePrefix: null, effectiveInvoicePrefix: 'INV-NTH', isDefault: false, isActive: true, countryId: null, countryName: null, stateId: null, stateName: null, ...o,
 });
 
 function setup(perms: string[], items: Branch[] = [branch()]) {

@@ -15,6 +15,8 @@ import { UiToastHost } from '../../shared/ui/toast/toast-host';
         <a routerLink="/platform/companies" routerLinkActive="on">Companies</a>
         <a routerLink="/platform/units" routerLinkActive="on">Units</a>
         <a routerLink="/platform/currencies" routerLinkActive="on">Currencies</a>
+        <a routerLink="/platform/countries" routerLinkActive="on">Countries</a>
+        <a routerLink="/platform/states" routerLinkActive="on">States</a>
         <a routerLink="/platform/db-releases" routerLinkActive="on">Database releases</a>
       </nav>
       <span class="spacer"></span>

@@ -2,6 +2,10 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { GeoSelect } from '../../../../shared/geo/geo-select';
+import type { GeoStoredLink } from '../../../../shared/geo/geo.models';
+import { AuthService } from '../../../../core/auth/auth.service';
+import { SettingsService } from '../../../masters/settings/settings.service';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { CustomersService } from '../customers.service';
@@ -11,7 +15,7 @@ import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 @Component({
   selector: 'app-customer-form',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton],
+  imports: [ReactiveFormsModule, RouterLink, UiButton, GeoSelect],
   templateUrl: './customer-form.html',
   styleUrl: '../../../administration/users/user-form/user-form.scss',
 })
@@ -19,6 +23,8 @@ export class CustomerForm implements OnInit, HasUnsavedChanges {
   private readonly fb = inject(FormBuilder);
   private readonly customersService = inject(CustomersService);
   private readonly toast = inject(ToastService);
+  private readonly auth = inject(AuthService);
+  private readonly settingsService = inject(SettingsService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -29,8 +35,12 @@ export class CustomerForm implements OnInit, HasUnsavedChanges {
     name: ['', Validators.required],
     phone: [''],
     address: [''],
+    countryId: [''],
+    stateId: [''],
   });
 
+  readonly storedCountry = signal<GeoStoredLink | null>(null);
+  readonly storedState = signal<GeoStoredLink | null>(null);
   readonly saving = signal(false);
   readonly serverError = signal<string | null>(null);
   private saved = false;
@@ -40,11 +50,37 @@ export class CustomerForm implements OnInit, HasUnsavedChanges {
   }
 
   ngOnInit(): void {
+    this.defaultCountry();
     if (this.isEdit()) {
       this.customersService.get(this.customerId!).subscribe({
-        next: (c) => this.form.patchValue({ name: c.name, phone: c.phone ?? '', address: c.address ?? '' }),
+        next: (c) => {
+          this.setStored(c);
+          this.form.patchValue({ name: c.name, phone: c.phone ?? '', address: c.address ?? '', countryId: c.countryId ?? '', stateId: c.stateId ?? '' });
+        },
       });
     }
+  }
+
+  private setStored(x: { countryId: string | null; countryName: string | null; stateId: string | null; stateName: string | null }): void {
+    this.storedCountry.set(x.countryId ? { id: x.countryId, name: x.countryName ?? '' } : null);
+    this.storedState.set(x.stateId ? { id: x.stateId, name: x.stateName ?? '' } : null);
+  }
+
+  /** D7/D27: a new record defaults to the Business Settings country (state stays empty); the user can change it. */
+  private defaultCountry(): void {
+    if (this.isEdit() || !this.auth.hasPermission('Masters.View')) return;
+    this.settingsService.get().subscribe({
+      next: (s) => {
+        if (s.countryId && !this.form.controls.countryId.value) this.form.controls.countryId.setValue(s.countryId);
+      },
+      error: () => undefined,
+    });
+  }
+
+  /** Always posts the current links (null clears, D22). */
+  private buildRequest() {
+    const v = this.form.getRawValue();
+    return { ...v, countryId: v.countryId || null, stateId: v.countryId ? v.stateId || null : null };
   }
 
   submit(): void {
@@ -56,8 +92,8 @@ export class CustomerForm implements OnInit, HasUnsavedChanges {
 
     this.saving.set(true);
     const request$ = this.isEdit()
-      ? this.customersService.update(this.customerId!, this.form.getRawValue())
-      : this.customersService.create(this.form.getRawValue());
+      ? this.customersService.update(this.customerId!, this.buildRequest())
+      : this.customersService.create(this.buildRequest());
 
     request$.subscribe({
       next: () => {

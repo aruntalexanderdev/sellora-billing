@@ -173,6 +173,8 @@ public sealed partial class PlatformService(
         {
             throw new DomainValidationException("baseCurrencyId", "Select a valid, active base currency.");
         }
+        // D10/D26: country/state validated (create semantics) before any tenant row is written; a failure rolls the whole transaction back.
+        await GeoLinkValidator.ValidateAsync(db, input.CountryId, input.StateId, null, null, ct);
         // Phase 7 D12/Q4: the company gets its own protected Administrator role (and nothing else); the owner is assigned to it below.
         var administratorRole = new Role
         {
@@ -242,7 +244,7 @@ public sealed partial class PlatformService(
         db.BusinessSettings.Add(new BusinessSettings
         {
             Id = Guid.NewGuid(), CompanyId = companyId, BusinessName = businessName, InvoicePrefix = prefix, BaseCurrencyId = currency.Id,
-            AddressLine = Clean(input.AddressLine), City = Clean(input.City), State = Clean(input.State), Gstin = Clean(input.Gstin),
+            AddressLine = Clean(input.AddressLine), City = Clean(input.City), CountryId = input.CountryId, StateId = input.StateId, Gstin = Clean(input.Gstin),
             Phone = Clean(input.Phone), Email = Clean(input.Email),
         });
 

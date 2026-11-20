@@ -214,6 +214,8 @@ describe('PlatformCompanyForm', () => {
     const svc = {
       activeCurrencies: vi.fn(() => of([{ id: 'cur1', code: 'INR', name: 'Rupee', symbol: '₹' }])),
       createCompany: vi.fn(createCompany),
+      lookupCountries: vi.fn(() => of([{ id: 'in', code: 'IN', name: 'India' }])),
+      lookupStates: vi.fn(() => of([{ id: 'kl', countryId: 'in', code: 'KL', name: 'Kerala', gstStateCode: '32' }])),
     };
     return { svc, ...mountWith(PlatformCompanyForm, svc) };
   };
@@ -258,6 +260,27 @@ describe('PlatformCompanyForm', () => {
     expect(m.el.querySelector('#co-code')!.parentElement!.textContent).toContain('Code already used.');
     expect(m.el.querySelector('#own-pass')!.parentElement!.textContent).toContain('Password too weak.');
     expect(m.el.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('onboarding posts countryId/stateId from the platform lookups and never the legacy state text (D10)', () => {
+    const m = mountForm();
+    expect(m.svc.lookupCountries).toHaveBeenCalled();
+    fillValid(m);
+    m.component.form.patchValue({ countryId: 'in' });
+    m.fixture.detectChanges();
+    expect(m.svc.lookupStates).toHaveBeenCalledWith('in');
+    m.component.form.patchValue({ stateId: 'kl' });
+    m.submit();
+    const body = (m.svc.createCompany.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(body).toMatchObject({ countryId: 'in', stateId: 'kl' });
+    expect('state' in body).toBe(false);
+  });
+
+  it('onboarding without a country posts null links', () => {
+    const m = mountForm();
+    fillValid(m);
+    m.submit();
+    expect(m.svc.createCompany).toHaveBeenCalledWith(expect.objectContaining({ countryId: null, stateId: null }));
   });
 
   it('flags a password mismatch', () => {

@@ -50,6 +50,20 @@ Free text cannot drive GST place-of-supply, filters or reports reliably, and GCC
 - AC8 (D8) Given the platform does not allow company edits, When a company `Masters.Edit` holder opens Countries/States, Then the screens are read-only (driven by a `canEdit` signal) and company write endpoints return 403; a platform administrator can create/edit/deactivate via the Platform console.
 - AC9 (D9) Given a Branch with blank State text and an Indian GSTIN (strict format) of its own or, when its own is NULL, of the company, When the migration runs, Then StateId/CountryId come from the GSTIN prefix; given text 'Kerala' and GSTIN 33…, Then the row links to Kerala and appears in the GSTIN-conflict report.
 - AC10 (D10) Given the Platform console company-creation form, When a company is created with Country/State, Then CountryId/StateId are stored and the free-text State is not written; an inactive state or a state of another country gives 400.
+- AC11 (BR6, rule 7) Given an inactive country with active states, When the states list/lookup is requested for it, Then lookup returns an empty list; when a state of it is activated or a state is created active under it, Then 400 on `isActive`; existing links to that country/state on branches, customers, suppliers and settings are untouched.
+- AC12 (D16) Given Administration Countries/States, When opened, Then inactive rows can be seen and re-activated (screen requests `includeInactive=true`, or offers a "show inactive" toggle), while pickers elsewhere only offer active rows.
+- AC13 (BR5, AC6) Given a branch/customer/supplier/settings whose stored country or state is now inactive, When its form is opened, Then the stored value is still displayed (name taken from the DTO `countryName`/`stateName`, not from the active-only lookup) and saving unchanged succeeds; changing to another inactive value gives 400.
+- AC14 (D17) Given an existing record with a country/state link, When an update posts null `countryId`/`stateId`, Then the link is cleared; and when the Country select is changed in the UI, Then the State select is reset and a stale `stateId` is never posted.
+- AC15 (D6, BR7) Given `stateId` posted without `countryId`, Then 400 on `countryId`; given `countryId` only, Then save succeeds with state NULL (BR8).
+- AC16 (D6/D17) Given a request posting legacy `state` text on branch, settings or company onboarding, When saved, Then the stored `State` text column is unchanged and the response `state` still returns the old text as the hint.
+- AC17 (rule 3) Given an IsSystem country or state, When PUT changes `code` / `iso3Code` / `gstStateCode`, Then 400 on that field; when only `name`/`kind` changes, Then it succeeds and is audited; when the same unchanged value is posted, Then it succeeds.
+- AC18 (rule 2, D8) Given any successful write (company with flag true, or platform), Then one audit event exists with the real ActorUserId, CompanyId set for a company actor and NULL for platform; a status POST to the already-current state writes no event.
+- AC19 (BR4) Given a state under a non-IN country, When `gstStateCode` is supplied, Then 400 on `gstStateCode`; given an IN state with a GST code already used by another IN state, Then 400 on `gstStateCode`.
+- AC20 (BR2) Given a country with `iso3Code` already used by another country (case-insensitive), Then 400 on `iso3Code`; `code`/`iso3Code` are stored upper-case.
+- AC21 (D10) Given platform company creation with `stateId` but no `countryId`, or state of another country, or inactive country/state, Then 400 and no company/tenant rows are created (single transaction); with neither, Then the company is created with null links (BR8).
+- AC22 (D7) Given the new Customer/Supplier form opened, Then Country defaults from the Business Settings `countryId` and State stays empty; the server never defaults it.
+- AC23 (D15, AC7) Given a user without `Masters.View`, When they open the Branch/Customer/Supplier/Settings forms, Then country/state lookups still load; the admin list endpoints return 403 for them.
+- AC24 (D8) Given `ReferenceDataEditableByCompanies=true`, Then company list responses carry `canEdit=true` and company writes succeed (audited); with false, `canEdit=false` and writes 403 with code `reference_data_platform_managed`.
 
 ## Impact
 DB: `Countries`, `States` (new); nullable `CountryId`, `StateId` on `Branches`, `BusinessSettings`, `Customers`, `Suppliers` (additive) ·
@@ -496,7 +510,113 @@ Every alias is passed through `geo_norm`. Format: `target: alias, alias`. Aliase
 - OM-ZA: az zahirah, al dhahirah, dhahira, dhahirah
 
 ## API contract
-_Pending (step 2)._
+Status: FINAL (backend-engineer, BA recommendations R1-R15 accepted as D19-D33), 2026-11-19. Mirrors Currencies (`CurrenciesController`, `PlatformReferenceDataController`). JSON camelCase; ids Guid; errors are 400 ValidationProblemDetails keyed by the request field (camelCase) unless noted. New request-record parameters are always trailing with defaults.
+
+### Conventions
+- **Policies:** company reads `Masters.View`; company writes `Masters.Edit` + guard (D8); platform = `PlatformPolicies.Admin` (class-level, as `PlatformReferenceDataController`). Lookups need only `[Authorize]` (D15).
+- **Guard 403:** company write while `Platform:ReferenceDataEditableByCompanies=false` throws `ReferenceDataPlatformManagedException` -> 403 ProblemDetails, `code = reference_data_platform_managed` (reused, `GlobalExceptionHandler.cs:34`). Platform callers never get it. 404 = unknown id. 401/403 as standard for missing token/permission.
+- **Audit:** every write (both actor kinds) appends to `PlatformAuditEvents` with real `ActorUserId` (+ `CompanyId` for company actors). Service throws if ids are missing (section 6 rule 2).
+- **Audit actions (D29):** fixed names `country.create|update|activate|deactivate` and `state.create|update|activate|deactivate`, with before/after of the changed fields; no-op status writes no event. Do not copy `CurrencyService.Audit` early return.
+- **Normalisation:** strings trimmed; `code` and `iso3Code` stored upper-cased; uniqueness case-insensitive (`iso3Code` unique when present, service-enforced, 400 `iso3Code` (D24): no DB unique index exists on it).
+- **Enums:** `StateDto.Kind` serialises as a string via the global `JsonStringEnumConverter` (`Program.cs:22`); the 6 kinds (incl. `Municipality`) must all be offered by the frontend (D31).
+- **Lookups (D30):** company-agnostic global reads; platform sessions use `/platform/countries` and `/platform/states`. Missing `countryId` -> 400; unknown/inactive country -> empty list.
+
+### Company: countries (`/api/v1/countries`)
+| Method | Route | Policy | Request | Response | Errors |
+|---|---|---|---|---|---|
+| GET | `/api/v1/countries?includeInactive=false` | Masters.View | query `includeInactive` (default false; D16 default differs from currencies so admin lists show active only unless asked) | `CountryListDto` | 401/403 |
+| GET | `/api/v1/countries/lookup` | Authorize | none | `CountryLookupDto[]` (active only, by name) | 401 |
+| GET | `/api/v1/countries/{id}` | Masters.View | | `CountryDto` | 404 |
+| POST | `/api/v1/countries` | Masters.Edit + guard | `CreateCountryRequest` | `CountryDto` (200, as currencies) | 400 `code`,`iso3Code`,`name`; 403 guard |
+| PUT | `/api/v1/countries/{id}` | Masters.Edit + guard | `UpdateCountryRequest` | `CountryDto` | 400 `code` (IsSystem locked / duplicate),`iso3Code`,`name`; 403; 404 |
+| POST | `/api/v1/countries/{id}/status` | Masters.Edit + guard | `SetActiveRequest(isActive)` (existing) | 204 | 403; 404 |
+
+### Company: states (`/api/v1/states`)
+| Method | Route | Policy | Request | Response | Errors |
+|---|---|---|---|---|---|
+| GET | `/api/v1/states?countryId=&includeInactive=false` | Masters.View | both optional | `StateListDto` | 401/403 |
+| GET | `/api/v1/states/lookup?countryId=` | Authorize | `countryId` required | `StateLookupDto[]` (active states of an active country, by name; unknown/inactive country -> empty list) | 400 `countryId` if missing |
+| GET | `/api/v1/states/{id}` | Masters.View | | `StateDto` | 404 |
+| POST | `/api/v1/states` | Masters.Edit + guard | `CreateStateRequest` | `StateDto` | 400 `countryId` (unknown/inactive), `code`,`name` (dup within country),`gstStateCode` (non-IN / format / dup),`kind`,`isActive` (active under inactive country, BR6); 403 |
+| PUT | `/api/v1/states/{id}` | Masters.Edit + guard | `UpdateStateRequest` (no countryId) | `StateDto` | 400 `code`/`gstStateCode` (IsSystem locked or dup),`name`,`kind`; 403; 404 |
+| POST | `/api/v1/states/{id}/status` | Masters.Edit + guard | `SetActiveRequest` | 204 | 400 `isActive` (activating under inactive country); 403; 404 |
+
+### Platform console (`/api/v1/platform`, `PlatformPolicies.Admin`)
+Same services with `ReferenceDataActor.Platform(userId, traceId)`; guard never applies; no `canEdit` (always writable).
+| Method | Route | Request | Response | Errors |
+|---|---|---|---|---|
+| GET | `/platform/countries/all` | | `CountryDto[]` (incl. inactive, by code; platform-wide `usageCount` not included) | |
+| POST | `/platform/countries` | `CreateCountryRequest` | `CountryDto` | as company |
+| PUT | `/platform/countries/{id}` | `UpdateCountryRequest` | `CountryDto` | as company, 404 |
+| POST | `/platform/countries/{id}/status` | `SetActiveRequest` | 204 | 404 |
+| GET | `/platform/states/all?countryId=` | | `StateDto[]` (incl. inactive) | |
+| POST | `/platform/states` | `CreateStateRequest` | `StateDto` | as company |
+| PUT | `/platform/states/{id}` | `UpdateStateRequest` | `StateDto` | as company, 404 |
+| POST | `/platform/states/{id}/status` | `SetActiveRequest` | 204 | 400 `isActive`, 404 |
+| GET | `/platform/countries` | | `CountryLookupDto[]` active (onboarding, D10; mirrors `GET /platform/currencies`) | |
+| GET | `/platform/states?countryId=` | `countryId` required | `StateLookupDto[]` active under active country | 400 `countryId` |
+Route note: the "all" suffix follows `currencies/all` (admin list) while the bare GET is the active lookup, as `/platform/currencies` is today.
+
+### DTO records (`Contracts/GeoContracts.cs`)
+| Record | Fields |
+|---|---|
+| `CountryDto` | `Guid Id, string Code, string? Iso3Code, string Name, bool IsActive, bool IsSystem` |
+| `CountryListDto` | `bool CanEdit, IReadOnlyList<CountryDto> Items` |
+| `CountryLookupDto` | `Guid Id, string Code, string Name` |
+| `StateDto` | `Guid Id, Guid CountryId, string CountryCode, string CountryName, string Code, string Name, StateKind Kind, string? GstStateCode, bool IsActive, bool IsSystem` |
+| `StateListDto` | `bool CanEdit, IReadOnlyList<StateDto> Items` |
+| `StateLookupDto` | `Guid Id, Guid CountryId, string Code, string Name, string? GstStateCode` |
+| `CreateCountryRequest` | `[Required, MaxLength(2)] Code` (`^[A-Za-z]{2}$`), `[MaxLength(3)] Iso3Code?` (`^[A-Za-z]{3}$`), `[Required, MaxLength(100)] Name`, `bool IsActive = true` |
+| `UpdateCountryRequest` | `Code, Iso3Code?, Name` (same rules; no isActive: use /status) |
+| `CreateStateRequest` | `[Required] Guid? CountryId`, `[Required, MaxLength(3)] Code` (`^[A-Za-z0-9]{1,3}$`), `[Required, MaxLength(100)] Name`, `[Required] StateKind? Kind`, `[MaxLength(2)] GstStateCode?` (`^[0-9]{2}$`, IN only), `bool IsActive = true` |
+| `UpdateStateRequest` | `Code, Name, Kind, GstStateCode?` (**no countryId**; CountryId never changes, section 1) |
+`canEdit` (D8/AC8/D28): company list = `ReferenceDataEditableByCompanies == true`; computed server-side from `IOptions<PlatformOptions>`, never derived from permissions (permission gating stays 403/policy; the frontend shows write actions when `canEdit && hasPermission(Masters.Edit)`). Platform lists carry no wrapper (plain arrays, always writable).
+
+### Immutability and state rules (service)
+- IsSystem rows: `Code`, `Iso3Code` (country), `GstStateCode` (state) cannot change -> 400 on that field (an unchanged posted value is accepted). `Name`, `Kind`, `IsActive` editable. State `CountryId` is not in any update contract.
+- BR4: `gstStateCode` only when the state's country is `IN`, 2 digits, unique within IN (400 `gstStateCode`; AC19). BR5/BR6 (D19): enforced ONLY at state create and state activate (400 `isActive`); deactivating a country never cascades and never touches existing links on branches/customers/suppliers/settings; lookups hide states of inactive countries. No delete endpoints; `usageCount` is not provided (D32, follow-up).
+- Status POST on a row already in the target state is a no-op 204 and writes no audit.
+
+### Changes to existing contracts (all trailing, defaulted)
+| Contract | Before -> After |
+|---|---|
+| `CreateBranchRequest`, `UpdateBranchRequest` | `..., InvoicePrefix` -> `..., InvoicePrefix, Guid? CountryId = null, Guid? StateId = null`. `State` (free text) is still accepted in the record for compatibility but **ignored** (never written, D6) |
+| `BranchDto` | `..., IsActive` -> `..., IsActive, Guid? CountryId = null, string? CountryName = null, Guid? StateId = null, string? StateName = null`; existing `State` stays and is the read-only **legacy hint** (frontend shows it only while `StateId` is null) |
+| `UpdateBusinessSettingsRequest` | `..., ReceiptSeparationOfDuties` -> `..., Guid? CountryId = null, Guid? StateId = null` (existing `State` ignored). Omitted/null is NOT "unchanged": null clears the link (the form always posts the current value); D17 |
+| `BusinessSettingsDto` | `..., ReceiptSeparationOfDuties` -> `..., Guid? CountryId, string? CountryName, Guid? StateId, string? StateName` (`State` = legacy hint) |
+| `UpsertCustomerRequest` | `Name, Phone, Address` -> `+ Guid? CountryId = null, Guid? StateId = null` |
+| `CustomerDto` | `..., IsActive` -> `..., IsActive, Guid? CountryId = null, string? CountryName = null, Guid? StateId = null, string? StateName = null` |
+| `UpsertSupplierRequest` | `... CurrencyId` -> `+ Guid? CountryId = null, Guid? StateId = null` |
+| `SupplierDto` | `... CurrencyDecimalPrecision` -> `+ Guid? CountryId = null, string? CountryName = null, Guid? StateId = null, string? StateName = null` |
+| `CreatePlatformCompanyRequest` | `..., Owner, Reason` -> `..., Owner, Reason, Guid? CountryId = null, Guid? StateId = null` (D10; written to the new company's BusinessSettings; free-text `State` ignored) |
+Branch/settings/customer/supplier list/detail endpoints that project these DTOs include the new fields (names via the navigation, no extra round-trip).
+
+Validation (shared helper `GeoLinkValidator`, mirrors `SuppliersController.ValidateCurrencyAsync`), all 400:
+- `stateId` given without `countryId` -> `countryId`.
+- unknown country id -> `countryId`; unknown state id -> `stateId`.
+- `stateId` not belonging to `countryId` -> `stateId` (AC5, BR7).
+- inactive country/state: rejected only when it differs from the stored value (unchanged link survives, AC6/BR5); on create any inactive is rejected. Country and state are checked independently against their stored values; a link is "unchanged" only when the posted id equals the stored id (D21). The frontend injects the stored entry (id + `countryName`/`stateName` from the DTO) into select options (D21).
+- Request-record legacy `state` text on branch/settings/onboarding: ignored silently (no 400), still returned in DTOs as the read-only hint (D23, AC16).
+- Update semantics (D17/D22): null clears; the frontend must always post current values and reset State when Country changes.
+- Onboarding (D26, AC21): validation runs before any tenant row is written, inside the single creation transaction, with create semantics (any inactive link rejected); `stateId` without `countryId` -> 400 `countryId`; neither -> null links.
+- D7 default (D27): frontend-only, from settings DTO `countryId`; State stays empty.
+- A state of an inactive country is not newly selectable even if the state is active.
+- Both null is valid (BR8). Country without state is valid.
+- Server never defaults country (D7 is a frontend default from `BusinessSettings.countryId`, taken from the settings DTO).
+
+### Error codes
+| HTTP | `code` | When |
+|---|---|---|
+| 403 | `reference_data_platform_managed` | company write on `/countries`, `/states` while the flag is false (reused) |
+| 400 | (ValidationProblem keys) | `code`, `iso3Code`, `name`, `kind`, `gstStateCode`, `isActive`, `countryId`, `stateId` |
+| 404 | | unknown country/state id |
+No new `code` values (D18).
+
+### Breaking changes for frontend-engineer
+None breaking (all additions are trailing/optional). Behavioural: free-text `state` on branch/settings/onboarding requests is ignored; `canEdit` wrapper changes the shape of the two new list endpoints only (new endpoints). Frontend must stop posting `state`.
+
+### Items for test-engineer
+Guard (company 403 vs platform ok, flag true allows company), both-actor audit, IsSystem locks, BR4/BR5/BR6/BR7 (AC2, AC5, AC6, AC8, AC10), lookups hide inactive, `canEdit` values, unchanged-inactive-link survival on branch/customer/supplier/settings.
 
 ## Decisions
 - D1 (owner, 2026-11-19) Global masters, not per company.
@@ -513,6 +633,29 @@ _Pending (step 2)._
 - D12 (owner, 2026-11-19) A Branch with no GSTIN of its own uses the company GSTIN for the D9 fallback **only when its State text is blank**; non-blank unmatched text stays unlinked and appears in the unmatched report.
 - D13 (owner, 2026-11-19) Suppliers are linked (Country = India + State) from their own GSTIN prefix (strict format); suppliers without a valid GSTIN stay unlinked.
 - D14 (db-engineer, 2026-11-19) Deliberate deviation: the frozen backfill/GeoSeedData punctuation class is written with ARE/regex escapes (`[.'\u2019\u2018`]`), not the literal curly quotes and doubled quote shown in section 7. Behaviour is identical (validated on PG16, C and C.UTF-8). The SHA-pinned resource is not edited.
+- D15 (lead, delegated by owner 2026-11-19) Lookups (`/countries/lookup`, `/states/lookup`) need only `[Authorize]`, like `GET /currencies`, so Branch/Customer/Supplier/Settings forms work for users without `Masters.View`; admin lists require `Masters.View` (AC7).
+- D16 (lead, delegated by owner 2026-11-19) Company list endpoints wrap items as `{canEdit, items}` and default `includeInactive=false`; platform admin lists (`/all`) return plain arrays including inactive rows.
+- D17 (lead, delegated by owner 2026-11-19) On update, null `countryId`/`stateId` clears the link (forms always post current values); legacy `state` text in requests is accepted but ignored.
+- D18 (lead, delegated by owner 2026-11-19) No new error `code` values; guard reuses `reference_data_platform_managed`; status uses POST `/{id}/status` (as currencies), not PATCH.
+
+- D19 (lead, delegated by owner 2026-11-19; BA recommendation R1) BR6 is enforced only at state create/activate; country deactivation never cascades; lookups hide such states. Documented in rule 7 (AC11).
+- D20 (lead, delegated by owner 2026-11-19; BA recommendation R2) Admin screens request `includeInactive=true` (or a "show inactive" toggle) so rows can be re-activated; pickers use `/lookup` only (AC12).
+- D21 (lead, delegated by owner 2026-11-19; BA recommendation R3) Frontend injects the stored (possibly inactive) link into option lists using DTO names; server validates country and state independently vs stored values; unchanged = posted id equals stored id (AC13).
+- D22 (lead, delegated by owner 2026-11-19; BA recommendation R4) Keep D17 null-clears; frontend always posts current values and resets State on Country change; service test for clearing (AC14).
+- D23 (lead, delegated by owner 2026-11-19; BA recommendation R5) Legacy `state` text in request records is ignored silently, still returned read-only as hint; tested (AC16).
+- D24 (lead, delegated by owner 2026-11-19; BA recommendation R6) `Iso3Code` unique case-insensitive when present, 400 `iso3Code`, stored upper-case. Checked: `CountryConfiguration.cs:16` has a unique index on Code only, none on Iso3Code, so enforcement is service-only (no migration change; SHA-pinned).
+- D25 (lead, delegated by owner 2026-11-19; BA recommendation R7) BR4 uniqueness (IN only, 2 digits, unique within IN) is covered by AC19.
+- D26 (lead, delegated by owner 2026-11-19; BA recommendation R8) Onboarding: country/state optional; `stateId` without `countryId` -> 400; validation before any tenant row, inside the creation transaction, create semantics (AC21).
+- D27 (lead, delegated by owner 2026-11-19; BA recommendation R9) D7 default is frontend-only from settings DTO `countryId`; State stays empty (AC22).
+- D28 (lead, delegated by owner 2026-11-19; BA recommendation R10) `canEdit` = flag==true, server-side from `IOptions<PlatformOptions>`; permissions stay 403-driven; frontend shows writes when `canEdit && Masters.Edit`; platform console always writable (AC24).
+- D29 (lead, delegated by owner 2026-11-19; BA recommendation R11) Fixed audit action names `country.create|update|activate|deactivate` and `state.*` with before/after of changed fields; no-op status writes no event; no early return for company actors (AC18).
+- D30 (lead, delegated by owner 2026-11-19; BA recommendation R12) Lookups ([Authorize] only, D15) are company-agnostic global reads; platform sessions use `/platform/countries` and `/platform/states`; unknown/inactive country -> empty list; missing countryId -> 400 (AC23).
+- D31 (lead, delegated by owner 2026-11-19; BA recommendation R13) `StateDto.Kind` is a string enum via the global `JsonStringEnumConverter` (`Program.cs:22`, verified); DB check allows `Municipality`, so the frontend Kind list includes all 6 kinds.
+- D32 (lead, delegated by owner 2026-11-19; BA recommendation R14) `usageCount` out of scope (no delete exists); listed as a follow-up.
+- D33 (lead, delegated by owner 2026-11-19; BA recommendation R15) Appendix A and the migration SQL are frozen; any seed fix goes in a follow-up migration.
+- D34 (lead, delegated by owner 2026-11-19) State create under an inactive country: AC11 wins over the contract table row. An active state gives 400 `isActive`; an inactive state is accepted (BR6 only forbids active). Unknown country stays 400 `countryId`.
+- D35 (lead, delegated by owner 2026-11-19) Backend structure: `ICountryService`/`IStateService` (`CountryService`/`StateService`) share `GeoWriteRules` (guard + audit, company actors audited, throws `InvalidOperationException` when UserId, or CompanyId for a company actor, is missing); `ReferenceDataActor` gains a trailing `CompanyId` and `ForCompany(...)`. A null `IOptions<PlatformOptions>` (unit tests) applies no flag guard, as in CurrencyService. `GeoLinkValidator` (Infrastructure, static) validates address links; platform endpoints live in `PlatformGeographyController`.
+- D36 (lead, delegated by owner 2026-11-19) `State` is not written by Branch create/update, settings update or onboarding. Branch create leaves it NULL; it stays only as the legacy hint in DTOs. `GeoNames` resolves link names for DTOs (global tables, two queries per response; list projections use correlated subqueries).
 
 ## Deployment notes
 Additive migration + seed + backfill; legacy text columns retained. Run the validation SQL after deploy and share unmatched rows.

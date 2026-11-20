@@ -41,6 +41,14 @@ public static class PlatformAuditActions
     public const string CurrencyCreated = "platform.currency_created";
     public const string CurrencyUpdated = "platform.currency_updated";
     public const string CurrencyStatusChanged = "platform.currency_status_changed";
+    public const string CountryCreated = "country.create";
+    public const string CountryUpdated = "country.update";
+    public const string CountryActivated = "country.activate";
+    public const string CountryDeactivated = "country.deactivate";
+    public const string StateCreated = "state.create";
+    public const string StateUpdated = "state.update";
+    public const string StateActivated = "state.activate";
+    public const string StateDeactivated = "state.deactivate";
     public const string DbReleaseRetryRequested = "platform.db_release_retry_requested";
     public const string DbReleaseRetryFailed = "platform.db_release_retry_failed";
 }
@@ -53,5 +61,7 @@ public static class PlatformAuditTargets
     public const string PlatformAdministrator = "PlatformAdministrator";
     public const string Unit = "Unit";
     public const string Currency = "Currency";
+    public const string Country = "Country";
+    public const string State = "State";
     public const string DbReleaseRun = "DbReleaseRun";
 }

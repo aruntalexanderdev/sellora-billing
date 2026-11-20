@@ -59,10 +59,7 @@
         <label class="field-label" for="co-city">City (optional)</label>
         <input id="co-city" class="field-input" formControlName="city" maxlength="80" />
       </div>
-      <div>
-        <label class="field-label" for="co-state">State (optional)</label>
-        <input id="co-state" class="field-input" formControlName="state" maxlength="80" />
-      </div>
+      <app-geo-select [countryControl]="form.controls.countryId" [stateControl]="form.controls.stateId" [lookup]="geoLookup" idPrefix="co" countryLabel="Country (optional)" stateLabel="State (optional)" />
       <div>
         <label class="field-label" for="co-phone">Phone (optional)</label>
         <input id="co-phone" class="field-input" formControlName="phone" maxlength="30" />

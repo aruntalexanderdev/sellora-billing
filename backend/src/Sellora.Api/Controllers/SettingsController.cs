@@ -7,6 +7,7 @@ using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
@@ -20,7 +21,7 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
     {
         var companyId = db.CompanyContext.RequireCompanyId();
         var settings = await db.BusinessSettings.Include(s => s.BaseCurrency).SingleAsync(s => s.CompanyId == companyId, ct);
-        return Ok(ToDto(settings));
+        return Ok(await ToDtoAsync(settings, ct));
     }
 
     [HttpPut]
@@ -44,6 +45,16 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
             return ValidationProblem(ModelState);
         }
 
+        try
+        {
+            await GeoLinkValidator.ValidateAsync(db, request.CountryId, request.StateId, settings.CountryId, settings.StateId, ct);
+        }
+        catch (DomainValidationException ex)
+        {
+            ModelState.AddModelError(ex.Field, ex.Message);
+            return ValidationProblem(ModelState);
+        }
+
         // The company prefix is a numbering segment shared with the branches: the check and the save run under the same
         // company row lock the branch service uses, so a concurrent branch edit cannot slip a colliding prefix in.
         await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
@@ -64,7 +75,8 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
         settings.BusinessName = request.BusinessName.Trim();
         settings.AddressLine = request.AddressLine;
         settings.City = request.City;
-        settings.State = request.State;
+        settings.CountryId = request.CountryId; // D17: null clears; legacy State text is frozen (request.State ignored)
+        settings.StateId = request.StateId;
         settings.Gstin = request.Gstin;
         settings.Phone = request.Phone;
         settings.Email = request.Email;
@@ -109,9 +121,16 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
 
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
-        return Ok(ToDto(settings));
+        return Ok(await ToDtoAsync(settings, ct));
     }
 
-    private static BusinessSettingsDto ToDto(Domain.Entities.BusinessSettings s) =>
-        new(s.Id, s.BusinessName, s.AddressLine, s.City, s.State, s.Gstin, s.Phone, s.Email, s.InvoicePrefix, s.BaseCurrencyId, s.BaseCurrency.Code, s.BaseCurrency.Symbol, s.CompanyId, s.ReceiptPostingMode, s.ReceiptSeparationOfDuties);
+    private async Task<BusinessSettingsDto> ToDtoAsync(Domain.Entities.BusinessSettings s, CancellationToken ct)
+    {
+        var geo = await GeoNames.LoadAsync(db, [s.CountryId], [s.StateId], ct);
+        return ToDto(s, geo);
+    }
+
+    private static BusinessSettingsDto ToDto(Domain.Entities.BusinessSettings s, GeoNames geo) =>
+        new(s.Id, s.BusinessName, s.AddressLine, s.City, s.State, s.Gstin, s.Phone, s.Email, s.InvoicePrefix, s.BaseCurrencyId, s.BaseCurrency.Code, s.BaseCurrency.Symbol, s.CompanyId, s.ReceiptPostingMode, s.ReceiptSeparationOfDuties,
+            s.CountryId, geo.Country(s.CountryId), s.StateId, geo.State(s.StateId));
 }

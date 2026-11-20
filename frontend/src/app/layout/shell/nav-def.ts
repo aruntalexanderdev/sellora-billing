@@ -38,6 +38,8 @@ export const NAV_DEF: NavGroupDef[] = [
       { label: 'Units', routerLink: '/administration/units', permission: 'Masters.View' },
       { label: 'Taxes', routerLink: '/administration/taxes', permission: 'Masters.View' },
       { label: 'Currencies', routerLink: '/administration/currencies', permission: 'Masters.View' },
+      { label: 'Countries', routerLink: '/administration/countries', permission: 'Masters.View' },
+      { label: 'States', routerLink: '/administration/states', permission: 'Masters.View' },
       { label: 'Exchange Rates', routerLink: '/administration/exchange-rates', permission: 'Masters.View' },
       { label: 'Business Settings', routerLink: '/administration/settings', permission: 'Masters.View' },
     ],

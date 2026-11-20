@@ -8,3 +8,11 @@ describe('administration routes (D12/O7: units and currencies are platform-manag
     expect(own).toEqual([area]);
   });
 });
+
+describe('administration routes (country-state-masters)', () => {
+  it.each(['countries', 'states'])('%s is gated by Masters.View and has no separate write routes (writes follow canEdit)', (path) => {
+    const own = ADMINISTRATION_ROUTES.filter((r) => r.path === path || r.path?.startsWith(`${path}/`));
+    expect(own).toHaveLength(1);
+    expect(own[0].canActivate).toHaveLength(1);
+  });
+});
