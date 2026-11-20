@@ -144,7 +144,15 @@ if (applyMigrationsOnStartup)
     // Seeding must see every branch's documents (the "Branch" filter would otherwise make it blind): unrestricted scope.
     scope.ServiceProvider.GetRequiredService<BranchContext>().Set(null, null);
     await db.Database.MigrateAsync();
-    await DbSeeder.SeedAsync(db, hasher);
+    // Database:SeedDemoData=false keeps a database that was emptied on purpose (scripts/sql/dev-reset-fresh-setup.sql) empty: the
+    // demo masters (units, taxes, products, categories, suppliers, customers, expense categories) are not seeded again. System data,
+    // the walk-in customer and the Main Cash account are always seeded.
+    var seedDemoData = app.Configuration.GetValue("Database:SeedDemoData", true);
+    if (!seedDemoData)
+    {
+        app.Logger.LogInformation("Database:SeedDemoData is false; demo masters are not seeded.");
+    }
+    await DbSeeder.SeedAsync(db, hasher, seedDemoData);
 }
 else
 {

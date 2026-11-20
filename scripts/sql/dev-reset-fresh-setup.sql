@@ -42,9 +42,10 @@
 -- instead of silently wiping or orphaning it - add the table to the list below. TRUNCATE locks the tables briefly; if the API holds
 -- them for more than 15 seconds the script fails with no change (stop the API and run it again).
 --
--- After the reset: with Database:ApplyMigrationsOnStartup=true (local development) the next API start runs DbSeeder, which puts its
--- demo masters back into the default company (units, taxes, products, categories, suppliers, customers, expense categories). Start
--- the API with Database__ApplyMigrationsOnStartup=false to keep the database empty.
+-- After the reset: with Database:ApplyMigrationsOnStartup=true (local development) every API start runs DbSeeder, which puts its
+-- demo masters back into the default company (units, taxes, products, categories, suppliers, customers, expense categories). To keep
+-- the database empty set Database:SeedDemoData to false (in appsettings.Development.json, or the environment variable
+-- Database__SeedDemoData=false): the API then still migrates and seeds system data, the walk-in customer and Main Cash only.
 
 -- Stop at the first error even when the caller forgot -v ON_ERROR_STOP=1 (a failed reset must never go on to print "done").
 \set ON_ERROR_STOP on
@@ -231,7 +232,7 @@ EXECUTE reset_report;
 
   COMMIT;
   \echo 'fresh-setup: done. Business data removed and document numbers reset; setup and users kept. Masters kept:' :keep_list
-  \echo 'fresh-setup: restart the API. With Database:ApplyMigrationsOnStartup=true it seeds its demo masters into the default company again.'
+  \echo 'fresh-setup: an API started with Database:ApplyMigrationsOnStartup=true seeds its demo masters into the default company again, unless Database:SeedDemoData=false.'
 \else
   ROLLBACK;
   \echo 'fresh-setup: PREVIEW - nothing changed. The rows above would be removed; run again with -v apply=1 to reset.'
