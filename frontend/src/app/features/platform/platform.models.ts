@@ -49,11 +49,13 @@ export interface CreatePlatformCompanyRequest {
   gstin: string | null;
   addressLine: string | null;
   city: string | null;
-  state: string | null;
   phone: string | null;
   email: string | null;
   owner: PlatformOwner;
   reason: string | null;
+  /** Country -> State links (D10); the legacy free-text state is no longer posted. */
+  countryId: string | null;
+  stateId: string | null;
 }
 
 /** Mirrors CreatedPlatformCompanyDto. */

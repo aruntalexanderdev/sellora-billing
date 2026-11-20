@@ -30,10 +30,10 @@
       </div>
 
       <div class="grid-2">
-        <div>
-          <label class="field-label">State</label>
-          <input type="text" formControlName="state" class="field-input" />
-        </div>
+        <app-geo-select [countryControl]="form.controls.countryId" [stateControl]="form.controls.stateId" [storedCountry]="storedCountry()" [storedState]="storedState()" [legacyState]="legacyState()" idPrefix="s" />
+      </div>
+
+      <div class="grid-2">
         <div>
           <label class="field-label">GSTIN</label>
           <input type="text" formControlName="gstin" class="field-input" />

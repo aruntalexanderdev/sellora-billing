@@ -2,6 +2,10 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { GeoSelect } from '../../../../shared/geo/geo-select';
+import type { GeoStoredLink } from '../../../../shared/geo/geo.models';
+import { AuthService } from '../../../../core/auth/auth.service';
+import { SettingsService } from '../../../masters/settings/settings.service';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { SuppliersService } from '../suppliers.service';
@@ -14,7 +18,7 @@ import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 @Component({
   selector: 'app-supplier-form',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton],
+  imports: [ReactiveFormsModule, RouterLink, UiButton, GeoSelect],
   templateUrl: './supplier-form.html',
   styleUrl: '../../../administration/users/user-form/user-form.scss',
 })
@@ -23,6 +27,8 @@ export class SupplierForm implements OnInit, HasUnsavedChanges {
   private readonly suppliersService = inject(SuppliersService);
   private readonly currenciesService = inject(CurrenciesService);
   private readonly toast = inject(ToastService);
+  private readonly auth = inject(AuthService);
+  private readonly settingsService = inject(SettingsService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -35,11 +41,15 @@ export class SupplierForm implements OnInit, HasUnsavedChanges {
     gstin: [''],
     paymentTerms: [''],
     currencyId: ['', Validators.required],
+    countryId: [''],
+    stateId: [''],
   });
 
   readonly currencies = signal<CurrencyItem[]>([]);
   private supplierCurrencyId: string | null = null;
 
+  readonly storedCountry = signal<GeoStoredLink | null>(null);
+  readonly storedState = signal<GeoStoredLink | null>(null);
   readonly saving = signal(false);
   readonly serverError = signal<string | null>(null);
   private saved = false;
@@ -49,6 +59,7 @@ export class SupplierForm implements OnInit, HasUnsavedChanges {
   }
 
   ngOnInit(): void {
+    this.defaultCountry();
     this.currenciesService.list().subscribe({
       next: (list) => {
         this.currencies.set(list);
@@ -61,7 +72,8 @@ export class SupplierForm implements OnInit, HasUnsavedChanges {
       this.suppliersService.get(this.supplierId!).subscribe({
         next: (s) => {
           this.supplierCurrencyId = s.currencyId;
-          this.form.patchValue({ name: s.name, city: s.city ?? '', gstin: s.gstin ?? '', paymentTerms: s.paymentTerms ?? '', currencyId: s.currencyId });
+          this.form.patchValue({ name: s.name, city: s.city ?? '', gstin: s.gstin ?? '', paymentTerms: s.paymentTerms ?? '', currencyId: s.currencyId, countryId: s.countryId ?? '', stateId: s.stateId ?? '' });
+          this.setStored(s);
         },
       });
     }
@@ -70,6 +82,28 @@ export class SupplierForm implements OnInit, HasUnsavedChanges {
   // A supplier already on a since-deactivated currency keeps it listed so the form can still be saved.
   isSelectable(c: CurrencyItem): boolean {
     return c.isActive || c.id === this.supplierCurrencyId;
+  }
+
+  private setStored(x: { countryId: string | null; countryName: string | null; stateId: string | null; stateName: string | null }): void {
+    this.storedCountry.set(x.countryId ? { id: x.countryId, name: x.countryName ?? '' } : null);
+    this.storedState.set(x.stateId ? { id: x.stateId, name: x.stateName ?? '' } : null);
+  }
+
+  /** D7/D27: a new record defaults to the Business Settings country (state stays empty); the user can change it. */
+  private defaultCountry(): void {
+    if (this.isEdit() || !this.auth.hasPermission('Masters.View')) return;
+    this.settingsService.get().subscribe({
+      next: (s) => {
+        if (s.countryId && !this.form.controls.countryId.value) this.form.controls.countryId.setValue(s.countryId);
+      },
+      error: () => undefined,
+    });
+  }
+
+  /** Always posts the current links (null clears, D22). */
+  private buildRequest() {
+    const v = this.form.getRawValue();
+    return { ...v, countryId: v.countryId || null, stateId: v.countryId ? v.stateId || null : null };
   }
 
   submit(): void {
@@ -81,8 +115,8 @@ export class SupplierForm implements OnInit, HasUnsavedChanges {
 
     this.saving.set(true);
     const request$ = this.isEdit()
-      ? this.suppliersService.update(this.supplierId!, this.form.getRawValue())
-      : this.suppliersService.create(this.form.getRawValue());
+      ? this.suppliersService.update(this.supplierId!, this.buildRequest())
+      : this.suppliersService.create(this.buildRequest());
 
     request$.subscribe({
       next: () => {

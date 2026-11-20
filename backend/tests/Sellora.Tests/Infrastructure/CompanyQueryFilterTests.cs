@@ -17,6 +17,8 @@ public class CompanyQueryFilterTests
     [
         typeof(User), typeof(Permission), typeof(RefreshToken),
         typeof(Unit), typeof(Currency), typeof(Company), typeof(UserCompanyMembership),
+        // country-state-masters D1: global reference data, like Currency (no CompanyId, no tenant filter).
+        typeof(Country), typeof(State),
         // Phase 6: the governance catalogue, platform administrators and the platform audit trail belong to no company.
         typeof(GovernancePermission), typeof(PlatformAdministrator), typeof(PlatformAuditEvent),
     ];

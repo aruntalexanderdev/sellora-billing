@@ -39,6 +39,7 @@ public sealed partial class BranchService(SelloraDbContext db, IStockLocationUsa
             throw new DomainValidationException("Name", "A branch with this name already exists.");
         }
 
+        await GeoLinkValidator.ValidateAsync(db, input.CountryId, input.StateId, null, null, ct);
         var ownPrefix = await ValidatePrefixAsync(input.InvoicePrefix, Guid.Empty, isDefault: false, companyPrefix, branches, ct);
         if (ownPrefix is null)
         {
@@ -57,7 +58,8 @@ public sealed partial class BranchService(SelloraDbContext db, IStockLocationUsa
             Name = name,
             AddressLine = Clean(input.AddressLine),
             City = Clean(input.City),
-            State = Clean(input.State),
+            CountryId = input.CountryId,
+            StateId = input.StateId,
             Phone = Clean(input.Phone),
             Email = Clean(input.Email),
             Gstin = gstin,
@@ -109,6 +111,7 @@ public sealed partial class BranchService(SelloraDbContext db, IStockLocationUsa
             throw new DomainValidationException("Name", "A branch with this name already exists.");
         }
 
+        await GeoLinkValidator.ValidateAsync(db, input.CountryId, input.StateId, branch.CountryId, branch.StateId, ct);
         var ownPrefix = await ValidatePrefixAsync(input.InvoicePrefix, branch.Id, branch.IsDefault, companyPrefix, others, ct);
         if (ownPrefix is null && !branch.IsDefault)
         {
@@ -123,7 +126,8 @@ public sealed partial class BranchService(SelloraDbContext db, IStockLocationUsa
         branch.Name = name;
         branch.AddressLine = Clean(input.AddressLine);
         branch.City = Clean(input.City);
-        branch.State = Clean(input.State);
+        branch.CountryId = input.CountryId; // D17: null clears; legacy State text is frozen (never written)
+        branch.StateId = input.StateId;
         branch.Phone = Clean(input.Phone);
         branch.Email = Clean(input.Email);
         branch.Gstin = gstin;

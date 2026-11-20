@@ -27,7 +27,8 @@ public class BranchesController(SelloraDbContext db, IBranchService branchServic
 
         var branches = await query.OrderByDescending(b => b.IsDefault).ThenBy(b => b.Name).ToListAsync(ct);
         var companyPrefix = (await db.GetCurrentCompanySettingsAsync(ct)).InvoicePrefix;
-        return Ok(branches.Select(b => ToDto(b, companyPrefix)).ToList());
+        var geo = await GeoNames.LoadAsync(db, branches.Select(b => b.CountryId), branches.Select(b => b.StateId), ct);
+        return Ok(branches.Select(b => ToDto(b, companyPrefix, geo)).ToList());
     }
 
     [HttpGet("accessible")]
@@ -51,7 +52,7 @@ public class BranchesController(SelloraDbContext db, IBranchService branchServic
         var branch = await db.Branches.AsNoTracking().SingleOrDefaultAsync(b => b.CompanyId == companyId && b.Id == id, ct);
         if (branch is null) return NotFound();
 
-        return Ok(ToDto(branch, (await db.GetCurrentCompanySettingsAsync(ct)).InvoicePrefix));
+        return Ok(ToDto(branch, (await db.GetCurrentCompanySettingsAsync(ct)).InvoicePrefix, await GeoOf(branch, ct)));
     }
 
     [HttpPost]
@@ -64,8 +65,8 @@ public class BranchesController(SelloraDbContext db, IBranchService branchServic
         {
             var branch = await branchService.CreateAsync(new CreateBranchInput(
                 request.Code, request.Name, request.AddressLine, request.City, request.State, request.Phone, request.Email,
-                request.Gstin, request.InvoicePrefix), CurrentUserId(), ct);
-            var dto = ToDto(branch, (await db.GetCurrentCompanySettingsAsync(ct)).InvoicePrefix);
+                request.Gstin, request.InvoicePrefix, request.CountryId, request.StateId), CurrentUserId(), ct);
+            var dto = ToDto(branch, (await db.GetCurrentCompanySettingsAsync(ct)).InvoicePrefix, await GeoOf(branch, ct));
             return CreatedAtAction(nameof(Get), new { id = branch.Id }, dto);
         }
         catch (DomainValidationException ex)
@@ -85,10 +86,10 @@ public class BranchesController(SelloraDbContext db, IBranchService branchServic
         {
             var branch = await branchService.UpdateAsync(id, new UpdateBranchInput(
                 request.Name, request.AddressLine, request.City, request.State, request.Phone, request.Email,
-                request.Gstin, request.InvoicePrefix), CurrentUserId(), ct);
+                request.Gstin, request.InvoicePrefix, request.CountryId, request.StateId), CurrentUserId(), ct);
             if (branch is null) return NotFound();
 
-            return Ok(ToDto(branch, (await db.GetCurrentCompanySettingsAsync(ct)).InvoicePrefix));
+            return Ok(ToDto(branch, (await db.GetCurrentCompanySettingsAsync(ct)).InvoicePrefix, await GeoOf(branch, ct)));
         }
         catch (DomainValidationException ex)
         {
@@ -106,7 +107,7 @@ public class BranchesController(SelloraDbContext db, IBranchService branchServic
             var branch = await branchService.SetStatusAsync(id, request.IsActive, request.Reason, CurrentUserId(), ct);
             if (branch is null) return NotFound();
 
-            return Ok(ToDto(branch, (await db.GetCurrentCompanySettingsAsync(ct)).InvoicePrefix));
+            return Ok(ToDto(branch, (await db.GetCurrentCompanySettingsAsync(ct)).InvoicePrefix, await GeoOf(branch, ct)));
         }
         catch (DomainValidationException ex)
         {
@@ -115,9 +116,12 @@ public class BranchesController(SelloraDbContext db, IBranchService branchServic
         }
     }
 
+    private Task<GeoNames> GeoOf(Branch b, CancellationToken ct) => GeoNames.LoadAsync(db, [b.CountryId], [b.StateId], ct);
+
     private Guid CurrentUserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
 
-    private static BranchDto ToDto(Branch b, string companyPrefix) => new(
+    private static BranchDto ToDto(Branch b, string companyPrefix, GeoNames geo) => new(
         b.Id, b.Code, b.Name, b.AddressLine, b.City, b.State, b.Phone, b.Email, b.Gstin, b.InvoicePrefix,
-        DocumentNumberFormat.InvoicePrefix(b, companyPrefix), b.IsDefault, b.IsActive);
+        DocumentNumberFormat.InvoicePrefix(b, companyPrefix), b.IsDefault, b.IsActive,
+        b.CountryId, geo.Country(b.CountryId), b.StateId, geo.State(b.StateId));
 }

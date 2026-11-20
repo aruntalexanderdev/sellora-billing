@@ -4,9 +4,12 @@ namespace Sellora.Domain.Abstractions;
 
 /// <summary>Who performs a write of platform-shared reference data (Units, Currencies). Phase 7 D11/Q3: company callers are refused
 /// while <c>Platform:ReferenceDataEditableByCompanies</c> is false; platform callers are always allowed and their writes are audited.</summary>
-public sealed record ReferenceDataActor(bool IsPlatform, Guid? UserId = null, string? CorrelationId = null)
+public sealed record ReferenceDataActor(bool IsPlatform, Guid? UserId = null, string? CorrelationId = null, Guid? CompanyId = null)
 {
     public static ReferenceDataActor Company { get; } = new(false);
+
+    /// <summary>A company caller with its real identity; required by the Country/State services, which audit company writes too.</summary>
+    public static ReferenceDataActor ForCompany(Guid userId, Guid companyId, string? correlationId) => new(false, userId, correlationId, companyId);
 
     public static ReferenceDataActor Platform(Guid userId, string? correlationId) => new(true, userId, correlationId);
 }

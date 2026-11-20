@@ -3,6 +3,8 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 import { applyProblem, problemMessage, toProblem } from '../../../../core/http/api-errors';
+import { GeoSelect } from '../../../../shared/geo/geo-select';
+import type { GeoStoredLink } from '../../../../shared/geo/geo.models';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { blankToNull } from '../../company-admin';
@@ -16,7 +18,7 @@ export const INVOICE_PREFIX_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,8}[A-Za-z0-
 @Component({
   selector: 'app-branch-form',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton],
+  imports: [ReactiveFormsModule, RouterLink, UiButton, GeoSelect],
   templateUrl: './branch-form.html',
   styleUrl: '../../company-admin.scss',
 })
@@ -35,7 +37,8 @@ export class BranchForm implements OnInit, HasUnsavedChanges {
     name: ['', [Validators.required, Validators.maxLength(150)]],
     addressLine: ['', Validators.maxLength(300)],
     city: ['', Validators.maxLength(80)],
-    state: ['', Validators.maxLength(80)],
+    countryId: [''],
+    stateId: [''],
     phone: ['', Validators.maxLength(30)],
     email: ['', [Validators.email, Validators.maxLength(200)]],
     gstin: ['', Validators.maxLength(20)],
@@ -45,6 +48,10 @@ export class BranchForm implements OnInit, HasUnsavedChanges {
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly isDefault = signal(false);
+  /** Stored links (possibly inactive) stay selectable; the legacy text is a hint while no state is linked (D6, D21). */
+  readonly storedCountry = signal<GeoStoredLink | null>(null);
+  readonly storedState = signal<GeoStoredLink | null>(null);
+  readonly legacyState = signal<string | null>(null);
   readonly serverError = signal<string | null>(null);
   private saved = false;
 
@@ -70,8 +77,11 @@ export class BranchForm implements OnInit, HasUnsavedChanges {
 
   load(b: Branch): void {
     this.isDefault.set(b.isDefault);
+    this.storedCountry.set(b.countryId ? { id: b.countryId, name: b.countryName ?? '' } : null);
+    this.storedState.set(b.stateId ? { id: b.stateId, name: b.stateName ?? '' } : null);
+    this.legacyState.set(b.stateId ? null : b.state);
     this.form.patchValue({
-      code: b.code, name: b.name, addressLine: b.addressLine ?? '', city: b.city ?? '', state: b.state ?? '', phone: b.phone ?? '',
+      code: b.code, name: b.name, addressLine: b.addressLine ?? '', city: b.city ?? '', countryId: b.countryId ?? '', stateId: b.stateId ?? '', phone: b.phone ?? '',
       email: b.email ?? '', gstin: b.gstin ?? '', invoicePrefix: b.invoicePrefix ?? '',
     });
     // The default branch always uses the company prefix (Settings); the server rejects an own prefix.
@@ -86,11 +96,12 @@ export class BranchForm implements OnInit, HasUnsavedChanges {
       name: v.name.trim(),
       addressLine: blankToNull(v.addressLine),
       city: blankToNull(v.city),
-      state: blankToNull(v.state),
       phone: blankToNull(v.phone),
       email: blankToNull(v.email),
       gstin: blankToNull(v.gstin),
       invoicePrefix: this.isDefault() ? null : blankToNull(v.invoicePrefix),
+      countryId: blankToNull(v.countryId),
+      stateId: v.countryId ? blankToNull(v.stateId) : null,
     };
   }
 

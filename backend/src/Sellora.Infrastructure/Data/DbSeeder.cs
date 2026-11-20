@@ -35,8 +35,9 @@ public static class DbSeeder
         await SeedGovernanceCatalogueAsync(db, ct);
         await SeedDefaultOwnerAsync(db, ct);
 
+        var geo = await SeedGeographyAsync(db, ct);
         var currencies = await SeedCurrenciesAsync(db, ct);
-        var settings = await SeedBusinessSettingsAsync(db, currencies["INR"], ct);
+        var settings = await SeedBusinessSettingsAsync(db, currencies["INR"], geo, ct);
         if (company.Name != settings.BusinessName)
         {
             // BusinessSettings is the company's profile (ADR-07); the company name follows it.
@@ -45,10 +46,10 @@ public static class DbSeeder
         }
         var units = await SeedUnitsAsync(db, ct);
         var taxes = await SeedTaxesAsync(db, ct);
-        await SeedSuppliersAsync(db, currencies, ct);
+        await SeedSuppliersAsync(db, currencies, geo, ct);
         var categories = await SeedProductCategoriesAsync(db, ct);
         await SeedProductsAsync(db, units, taxes, categories, ct);
-        await SeedCustomersAsync(db, ct);
+        await SeedCustomersAsync(db, geo, ct);
         await SeedExpenseCategoriesAsync(db, ct);
         await SeedMainCashAccountAsync(db, ct);
     }
@@ -288,6 +289,45 @@ public static class DbSeeder
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>Resolved geography for demo rows: country and state ids by ISO code.</summary>
+    private sealed record GeoLookup(Dictionary<string, Country> Countries, Dictionary<(string Country, string State), State> States)
+    {
+        public (Guid? CountryId, Guid? StateId) Link(string countryCode, string stateCode)
+            => (Countries[countryCode].Id, States[(countryCode, stateCode)].Id);
+    }
+
+    // Country/State masters (country-state-masters): migrations seed them in every migrated database with the same deterministic ids;
+    // this covers InMemory/dev databases created without migrations. Lookup by code, insert only what is missing (never edits a row).
+    private static async Task<GeoLookup> SeedGeographyAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        var countries = await db.Countries.ToDictionaryAsync(c => c.Code, ct);
+        foreach (var seed in GeoSeedData.Countries.Where(c => !countries.ContainsKey(c.Code)))
+        {
+            var country = new Country
+            {
+                Id = GeoSeedData.CountryId(seed.Code), Code = seed.Code, Iso3Code = seed.Iso3Code, Name = seed.Name, IsActive = true, IsSystem = true,
+            };
+            db.Countries.Add(country);
+            countries[seed.Code] = country;
+        }
+        await db.SaveChangesAsync(ct);
+
+        var byId = countries.Values.ToDictionary(c => c.Id, c => c.Code);
+        var states = (await db.States.ToListAsync(ct)).ToDictionary(s => (byId[s.CountryId], s.Code));
+        foreach (var seed in GeoSeedData.States.Where(s => !states.ContainsKey((s.CountryCode, s.Code))))
+        {
+            var state = new State
+            {
+                Id = GeoSeedData.StateId(seed.CountryCode, seed.Code), CountryId = countries[seed.CountryCode].Id, Code = seed.Code,
+                Name = seed.Name, Kind = seed.Kind, GstStateCode = seed.GstStateCode, IsActive = true, IsSystem = true,
+            };
+            db.States.Add(state);
+            states[(seed.CountryCode, seed.Code)] = state;
+        }
+        await db.SaveChangesAsync(ct);
+        return new GeoLookup(countries, states);
+    }
+
     // INR is inserted by the AddMultiCurrency migration (so it exists in every environment); this only
     // adds a demo foreign currency and rate so multi-currency purchasing is usable in a fresh dev database.
     private static async Task<Dictionary<string, Currency>> SeedCurrenciesAsync(SelloraDbContext db, CancellationToken ct)
@@ -316,7 +356,7 @@ public static class DbSeeder
         return existing.ToDictionary(c => c.Code);
     }
 
-    private static async Task<BusinessSettings> SeedBusinessSettingsAsync(SelloraDbContext db, Currency baseCurrency, CancellationToken ct)
+    private static async Task<BusinessSettings> SeedBusinessSettingsAsync(SelloraDbContext db, Currency baseCurrency, GeoLookup geo, CancellationToken ct)
     {
         var existing = await db.BusinessSettings.SingleOrDefaultAsync(ct);
         if (existing is not null) return existing;
@@ -334,6 +374,8 @@ public static class DbSeeder
             InvoicePrefix = "INV",
             BaseCurrencyId = baseCurrency.Id,
         };
+        // Chennai, Tamil Nadu (GSTIN 33...): link the demo company; the frozen legacy State text stays as the hint.
+        (settings.CountryId, settings.StateId) = geo.Link("IN", "TN");
         db.BusinessSettings.Add(settings);
         await db.SaveChangesAsync(ct);
         return settings;
@@ -409,17 +451,20 @@ public static class DbSeeder
         ("Global Ingredients Inc.", "Chicago", null, "Net 30", "USD"),
     ];
 
-    private static async Task SeedSuppliersAsync(SelloraDbContext db, Dictionary<string, Currency> currencies, CancellationToken ct)
+    private static async Task SeedSuppliersAsync(SelloraDbContext db, Dictionary<string, Currency> currencies, GeoLookup geo, CancellationToken ct)
     {
         var existingNames = await db.Suppliers.Select(s => s.Name).ToListAsync(ct);
         foreach (var (name, city, gstin, terms, currencyCode) in SupplierSeed)
         {
             if (existingNames.Contains(name)) continue;
-            db.Suppliers.Add(new Supplier
+            var supplier = new Supplier
             {
                 Id = Guid.NewGuid(), Name = name, City = city, Gstin = gstin, PaymentTerms = terms,
                 CurrencyId = currencies[currencyCode].Id,
-            });
+            };
+            // Only rows with a 33-prefixed GSTIN (Tamil Nadu) are linked; the USD supplier (Chicago) stays unlinked.
+            if (gstin is not null && gstin.StartsWith("33", StringComparison.Ordinal)) (supplier.CountryId, supplier.StateId) = geo.Link("IN", "TN");
+            db.Suppliers.Add(supplier);
         }
         await db.SaveChangesAsync(ct);
     }
@@ -553,7 +598,7 @@ public static class DbSeeder
         ("Suresh Enterprises", "+91 98407 11223", "45 Anna Nagar, Chennai"),
     ];
 
-    private static async Task SeedCustomersAsync(SelloraDbContext db, CancellationToken ct)
+    private static async Task SeedCustomersAsync(SelloraDbContext db, GeoLookup geo, CancellationToken ct)
     {
         if (!await db.Customers.AnyAsync(c => c.IsWalkIn, ct))
         {
@@ -564,7 +609,10 @@ public static class DbSeeder
         foreach (var (name, phone, address) in CustomerSeed)
         {
             if (existingNames.Contains(name)) continue;
-            db.Customers.Add(new Customer { Id = Guid.NewGuid(), Name = name, Phone = phone, Address = address });
+            // Demo customers all have Chennai addresses; the walk-in customer stays unlinked.
+            var customer = new Customer { Id = Guid.NewGuid(), Name = name, Phone = phone, Address = address };
+            (customer.CountryId, customer.StateId) = geo.Link("IN", "TN");
+            db.Customers.Add(customer);
         }
         await db.SaveChangesAsync(ct);
     }

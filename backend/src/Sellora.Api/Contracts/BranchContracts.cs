@@ -6,7 +6,8 @@ namespace Sellora.Api.Contracts;
 /// branch; own prefix, else company prefix + branch code, for the others).</summary>
 public record BranchDto(
     Guid Id, string Code, string Name, string? AddressLine, string? City, string? State, string? Phone, string? Email,
-    string? Gstin, string? InvoicePrefix, string EffectiveInvoicePrefix, bool IsDefault, bool IsActive
+    string? Gstin, string? InvoicePrefix, string EffectiveInvoicePrefix, bool IsDefault, bool IsActive,
+    Guid? CountryId = null, string? CountryName = null, Guid? StateId = null, string? StateName = null
 );
 
 /// <summary>A branch the caller may work in (the source of a branch picker).</summary>
@@ -17,11 +18,13 @@ public record CreateBranchRequest(
     [Required, MaxLength(150)] string Name,
     [MaxLength(300)] string? AddressLine,
     [MaxLength(80)] string? City,
-    [MaxLength(80)] string? State,
+    [MaxLength(80)] string? State, // legacy free text: accepted, ignored (never written)
     [MaxLength(30)] string? Phone,
     [EmailAddress, MaxLength(200)] string? Email,
     [MaxLength(20)] string? Gstin,
-    [MaxLength(10)] string? InvoicePrefix
+    [MaxLength(10)] string? InvoicePrefix,
+    Guid? CountryId = null,
+    Guid? StateId = null
 );
 
 /// <summary>The code and the default flag cannot be edited.</summary>
@@ -29,9 +32,11 @@ public record UpdateBranchRequest(
     [Required, MaxLength(150)] string Name,
     [MaxLength(300)] string? AddressLine,
     [MaxLength(80)] string? City,
-    [MaxLength(80)] string? State,
+    [MaxLength(80)] string? State, // legacy free text: accepted, ignored (never written)
     [MaxLength(30)] string? Phone,
     [EmailAddress, MaxLength(200)] string? Email,
     [MaxLength(20)] string? Gstin,
-    [MaxLength(10)] string? InvoicePrefix
+    [MaxLength(10)] string? InvoicePrefix,
+    Guid? CountryId = null,
+    Guid? StateId = null
 );

@@ -50,6 +50,8 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
     public DbSet<Unit> Units => Set<Unit>();
     public DbSet<Tax> Taxes => Set<Tax>();
     public DbSet<Currency> Currencies => Set<Currency>();
+    public DbSet<Country> Countries => Set<Country>();
+    public DbSet<State> States => Set<State>();
     public DbSet<ExchangeRate> ExchangeRates => Set<ExchangeRate>();
     public DbSet<BusinessSettings> BusinessSettings => Set<BusinessSettings>();
     public DbSet<Supplier> Suppliers => Set<Supplier>();

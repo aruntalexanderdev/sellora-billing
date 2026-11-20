@@ -9,6 +9,10 @@ export interface SupplierItem {
   currencyCode: string;
   currencySymbol: string;
   currencyDecimalPrecision: number;
+  countryId: string | null;
+  countryName: string | null;
+  stateId: string | null;
+  stateName: string | null;
 }
 
 export interface UpsertSupplierRequest {
@@ -17,4 +21,6 @@ export interface UpsertSupplierRequest {
   gstin?: string | null;
   paymentTerms?: string | null;
   currencyId: string;
+  countryId: string | null;
+  stateId: string | null;
 }
