@@ -18,5 +18,8 @@
   "Database": {
     "ApplyMigrationsOnStartup": true,
     "SeedDemoData": true
+  },
+  "Platform": {
+    "DataResetEnabled": true
   }
 }

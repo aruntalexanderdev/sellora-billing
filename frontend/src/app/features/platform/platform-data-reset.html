@@ -1,0 +1,86 @@
+<div class="page-head">
+  <div>
+    <h1>Data reset</h1>
+    <p>Return the business data of this database to a fresh-setup state.</p>
+  </div>
+</div>
+
+@if (availability() === 'checking') {
+  <div class="card state" role="status">Checking data reset availability…</div>
+} @else if (availability() === 'off') {
+  <div class="card notice" role="status" data-testid="reset-off">
+    <h2>Data reset is switched off</h2>
+    <p>Data reset is switched off on this environment. A server administrator can enable it with the setting <span class="mono">Platform:DataResetEnabled</span>.</p>
+  </div>
+} @else {
+  <div class="card warning" role="alert" data-testid="reset-warning">
+    <strong>This removes the business data of EVERY company in this database and cannot be undone.</strong>
+    Use it for development and delivery checks only.
+  </div>
+
+  @if (result(); as r) {
+    <div class="card notice" role="status" data-testid="reset-success">{{ r.message }}</div>
+    <div class="card table-card">
+      <table class="rows" data-testid="result-table">
+        <thead><tr><th>Area</th><th>Table</th><th class="num">Rows before</th><th class="num">Rows after</th><th>Action</th></tr></thead>
+        <tbody>
+          @for (t of r.tables; track t.table) {
+            <tr><td>{{ t.area }}</td><td class="mono">{{ t.table }}</td><td class="num">{{ t.rowsBefore }}</td><td class="num">{{ t.rowsAfter ?? '—' }}</td><td>{{ t.action }}</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <ui-button (onClick)="newPreview()" data-testid="new-preview">Load a fresh preview</ui-button>
+  } @else {
+    <section class="card" aria-label="Options">
+      @for (g of groups; track g.title) {
+        <fieldset class="group">
+          <legend>{{ g.title }}</legend>
+          @for (o of g.items; track o.key) {
+            <label class="check">
+              <input type="checkbox" [attr.data-testid]="'opt-' + o.key" [checked]="isChecked(o.key)"
+                     (change)="setOption(o.key, $any($event.target).checked)" />
+              {{ o.label }}
+            </label>
+          }
+        </fieldset>
+      }
+    </section>
+
+    @if (state() === 'loading') {
+      <div class="card state" role="status">Loading preview…</div>
+    } @else if (state() === 'error') {
+      <div class="card state" role="alert" data-testid="preview-error">
+        <p>{{ errorMessage() }}</p>
+        <ui-button (onClick)="loadPreview()">Retry</ui-button>
+      </div>
+    } @else {
+      <p class="meta" data-testid="kept-masters">Masters kept: {{ kept().length ? kept().join(', ') : 'none' }}</p>
+      <div class="card table-card">
+        <table class="rows" data-testid="preview-table">
+          <thead><tr><th>Area</th><th>Table</th><th class="num">Rows</th><th>Action</th></tr></thead>
+          <tbody>
+            @for (t of report()?.tables; track t.table) {
+              <tr><td>{{ t.area }}</td><td class="mono">{{ t.table }}</td><td class="num">{{ t.rowsBefore }}</td><td>{{ t.action }}</td></tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="meta" data-testid="preview-totals">{{ tableCount() }} tables, {{ totalRows() }} rows in total.</p>
+
+      <form class="card confirm" (ngSubmit)="reset()" [formGroup]="confirmForm" novalidate data-testid="confirm-panel">
+        <h3>Reset database <span class="mono" data-testid="db-name">{{ database() }}</span>?</h3>
+        @if (refusal()) { <div class="card notice err" role="alert" data-testid="reset-refused">{{ refusal() }}</div> }
+        <label for="confirm-db">Type the database name to confirm</label>
+        <input id="confirm-db" class="field-input" formControlName="confirmDatabase" autocomplete="off" data-testid="confirm-input" />
+        @if (fieldError()) { <p class="hint bad" role="alert" data-testid="confirm-error">{{ fieldError() }}</p> }
+        @if (confirmError()) { <p class="hint bad" role="alert" data-testid="confirm-banner">{{ confirmError() }}</p> }
+        <div>
+          <ui-button variant="destructive" type="submit" [disabled]="!!disabledReason()" [disabledReason]="disabledReason()" data-testid="reset-button">
+            {{ submitting() ? 'Resetting…' : 'Reset data' }}
+          </ui-button>
+        </div>
+      </form>
+    }
+  }
+}

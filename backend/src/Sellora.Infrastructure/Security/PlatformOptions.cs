@@ -16,4 +16,11 @@ public class PlatformOptions
     /// reference_data_platform_managed). True = companies with Masters.Edit may write shared reference data, and company creation is refused.
     /// </summary>
     public bool ReferenceDataEditableByCompanies { get; set; }
+
+    /// <summary>
+    /// Platform Console "Data reset": false (default) refuses it (403 data_reset_disabled) and the console hides the page. True lets a
+    /// platform administrator erase the business data of EVERY company of the database (scripts/sql/dev-reset-fresh-setup.sql). A
+    /// development and delivery-check switch: never enable it in a client environment.
+    /// </summary>
+    public bool DataResetEnabled { get; set; }
 }

@@ -7,6 +7,8 @@ on:
       - dev
     paths:
       - "backend/**"
+      # Embedded in the API (Platform Console data reset): a change to it must rebuild the API.
+      - "scripts/sql/dev-reset-fresh-setup.sql"
       - ".github/workflows/dev_sellora-billing-dev-api.yml"
 
   workflow_dispatch:

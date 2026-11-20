@@ -1,6 +1,7 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { PlatformAuthService } from '../../core/platform/platform-auth.service';
+import { PlatformService } from './platform.service';
 import { UiToastHost } from '../../shared/ui/toast/toast-host';
 
 /** D7: the platform console's own layout (outside the company shell; no company/branch selector, no link back into the company app). */
@@ -18,6 +19,9 @@ import { UiToastHost } from '../../shared/ui/toast/toast-host';
         <a routerLink="/platform/countries" routerLinkActive="on">Countries</a>
         <a routerLink="/platform/states" routerLinkActive="on">States</a>
         <a routerLink="/platform/db-releases" routerLinkActive="on">Database releases</a>
+        @if (dataResetEnabled()) {
+          <a routerLink="/platform/data-reset" routerLinkActive="on" data-testid="nav-data-reset">Data reset</a>
+        }
       </nav>
       <span class="spacer"></span>
       <span class="who">{{ platform.user()?.name }}</span>
@@ -41,6 +45,16 @@ import { UiToastHost } from '../../shared/ui/toast/toast-host';
 export class PlatformLayout {
   readonly platform = inject(PlatformAuthService);
   private readonly router = inject(Router);
+  private readonly service = inject(PlatformService);
+  /** The nav link is offered only when the server switch Platform:DataResetEnabled is on; any error keeps it hidden. */
+  readonly dataResetEnabled = signal(false);
+
+  constructor() {
+    this.service.dataResetStatus().subscribe({
+      next: (s) => this.dataResetEnabled.set(s.enabled === true),
+      error: () => this.dataResetEnabled.set(false),
+    });
+  }
 
   signOut(): void {
     this.platform.clear();

@@ -7,7 +7,7 @@ import type {
   UpdateCountryRequest, UpdateStateRequest,
 } from '../../shared/geo/geo.models';
 import type {
-  CreatePlatformCompanyRequest, CreatedPlatformCompany, CurrencyItem, DbReleaseRetryResponse, DbReleaseRunDetailDto, DbReleasesOverviewDto, DbScriptDetailDto, PlatformCompany, PlatformCurrencyOption,
+  CreatePlatformCompanyRequest, CreatedPlatformCompany, CurrencyItem, DataResetOptions, DataResetReport, DataResetStatus, DbReleaseRetryResponse, DbReleaseRunDetailDto, DbReleasesOverviewDto, DbScriptDetailDto, PlatformCompany, PlatformCurrencyOption,
   RetryDbReleaseRequest, SetPlatformCompanyStatusRequest, UnitItem, UpsertCurrencyRequest, UpsertUnitRequest,
 } from './platform.models';
 
@@ -124,5 +124,25 @@ export class PlatformService implements GeographyApi, GeoLookup {
 
   dbScript(id: string): Observable<DbScriptDetailDto> {
     return this.http.get<DbScriptDetailDto>(`${BASE_URL}/db-releases/scripts/${id}`);
+  }
+
+  dataResetStatus(): Observable<DataResetStatus> {
+    return this.http.get<DataResetStatus>(`${BASE_URL}/data-reset/status`);
+  }
+
+  dataResetPreview(options: DataResetOptions): Observable<DataResetReport> {
+    const params = {
+      wipeCustomers: String(options.wipeCustomers),
+      wipeSuppliers: String(options.wipeSuppliers),
+      keepTaxes: String(options.keepTaxes),
+      keepCategories: String(options.keepCategories),
+      keepExpenseCategories: String(options.keepExpenseCategories),
+      keepAccounts: String(options.keepAccounts),
+    };
+    return this.http.get<DataResetReport>(`${BASE_URL}/data-reset/preview`, { params });
+  }
+
+  dataReset(confirmDatabase: string, options: DataResetOptions): Observable<DataResetReport> {
+    return this.http.post<DataResetReport>(`${BASE_URL}/data-reset`, { confirmDatabase, ...options });
   }
 }

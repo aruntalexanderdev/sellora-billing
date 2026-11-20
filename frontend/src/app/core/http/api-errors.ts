@@ -40,6 +40,8 @@ export const PROBLEM_MESSAGES: Record<string, string> = {
   platform_admin_required: 'This account is not a platform administrator.',
   platform_session_required: 'Your platform session has ended. Please sign in to the platform console again.',
   company_creation_disabled: 'Company creation is disabled on this platform.',
+  data_reset_disabled: 'Data reset is switched off on this environment (Platform:DataResetEnabled).',
+  data_reset_refused: 'The data reset was refused and nothing was changed.',
 };
 
 export const CONFLICT_MESSAGE = 'This record was changed elsewhere. Reload and try again.';

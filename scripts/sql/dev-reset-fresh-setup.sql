@@ -2,6 +2,8 @@
 -- purchases, no sales, no accounts movements. It goes further than dev-reset-transactions.sql (transactions only).
 -- Plain SQL: it runs in DBeaver, pgAdmin, DataGrip or psql, against a local or a hosted (for example Azure) PostgreSQL database.
 -- It is NOT a migration and must never be placed in backend/db (the deploy pipeline would run it). Run it by hand, whenever needed.
+-- The Platform Console "Data reset" page (switch Platform DataResetEnabled, off by default) runs this very text: the file is embedded
+-- in the API, which fills in the four values below itself. Keep the four value lines and the RESULT wording as they are.
 --
 -- WHAT IT DOES (ALL companies; Units are global, so it cannot be limited to one company)
 --   Removes        Masters    Units, Taxes
@@ -207,10 +209,13 @@ BEGIN
             WHERE NOT EXISTS (SELECT 1 FROM "FinancialAccounts" a WHERE a."CompanyId" = m.company_id);
         END IF;
         UPDATE "DocumentSequences" SET "NextValue" = 1, "UpdatedAt" = now();
+        -- Who ran it: the Platform Console passes the signed-in platform administrator and the request id; a SQL tool passes neither.
         INSERT INTO "PlatformAuditEvents" ("Id", "OccurredAt", "ActorUserId", "Action", "TargetType", "TargetId", "CompanyId", "Reason", "Before", "After", "CorrelationId")
-        VALUES (gen_random_uuid(), now(), NULL, 'ops.dev_reset_fresh_setup', 'Database', '00000000-0000-0000-0000-000000000000', NULL,
-                'Development reset: units, taxes, inventory, purchases, sales and accounts removed, document numbers reset', NULL,
-                jsonb_build_object('database', current_database(), 'via', 'scripts/sql/dev-reset-fresh-setup.sql', 'kept', v_kept_text), 'ops-script');
+        VALUES (gen_random_uuid(), now(), cast(nullif(current_setting('sellora.reset_actor_user_id', true), '') AS uuid),
+                'ops.dev_reset_fresh_setup', 'Database', '00000000-0000-0000-0000-000000000000', NULL,
+                format('Development reset: business data removed and document numbers reset; masters kept: %s', v_kept_text), NULL,
+                jsonb_build_object('database', current_database(), 'via', 'scripts/sql/dev-reset-fresh-setup.sql', 'kept', v_kept_text),
+                coalesce(nullif(current_setting('sellora.reset_correlation_id', true), ''), 'ops-script'));
         FOR v_row IN SELECT r.seq, r.table_name FROM pg_temp.sellora_reset_report r WHERE r.seq > 0 ORDER BY r.seq LOOP
             EXECUTE format('SELECT count(*) FROM %I', v_row.table_name) INTO v_count;
             UPDATE pg_temp.sellora_reset_report SET rows_after = v_count WHERE seq = v_row.seq;

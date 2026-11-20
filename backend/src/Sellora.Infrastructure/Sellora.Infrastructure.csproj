@@ -27,6 +27,12 @@
     <EmbeddedResource Include="Data/Migrations/Sql/*.sql" LogicalName="%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The fresh-setup reset script, embedded as it is in the repository: the Platform Console data reset (DataResetService) runs
+         exactly the text an operator pastes into a SQL tool. Not frozen: it lives in scripts/sql and changes with the schema. -->
+    <EmbeddedResource Include="../../../scripts/sql/dev-reset-fresh-setup.sql" LogicalName="dev-reset-fresh-setup.sql" Link="Data/Sql/dev-reset-fresh-setup.sql" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

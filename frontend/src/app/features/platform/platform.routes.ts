@@ -21,6 +21,7 @@ export const PLATFORM_ROUTES: Routes = [
       { path: 'currencies', loadComponent: () => import('./platform-currencies').then((m) => m.PlatformCurrencies) },
       { path: 'countries', loadComponent: () => import('./platform-countries').then((m) => m.PlatformCountries) },
       { path: 'states', loadComponent: () => import('./platform-states').then((m) => m.PlatformStates) },
+      { path: 'data-reset', loadComponent: () => import('./platform-data-reset').then((m) => m.PlatformDataReset) },
       { path: 'db-releases', loadComponent: () => import('./platform-db-releases').then((m) => m.PlatformDbReleases) },
     ],
   },
