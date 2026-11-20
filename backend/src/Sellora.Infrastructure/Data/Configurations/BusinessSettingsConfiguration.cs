@@ -26,5 +26,7 @@ public class BusinessSettingsConfiguration : IEntityTypeConfiguration<BusinessSe
         builder.HasIndex(s => s.CompanyId, "IX_BusinessSettings_CompanyId").IsUnique();
 
         builder.HasOne(s => s.BaseCurrency).WithMany().HasForeignKey(s => s.BaseCurrencyId).OnDelete(DeleteBehavior.Restrict);
+
+        GeoLinkConfiguration.Apply(builder, "BusinessSettings");
     }
 }

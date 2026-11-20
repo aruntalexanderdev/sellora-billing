@@ -14,5 +14,7 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         builder.Property(c => c.Address).HasMaxLength(250);
         builder.HasAlternateKey(c => new { c.CompanyId, c.Id });
         builder.HasIndex(c => c.Name);
+
+        GeoLinkConfiguration.Apply(builder, "Customers");
     }
 }

@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { permissionGuard } from '../../core/auth/auth.guard';
 import { unsavedChangesGuard } from '../../core/unsaved-changes.guard';
 
+// Countries/States (country-state-masters D8): writes follow the server canEdit flag, not the route.
 // D12/O7: unit and currency writes (create/edit/status) live only in the platform console; the company lists are read-only.
 export const ADMINISTRATION_ROUTES: Routes = [
   {
@@ -81,6 +82,18 @@ export const ADMINISTRATION_ROUTES: Routes = [
     loadComponent: () => import('./currencies/currency-list/currency-list').then((m) => m.CurrencyList),
     canActivate: [permissionGuard('Masters.View')],
     data: { group: 'Administration', page: 'Currencies' },
+  },
+  {
+    path: 'countries',
+    loadComponent: () => import('./geography/country-list').then((m) => m.CountryList),
+    canActivate: [permissionGuard('Masters.View')],
+    data: { group: 'Administration', page: 'Countries' },
+  },
+  {
+    path: 'states',
+    loadComponent: () => import('./geography/state-list').then((m) => m.StateList),
+    canActivate: [permissionGuard('Masters.View')],
+    data: { group: 'Administration', page: 'States' },
   },
   {
     path: 'exchange-rates',

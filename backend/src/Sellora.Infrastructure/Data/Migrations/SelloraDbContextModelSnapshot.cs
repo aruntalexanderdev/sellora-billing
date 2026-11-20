@@ -137,6 +137,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("CountryId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -174,6 +177,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
 
+                    b.Property<Guid?>("StateId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -185,6 +191,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.HasIndex("CreatedByUserId");
 
                     b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("CountryId", "StateId")
+                        .HasDatabaseName("IX_Branches_CountryId_StateId");
 
                     b.HasIndex(new[] { "CompanyId", "Code" }, "IX_Branches_CompanyId_Code")
                         .IsUnique();
@@ -201,6 +210,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                             t.HasCheckConstraint("CK_Branches_Default_Active", "\"IsActive\" OR NOT \"IsDefault\"");
 
                             t.HasCheckConstraint("CK_Branches_Id_NotEmpty", "\"Id\" <> '00000000-0000-0000-0000-000000000000'");
+
+                            t.HasCheckConstraint("CK_Branches_State_Requires_Country", "\"StateId\" IS NULL OR \"CountryId\" IS NOT NULL");
                         });
                 });
 
@@ -227,6 +238,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(80)");
 
                     b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CountryId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Email")
@@ -262,9 +276,15 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
 
+                    b.Property<Guid?>("StateId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BaseCurrencyId");
+
+                    b.HasIndex("CountryId", "StateId")
+                        .HasDatabaseName("IX_BusinessSettings_CountryId_StateId");
 
                     b.HasIndex(new[] { "CompanyId" }, "IX_BusinessSettings_CompanyId")
                         .IsUnique();
@@ -272,6 +292,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("BusinessSettings", t =>
                         {
                             t.HasCheckConstraint("CK_BusinessSettings_ReceiptPostingMode_Valid", "\"ReceiptPostingMode\" IN ('Direct', 'SupervisorApproval')");
+
+                            t.HasCheckConstraint("CK_BusinessSettings_State_Requires_Country", "\"StateId\" IS NULL OR \"CountryId\" IS NOT NULL");
                         });
                 });
 
@@ -940,6 +962,45 @@ namespace Sellora.Infrastructure.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.Country", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Iso3Code")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "Code" }, "IX_Countries_Code")
+                        .IsUnique();
+
+                    b.ToTable("Countries", t =>
+                        {
+                            t.HasCheckConstraint("CK_Countries_Code_Format", "\"Code\" ~ '^[A-Z]{2}$'");
+
+                            t.HasCheckConstraint("CK_Countries_Iso3Code_Format", "\"Iso3Code\" IS NULL OR \"Iso3Code\" ~ '^[A-Z]{3}$'");
+                        });
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.Currency", b =>
                 {
                     b.Property<Guid>("Id")
@@ -988,6 +1049,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("CountryId")
+                        .HasColumnType("uuid");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -1003,11 +1067,20 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<Guid?>("StateId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Name");
 
-                    b.ToTable("Customers");
+                    b.HasIndex("CountryId", "StateId")
+                        .HasDatabaseName("IX_Customers_CountryId_StateId");
+
+                    b.ToTable("Customers", t =>
+                        {
+                            t.HasCheckConstraint("CK_Customers_State_Requires_Country", "\"StateId\" IS NULL OR \"CountryId\" IS NOT NULL");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.DocumentSequence", b =>
@@ -3130,6 +3203,62 @@ namespace Sellora.Infrastructure.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.State", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<Guid>("CountryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("GstStateCode")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CountryId", "Id")
+                        .HasName("AK_States_CountryId_Id");
+
+                    b.HasIndex(new[] { "CountryId", "Code" }, "IX_States_CountryId_Code")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "GstStateCode" }, "IX_States_GstStateCode")
+                        .IsUnique()
+                        .HasFilter("\"GstStateCode\" IS NOT NULL");
+
+                    b.ToTable("States", t =>
+                        {
+                            t.HasCheckConstraint("CK_States_Code_Format", "\"Code\" ~ '^[A-Z0-9]{1,3}$'");
+
+                            t.HasCheckConstraint("CK_States_GstStateCode_Format", "\"GstStateCode\" IS NULL OR \"GstStateCode\" ~ '^[0-9]{2}$'");
+
+                            t.HasCheckConstraint("CK_States_Kind", "\"Kind\" IN ('State','UnionTerritory','Emirate','Region','Governorate','Municipality')");
+                        });
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.StockAdjustment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4032,6 +4161,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("CountryId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("CurrencyId")
                         .HasColumnType("uuid");
 
@@ -4051,13 +4183,22 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<Guid?>("StateId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CurrencyId");
 
                     b.HasIndex("Name");
 
-                    b.ToTable("Suppliers");
+                    b.HasIndex("CountryId", "StateId")
+                        .HasDatabaseName("IX_Suppliers_CountryId_StateId");
+
+                    b.ToTable("Suppliers", t =>
+                        {
+                            t.HasCheckConstraint("CK_Suppliers_State_Requires_Country", "\"StateId\" IS NULL OR \"CountryId\" IS NOT NULL");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Tax", b =>
@@ -4598,6 +4739,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.Country", null)
+                        .WithMany()
+                        .HasForeignKey("CountryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Branches_Countries_CountryId");
+
                     b.HasOne("Sellora.Domain.Entities.User", null)
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
@@ -4607,6 +4754,13 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .WithMany()
                         .HasForeignKey("UpdatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Sellora.Domain.Entities.State", null)
+                        .WithMany()
+                        .HasForeignKey("CountryId", "StateId")
+                        .HasPrincipalKey("CountryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Branches_States_CountryId_StateId");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.BusinessSettings", b =>
@@ -4622,6 +4776,19 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("CompanyId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Country", null)
+                        .WithMany()
+                        .HasForeignKey("CountryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_BusinessSettings_Countries_CountryId");
+
+                    b.HasOne("Sellora.Domain.Entities.State", null)
+                        .WithMany()
+                        .HasForeignKey("CountryId", "StateId")
+                        .HasPrincipalKey("CountryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_BusinessSettings_States_CountryId_StateId");
 
                     b.Navigation("BaseCurrency");
                 });
@@ -4943,6 +5110,19 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasForeignKey("CompanyId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Country", null)
+                        .WithMany()
+                        .HasForeignKey("CountryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Customers_Countries_CountryId");
+
+                    b.HasOne("Sellora.Domain.Entities.State", null)
+                        .WithMany()
+                        .HasForeignKey("CountryId", "StateId")
+                        .HasPrincipalKey("CountryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Customers_States_CountryId_StateId");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.DocumentSequence", b =>
@@ -6010,6 +6190,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasConstraintName("FK_ShipmentVehicles_Vehicles");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.State", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Country", null)
+                        .WithMany()
+                        .HasForeignKey("CountryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_States_Countries_CountryId");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.StockAdjustment", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.Company", null)
@@ -6516,11 +6706,24 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.Country", null)
+                        .WithMany()
+                        .HasForeignKey("CountryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Suppliers_Countries_CountryId");
+
                     b.HasOne("Sellora.Domain.Entities.Currency", "Currency")
                         .WithMany()
                         .HasForeignKey("CurrencyId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.State", null)
+                        .WithMany()
+                        .HasForeignKey("CountryId", "StateId")
+                        .HasPrincipalKey("CountryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Suppliers_States_CountryId_StateId");
 
                     b.Navigation("Currency");
                 });

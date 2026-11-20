@@ -13,6 +13,11 @@ export interface Branch {
   effectiveInvoicePrefix: string;
   isDefault: boolean;
   isActive: boolean;
+  /** Country/State links; `state` above is the read-only legacy hint, shown only while stateId is null (D6). */
+  countryId: string | null;
+  countryName: string | null;
+  stateId: string | null;
+  stateName: string | null;
 }
 
 /** Mirrors UpdateBranchRequest (the code and default flag cannot be edited). */
@@ -20,11 +25,12 @@ export interface UpdateBranchRequest {
   name: string;
   addressLine: string | null;
   city: string | null;
-  state: string | null;
   phone: string | null;
   email: string | null;
   gstin: string | null;
   invoicePrefix: string | null;
+  countryId: string | null;
+  stateId: string | null;
 }
 
 /** Mirrors CreateBranchRequest. */

@@ -9,7 +9,7 @@ import { BranchForm } from './branch-form';
 
 const branch = (o: Partial<Branch> = {}): Branch => ({
   id: 'b1', code: 'NTH', name: 'North', addressLine: 'A', city: null, state: null, phone: null, email: null, gstin: '27ABC',
-  invoicePrefix: 'NT', effectiveInvoicePrefix: 'NT', isDefault: false, isActive: true, ...o,
+  invoicePrefix: 'NT', effectiveInvoicePrefix: 'NT', isDefault: false, isActive: true, countryId: null, countryName: null, stateId: null, stateName: null, ...o,
 });
 
 function setup(id: string | null = null, loaded: Branch = branch()) {
@@ -35,7 +35,7 @@ describe('BranchForm', () => {
     c.name.setValue(' North ');
     component.submit();
     expect(service.create).toHaveBeenCalledWith({
-      code: 'NTH', name: 'North', addressLine: null, city: null, state: null, phone: null, email: null, gstin: null, invoicePrefix: null,
+      code: 'NTH', name: 'North', addressLine: null, city: null, phone: null, email: null, gstin: null, invoicePrefix: null, countryId: null, stateId: null,
     });
     expect(router.navigateByUrl).toHaveBeenCalledWith('/company/branches');
   });
@@ -80,5 +80,52 @@ describe('BranchForm', () => {
     expect(c.code.errors?.['server']).toContain('already exists');
     expect(component.serverError()).toBeNull();
     expect(component.saving()).toBe(false);
+  });
+
+  it('posts countryId/stateId and never the legacy state text (D6)', () => {
+    const { component, service, c } = setup();
+    c.code.setValue('NTH');
+    c.name.setValue('North');
+    c.countryId.setValue('in');
+    c.stateId.setValue('kl');
+    component.submit();
+    const body = service.create.mock.calls[0] as unknown[];
+    expect(body[0]).toMatchObject({ countryId: 'in', stateId: 'kl' });
+    expect('state' in (body[0] as object)).toBe(false);
+  });
+
+  it('a state without a country is never posted', () => {
+    const { component, service, c } = setup();
+    c.code.setValue('NTH');
+    c.name.setValue('North');
+    c.stateId.setValue('kl');
+    component.submit();
+    expect((service.create.mock.calls[0] as unknown[])[0]).toMatchObject({ countryId: null, stateId: null });
+  });
+
+  it('edit loads the stored links and the legacy hint only while stateId is null', () => {
+    const linked = setup('b1', branch({ countryId: 'in', countryName: 'India', stateId: 'kl', stateName: 'Kerala', state: 'Kerla' }));
+    linked.component.ngOnInit();
+    expect(linked.c.countryId.value).toBe('in');
+    expect(linked.c.stateId.value).toBe('kl');
+    expect(linked.component.legacyState()).toBeNull();
+    expect(linked.component.storedState()).toEqual({ id: 'kl', name: 'Kerala' });
+    linked.component.submit();
+    expect(linked.service.update.mock.calls[0][1]).toMatchObject({ countryId: 'in', stateId: 'kl' });
+    TestBed.resetTestingModule();
+    const unlinked = setup('b1', branch({ state: 'Kerla' }));
+    unlinked.component.ngOnInit();
+    expect(unlinked.component.legacyState()).toBe('Kerla');
+    unlinked.component.submit();
+    expect(unlinked.service.update.mock.calls[0][1]).toMatchObject({ countryId: null, stateId: null });
+  });
+
+  it('maps server errors on stateId onto the control', () => {
+    const { component, service, c } = setup();
+    service.create.mockReturnValueOnce(throwError(() => new HttpErrorResponse({ status: 400, error: { errors: { StateId: ['State does not belong to the country.'] } } })));
+    c.code.setValue('NTH');
+    c.name.setValue('North');
+    component.submit();
+    expect(c.stateId.errors?.['server']).toContain('does not belong');
   });
 });

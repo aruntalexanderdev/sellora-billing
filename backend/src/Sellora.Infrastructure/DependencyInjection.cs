@@ -42,6 +42,8 @@ public static class DependencyInjection
         services.AddScoped<IProductCategoryService, ProductCategoryService>();
         services.AddScoped<IUnitService, UnitService>();
         services.AddScoped<ICurrencyService, CurrencyService>();
+        services.AddScoped<ICountryService, CountryService>();
+        services.AddScoped<IStateService, StateService>();
         services.AddScoped<IExchangeRateService, ExchangeRateService>();
         services.AddScoped<IExpenseService, ExpenseService>();
         services.AddScoped<IFinancialAccountService, FinancialAccountService>();

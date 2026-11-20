@@ -1,6 +1,8 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { GeoSelect } from '../../../../shared/geo/geo-select';
+import type { GeoStoredLink } from '../../../../shared/geo/geo.models';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { AuthService } from '../../../../core/auth/auth.service';
@@ -14,7 +16,7 @@ import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 @Component({
   selector: 'app-settings-page',
   standalone: true,
-  imports: [ReactiveFormsModule, UiButton],
+  imports: [ReactiveFormsModule, UiButton, GeoSelect],
   templateUrl: './settings-page.html',
   styleUrl: '../../../administration/users/user-form/user-form.scss',
 })
@@ -31,7 +33,8 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
     businessName: ['', Validators.required],
     addressLine: [''],
     city: [''],
-    state: [''],
+    countryId: [''],
+    stateId: [''],
     gstin: [''],
     phone: [''],
     email: ['', Validators.email],
@@ -47,6 +50,9 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
   ];
 
   readonly currencies = signal<CurrencyItem[]>([]);
+  readonly storedCountry = signal<GeoStoredLink | null>(null);
+  readonly storedState = signal<GeoStoredLink | null>(null);
+  readonly legacyState = signal<string | null>(null);
 
   readonly loading = signal(true);
   readonly saving = signal(false);
@@ -67,7 +73,8 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
           businessName: s.businessName,
           addressLine: s.addressLine ?? '',
           city: s.city ?? '',
-          state: s.state ?? '',
+          countryId: s.countryId ?? '',
+          stateId: s.stateId ?? '',
           gstin: s.gstin ?? '',
           phone: s.phone ?? '',
           email: s.email ?? '',
@@ -76,10 +83,19 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
           receiptPostingMode: s.receiptPostingMode ?? 'Direct',
           receiptSeparationOfDuties: s.receiptSeparationOfDuties ?? false,
         });
+        this.storedCountry.set(s.countryId ? { id: s.countryId, name: s.countryName ?? '' } : null);
+        this.storedState.set(s.stateId ? { id: s.stateId, name: s.stateName ?? '' } : null);
+        this.legacyState.set(s.stateId ? null : s.state);
         if (!this.canEdit()) this.form.disable();
         this.loading.set(false);
       },
     });
+  }
+
+  /** Always posts the current links (null clears, D22); the legacy free-text state is never written (D6). */
+  buildRequest() {
+    const v = this.form.getRawValue();
+    return { ...v, countryId: v.countryId || null, stateId: v.countryId ? v.stateId || null : null };
   }
 
   submit(): void {
@@ -90,7 +106,7 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
     }
 
     this.saving.set(true);
-    this.settingsService.update(this.form.getRawValue()).subscribe({
+    this.settingsService.update(this.buildRequest()).subscribe({
       next: () => {
         this.saving.set(false);
         this.saved = true;

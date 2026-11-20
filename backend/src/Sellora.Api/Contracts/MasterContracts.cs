@@ -27,7 +27,8 @@ public record BusinessSettingsDto(
     Guid Id, string BusinessName, string? AddressLine, string? City, string? State,
     string? Gstin, string? Phone, string? Email, string InvoicePrefix,
     Guid BaseCurrencyId, string BaseCurrencyCode, string BaseCurrencySymbol, Guid CompanyId,
-    ReceiptPostingMode ReceiptPostingMode = ReceiptPostingMode.Direct, bool ReceiptSeparationOfDuties = false
+    ReceiptPostingMode ReceiptPostingMode = ReceiptPostingMode.Direct, bool ReceiptSeparationOfDuties = false,
+    Guid? CountryId = null, string? CountryName = null, Guid? StateId = null, string? StateName = null
 );
 
 public record UpdateBusinessSettingsRequest(
@@ -41,7 +42,9 @@ public record UpdateBusinessSettingsRequest(
     [Required, MaxLength(10)] string InvoicePrefix,
     [Required] Guid? BaseCurrencyId,
     ReceiptPostingMode? ReceiptPostingMode = null, // Phase 06 (FI-D39): omitted = unchanged
-    bool? ReceiptSeparationOfDuties = null
+    bool? ReceiptSeparationOfDuties = null,
+    Guid? CountryId = null, // country-state-masters D17: null clears the link; the form always posts the current value
+    Guid? StateId = null
 );
 
 public record SetActiveRequest(bool IsActive);

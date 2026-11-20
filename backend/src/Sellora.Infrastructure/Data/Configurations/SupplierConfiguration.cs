@@ -17,5 +17,7 @@ public class SupplierConfiguration : IEntityTypeConfiguration<Supplier>
         builder.HasIndex(s => s.Name);
 
         builder.HasOne(s => s.Currency).WithMany().HasForeignKey(s => s.CurrencyId).OnDelete(DeleteBehavior.Restrict);
+
+        GeoLinkConfiguration.Apply(builder, "Suppliers");
     }
 }

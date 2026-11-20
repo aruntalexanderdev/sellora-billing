@@ -5,3 +5,6 @@ docs/Sellora_Accounts_Phase_Wise_Implementation.docx
 docs/Sellora_Purchase_Batch_Traceability_Claude_Code_Phase_Plan.docx
 docs/Sellora_Purchase_Batch_Traceability_Claude_Code_Phase_Plan.md
 .claude/settings.local.json
+
+# Angular CLI cache when ng/npm is run from the repo root (frontend/.gitignore covers frontend/.angular)
+/.angular/

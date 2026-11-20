@@ -16,4 +16,8 @@ public class Supplier : ICompanyOwned
     /// <summary>Default currency for new purchases from this supplier. Saved purchases keep their own snapshot.</summary>
     public Guid CurrencyId { get; set; }
     public Currency Currency { get; set; } = null!;
+
+    /// <summary>Optional country (BR8). StateId, when set, must belong to it (composite FK).</summary>
+    public Guid? CountryId { get; set; }
+    public Guid? StateId { get; set; }
 }

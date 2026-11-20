@@ -1,0 +1,2 @@
+# Frozen migration SQL is embedded and SHA-256 pinned: it must be byte-identical on every checkout (core.autocrlf must not touch it).
+backend/src/Sellora.Infrastructure/Data/Migrations/Sql/*.sql text eol=lf

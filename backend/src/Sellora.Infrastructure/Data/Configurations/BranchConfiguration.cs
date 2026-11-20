@@ -35,5 +35,7 @@ public class BranchConfiguration : IEntityTypeConfiguration<Branch>
             t.HasCheckConstraint("CK_Branches_Default_Active", "\"IsActive\" OR NOT \"IsDefault\"");
             t.HasCheckConstraint("CK_Branches_Id_NotEmpty", "\"Id\" <> '00000000-0000-0000-0000-000000000000'");
         });
+
+        GeoLinkConfiguration.Apply(builder, "Branches");
     }
 }

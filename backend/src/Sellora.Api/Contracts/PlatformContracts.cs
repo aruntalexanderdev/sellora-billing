@@ -42,7 +42,9 @@ public record CreatePlatformCompanyRequest(
     [MaxLength(30)] string? Phone,
     [EmailAddress, MaxLength(200)] string? Email,
     [Required] PlatformOwnerRequest Owner,
-    [MaxLength(500)] string? Reason
+    [MaxLength(500)] string? Reason,
+    Guid? CountryId = null,
+    Guid? StateId = null
 );
 
 public record CreatedPlatformCompanyDto(Guid Id, string Code, Guid MainBranchId, Guid OwnerUserId);

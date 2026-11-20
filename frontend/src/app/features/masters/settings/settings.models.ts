@@ -17,13 +17,17 @@ export interface BusinessSettings {
   companyId: string;
   receiptPostingMode: ReceiptPostingMode;
   receiptSeparationOfDuties: boolean;
+  /** `state` above is the read-only legacy hint, shown only while stateId is null (D6). */
+  countryId: string | null;
+  countryName: string | null;
+  stateId: string | null;
+  stateName: string | null;
 }
 
 export interface UpdateBusinessSettingsRequest {
   businessName: string;
   addressLine?: string | null;
   city?: string | null;
-  state?: string | null;
   gstin?: string | null;
   phone?: string | null;
   email?: string | null;
@@ -32,4 +36,7 @@ export interface UpdateBusinessSettingsRequest {
   /** Omitted = unchanged. Applies only to receipts recorded afterwards. */
   receiptPostingMode?: ReceiptPostingMode;
   receiptSeparationOfDuties?: boolean;
+  /** Always post the current values: null clears the link (D17/D22). */
+  countryId: string | null;
+  stateId: string | null;
 }

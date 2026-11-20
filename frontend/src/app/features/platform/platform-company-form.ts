@@ -3,6 +3,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { applyProblem, problemMessage, toProblem } from '../../core/http/api-errors';
+import { GeoSelect } from '../../shared/geo/geo-select';
 import { UiButton } from '../../shared/ui/button/button';
 import { ToastService } from '../../shared/ui/toast/toast.service';
 import type { HasUnsavedChanges } from '../../core/unsaved-changes.guard';
@@ -25,7 +26,6 @@ export function buildCompanyRequest(
     gstin: blank(v.gstin),
     addressLine: blank(v.addressLine),
     city: blank(v.city),
-    state: blank(v.state),
     phone: blank(v.phone),
     email: blank(v.email),
     owner:
@@ -39,13 +39,15 @@ export function buildCompanyRequest(
             },
           },
     reason: blank(v.reason),
+    countryId: blank(v.countryId),
+    stateId: blank(v.stateId),
   };
 }
 
 @Component({
   selector: 'app-platform-company-form',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton],
+  imports: [ReactiveFormsModule, RouterLink, UiButton, GeoSelect],
   templateUrl: './platform-company-form.html',
   styleUrl: './platform.scss',
 })
@@ -64,7 +66,8 @@ export class PlatformCompanyForm implements HasUnsavedChanges {
     gstin: [''],
     addressLine: [''],
     city: [''],
-    state: [''],
+    countryId: [''],
+    stateId: [''],
     phone: [''],
     email: ['', Validators.email],
     owner: this.fb.nonNullable.group({
@@ -83,6 +86,8 @@ export class PlatformCompanyForm implements HasUnsavedChanges {
   });
 
   readonly ownerMode = signal<'new' | 'existing'>('new');
+  /** Onboarding uses the platform lookups (no company token), D10. */
+  readonly geoLookup = this.service;
   readonly currencies = signal<PlatformCurrencyOption[]>([]);
   readonly saving = signal(false);
   readonly serverError = signal<string | null>(null);

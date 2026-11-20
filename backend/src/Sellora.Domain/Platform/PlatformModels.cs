@@ -33,7 +33,7 @@ public sealed record PlatformOwnerInput(Guid? UserId, PlatformNewOwner? NewUser)
 public sealed record CreateCompanyInput(
     string Code, string Name, string BusinessName, string InvoicePrefix, Guid BaseCurrencyId,
     string? Gstin, string? AddressLine, string? City, string? State, string? Phone, string? Email,
-    PlatformOwnerInput Owner, string? Reason);
+    PlatformOwnerInput Owner, string? Reason, Guid? CountryId = null, Guid? StateId = null);
 
 public sealed record CreatedCompany(Guid Id, string Code, Guid MainBranchId, Guid OwnerUserId);
 
