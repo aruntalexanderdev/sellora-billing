@@ -258,6 +258,12 @@ public static class IsolationCases
         // Phase 7: units and currencies stay platform rows; their company writes are refused (403 reference_data_platform_managed) and the platform surface manages them.
         "PlatformReferenceDataController.Units", "PlatformReferenceDataController.CreateUnit", "PlatformReferenceDataController.UpdateUnit", "PlatformReferenceDataController.SetUnitActive",
         "PlatformReferenceDataController.Currencies", "PlatformReferenceDataController.CreateCurrency", "PlatformReferenceDataController.UpdateCurrency", "PlatformReferenceDataController.SetCurrencyActive",
+        // country-state-masters (D1, D8): Countries/States are global platform rows like units and currencies (no CompanyId); company writes
+        // follow the same reference-data guard and the platform console manages them.
+        "CountriesController.List", "CountriesController.Get", "CountriesController.Lookup", "CountriesController.Create", "CountriesController.Update", "CountriesController.SetActive",
+        "StatesController.List", "StatesController.Get", "StatesController.Lookup", "StatesController.Create", "StatesController.Update", "StatesController.SetActive",
+        "PlatformGeographyController.Countries", "PlatformGeographyController.CountryLookup", "PlatformGeographyController.CreateCountry", "PlatformGeographyController.UpdateCountry", "PlatformGeographyController.SetCountryActive",
+        "PlatformGeographyController.States", "PlatformGeographyController.StateLookup", "PlatformGeographyController.CreateState", "PlatformGeographyController.UpdateState", "PlatformGeographyController.SetStateActive",
         "UsersController.UpdateOwnUsername", "UsersController.ChangeOwnPassword",
         // Phase 6: the platform surface never reads company data (no company context: company-owned queries fail closed); the governance catalogue is global.
         "PlatformAuthController.Login", "PlatformCompaniesController.List", "PlatformCompaniesController.Currencies", "PlatformCompaniesController.Create",

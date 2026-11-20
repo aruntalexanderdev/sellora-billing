@@ -124,8 +124,8 @@ public class GeographyApiTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.OK, (await viewer.GetAsync("/api/v1/states")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsJsonAsync("/api/v1/countries", new CreateCountryRequest("ZZ", null, "Zedland"), ApiHost.Json)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsJsonAsync($"/api/v1/countries/{await CountryIdAsync(admin, "IN")}/status", new SetActiveRequest(false), ApiHost.Json)).StatusCode);
-        // a company token never reaches the platform console
-        Assert.Equal(HttpStatusCode.Forbidden, (await admin.GetAsync("/api/v1/platform/countries/all")).StatusCode);
+        // a company token never reaches the platform console: like every platform endpoint it is unauthenticated there (PlatformApiTests: 401)
+        Assert.Equal(HttpStatusCode.Unauthorized, (await admin.GetAsync("/api/v1/platform/countries/all")).StatusCode);
     }
 
     [Fact]
