@@ -171,11 +171,11 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
     this.form.markAsPristine();
   }
 
-  /** A category that the selected subcategory does not belong to clears it; clearing the category keeps it. */
+  /** Clearing the category, or choosing one the selected subcategory does not belong to, clears the subcategory. */
   private onCategoryChanged(categoryId: string): void {
     this.selectedCategoryId.set(categoryId);
     const sub = this.findSubcategory(this.form.controls.subcategoryId.value);
-    if (categoryId && sub && sub.categoryId !== categoryId) {
+    if (sub && sub.categoryId !== categoryId) {
       this.form.controls.subcategoryId.setValue('', { emitEvent: false });
       this.selectedSubcategoryId.set('');
     }
@@ -247,9 +247,8 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
     return {
       sku: v.sku,
       name: v.name,
-      // A subcategory implies its category (the category can be cleared while a subcategory stays selected).
-      categoryId: v.categoryId || this.findSubcategory(v.subcategoryId)?.categoryId || null,
-      subcategoryId: v.subcategoryId || null,
+      categoryId: v.categoryId || null,
+      subcategoryId: v.categoryId ? v.subcategoryId || null : null,
       baseUnitId: v.baseUnitId,
       taxId: v.taxId,
       reorderLevel: v.reorderLevel,

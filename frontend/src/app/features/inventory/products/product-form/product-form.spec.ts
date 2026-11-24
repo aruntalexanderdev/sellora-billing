@@ -203,10 +203,6 @@ describe('ProductForm category mapping', () => {
     const c = withCategories(product('kg', { categoryId: 'c1', subcategoryId: 's1' }));
     expect(c.buildRequest()).toMatchObject({ categoryId: 'c1', subcategoryId: 's1' });
     expect('category' in c.buildRequest()).toBe(false);
-    // Clearing the category keeps the subcategory, which implies its category.
-    c.form.controls.categoryId.setValue('');
-    expect(c.buildRequest()).toMatchObject({ categoryId: 'c1', subcategoryId: 's1' });
-    c.form.controls.subcategoryId.setValue('');
     c.form.controls.categoryId.setValue('');
     expect(c.buildRequest()).toMatchObject({ categoryId: null, subcategoryId: null });
   });
@@ -269,11 +265,11 @@ describe('ProductForm category / subcategory pickers', () => {
     expect(values(c)).toEqual(['Others']);
   });
 
-  it('clearing the category restores the full list and keeps the subcategory', () => {
+  it('clearing the category clears the subcategory and restores the full list', () => {
     const c = fresh();
     c.form.controls.subcategoryId.setValue('s1');
     c.form.controls.categoryId.setValue('');
-    expect(c.form.controls.subcategoryId.value).toBe('s1');
+    expect(c.form.controls.subcategoryId.value).toBe('');
     expect(values(c)).toEqual(['Rice · Grains', 'Others · Grains', 'Others · Dairy']);
   });
 
