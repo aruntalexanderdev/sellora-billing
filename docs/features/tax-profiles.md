@@ -1,6 +1,6 @@
 # Tax Profiles and Product Tax Mapping
 
-status: draft
+status: requirements-approved
 <!-- draft → requirements-approved → design-approved → db-done → backend-done → frontend-done → reviewed → done -->
 size: L (new tax masters, per-component line snapshots, sales/purchase money logic, data migration)
 
@@ -92,7 +92,7 @@ Line snapshot   profile, version, place of supply, price basis, one tax row per 
 **Document context**
 - BR11 Regime comes from the branch's country: India → GST, AE/SA/BH/OM → VAT, any other country → error until a
   profile exists for it.
-- BR12 Place of supply (GST only): sales — branch state vs customer state; a customer with no state (walk-in, POS) is
+- BR12 Place of supply (GST only; a branch with no state uses the company's state, T14): sales — branch state vs customer state; a customer with no state (walk-in, POS) is
   intra-state. Purchases — supplier state vs receiving branch state; a supplier with no state is intra-state with a
   warning. Same state → `IntraState` components; different state → `InterState` components.
 - BR13 Party tax status is an input of the calculation from phase 1 with value `Unspecified` (behaves as today:
@@ -118,6 +118,9 @@ Line snapshot   profile, version, place of supply, price basis, one tax row per 
   to each line's `Qty × Price − LineDiscount` (in the line's own basis); the last line takes the rounding remainder so
   the shares sum exactly to the entered amount. Each line stores `BillDiscountShare` and `BillChargeShare` (T7).
   Charges are tax-exclusive and take the line's rate. On purchases the charge share also feeds landed `UnitCost`.
+- BR19a Giving a whole-bill discount on a sale needs `Sales.BillDiscount` (403 without it), and its effective percent of
+  the bill's entered amount may not exceed `BusinessSettings.MaxBillDiscountPercent` when set (400 on `billDiscount`) (T15).
+  Purchases are not limited (the supplier sets the discount).
 - BR20 Header totals are sums of lines: `Subtotal = Σ Gross`, `DiscountTotal = Σ (LineDiscount + BillDiscountShare)`,
   `ChargesTotal = Σ BillChargeShare (+ OtherCharges)`, `TaxTotal = Σ tax rows`, and
   `GrandTotal = Σ LineTotal` exactly.
@@ -222,6 +225,10 @@ Worked numbers use 2 decimals, `AwayFromZero`.
   `hsnCode` and the save succeeds (T11).
 - AC21 Given a new company in India, When it is created, Then profiles GST Nil rated, Exempt, 5%, 18% and 40% exist with
   their components and a company-default assignment of GST 18%; for a UAE company, VAT 5%, Zero-rated and Exempt exist (T12).
+- AC22 Given a user without `Sales.BillDiscount`, When a sale with a bill discount is saved, Then 403; given
+  `MaxBillDiscountPercent = 10` and a 12% bill discount, Then 400 on `billDiscount` (T15).
+- AC23 Given an inclusive product with selling price 99.00, When it is sold, Then the customer pays 99.00; given the
+  product is switched to exclusive, Then the same stored 99.00 is treated as before tax (T16).
 
 ## Impact
 
@@ -231,18 +238,12 @@ API: new `/api/v1/tax-components`, `/api/v1/tax-profiles`, `/api/v1/tax-assignme
 product, sales, purchase and return contracts gain tax breakdown fields; `/api/v1/taxes` deprecated.
 UI: Inventory › Tax setup (3 tabs); product form tax section; POS / sales / purchase line breakdown, bill discount and
 charges inputs; invoice print shows components and HSN.
-Permissions: `Tax.View`, `Tax.Manage` (new; today taxes sit under `Masters.View/Edit`).
+Permissions: `Tax.View`, `Tax.Manage` (new; today taxes sit under `Masters.View/Edit`); `Sales.BillDiscount` (T15).
 Reports: sales/purchase tax reports read the component rows (legacy rows for history); new HSN summary later.
 
 ## Open questions
 
-- Q1 Ledger posting per component: there is no general ledger yet. Confirm posting stays out of scope (components
-  keep a placeholder for accounts later).
-- Q2 Branch with no state (E8): fall back to the company's state, or refuse GST documents until set?
-- Q4 Whole-bill discount on POS: who may give it, and is there a maximum %? (permission `Sales.BillDiscount` + limit
-  in business settings is the suggestion).
-- Q6 Selling price lists: today one `SellingPrice` per product unit. Is the stored price always in the product's
-  basis (inclusive when inclusive)? Recommendation: yes, the price is what the shelf label says.
+_None. Q1–Q6 are resolved as T11–T16._
 
 ## Database design
 
@@ -260,7 +261,8 @@ PascalCase tables, Guid ids, string enums, `CompanyId` on company-owned rows, `n
 
 New columns:
 - `Products.HsnCode` (≤8), `Products.PriceIncludesTax` (bool null); `ProductSubcategories.HsnCode`.
-- `BusinessSettings.SellingPricesIncludeTax` (bool, default true).
+- `BusinessSettings.SellingPricesIncludeTax` (bool, default true); `BusinessSettings.MaxBillDiscountPercent`
+  (numeric(5,2), null = no limit) (T15).
 - Sales/purchase lines: `TaxProfileId`, `TaxProfileVersionId`, `PlaceOfSupply`, `PriceIncludesTax`, `HsnCode`,
   `BillDiscountShare`, `BillChargeShare` (+ Original* on purchase lines). Return lines: `TaxProfileId`,
   `TaxProfileVersionId`, `PlaceOfSupply` copied from the original line.
@@ -336,6 +338,13 @@ Each phase is approved, built, verified and reviewed before the next.
   Exempt. Existing companies get the same seed in M1 next to their migrated legacy profiles (names that already exist
   are skipped and reported). For a new company the standard rate (GST 18% or the country VAT rate) becomes the company
   default assignment. Seeded profiles are ordinary rows the company can edit, version or deactivate.
+- T13 (Q1) Ledger posting per component is out of scope; components keep a placeholder for output/input accounts.
+- T14 (Q2) A branch in India with no state uses the company's state (`BusinessSettings.StateId`) for place of supply;
+  only when neither is set are GST documents refused.
+- T15 (Q4) Whole-bill discount on sales needs the new permission `Sales.BillDiscount` and is capped by
+  `BusinessSettings.MaxBillDiscountPercent` (empty = no cap).
+- T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
+  product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
 ## Deployment notes
 
