@@ -30,6 +30,8 @@ public class CompanyQueryFilterTests
         typeof(SalesPayment), typeof(SalesReturnLine), typeof(SalesInvoiceLineBatchConsumption), typeof(SellingPrice),
         // Phase 7: role grants are filtered through their (now company-owned) role.
         typeof(RolePermission),
+        // Tax profiles (D1): the line tax rows are filtered through their line's header.
+        typeof(SalesInvoiceLineTax), typeof(PurchaseOrderLineTax), typeof(SalesReturnLineTax), typeof(PurchaseReturnLineTax),
     ];
 
     private static SelloraDbContext NewDb(ICompanyContext context, string? name = null) =>
@@ -77,7 +79,7 @@ public class CompanyQueryFilterTests
         [
             "AuditEvent", "BatchLocationBalance", "Branch", "BusinessSettings", "CompanyGovernanceMember", "Consignment", "ConsignmentDisposition", "ConsignmentDispositionLine", "ConsignmentLine", "ConsignmentReceipt", "ConsignmentReceiptLine", "Customer", "DocumentSequence", "ExchangeRate", "Expense", "ExpenseCategory", "FinancialAccount",
             "FinancialTransaction", "GovernanceMemberPermission", "IdempotencyKey", "Product", "ProductCategory", "ProductSubcategory", "ProductUnit", "PurchaseBatch", "PurchaseOrder", "PurchaseReturn",
-            "Role", "SalesInvoice", "SalesReturn", "Shipment", "ShipmentVehicle", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "StockReservation", "StockTransfer", "StockTransferLine", "StockTransferLineBatch", "StockTransferReceipt", "StockTransferReceiptLine", "Supplier", "Tax", "UserBranchAssignment", "UserRoleAssignment", "Vehicle", "Warehouse",
+            "Role", "SalesInvoice", "SalesReturn", "Shipment", "ShipmentVehicle", "StockAdjustment", "StockItem", "StockLocation", "StockMovement", "StockReservation", "StockTransfer", "StockTransferLine", "StockTransferLineBatch", "StockTransferReceipt", "StockTransferReceiptLine", "Supplier", "Tax", "TaxAssignment", "TaxComponent", "TaxProfile", "TaxProfileVersion", "TaxProfileVersionComponent", "UserBranchAssignment", "UserRoleAssignment", "Vehicle", "Warehouse",
         ];
         Assert.Equal(expected, owned);
     }

@@ -30,4 +30,11 @@ public class BusinessSettings : ICompanyOwned
     /// <summary>Optional country (BR8). StateId, when set, must belong to it (composite FK).</summary>
     public Guid? CountryId { get; set; }
     public Guid? StateId { get; set; }
+
+    /// <summary>BR14/T18: whether stored selling prices already include tax. Existing companies keep false (their prices keep their meaning);
+    /// new companies start with true. No database default: the column default is dropped after the migration.</summary>
+    public bool SellingPricesIncludeTax { get; set; } = true;
+
+    /// <summary>T15: cap on a whole-bill discount as a percent of the bill (0-100); NULL = no cap.</summary>
+    public decimal? MaxBillDiscountPercent { get; set; }
 }

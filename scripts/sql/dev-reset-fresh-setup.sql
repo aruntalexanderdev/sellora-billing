@@ -6,7 +6,7 @@
 -- in the API, which fills in the four values below itself. Keep the four value lines and the RESULT wording as they are.
 --
 -- WHAT IT DOES (ALL companies; Units are global, so it cannot be limited to one company)
---   Removes        Masters    Units, Taxes
+--   Removes        Masters    Units, Taxes (with the tax components, profiles and versions, unless taxes are kept), tax assignments (always: they point at products)
 --                  Inventory  Products, ProductUnits, SellingPrices, ProductCategories, ProductSubcategories, StockItems,
 --                             PurchaseBatches, BatchLocationBalances, StockMovements, StockAdjustments (incl. opening stock),
 --                             StockReservations, StockTransfers (+ lines, batches, receipts), Shipments (+ vehicles),
@@ -116,6 +116,11 @@ BEGIN
         FROM (VALUES
             ('1 Masters',   'Units',                             cast(NULL AS text),   'truncate', 'remove all'),
             ('1 Masters',   'Taxes',                             'taxes',              'truncate', 'remove all'),
+            ('1 Masters',   'TaxComponents',                     'taxes',              'truncate', 'remove all'),
+            ('1 Masters',   'TaxProfiles',                       'taxes',              'truncate', 'remove all'),
+            ('1 Masters',   'TaxProfileVersions',                'taxes',              'truncate', 'remove all'),
+            ('1 Masters',   'TaxProfileVersionComponents',       'taxes',              'truncate', 'remove all'),
+            ('1 Masters',   'TaxAssignments',                    NULL,                 'truncate', 'remove all'),
             ('2 Inventory', 'Products',                          NULL,                 'truncate', 'remove all'),
             ('2 Inventory', 'ProductUnits',                      NULL,                 'truncate', 'remove all'),
             ('2 Inventory', 'SellingPrices',                     NULL,                 'truncate', 'remove all'),
@@ -144,6 +149,8 @@ BEGIN
             ('3 Purchases', 'PurchaseOrderLines',                NULL,                 'truncate', 'remove all'),
             ('3 Purchases', 'PurchaseReturns',                   NULL,                 'truncate', 'remove all'),
             ('3 Purchases', 'PurchaseReturnLines',               NULL,                 'truncate', 'remove all'),
+            ('3 Purchases', 'PurchaseReturnLineTaxes',           NULL,                 'truncate', 'remove all'),
+            ('3 Purchases', 'PurchaseOrderLineTaxes',            NULL,                 'truncate', 'remove all'),
             ('3 Purchases', 'PurchasePayments',                  NULL,                 'truncate', 'remove all'),
             ('3 Purchases', 'Suppliers',                         'suppliers',          'truncate', 'remove all'),
             ('4 Sales',     'SalesInvoices',                     NULL,                 'truncate', 'remove all'),
@@ -151,6 +158,8 @@ BEGIN
             ('4 Sales',     'SalesInvoiceLineBatchConsumptions', NULL,                 'truncate', 'remove all'),
             ('4 Sales',     'SalesReturns',                      NULL,                 'truncate', 'remove all'),
             ('4 Sales',     'SalesReturnLines',                  NULL,                 'truncate', 'remove all'),
+            ('4 Sales',     'SalesReturnLineTaxes',              NULL,                 'truncate', 'remove all'),
+            ('4 Sales',     'SalesInvoiceLineTaxes',             NULL,                 'truncate', 'remove all'),
             ('4 Sales',     'SalesPayments',                     NULL,                 'truncate', 'remove all'),
             ('4 Sales',     'Customers',                         'customers',          'delete',   'remove all except the walk-in customer'),
             ('5 Accounts',  'FinancialTransactions',             NULL,                 'truncate', 'remove all'),

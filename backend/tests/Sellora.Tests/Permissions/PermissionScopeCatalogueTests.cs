@@ -7,7 +7,7 @@ public class PermissionScopeCatalogueTests
 {
     private static readonly string[] ExpectedBranchEligible =
     [
-        "Sales.View", "Sales.Create", "Sales.PriceOverride", "Sales.Edit", "Sales.Receive", "Sales.Return", "Sales.Refund", "Sales.Cancel",
+        "Sales.View", "Sales.Create", "Sales.PriceOverride", "Sales.BillDiscount", "Sales.Edit", "Sales.Receive", "Sales.Return", "Sales.Refund", "Sales.Cancel",
         "Purchase.View", "Purchase.Create", "Purchase.Edit", "Purchase.Pay", "Purchase.Return", "Purchase.Refund", "Purchase.Cancel",
         "Inventory.Adjust", "StockLocations.View", "Inventory.View",
         "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.ApproveReceipt", "StockTransfers.Cancel",

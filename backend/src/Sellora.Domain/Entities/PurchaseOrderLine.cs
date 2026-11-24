@@ -50,5 +50,7 @@ public class PurchaseOrderLine
     /// <summary>Landed cost per base unit (pre-tax) — feeds the PurchaseBatch this line creates.</summary>
     public decimal UnitCost { get; set; }
 
+    public ICollection<PurchaseOrderLineTax> Taxes { get; set; } = new List<PurchaseOrderLineTax>();
+
     public PurchaseBatch? Batch { get; set; }
 }

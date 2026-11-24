@@ -72,7 +72,7 @@ public partial class FreshSetupResetScriptTests
     {
         var listed = ResetList().Select(r => r.Table).ToList();
 
-        Assert.Equal(44, listed.Count);
+        Assert.Equal(53, listed.Count);
         Assert.Equal(listed.Count, listed.Distinct(StringComparer.Ordinal).Count());
         Assert.Empty(listed.Intersect(NeverEmptied, StringComparer.Ordinal));
         Assert.Equal(ModelTables(), listed.Concat(NeverEmptied).Order(StringComparer.Ordinal).ToList());
@@ -85,7 +85,8 @@ public partial class FreshSetupResetScriptTests
 
         Assert.Equal(
             ["Customers:customers", "ExpenseCategories:expense_categories", "FinancialAccounts:accounts", "ProductCategories:categories",
-             "ProductSubcategories:categories", "Suppliers:suppliers", "Taxes:taxes"],
+             "ProductSubcategories:categories", "Suppliers:suppliers", "TaxComponents:taxes", "TaxProfileVersionComponents:taxes", "TaxProfileVersions:taxes",
+             "TaxProfiles:taxes", "Taxes:taxes"],
             list.Where(r => r.KeepToken is not null).Select(r => r.Table + ":" + r.KeepToken).Order(StringComparer.Ordinal).ToList());
         // Customers is the only table that is not emptied outright: the walk-in customer must survive.
         Assert.Equal(["Customers"], list.Where(r => r.Via == "delete").Select(r => r.Table).ToList());

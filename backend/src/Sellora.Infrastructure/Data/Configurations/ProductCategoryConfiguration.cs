@@ -38,6 +38,11 @@ public class ProductSubcategoryConfiguration : IEntityTypeConfiguration<ProductS
         builder.HasOne(s => s.Category).WithMany(c => c.Subcategories).HasForeignKey(s => new { s.CompanyId, s.CategoryId })
             .HasPrincipalKey(c => new { c.CompanyId, c.Id }).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_ProductSubcategories_ProductCategories_CompanyId_CategoryId");
-        builder.ToTable(t => t.HasCheckConstraint("CK_ProductSubcategories_Code_Format", "\"Code\" ~ '^[A-Z0-9][A-Z0-9-]{0,19}$'"));
+        builder.Property(s => s.HsnCode).HasMaxLength(8);
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_ProductSubcategories_Code_Format", "\"Code\" ~ '^[A-Z0-9][A-Z0-9-]{0,19}$'");
+            t.HasCheckConstraint("CK_ProductSubcategories_HsnCode_Format", TaxValues.HsnFormat);
+        });
     }
 }

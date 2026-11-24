@@ -35,8 +35,8 @@ public class PermissionSeedScriptTests(PostgresFixture postgres)
     {
         await using var database = await postgres.CreateDatabaseAsync();
         // Phase 7: the AddScopedRoles migration itself inserts the four new codes (Company.Users.AssignRoles, Branch.Roles.*, Branch.Users.AssignRoles); start from a truly empty table.
-        // Phase 9: AddStockTransfers inserts the seven StockTransfers.* codes as well (4 + 7); Phase 8: AddProductCategoryMasters adds Inventory.Categories (4 + 7 + 1); Phase 07: AddCashBankFundingAndReversal adds CashBank.Fund and CashBank.Reverse (4 + 7 + 1 + 2); Phase 04: AddShipmentsConsignmentsAndReservations adds Shipments.View/Plan/Load and Reservations.Release (4 + 7 + 1 + 2 + 4); Phase 06: AddReceiptApprovalAndDispositions adds StockTransfers.ApproveReceipt (4 + 7 + 1 + 2 + 4 + 1).
-        Assert.Equal(19L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Permissions" """));
+        // Phase 9: AddStockTransfers inserts the seven StockTransfers.* codes as well (4 + 7); Phase 8: AddProductCategoryMasters adds Inventory.Categories (4 + 7 + 1); Phase 07: AddCashBankFundingAndReversal adds CashBank.Fund and CashBank.Reverse (4 + 7 + 1 + 2); Phase 04: AddShipmentsConsignmentsAndReservations adds Shipments.View/Plan/Load and Reservations.Release (4 + 7 + 1 + 2 + 4); Phase 06: AddReceiptApprovalAndDispositions adds StockTransfers.ApproveReceipt (4 + 7 + 1 + 2 + 4 + 1); TP-1: AddTaxProfiles adds Tax.View, Tax.Manage and Sales.BillDiscount (4 + 7 + 1 + 2 + 4 + 1 + 3).
+        Assert.Equal(22L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Permissions" """));
         await ExecuteAsync(database, """DELETE FROM "Permissions" """);
         Assert.Equal(0L, await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Permissions" """));
 
