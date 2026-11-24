@@ -1,6 +1,6 @@
 # Tax Profiles and Product Tax Mapping
 
-status: requirements-approved
+status: design-approved
 <!-- draft → requirements-approved → design-approved → db-done → backend-done → frontend-done → reviewed → done -->
 size: L (new tax masters, per-component line snapshots, sales/purchase money logic, data migration)
 
@@ -343,12 +343,20 @@ Each phase is approved, built, verified and reviewed before the next.
   only when neither is set are GST documents refused.
 - T15 (Q4) Whole-bill discount on sales needs the new permission `Sales.BillDiscount` and is capped by
   `BusinessSettings.MaxBillDiscountPercent` (empty = no cap).
+- T17 Design deviations a–g in the TP-1 design are approved.
+- T18 (DQ1) Existing companies keep `SellingPricesIncludeTax = false` (stored prices keep their meaning); new companies
+  get `true`.
+- T19 (DQ2) Until TP-4 ships, a new version's `effectiveFrom` may not be later than today (400 `effectiveFrom`).
+- T20 (DQ3) TP-1 adds a Mapping-tab action "Clear overrides equal to the inherited profile" (per company and country,
+  confirm step, reports how many were cleared).
+- T21 (DQ4) Company default for existing companies is the standard rate (GST 18% / country VAT standard); the
+  most-used legacy tax is only the fallback when no standard profile exists for that company.
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
 ## TP-1 design
 
-Status: **proposed, awaiting owner approval** (design gate). Produced by the solution architect from this spec and the
+Status: **approved by the owner** (design gate passed; deviations a–g and DQ1–DQ4 decided, see T17–T21). Produced by the solution architect from this spec and the
 code on `analyse_copy`. Nothing below is implemented yet.
 
 ### Key design decisions
@@ -371,7 +379,7 @@ code on `analyse_copy`. Nothing below is implemented yet.
   (profile, from), one open version per profile, plus a blocking V__ overlap check.
 - **D6 Rules spanning rows** (equal CGST/SGST, complete GST set, TotalPercent) are service rules plus blocking V__ checks.
 
-### Deviations from the draft database design (each needs owner approval)
+### Deviations from the draft database design (approved, T17)
 | # | Change | Reason |
 |---|---|---|
 | a | `TaxComponents.CountryId` | A company with branches in several GCC countries gets one VAT component per country |
@@ -482,7 +490,7 @@ seeds later and is idempotent. A drift test compares M1's output with `TaxSeedDa
 - Mirror rate can lag a future-dated version (warn check; see design question DQ2).
 - The product form edits only the company-country override; other countries use the Mapping tab.
 
-### Design questions for the owner
+### Design questions (decided: T18–T21)
 - DQ1 `SellingPricesIncludeTax` for **existing** companies: keep `false` (today's prices keep their meaning;
   recommended) or `true` (BR14 default, silently changes what existing prices mean at TP-4)? New companies get `true`.
 - DQ2 Until TP-4, reject versions with `effectiveFrom` later than today (legacy billing cannot switch rate on a date)?
