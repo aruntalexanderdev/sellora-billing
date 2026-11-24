@@ -84,9 +84,9 @@ Line snapshot   profile, version, place of supply, price basis, one tax row per 
 - BR8 Resolution for a document line: product → subcategory → category → company default, for the country of the
   document's branch (fallback: company country from `BusinessSettings`). No result is a validation error naming the
   product. The resolved source (e.g. "subcategory Soft Drinks") is returned to the UI.
-- BR9 HSN/SAC code is stored on subcategory and product and resolves product → subcategory. Required for products
-  resolved to a GST profile with treatment `Taxable` before they can be sold or bought (configurable warning vs
-  error is an open question, Q3).
+- BR9 HSN/SAC code is stored on subcategory and product and resolves product → subcategory. A product resolved to a
+  GST profile with treatment `Taxable` and no HSN code gets a warning on the product form and on document lines; the
+  save is allowed (T11).
 - BR10 A profile's country must match the assignment's country.
 
 **Document context**
@@ -218,7 +218,10 @@ Worked numbers use 2 decimals, `AwayFromZero`.
 - AC18 Given `SellingPricesIncludeTax = true` and a product override `false`, Then that product's sale lines are
   exclusive and snapshot `PriceIncludesTax = false`.
 - AC19 Given treatment `Exempt` or `NilRated`, Then the line stores one zero tax row with the treatment and no CGST/SGST.
-- AC20 Given a GST taxable product without HSN, Then the behaviour agreed in Q3 applies (warning or 400 on `hsnCode`).
+- AC20 Given a GST taxable product without HSN, When it is saved or sold, Then the response carries a warning on
+  `hsnCode` and the save succeeds (T11).
+- AC21 Given a new company in India, When it is created, Then profiles GST Nil rated, Exempt, 5%, 18% and 40% exist with
+  their components and a company-default assignment of GST 18%; for a UAE company, VAT 5%, Zero-rated and Exempt exist (T12).
 
 ## Impact
 
@@ -236,12 +239,8 @@ Reports: sales/purchase tax reports read the component rows (legacy rows for his
 - Q1 Ledger posting per component: there is no general ledger yet. Confirm posting stays out of scope (components
   keep a placeholder for accounts later).
 - Q2 Branch with no state (E8): fall back to the company's state, or refuse GST documents until set?
-- Q3 Missing HSN on a GST taxable product: warning (allow) or error (block sale/purchase)? Recommendation: warning in
-  phase 1, error once the HSN report ships.
 - Q4 Whole-bill discount on POS: who may give it, and is there a maximum %? (permission `Sales.BillDiscount` + limit
   in business settings is the suggestion).
-- Q5 Seeding: should new companies get standard India/GCC profiles automatically (GST 0/5/18/40, Exempt, Nil;
-  VAT standard/zero/exempt per country), or start empty?
 - Q6 Selling price lists: today one `SellingPrice` per product unit. Is the stored price always in the product's
   basis (inclusive when inclusive)? Recommendation: yes, the price is what the shelf label says.
 
@@ -310,7 +309,7 @@ Each phase is approved, built, verified and reviewed before the next.
 
 | Phase | Content |
 |---|---|
-| TP-1 Masters | Components, profiles, versions, assignments, HSN fields, company price-basis setting; Tax setup screen; product form tax section; M1 migration + validation SQL; resolver; seeds (Q5) |
+| TP-1 Masters | Components, profiles, versions, assignments, HSN fields, company price-basis setting; Tax setup screen; product form tax section; M1 migration + validation SQL; resolver; standard profile seeds (T12) |
 | TP-2 Calculator | Single tax calculator (BR16–BR22) with unit tests for every AC; `/tax/preview` |
 | TP-3 Purchases | Purchase + purchase return on the calculator: component rows, place of supply, `RatesIncludeTax`, bill discount/charges into landed cost |
 | TP-4 Sales and POS | Sales, POS and sales return on the calculator: inclusive pricing, bill discount/charges, invoice print with components and HSN |
@@ -326,10 +325,17 @@ Each phase is approved, built, verified and reviewed before the next.
 - T5 Cess is a tax component with method Percent, AmountPerBaseUnit, or both on one profile.
 - T6 No after-tax discount in phase 1; later delivered as financial credit note + discount on payment.
 - T7 Whole-bill discount and whole-bill charges are spread across lines by value before tax; each line stores its share.
-- T8 (proposed) Rates are effective-dated profile versions; a version used by history is immutable.
-- T9 (proposed) Inclusive rounding: the paisa difference goes into the taxable value, never into a component, so the
+- T8 Rates are effective-dated profile versions; a version used by history is immutable.
+- T9 Inclusive rounding: the paisa difference goes into the taxable value, never into a component, so the
   price paid is exact and CGST = SGST. (The prototype puts it on the last component; the spec supersedes it.)
-- T10 (proposed) Historic lines get one legacy tax row; history is never split into CGST/SGST retroactively.
+- T10 Historic lines get one legacy tax row; history is never split into CGST/SGST retroactively.
+- T11 (Q3) A GST taxable product without an HSN code gives a warning in phase 1 (save and sale are allowed); it becomes
+  an error once the HSN summary report ships.
+- T12 (Q5) New companies are seeded with standard profiles for their country: India — GST 0% Nil rated, Exempt, 5%,
+  18%, 40% with CGST/SGST/IGST components; GCC — VAT standard rate (AE 5%, SA 15%, BH 10%, OM 5%), Zero-rated and
+  Exempt. Existing companies get the same seed in M1 next to their migrated legacy profiles (names that already exist
+  are skipped and reported). For a new company the standard rate (GST 18% or the country VAT rate) becomes the company
+  default assignment. Seeded profiles are ordinary rows the company can edit, version or deactivate.
 
 ## Deployment notes
 
