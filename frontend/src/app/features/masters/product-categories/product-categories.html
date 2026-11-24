@@ -14,34 +14,6 @@
     Show inactive
   </label>
 
-  @if (editor(); as e) {
-    <form [formGroup]="form" (ngSubmit)="submit()" class="editor" aria-label="Category editor">
-      <h2>{{ e.id ? 'Edit' : 'New' }} {{ e.kind }}</h2>
-      <div class="grid-2">
-        <div>
-          <label class="field-label">Name</label>
-          <input type="text" formControlName="name" class="field-input" maxlength="60" (input)="onNameInput()" />
-          @if (fieldError('name'); as msg) { <div class="field-error">{{ msg }}</div> }
-        </div>
-        <div>
-          <label class="field-label">Code</label>
-          <input type="text" formControlName="code" class="field-input" maxlength="20" (input)="onCodeInput()" />
-          @if (fieldError('code'); as msg) { <div class="field-error">{{ msg }}</div> }
-        </div>
-        <div>
-          <label class="field-label">Sort order</label>
-          <input type="number" min="0" step="1" formControlName="sortOrder" class="field-input" />
-          @if (fieldError('sortOrder'); as msg) { <div class="field-error">{{ msg }}</div> }
-        </div>
-      </div>
-      @if (serverError()) { <div class="field-error">{{ serverError() }}</div> }
-      <div class="editor-actions">
-        <ui-button type="submit" variant="primary" [disabled]="saving()">Save</ui-button>
-        <ui-button variant="secondary" (onClick)="cancel()">Cancel</ui-button>
-      </div>
-    </form>
-  }
-
   @if (loading()) {
     <p class="muted">Loading…</p>
   } @else if (loadFailed()) {
@@ -90,3 +62,7 @@
     </table>
   }
 </div>
+
+@if (editor(); as e) {
+  <app-classification-editor-dialog [target]="e" [categories]="categories()" (saved)="onSaved()" (closed)="closeEditor()" />
+}
