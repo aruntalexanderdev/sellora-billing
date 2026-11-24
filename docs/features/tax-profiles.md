@@ -338,7 +338,9 @@ Each phase is approved, built, verified and reviewed before the next.
   Exempt. Existing companies get the same seed in M1 next to their migrated legacy profiles (names that already exist
   are skipped and reported). For a new company the standard rate (GST 18% or the country VAT rate) becomes the company
   default assignment. Seeded profiles are ordinary rows the company can edit, version or deactivate.
-- T13 (Q1) Ledger posting per component is out of scope; components keep a placeholder for output/input accounts.
+- T13 (Q1) Ledger posting per component is out of scope. The account placeholder columns are also deferred to the
+  ledger work (owner, TP-1 WP1 review).
+- T22 The TP-1 API contract (section "TP-1 design › API") is approved; WP1 is done (commit 8668a04).
 - T14 (Q2) A branch in India with no state uses the company's state (`BusinessSettings.StateId`) for place of supply;
   only when neither is set are GST documents refused.
 - T15 (Q4) Whole-bill discount on sales needs the new permission `Sales.BillDiscount` and is capped by
