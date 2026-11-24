@@ -346,6 +346,152 @@ Each phase is approved, built, verified and reviewed before the next.
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
+## TP-1 design
+
+Status: **proposed, awaiting owner approval** (design gate). Produced by the solution architect from this spec and the
+code on `analyse_copy`. Nothing below is implemented yet.
+
+### Key design decisions
+- **D1 Line tax tables in M1.** M1 creates the four `*LineTaxes` tables and inserts one legacy row per historic line
+  (AC16), so history is migrated once. M1 does **not** alter any line or header table; line/header columns
+  (`TaxProfileId`, `PlaceOfSupply`, `PriceIncludesTax`, `HsnCode`, bill shares, header totals) arrive in TP-3/TP-4.
+  Billing keeps running during M1 (line tables only take ACCESS SHARE).
+- **D2 Gap lines.** From TP-1 the four write paths (`SalesService.cs:641`, `:437`; `PurchaseService.cs:730`, `:495`)
+  add one legacy row via a shared `LegacyLineTax.Build` helper. Lines saved by the old build between the M1 commit and
+  the app swap are caught up by re-running the frozen, idempotent `.legacy-rows.sql` in the TP-3 and TP-4 migrations.
+- **D3 Mirror tax from TP-1.** Every `TaxProfile` has a mirror `Taxes` row (`LegacyTaxId`, kept until M3). Billing stays
+  on `Product.Tax` in TP-1 (`SalesService.cs:635`, `PurchaseService.cs:700`, `SalesController.cs:102`), so
+  `Product.TaxId` = mirror of the product's resolved sales profile for the company country, kept in sync by
+  ProductService and TaxAssignmentService. Mirror `RatePercent` = TotalPercent of the version valid today. The
+  previous build can be redeployed with no database rollback.
+- **D4 History `TaxProfileId` deferred.** Not set in M1 (it would rewrite the largest tables). History stays traceable
+  1:1 through line `TaxId` → `TaxProfiles.LegacyTaxId`; TP-5 M3 backfills it in batches before dropping `TaxId`.
+- **D5 No exclusion constraint for version overlap** (needs `btree_gist`, not used anywhere, untestable in InMemory).
+  Instead: versions are append-only (new `EffectiveFrom` ≥ latest), profile row locked `FOR UPDATE`, unique
+  (profile, from), one open version per profile, plus a blocking V__ overlap check.
+- **D6 Rules spanning rows** (equal CGST/SGST, complete GST set, TotalPercent) are service rules plus blocking V__ checks.
+
+### Deviations from the draft database design (each needs owner approval)
+| # | Change | Reason |
+|---|---|---|
+| a | `TaxComponents.CountryId` | A company with branches in several GCC countries gets one VAT component per country |
+| b | Typed `CategoryId` / `SubcategoryId` / `ProductId` on `TaxAssignments` instead of `ScopeId` | Real same-company foreign keys and per-scope unique indexes |
+| c | `Method` copied onto version components | Composite FK makes "rate matches the component's method" a database rule |
+| d | History `TaxProfileId` deferred to M3 (D4) | Avoids rewriting the largest tables in M1 |
+| e | VAT rate 0 → `ZeroRated` (spec said `NilRated`) | `NilRated` is a GST term |
+| f | Mirror tax for every profile from TP-1 (D3) | Applies the spec's M2 rollback rule early |
+| g | `/api/v1/taxes` becomes read-only in TP-1 | Writes would bypass profiles |
+
+### Domain and persistence
+- Enums: `TaxComponentKind`, `TaxCalculationMethod`, `TaxRegime`, `TaxTreatment`, `TaxApplicability`, `TaxScope`.
+- Entities (all `ICompanyOwned`, company filter automatic, `SelloraDbContext.cs:141-148`): `TaxComponent`, `TaxProfile`
+  (`LegacyTaxId` NOT NULL after M1), `TaxProfileVersion`, `TaxProfileVersionComponent`, `TaxAssignment`; line tax
+  entities share a C# base, one table each, filtered through their parent like `SelloraDbContext.cs:150-157`.
+- Key constraints: unique (CompanyId, CountryId, Code) on components and profiles; unique lower(Name) per company and
+  country; unique (TaxProfileId, EffectiveFrom); one open version per profile; CK on rate vs amount per method;
+  CK on assignment scope shape with partial uniques per scope; composite FK (CompanyId, CountryId, ProfileId) enforces
+  BR10; `HsnCode` CK `^[0-9]{4}([0-9]{2}){0,2}$`; `MaxBillDiscountPercent` CK 0–100.
+- File: new `Data/Configurations/TaxProfileConfigurations.cs`; line tax configs next to the existing sales/purchase
+  configurations.
+
+### Migration M1 `AddTaxProfiles` (one transaction, `SET LOCAL lock_timeout = '5s'`)
+1. Create the five master tables.
+2. Run `seed.sql` + `backfill.sql` (frozen, SHA-pinned resources as `MigrationSql.cs:9`; deterministic
+   `md5('sellora:…')::uuid` ids like `DbSeeder.Md5Guid`):
+   preflight (a company with taxes but no `BusinessSettings.CountryId` fails the release), components per company by
+   country, one legacy profile + version `2000-01-01` per `Taxes` row (India: CGST/SGST halves intra, IGST inter;
+   GCC: VAT; rate 0 → NilRated / ZeroRated and reported), standard seeds (T12, skipped by name or code and reported)
+   with their mirror taxes, product-level assignments from `Products.TaxId` (AC17), company default assignment.
+3. Create the four line tax tables (without line FKs), run `legacy-rows.sql` (idempotent), add the line FKs `NOT VALID`.
+4. Add columns last: Products, ProductSubcategories, BusinessSettings (shortest lock on the per-request tables).
+5. Insert permissions and grants: `Tax.View` → holders of Masters.View / Inventory.Create / Inventory.Edit;
+   `Tax.Manage` → Masters.Edit holders; `Sales.BillDiscount` → Sales.PriceOverride holders.
+
+Second migration in the same release: `ValidateTaxLineForeignKeys` (VALIDATE CONSTRAINT ×4, does not block inserts).
+
+Validation SQL (`backend/db/validation`):
+
+| File | Mode | Checks |
+|---|---|---|
+| `V__tax-profiles-integrity.sql` | block | version overlap, profile without open version, Taxable version without components, non-taxable version with components, component/profile country mismatch, missing mirror |
+| `V__tax-gst-rules.sql` | block | GST Taxable version missing CGST, SGST/UTGST or IGST; CGST ≠ SGST; IGST ≠ CGST+SGST; VAT in a GST profile; TotalPercent ≠ Σ percent |
+| `V__tax-products-resolve.sql` | block | product not resolving, or `Products.TaxId` ≠ resolved profile's mirror |
+| `V__tax-line-rows-consistency.sql` | block | Σ rows ≠ line TaxAmount; legacy row base ≠ TaxableValue |
+| `V__tax-line-rows-missing.sql` | warn (block from TP-4) | line without tax rows |
+| `V__tax-mirror-drift.sql` | warn | mirror rate or IsActive ≠ current version |
+
+Release-notes queries: zero-rate taxes converted, skipped seeds, company default chosen, before/after counts.
+Rollback: app-only (purely additive, mirrors keep the old build working); `Down()` is dev-only.
+
+### Standard seeds for new companies (T12)
+`Data/TaxSeedData.cs` is the single C# source (twin of `GeoSeedData`); `TaxSeeder.SeedCompanyAsync` uses the same
+md5 ids and is called from `PlatformService.CreateCompanyAsync` (`PlatformService.cs:244`) and from DbSeeder
+(replacing `SeedTaxesAsync`, `DbSeeder.cs:434-453`). No country → nothing seeded; `POST /tax-profiles/seed-standard`
+seeds later and is idempotent. A drift test compares M1's output with `TaxSeedData` for IN/AE/SA/BH/OM/QA.
+
+### Services (interfaces in Domain, implementations in Infrastructure)
+- `ITaxComponentService` — create / update (400 `method` once used) / set active.
+- `ITaxProfileService` — create (regime must match country), update (code, name only), `AddVersionAsync`
+  (BR3 set rules; earlier date → 400 `effectiveFrom`; same date replaces only an unused version; later date closes the
+  previous one; TotalPercent ≤ 3 dp; mirror sync), set active (blocked while assigned), seed standard.
+- `ITaxAssignmentService` — upsert / delete (company default cannot be deleted); re-syncs `Products.TaxId` under a
+  per-company advisory lock.
+- `ITaxResolver` — `ResolveAsync`, `ResolveManyAsync`, `PreviewAsync` → profiles, source, HSN and HSN warning;
+  `ResolveDocumentCountryAsync` (branch → company → 400); `ResolveVersionAsync` (BR5, ready for TP-3/4).
+- `ProductService` — input drops `TaxId`, gains `HsnCode`, `PriceIncludesTax`, optional sales/purchase override
+  profiles for the company country; writes the mirror `TaxId`; returns HSN warnings (T11).
+  `ProductCategoryService` — subcategory `HsnCode`.
+
+### API
+- `TaxComponentsController` `/api/v1/tax-components`; `TaxProfilesController` `/api/v1/tax-profiles`
+  (list, detail, create, update, `/{id}/versions`, `/{id}/status`, `/seed-standard`); `TaxAssignmentsController`
+  `/api/v1/tax-assignments` (tree, `/resolve`, upsert, delete). Reads `Tax.View`, writes `Tax.Manage`.
+- Permissions added to `PermissionCatalog.cs`, `R__seed-permissions.sql` and DbSeeder grants.
+- Product DTO gains `hsnCode`, `effectiveHsnCode`, `hsnSource`, `priceIncludesTax`, resolved sales/purchase profile,
+  `taxSource`, override ids, `warnings`; request no longer requires `taxId`. Business settings DTO gains
+  `sellingPricesIncludeTax`, `maxBillDiscountPercent`.
+- `/api/v1/taxes`: GET kept (deprecated); POST/PUT/status removed.
+
+### Frontend
+- `features/inventory/tax-setup/` (tabs: Components, Profiles with version timeline and add-version form, Mapping tree
+  per country), route `inventory/tax-setup` (Tax.View), nav entry "Tax setup"; Administration › Taxes removed.
+- New `product-form/product-tax-section/` child: resolved source, override toggle, purchase "same as sales", HSN with
+  inherited placeholder and warning, price basis (Company default / Inclusive / Exclusive) with the T16 warning.
+- Business settings page gets the two new fields.
+- **Sequencing:** `feature/category-ux` edits the same product-form files; it must be merged into `analyse_copy` and
+  then into `feature/tax-profiles` before frontend work starts.
+
+### Tests
+- xUnit: every BR3/BR4 rule, AC10–AC14, AC20, AC21, mirror sync, assignment guards, seeder idempotency, legacy row on
+  the four write paths.
+- Postgres integration: AC16, AC17, seed skip, default choice, preflight failure, re-run no-op, constraints and
+  composite FKs, lock_timeout, Down/Up, NOT VALID → VALIDATE, each V__ file (clean then probe), drift and SHA pin.
+- Vitest: GST version rules, HSN validator, product tax section, add-version form, mapping tab.
+
+### Work packages (max two agents at once)
+1. database-engineer — entities, enums, configurations, M1 + validate migration, SQL resources, V__ files,
+   `TaxSeedData`, permission seed. Gate: this design approved.
+2. backend-engineer — services, resolver, seeder, product/category services, legacy-row write paths, controllers,
+   contracts, permissions; in parallel test-engineer — migration and integration tests. Gate: API contract approved.
+3. frontend-engineer (after the API gate and the category-ux merge); in parallel test-engineer — xUnit and Vitest.
+4. code-reviewer, then `scripts/verify.sh all`.
+
+### Risks
+- ALTERs on Products and BusinessSettings hold ACCESS EXCLUSIVE until commit; they run last under the 5 s lock timeout.
+- Legacy-row insert time grows with line count (billing continues).
+- Mirror rate can lag a future-dated version (warn check; see design question DQ2).
+- The product form edits only the company-country override; other countries use the Mapping tab.
+
+### Design questions for the owner
+- DQ1 `SellingPricesIncludeTax` for **existing** companies: keep `false` (today's prices keep their meaning;
+  recommended) or `true` (BR14 default, silently changes what existing prices mean at TP-4)? New companies get `true`.
+- DQ2 Until TP-4, reject versions with `effectiveFrom` later than today (legacy billing cannot switch rate on a date)?
+  Recommended yes.
+- DQ3 After M1 every product carries an override, so category mapping has no effect. Add a "Clear overrides equal to
+  the inherited profile" action on the Mapping tab in TP-1? Recommended yes.
+- DQ4 Company default for existing companies: the standard rate (GST 18% / country VAT; recommended) or the most-used
+  legacy tax?
+
 ## Deployment notes
 
 - M1 runs as a manual, pre-deploy database release (D10), never at startup. Back up first; validation SQL must return
