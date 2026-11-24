@@ -52,33 +52,39 @@ describe('ProductCategories master', () => {
     expect(el.textContent).not.toContain('Deactivate');
   });
 
-  it('suggests the code from the name until the code is edited by hand', () => {
-    const { c } = mount();
-    c.startCategory();
-    c.form.controls.name.setValue('Fresh Dairy');
-    c.onNameInput();
-    expect(c.form.controls.code.value).toBe('FRESH-DAIRY');
-    c.form.controls.code.setValue('fd');
-    c.onCodeInput();
-    expect(c.form.controls.code.value).toBe('FD');
-    c.form.controls.name.setValue('Something else');
-    c.onNameInput();
-    expect(c.form.controls.code.value).toBe('FD');
+  it('opens the editor modal; Add subcategory carries the category context', () => {
+    const { c, f, el } = mount();
+    expect(el.querySelector('[role="dialog"]')).toBeNull();
+
+    c.startSubcategory(cats[0]);
+    f.detectChanges();
+    const dialog = el.querySelector('[role="dialog"]')!;
+    expect(dialog).not.toBeNull();
+    expect(dialog.textContent).toContain('New subcategory');
+    expect(dialog.textContent).toContain('Under category: Grains');
+    expect(c.isExpanded('c1')).toBe(true);
+
+    c.closeEditor();
+    f.detectChanges();
+    expect(el.querySelector('[role="dialog"]')).toBeNull();
+
+    c.startSubcategory(cats[0], cats[0].subcategories[0]);
+    f.detectChanges();
+    expect(el.querySelector('[role="dialog"]')!.textContent).toContain('Edit subcategory');
+    expect((el.querySelector('#ce-name') as HTMLInputElement).value).toBe('Rice');
   });
 
-  it('creates a category, rejects invalid codes, and maps server errors', () => {
-    const { c, svc } = mount();
+  it('category create uses the same modal and reloads after save', () => {
+    const { c, f, el, svc } = mount();
     c.startCategory();
-    c.form.setValue({ code: 'bad code', name: 'X', sortOrder: 0 });
-    c.submit();
-    expect(svc.create).not.toHaveBeenCalled();
-    c.form.setValue({ code: 'X1', name: 'X', sortOrder: 2 });
-    c.submit();
-    expect(svc.create).toHaveBeenCalledWith({ code: 'X1', name: 'X', sortOrder: 2 });
-    expect(c.editor()).toBeNull();
-    c.startCategory();
-    c.applyServerErrors({ errors: { code: ['Code already exists.'] } });
-    expect(c.form.controls.code.errors?.['server']).toBe('Code already exists.');
+    f.detectChanges();
+    expect(el.querySelector('[role="dialog"]')!.textContent).toContain('New category');
+    expect(el.querySelector('.context')).toBeNull();
+    const calls = svc.list.mock.calls.length;
+    c.onSaved();
+    f.detectChanges();
+    expect(el.querySelector('[role="dialog"]')).toBeNull();
+    expect(svc.list.mock.calls.length).toBe(calls + 1);
   });
 
   it('deactivation asks for confirmation first', async () => {
