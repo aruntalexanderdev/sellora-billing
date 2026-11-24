@@ -30,3 +30,27 @@
   font-weight: 600;
   color: var(--color-text-muted);
 }
+
+.label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+
+  .field-label {
+    margin-bottom: 6px;
+  }
+}
+.link-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.link-button:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
