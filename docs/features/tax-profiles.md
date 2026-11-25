@@ -376,6 +376,7 @@ Each phase is approved, built, verified and reviewed before the next.
   recommended. PR #39 (TP-1) waits for CI before merging.
 - T27 TP-3 design approved; TP3-Q1 to TP3-Q6 as recommended. No company uses a 3-decimal base currency, so the
   existing numeric(18,2) purchase header columns stay; new header columns use numeric(18,4).
+- T28 TP-3 API contract (section "TP-3 design › API / DTO") approved; TP-3 WP1 done (commit b20c667).
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
