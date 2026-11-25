@@ -626,6 +626,126 @@ cart may move by 0.01 (release notes). At precision 0 the T9 rule moves the roun
 (inclusive 99 at GST 5% → taxable 95, CGST 2, SGST 2); this is correct but should be shown to the owner with GCC/India
 precision 2–3 being the normal case.
 
+## TP-3 design (purchases on the calculator)
+
+Status: **proposed, awaiting owner approval**. Drafted by the solution architect against the code at 40b94d7; nothing
+built. Branch `feature/tax-purchases`.
+
+### Scope
+- Changes: purchase create (place of supply + rate sets + `TaxCalculator`), purchase returns (`TaxReversal`), purchase
+  DTOs and controllers, purchase register report (minimal), purchase form / detail / print / return screens.
+- Purchases have **no line edit** today (header PUT changes invoice number and notes only; cancel does not touch tax
+  rows), so there is no "recompute an old purchase" case.
+- Unchanged: sales, POS and sales returns (TP-4); `Taxes`/`TaxId` (dropped in TP-5); party status stays `Unspecified`;
+  no ledger posting; full tax reports and HSN summary (TP-5); imports and reverse charge (later).
+
+### Migration `AddPurchaseTaxSnapshot` (additive, one transaction) + `ValidatePurchaseTaxConstraints`
+All new columns are nullable or have a constant default (no table rewrite; the TP-2 build can still insert during the
+swap and can be redeployed without a database rollback).
+
+| Table | New columns | History value |
+|---|---|---|
+| PurchaseOrders | `RatesIncludeTax` (default false), `BillDiscountPercent` (null), `BillDiscountAmount`, `BillCharges`, `OriginalBillDiscountAmount`, `OriginalBillCharges` (default 0), `TaxableTotal` numeric(18,4) null, `PlaceOfSupply`, `PlaceOfSupplyStateId`, `SupplierStateId` (null), `PartyTaxStatus` (default `Unspecified`) | defaults; `TaxableTotal` null = legacy, DTO falls back to Subtotal + OtherChargesTotal − DiscountTotal |
+| PurchaseOrderLines | `TaxProfileId`, `TaxProfileVersionId`, `PlaceOfSupply`, `HsnCode` (null), `PriceIncludesTax` (default false), `BillDiscountShare`, `BillChargeShare` (default 0), `OriginalRate`, `OriginalDiscount`, `OriginalOtherCharges`, `OriginalBillDiscountShare`, `OriginalBillChargeShare`, `OriginalTaxableValue`, `OriginalTaxAmount`, `OriginalLineTotal` (null) | null / defaults (profile ids backfilled in M3, D4) |
+| PurchaseReturnLines | `TaxProfileId`, `TaxProfileVersionId`, `PlaceOfSupply`, `OriginalTaxableValue`, `OriginalTaxAmount` (null) | null |
+| All four `*LineTaxes` | `Treatment` (null = legacy row; DQ-TP2-3) | null |
+
+Order: `lock_timeout 5s`; re-run the frozen `AddTaxProfiles.legacy-rows.sql` first (D2 catch-up, idempotent, same
+SHA pin); add columns PurchaseReturnLines → PurchaseOrderLines → PurchaseOrders with FKs/CKs `NOT VALID`; add
+`Treatment` to the four line-tax tables **last** (shortest lock on the sales tables). The second migration validates
+the constraints and creates the FK indexes (briefly blocks purchase writes only). Rollback is application-only.
+
+Validation SQL:
+- `V__tax-line-rows-consistency.sql`: legacy filter becomes `TaxComponentId IS NULL AND Treatment IS NULL` (otherwise
+  non-taxable calculator rows pass as legacy); add Σ row `OriginalTaxAmount` = line `OriginalTaxAmount`.
+- New `V__tax-line-rows-missing-purchases.sql` (**block**): purchase and purchase-return lines without rows; the
+  existing warn file then covers sales only until TP-4.
+- New `V__tax-purchase-snapshot.sql` (block): version belongs to the profile and company; line `TaxId` = the profile's
+  mirror; `LineTotal = TaxableValue + TaxAmount`; every new row has `Treatment`; intra lines have no IGST, inter lines no
+  CGST/SGST, CGST = SGST; header sums equal line sums; return lines carry the original's version.
+- New `scripts/sql/tax-purchases-release-notes.sql`: P (before) Indian companies with neither branch nor company state —
+  their purchases are refused after TP-3; R1 catch-up rows; R2 suppliers without state; the rounding note.
+
+### Service changes
+- Resolver: `ResolvedLineRates.MirrorTaxId`; `PlaceOfSupplyResolution.OwnStateId`, `PartyStateId` (trailing fields).
+- Create: resolve place of supply (branch, supplier) → rate sets for the purchase date (BR5, BR7/AC13) → calculator in the
+  **document currency** (precision = transaction currency; `RatesIncludeTax`; bill discount/charges) → convert each part
+  and each row to base with today's `ToBase` (per-unit row base = quantity, not converted). Line `TaxAmount` = Σ
+  converted rows; `TaxableValue` = sum of converted parts (exclusive) or converted taxable (inclusive);
+  `Original*` = calculator values (also for domestic, so null always means legacy).
+- **Landed cost:** `UnitCost = TaxableValue / BaseQty` as today; the taxable value now includes the bill charge share and
+  line other charges and is net of line and bill discount, so AC9 reaches `PurchaseBatch.UnitCost`. Cost still excludes
+  all tax (TP3-Q3).
+- Mirror fields: line `TaxId` = the **purchase** profile's mirror; `TaxRatePercent` = Σ applied percent rates. This keeps
+  the TP-2 build and the T25 "used version" check working.
+- One tax row per calculator row with `Treatment`; the legacy-row helper is no longer called for new purchases.
+- Header: `Subtotal` = Σ gross (tax-inclusive for inclusive lines), `DiscountTotal` = Σ (line + bill discount),
+  `OtherChargesTotal` = Σ (other + bill charges), `TaxTotal`, `TaxableTotal`, **`GrandTotal` = Σ line totals** (today's
+  formula is wrong once lines can be inclusive), `OriginalGrandTotal` = Σ original line totals, place-of-supply snapshot,
+  warnings returned (supplier without state, HSN).
+- Concurrency (deviation from "locks unchanged"): take `FOR KEY SHARE` on the tax profiles used, after the product locks,
+  so a purchase cannot commit on a version being superseded by `AddVersionAsync` (which locks the profile `FOR UPDATE`).
+  No new deadlock path.
+- Rounding (DQ-TP2-2): domestic gross, tax and totals now round to currency precision; new 400s for rates over 4
+  decimals and over-precise discount/charges; error keys become `lines[i].field`.
+- Returns: per-row `TaxReversal` (legacy single rows reverse exactly as today); return line tax = Σ rows (DQ-TP2-4);
+  `Original*` reversed at document precision for TP-3 originals; copy profile, version, place of supply, treatment.
+  Cancel unchanged.
+
+### API / DTO
+- `CreatePurchaseRequest`: optional `ratesIncludeTax` (default false), `billDiscountPercent`, `billDiscountAmount`,
+  `billCharges` (default 0) — old clients unchanged.
+- `PurchaseLineDto`: `taxes[]` (component, code, kind, method, rate, amount per unit, base, tax, original base/tax,
+  treatment, isLegacy), `placeOfSupply`, `priceIncludesTax`, `hsnCode`, shares, originals, `taxProfileName`.
+- `PurchaseDetailDto`: `taxableTotal` (fallback for history), rates-include-tax, bill discount/charges (+ originals),
+  place of supply and state names, party status, warnings. Purchase return line DTO: `taxes[]`, place of supply,
+  originals. Contract frozen before frontend work.
+
+### Frontend
+- New shared `shared/tax/tax-preview.service.ts` and `shared/tax/line-tax-breakdown/` (reused by TP-4).
+- Purchase form: "Rates include tax" toggle, bill discount (percent or amount) and bill charges, live breakdown via
+  `/api/v1/tax/preview` (debounced), per-line component rows, place-of-supply badge, warnings, `lines[i]` error mapping.
+- Purchase detail/print: HSN, taxable, dynamic component columns (CGST/SGST/IGST/Cess/VAT; legacy shown as one row),
+  bill discount/charges, place of supply. Purchase return form (estimated tax, server authoritative) and detail.
+
+### Reports
+Purchase register gains `taxableTotal` and tax by component kind (legacy rows under "Other"). Everything else in TP-5.
+
+### Tests
+- xUnit: AC9 incl. landed cost, AC13 and purchase-profile mirror, intra/inter/VAT/Exempt, inclusive (AC3/AC4), per-unit
+  cess (AC5), BR5, supplier without state, missing own state, foreign currency (converted rows, Σ rows = tax, originals),
+  AC15 on returns incl. originals, legacy-document return = old result, rounding change, T25 still enforced.
+- Postgres: migration on TP-2-shaped data (defaults, no rewrite, catch-up, re-run no-op, NOT VALID → VALIDATE,
+  lock timeout, Down/Up, old-build insert still works), every new/edited V__ file, purchase → return → cancel with stock
+  reconciliation.
+- Vitest: preview request and debounce, percent/amount exclusivity, error mapping, dynamic columns incl. legacy, return
+  estimate.
+
+### Work packages
+1. database-engineer: entities, configurations, two migrations, V__ files, release notes (gate: design approved).
+2. backend-engineer: resolver fields, PurchaseService, locks, contracts, controllers, report; test-engineer in parallel:
+   fixture helper first, then Postgres migration/V__ tests (gate: API contract frozen).
+3. frontend-engineer; test-engineer in parallel: xUnit service tests and Vitest.
+4. code-reviewer, then `scripts/verify.sh all`.
+
+### Design questions (recommendation in brackets)
+- TP3-Q1 Header `TaxableTotal` for history: null with a DTO fallback, or backfill every purchase (row locks, blocks
+  purchase payments while it runs)? [Null + fallback.]
+- TP3-Q2 Header money columns are numeric(18,2) while lines are (18,4); with a 3-decimal base currency (BHD, OMR, KWD)
+  the header rounds silently and Σ lines ≠ header. [New header columns use (18,4); widening the existing ones rewrites
+  the table — separate release. Owner: does any company use a 3-decimal base currency?]
+- TP3-Q3 Landed cost excludes all tax, including tax that may not be recoverable (cess, VAT for unregistered buyers).
+  [Keep as today; revisit with party status.]
+- TP3-Q4 Suppliers in another country get IGST (as today); real import invoices carry no GST. [Keep with a warning;
+  imports are "Later".]
+- TP3-Q5 Foreign currency with inclusive rates can differ by one base unit between converted parts and taxable. [Allow;
+  rare.]
+- TP3-Q6 Profile `FOR KEY SHARE` lock on purchase save (deviation from "locks unchanged"). [Accept.]
+
+Risks: Indian companies without branch and company state cannot purchase after release (check P first); new 400s for
+over-precise input and `lines[i]` error keys may affect API clients sending many decimals; `Treatment` is added to
+`SalesInvoiceLineTaxes` in a purchase phase (required by DQ-TP2-3, placed last to keep the lock short).
+
 ## Deployment notes
 
 ### TP-1 release runbook (additions)
