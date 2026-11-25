@@ -213,7 +213,9 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
   private readonly previewRows = computed(() => {
     const s = this.previewState();
     const map = new Map<number, TaxPreviewLine>();
-    if (s.kind === 'ok') for (const l of s.preview.lines) map.set(s.plan.rows[l.index], l);
+    // While a newer breakdown is pending, the shown one was planned for the old rows (a deleted row would shift the
+    // figures onto the wrong lines), so lines fall back to their local estimate until it arrives (TP-3 review).
+    if (s.kind === 'ok' && !this.previewPending()) for (const l of s.preview.lines) map.set(s.plan.rows[l.index], l);
     return map;
   });
 

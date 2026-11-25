@@ -100,6 +100,19 @@ describe('PurchaseForm tax (TP-3)', () => {
     expect(c.totals().grandTotal).toBe(236);
   });
 
+  it('falls back to the local line estimate while a newer breakdown is pending (no stale figures on shifted rows)', () => {
+    const { c, fixture, fill, settle } = setup();
+    fill();
+    settle();
+    expect(c.lineViews()[0]).toMatchObject({ tax: 18, estimated: false });
+    c.lines.at(0).patchValue({ qty: 5 });
+    fixture.detectChanges();
+    expect(c.previewPending()).toBe(true);
+    expect(c.lineViews()[0]).toMatchObject({ tax: 0, estimated: true, taxable: 250 });
+    settle();
+    expect(c.lineViews()[0]).toMatchObject({ tax: 18, estimated: false });
+  });
+
   it('shows the server breakdown: line tax, taxable, tax by component, grand total and place of supply', () => {
     const { c, el, fixture, fill, settle } = setup();
     fill();

@@ -750,6 +750,23 @@ over-precise input and `lines[i]` error keys may affect API clients sending many
 
 ## Deployment notes
 
+### TP-3 release notes (purchases)
+1. Before: run section P of `scripts/sql/tax-purchases-release-notes.sql` — Indian branches with neither a branch nor a
+   company state cannot purchase after TP-3. R1 before and after (after must be 0 rows).
+2. Apply `AddPurchaseTaxSnapshot` then `ValidatePurchaseTaxConstraints` (the second briefly blocks purchase writes
+   while it validates and indexes). Then all `V__tax-*.sql` must return zero failing rows.
+3. Behaviour changes to announce:
+   - Purchase tax and totals round to the currency's decimals per tax component (DQ-TP2-2); foreign-currency purchases
+     convert CGST and SGST separately, so totals can differ by 0.01 from the previous calculation.
+   - API clients: a rate with more than 4 decimals, or a discount / other charges / bill charges with more decimals than
+     the supplier currency, is now refused (400) instead of silently rounded; errors are keyed `lines[i].field`,
+     `billDiscountPercent` / `billDiscountAmount`, `billCharges`.
+   - A purchase needs the company country, a branch or company state, and a purchase tax profile for every product.
+   - Landed cost now includes each line's share of whole-bill charges and is net of whole-bill discount.
+4. Accepted rounding (TP-3 review): for foreign suppliers, `OriginalTaxableValue × rate` can differ from the base
+   taxable value by up to one base unit per line (parts are converted separately); header sums stay exact. Purchase
+   header money columns stay numeric(18,2) (T27: no 3-decimal base currency in use).
+
 ### TP-1 release runbook (additions)
 1. Before the release: run section P of `scripts/sql/tax-profiles-release-notes.sql`. Every company that has taxes must
    have `BusinessSettings.CountryId`; otherwise `AddTaxProfiles` stops the release (preflight, by design).
