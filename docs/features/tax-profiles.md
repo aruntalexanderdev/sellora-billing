@@ -381,6 +381,14 @@ Each phase is approved, built, verified and reviewed before the next.
   stored prices change meaning at release; P3 stays in the release notes as a safety check.
 - T30 TP-4 API contract (section "TP-4 design › API / DTO") approved; TP-4 WP1 done (commit 39dfaed). Runbook order:
   AddSalesTaxSnapshot → CONCURRENTLY index pre-create → ValidateSalesTaxConstraints.
+- T31 (TP-4 review, lead decisions) (a) Screens and APIs that show a product's tax rate (POS catalog, product detail)
+  read the version valid today through the resolver, not the mirror tax; the mirror stays for rollback and is refreshed
+  on tax writes; before rolling back to a pre-TP-4 build, refresh mirrors (runbook). (b) The sales invoice response
+  carries the seller's name, address, GSTIN/TRN, state name and GST state code from the server, so every printed tax
+  invoice shows them regardless of the cashier's permissions; place of supply carries its GST state code. (c) For a
+  customer in another country, the place-of-supply state is left empty. (d) `AddSalesTaxSnapshot` locks the referenced
+  tables (States, TaxProfiles, TaxProfileVersions) before the sales tables. (e) Accepted: numeric(18,2) header columns
+  and numeric(6,3) line `TaxRatePercent` (display only), noted in the release notes.
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
