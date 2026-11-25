@@ -379,6 +379,8 @@ Each phase is approved, built, verified and reviewed before the next.
 - T28 TP-3 API contract (section "TP-3 design › API / DTO") approved; TP-3 WP1 done (commit b20c667).
 - T29 TP-4 design approved; TP4-Q1 to TP4-Q9 as recommended. TP4-Q2: no company has live sales yet, so no company's
   stored prices change meaning at release; P3 stays in the release notes as a safety check.
+- T30 TP-4 API contract (section "TP-4 design › API / DTO") approved; TP-4 WP1 done (commit 39dfaed). Runbook order:
+  AddSalesTaxSnapshot → CONCURRENTLY index pre-create → ValidateSalesTaxConstraints.
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
