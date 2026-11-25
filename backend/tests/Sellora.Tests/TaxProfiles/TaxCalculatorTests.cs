@@ -125,6 +125,54 @@ public class TaxCalculatorTests
     }
 
     [Fact]
+    public void Calculate_BillDiscountRoundingOvershoots_NegativeRemainderTakenFromLastTiedLine()
+    {
+        // 0.02 over three equal weights: each R(0.00667) = 0.01, sum 0.03, remainder -0.01 comes off the last of the tied lines.
+        var r = Calc(Doc([Line(Vat(10), 100), Line(Vat(10), 100), Line(Vat(10), 100)], amount: 0.02m));
+        var shares = r.Lines.Select(l => l.BillDiscountShare).ToArray();
+        Assert.Equal([0.01m, 0.01m, 0.00m], shares);
+        Assert.Equal(0.02m, shares.Sum());
+        Assert.All(shares, s => Assert.True(s >= 0m));
+    }
+
+    [Fact]
+    public void Calculate_BillDiscountOvershootBySeveralCents_RemainderSpreadOverTiedLinesNeverNegative()
+    {
+        // 0.05 over seven equal weights: seven shares of 0.01 (0.07), remainder -0.02 comes off the last two lines.
+        var lines = Enumerable.Range(0, 7).Select(_ => Line(Vat(10), 100)).ToList();
+        var r = Calc(Doc(lines, amount: 0.05m));
+        var shares = r.Lines.Select(l => l.BillDiscountShare).ToArray();
+        Assert.Equal([0.01m, 0.01m, 0.01m, 0.01m, 0.01m, 0.00m, 0.00m], shares);
+        Assert.Equal(0.05m, r.BillDiscountAmount);
+        Assert.All(shares, s => Assert.True(s >= 0m));
+    }
+
+    [Fact]
+    public void Calculate_BillDiscountLargestLineAlmostAtCap_OverflowMovesToNextLargestLine()
+    {
+        // 1.99 over eight lines: the shares round to 1.97, the 0.02 remainder wants the largest line (0.34) but it has room for 0.01 only,
+        // so 0.01 goes to it and 0.01 to the next largest (0.33). No share exceeds its weight.
+        decimal[] prices = [0.25m, 0.24m, 0.33m, 0.09m, 0.28m, 0.29m, 0.34m, 0.22m];
+        var r = Calc(Doc(prices.Select(p => Line(Vat(10), p)).ToList(), amount: 1.99m));
+        var shares = r.Lines.Select(l => l.BillDiscountShare).ToArray();
+        Assert.Equal([0.24m, 0.23m, 0.33m, 0.09m, 0.27m, 0.28m, 0.34m, 0.21m], shares);
+        Assert.Equal(1.99m, shares.Sum());
+        for (var i = 0; i < prices.Length; i++) Assert.True(shares[i] <= prices[i]);
+    }
+
+    [Fact]
+    public void Calculate_BillChargesOnZeroWeightBill_SpreadEquallyTaxedAndExact()
+    {
+        // DQ-TP2-8: every line weighs 0, so the charge cannot follow weights; it is spread equally (remainder to the last), still taxed.
+        var r = Calc(Doc([Line(Vat(10), 0), Line(Vat(10), 0), Line(Vat(10), 0)], charges: 10m));
+        Assert.Equal([3.33m, 3.33m, 3.34m], r.Lines.Select(l => l.BillChargeShare).ToArray());
+        Assert.Equal(10.00m, r.ChargesTotal);
+        Assert.Equal([3.33m, 3.33m, 3.34m], r.Lines.Select(l => l.Taxable).ToArray());
+        Assert.Equal([0.33m, 0.33m, 0.33m], r.Lines.Select(l => Row(l, "VAT").TaxAmount).ToArray());
+        Assert.Equal((10.00m, 0.99m, 10.99m), (r.TaxableTotal, r.TaxTotal, r.GrandTotal));
+    }
+
+    [Fact]
     public void Calculate_BillDiscountWithZeroWeightLine_ZeroShare()
     {
         var r = Calc(Doc([Line(Vat(10), 100), Line(Vat(10), 100), Line(Vat(10), 0)], amount: 10));

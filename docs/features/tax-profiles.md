@@ -525,7 +525,7 @@ seeds later and is idempotent. A drift test compares M1's output with `TaxSeedDa
 
 ## TP-2 design (tax calculator)
 
-Status: **approved by the owner** (DQ-TP2-1 to DQ-TP2-7 as recommended, T26). Not implemented yet.
+Status: **implemented and reviewed** on `feature/tax-calculator` (DQ-TP2-1 to DQ-TP2-7 as recommended, T26; DQ-TP2-8 from review).
 
 ### Scope
 - In: a pure, deterministic calculator in the Domain (BR16–BR22, T9), a return-reversal helper (BR25), place-of-supply and

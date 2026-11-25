@@ -85,4 +85,30 @@ public class TaxReversalTests
         Assert.Equal(4.50m, r.Single(x => x.ComponentId == cgst).TaxAmount);
         Assert.Equal(9m, r.Single(x => x.ComponentId == sgst).TaxAmount);
     }
+
+    [Fact]
+    public void ReverseRows_PerUnitRowPartialReturn_BaseQtyReversesExactlyAndLastTakesRemainder()
+    {
+        var cess = Guid.NewGuid();
+        // 10.125 kg at 0.50 per base unit: the row's BaseAmount is the base quantity, its tax 5.06 (R(5.0625)).
+        TaxRowResult[] original = [new(cess, "CESS", TaxComponentKind.Cess, TaxCalculationMethod.AmountPerBaseUnit, null, 0.50m, 10.125m, 5.06m)];
+
+        var r1 = TaxReversal.ReverseRows(original, [], 4.003m, 10.125m, 10.125m, 2);
+        var r2 = TaxReversal.ReverseRows(original, r1, 3m, 6.122m, 10.125m, 2);
+        var r3 = TaxReversal.ReverseRows(original, [.. r1, .. r2], 3.122m, 3.122m, 10.125m, 2);
+
+        Assert.Equal([4.003m, 3m, 3.122m], [r1[0].BaseAmount, r2[0].BaseAmount, r3[0].BaseAmount]);
+        Assert.Equal(10.125m, r1[0].BaseAmount + r2[0].BaseAmount + r3[0].BaseAmount);
+        Assert.Equal(5.06m, r1[0].TaxAmount + r2[0].TaxAmount + r3[0].TaxAmount);
+        Assert.Equal(2.00m, r1[0].TaxAmount); // R(5.06 x 4.003 / 10.125)
+    }
+
+    [Fact]
+    public void ReverseRows_PerUnitRowFullReturnAtOnce_IsTheOriginalRow()
+    {
+        var cess = Guid.NewGuid();
+        TaxRowResult[] original = [new(cess, "CESS", TaxComponentKind.Cess, TaxCalculationMethod.AmountPerBaseUnit, null, 12m, 7m, 84m)];
+        var r = TaxReversal.ReverseRows(original, [], 7m, 7m, 7m, 2);
+        Assert.Equal((7m, 84m), (r[0].BaseAmount, r[0].TaxAmount));
+    }
 }
