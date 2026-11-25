@@ -377,6 +377,8 @@ Each phase is approved, built, verified and reviewed before the next.
 - T27 TP-3 design approved; TP3-Q1 to TP3-Q6 as recommended. No company uses a 3-decimal base currency, so the
   existing numeric(18,2) purchase header columns stay; new header columns use numeric(18,4).
 - T28 TP-3 API contract (section "TP-3 design › API / DTO") approved; TP-3 WP1 done (commit b20c667).
+- T29 TP-4 design approved; TP4-Q1 to TP4-Q9 as recommended. TP4-Q2: no company has live sales yet, so no company's
+  stored prices change meaning at release; P3 stays in the release notes as a safety check.
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
@@ -750,8 +752,7 @@ over-precise input and `lines[i]` error keys may affect API clients sending many
 
 ## TP-4 design (sales, POS and sales returns on the calculator)
 
-Status: **proposed, awaiting owner approval**. Drafted by the solution architect against the code on `feature/tax-sales`;
-nothing built.
+Status: **approved by the owner** (TP4-Q1..Q9 as recommended, T29). Branch `feature/tax-sales`.
 
 ### Scope
 - `SalesService.CreateSaleAsync` is the only sale path: POS (`sales/new`) and the van workspace both post to
@@ -852,7 +853,7 @@ All columns nullable or with a constant default (no rewrite; the TP-3 build keep
 3. frontend-engineer; test-engineer in parallel: xUnit service tests and Vitest.
 4. code-reviewer, then `scripts/verify.sh all`.
 
-### Design questions (recommendation in brackets)
+### Design questions (decided as recommended, T29)
 - TP4-Q1 POS live total: server preview, client copy of the calculator, or compute on save? [Server preview +
   `expectedGrandTotal`; one round trip after a 300 ms pause.]
 - TP4-Q2 Companies created after TP-1 have `SellingPricesIncludeTax = true` (T18) but have been selling exclusive; at
