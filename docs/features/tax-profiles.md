@@ -762,7 +762,7 @@ over-precise input and `lines[i]` error keys may affect API clients sending many
 
 ## TP-4 design (sales, POS and sales returns on the calculator)
 
-Status: **approved by the owner** (TP4-Q1..Q9 as recommended, T29). Branch `feature/tax-sales`.
+Status: **implemented and reviewed** (TP4-Q1..Q9 as recommended, T29; review decisions T31). Branch `feature/tax-sales`.
 
 ### Scope
 - `SalesService.CreateSaleAsync` is the only sale path: POS (`sales/new`) and the van workspace both post to
