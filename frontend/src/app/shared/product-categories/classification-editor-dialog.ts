@@ -6,6 +6,7 @@ import type { ApiProblem } from '../../core/auth/auth.models';
 import { HSN_MESSAGE, hsnOrNull, hsnValidator } from '../tax/hsn';
 import { UiButton } from '../ui/button/button';
 import { UiModal } from '../ui/modal/modal';
+import { savedToast } from '../tax/save-warnings';
 import { ToastService } from '../ui/toast/toast.service';
 import { ProductCategoriesService } from './product-categories.service';
 import {
@@ -192,7 +193,11 @@ export class ClassificationEditorDialog implements OnInit {
     call$.subscribe({
       next: (result) => {
         this.saving.set(false);
-        this.toast.show(`${t.kind === 'category' ? 'Category' : 'Subcategory'} ${created ? 'added' : 'updated'}.`);
+        const t2 = savedToast(
+          `${t.kind === 'category' ? 'Category' : 'Subcategory'} ${created ? 'added' : 'updated'}.`,
+          result.kind === 'subcategory' ? result.subcategory.warnings : null,
+        );
+        this.toast.show(t2.text, t2.durationMs);
         this.saved.emit(result);
       },
       error: (err: HttpErrorResponse) => {

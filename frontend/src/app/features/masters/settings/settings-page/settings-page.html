@@ -130,6 +130,28 @@
         </div>
       </div>
 
+      <div class="grid-2">
+        <div>
+          <label class="field-label" for="hsnRequiredFrom">HSN required from</label>
+          <div style="display: flex; gap: 8px; align-items: center">
+            <input id="hsnRequiredFrom" type="date" formControlName="hsnRequiredFrom" class="field-input" data-testid="hsn-required-from" (input)="onHsnDateInput()" (change)="onHsnDateInput()" />
+            @if (canEdit() && form.controls.hsnRequiredFrom.value) {
+              <ui-button type="button" variant="secondary" data-testid="hsn-clear" (click)="clearHsnDate()">Clear</ui-button>
+            }
+          </div>
+          <div class="field-hint">From this date a GST-taxable product without an HSN code cannot be saved or sold. Without a date, a missing HSN is only a warning.</div>
+          @if (productsWithoutHsnCount() !== null) {
+            <div class="field-hint" data-testid="hsn-missing-count">{{ productsWithoutHsnCount() }} active product(s) have no HSN code.</div>
+          }
+          @if (showHsnWarning()) {
+            <div class="field-error" data-testid="hsn-warning">{{ productsWithoutHsnCount() }} product(s) have no HSN code. Add one before this date or they cannot be saved or sold.</div>
+          }
+          @if (form.get('hsnRequiredFrom')?.errors?.['server']) {
+            <div class="field-error">{{ form.get('hsnRequiredFrom')?.errors?.['server'] }}</div>
+          }
+        </div>
+      </div>
+
       @if (canEdit()) {
         <div class="actions">
           <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save settings' }}</ui-button>

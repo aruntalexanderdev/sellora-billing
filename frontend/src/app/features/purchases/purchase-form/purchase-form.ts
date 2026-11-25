@@ -11,6 +11,7 @@ import { problemMessage } from '../../../core/http/api-errors';
 import { UiButton } from '../../../shared/ui/button/button';
 import { UiBadge } from '../../../shared/ui/badge/badge';
 import { LineTaxBreakdown } from '../../../shared/tax/line-tax-breakdown/line-tax-breakdown';
+import { problemMessagesLabelled } from '../../../shared/tax/hsn';
 import { taxByComponent, placeOfSupplyLabel } from '../../../shared/tax/tax-breakdown';
 import { TaxPreviewService, planKey, previewStates, type PreviewState } from '../../../shared/tax/tax-preview.service';
 import type { TaxPreviewLine, TaxRowView } from '../../../shared/tax/tax-preview.models';
@@ -206,7 +207,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
   readonly previewError = computed(() => {
     const s = this.previewState();
     if (s.kind !== 'error' || this.previewPending()) return null;
-    const fields = Object.values(s.problem?.errors ?? {}).flat();
+    const fields = problemMessagesLabelled(s.problem?.errors, s.plan.rows);
     return fields.length > 0 ? fields.join(' ') : problemMessage(s.problem, 'Tax could not be calculated.');
   });
 

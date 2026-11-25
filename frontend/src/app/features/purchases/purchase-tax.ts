@@ -3,6 +3,7 @@ import { applyProblem } from '../../core/http/api-errors';
 import type { ApiProblem } from '../../core/auth/auth.models';
 import { roundMoney } from '../../shared/money/money';
 import { billDiscountFields, type BillDiscountMode } from '../../shared/tax/bill-discount';
+import { hsnLineIndex, hsnLineMessage } from '../../shared/tax/hsn';
 import { displayRows } from '../../shared/tax/tax-breakdown';
 import type { PreviewPlan } from '../../shared/tax/tax-preview.service';
 import type { TaxRowView } from '../../shared/tax/tax-preview.models';
@@ -72,7 +73,13 @@ export function applyPurchaseProblem(form: FormGroup, problem: ApiProblem | null
   const forControls: Record<string, string[]> = {};
   for (const [field, messages] of errors) {
     const key = field.toLowerCase();
-    if (key === 'branchid' || key === 'lines') banner.push(messages.join(' '));
+    if (hsnLineIndex(field) != null) {
+      // T11: a GST taxable product without HSN. Names the item and marks its product control.
+      banner.push(hsnLineMessage(field, messages.join(' ')));
+      const control = form.get(['lines', String(hsnLineIndex(field)), 'productId']);
+      control?.setErrors({ ...(control.errors ?? {}), server: messages.join(' ') });
+      control?.markAsTouched();
+    } else if (key === 'branchid' || key === 'lines') banner.push(messages.join(' '));
     else if (control[key]) forControls[control[key]] = messages;
     else forControls[field] = messages;
   }
@@ -86,12 +93,7 @@ export function applyPurchaseProblem(form: FormGroup, problem: ApiProblem | null
 }
 
 /** Warning text for a `lines[i].hsnCode` / `supplierId` field, prefixed with the item number (`rows` maps a request index to its form row). */
-export function warningLabel(field: string, message: string, rows?: readonly number[]): string {
-  const m = /^lines\[(\d+)\]\.hsncode$/i.exec(field);
-  if (!m) return message;
-  const index = Number(m[1]);
-  return `Item ${(rows?.[index] ?? index) + 1}: ${message}`;
-}
+export const warningLabel = hsnLineMessage;
 
 export interface ReturnTaxEstimate {
   taxable: number;
