@@ -63,15 +63,16 @@ JOIN "TaxProfiles" p ON p."CompanyId" = pr."CompanyId" AND p."LegacyTaxId" = pr.
 JOIN "Countries" c ON c."Id" = p."CountryId"
 ON CONFLICT DO NOTHING;
 
--- 3. T21: the company default is the standard-rate profile (the seeded one, or the existing profile that made the seed skip, by code first then by name);
+-- 3. T21/T25: the company default is the standard-rate profile (the seeded one, or the existing profile that made the seed skip, by code first then by name,
+--    and only when its open version has the standard rate: a legacy 'GST 18%' taxed at 12% is NOT the standard default; its name still blocks the seed);
 --    only when there is none, the most-used active Taxable legacy profile (products using its tax; ties by name, id); otherwise no default.
-CREATE TEMP TABLE _taxfill_standard(cc text, code text, name text) ON COMMIT DROP;
-INSERT INTO _taxfill_standard(cc, code, name) VALUES
-  ('IN', 'GST-18', 'GST 18%'),
-  ('AE', 'VAT-5', 'VAT 5%'),
-  ('SA', 'VAT-15', 'VAT 15%'),
-  ('BH', 'VAT-10', 'VAT 10%'),
-  ('OM', 'VAT-5', 'VAT 5%');
+CREATE TEMP TABLE _taxfill_standard(cc text, code text, name text, rate numeric) ON COMMIT DROP;
+INSERT INTO _taxfill_standard(cc, code, name, rate) VALUES
+  ('IN', 'GST-18', 'GST 18%', 18),
+  ('AE', 'VAT-5', 'VAT 5%', 5),
+  ('SA', 'VAT-15', 'VAT 15%', 15),
+  ('BH', 'VAT-10', 'VAT 10%', 10),
+  ('OM', 'VAT-5', 'VAT 5%', 5);
 
 INSERT INTO "TaxAssignments" ("Id", "CompanyId", "Scope", "CountryId", "CategoryId", "SubcategoryId", "ProductId", "SalesTaxProfileId", "PurchaseTaxProfileId", "CreatedAt", "UpdatedAt")
 SELECT md5('sellora:taxassignment:' || c.company_id::text || ':' || c.cc || ':company')::uuid, c.company_id, 'Company', c.country_id, NULL, NULL, NULL, chosen.profile_id, NULL, now(), NULL
@@ -80,6 +81,7 @@ FROM (SELECT b."CompanyId" AS company_id, b."CountryId" AS country_id, co."Code"
 CROSS JOIN LATERAL (
   SELECT COALESCE(
     (SELECT p."Id" FROM "TaxProfiles" p JOIN _taxfill_standard s ON s.cc = c.cc
+      JOIN "TaxProfileVersions" sv ON sv."TaxProfileId" = p."Id" AND sv."EffectiveTo" IS NULL AND sv."TotalPercent" = s.rate
       WHERE p."CompanyId" = c.company_id AND p."CountryId" = c.country_id AND (p."Code" = s.code OR lower(p."Name") = lower(s.name))
       ORDER BY (p."Code" = s.code) DESC, p."Id" LIMIT 1),
     (SELECT p."Id" FROM "TaxProfiles" p

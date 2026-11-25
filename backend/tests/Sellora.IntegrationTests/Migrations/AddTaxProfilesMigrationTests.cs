@@ -196,6 +196,38 @@ public class AddTaxProfilesMigrationTests(PostgresFixture postgres)
         Assert.Equal(0L, await ScalarAsync<long>(d, $"""SELECT count(*) FROM (SELECT lower("Name") FROM "TaxProfiles" WHERE "CompanyId" = '{CoI}' GROUP BY 1 HAVING count(*) > 1) x"""));
     }
 
+    [Fact]
+    public async Task Up_ALegacyTaxNamedLikeTheStandardDefaultButWithAnotherRate_IsNotTheDefault_AndStillBlocksTheSeedByName()
+    {
+        // T25: company D (IN, no taxes in the world) has "GST 18%" taxed at 12 (one product) and "GST 12%" taxed at 12 (two products).
+        await using var d = await AtPreviousAsync(postgres);
+        await ExecuteAsync(d, $"""
+            INSERT INTO "Taxes" ("Id", "CompanyId", "Name", "RatePercent", "IsActive") VALUES
+              ('{G(0x150)}', '{CoD}', 'GST 18%', 12, true), ('{G(0x151)}', '{CoD}', 'GST 12%', 12, true);
+            INSERT INTO "Products" ("Id", "CompanyId", "Sku", "Name", "Category", "BaseUnitId", "TaxId", "ReorderLevel", "IsActive") VALUES
+              ('{G(0x241)}', '{CoD}', 'TXD1', 'D1', NULL, '{Fx(1)}', '{G(0x150)}', 0, true),
+              ('{G(0x242)}', '{CoD}', 'TXD2', 'D2', NULL, '{Fx(1)}', '{G(0x151)}', 0, true),
+              ('{G(0x243)}', '{CoD}', 'TXD3', 'D3', NULL, '{Fx(1)}', '{G(0x151)}', 0, true)
+            """);
+
+        await MigrateToAsync(d, ValidateFks);
+
+        // the seed is skipped by name (no duplicate names): only the legacy "GST 18%" (12%) exists under that name
+        Assert.Equal(0L, await ScalarAsync<long>(d, $"""SELECT count(*) FROM "TaxProfiles" WHERE "CompanyId" = '{CoD}' AND "Code" = 'GST-18'"""));
+        Assert.Equal(1L, await ScalarAsync<long>(d, $"""SELECT count(*) FROM "TaxProfiles" WHERE "CompanyId" = '{CoD}' AND "Name" = 'GST 18%'"""));
+        // the default is the most-used Taxable legacy profile, not the mismatching same-name one
+        Assert.Equal("GST 12%", await ScalarAsync<string>(d, $"""
+            SELECT p."Name" FROM "TaxAssignments" a JOIN "TaxProfiles" p ON p."Id" = a."SalesTaxProfileId" WHERE a."CompanyId" = '{CoD}' AND a."Scope" = 'Company'
+            """));
+        // release-notes R7 lists it (default rate 12 against the standard 18)
+        Assert.Equal(1L, await ScalarAsync<long>(d, $"""
+            SELECT count(*) FROM "BusinessSettings" b
+            JOIN "TaxAssignments" a ON a."CompanyId" = b."CompanyId" AND a."Scope" = 'Company'
+            JOIN "TaxProfileVersions" v ON v."TaxProfileId" = a."SalesTaxProfileId" AND v."EffectiveTo" IS NULL
+            WHERE b."CompanyId" = '{CoD}' AND v."TotalPercent" <> 18
+            """));
+    }
+
     // ------------------------------------------------------------------------------------------------------------------------- T12 / T21 / T18
 
     private static async Task<List<string>> SeededCodesAsync(TestDatabase d, Guid company) =>
