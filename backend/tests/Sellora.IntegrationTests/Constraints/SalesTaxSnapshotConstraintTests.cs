@@ -113,16 +113,16 @@ public class SalesTaxSnapshotConstraintTests(PostgresFixture postgres)
     // ------------------------------------------------------------------------------------------------------------------------------ lines
 
     [Theory]
-    [InlineData("SalesInvoiceLines", "94", "CK_SalesInvoiceLines_TaxProfile_Pair")]
-    [InlineData("SalesReturnLines", "101", "CK_SalesReturnLines_TaxProfile_Pair")]
-    public async Task ProfileAndVersion_AreBothSetOrBothNull(string table, string fixtureId, string constraint)
+    [InlineData("SalesInvoiceLines", "94", "CK_SalesInvoiceLines_TaxProfile_VersionNeedsProfile")]
+    [InlineData("SalesReturnLines", "101", "CK_SalesReturnLines_TaxProfile_VersionNeedsProfile")]
+    public async Task Version_NeverExistsWithoutProfile_ButProfileMayHaveNoVersion(string table, string fixtureId, string constraint)
     {
         var id = Fx(int.Parse(fixtureId)).ToString();
         await WithProbeAsync(async p =>
         {
             await AcceptsAsync(p, Set(table, id, "\"TaxProfileId\" = NULL, \"TaxProfileVersionId\" = NULL"));
             await AcceptsAsync(p, Set(table, id, $"\"TaxProfileId\" = '{ProfileA}', \"TaxProfileVersionId\" = '{VersionA}'"));
-            await FailsAsync(p, Set(table, id, $"\"TaxProfileId\" = '{ProfileA}', \"TaxProfileVersionId\" = NULL"), "23514", constraint);
+            await AcceptsAsync(p, Set(table, id, $"\"TaxProfileId\" = '{ProfileA}', \"TaxProfileVersionId\" = NULL"));   // TP-5a: backfilled history carries the profile only
             await FailsAsync(p, Set(table, id, $"\"TaxProfileId\" = NULL, \"TaxProfileVersionId\" = '{VersionA}'"), "23514", constraint);
         });
     }

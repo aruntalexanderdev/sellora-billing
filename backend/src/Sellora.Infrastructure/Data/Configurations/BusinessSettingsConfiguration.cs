@@ -22,6 +22,7 @@ public class BusinessSettingsConfiguration : IEntityTypeConfiguration<BusinessSe
         builder.Property(s => s.ReceiptSeparationOfDuties).HasDefaultValue(false);
         // SellingPricesIncludeTax (T18): NOT NULL, no model default; the migration adds it DEFAULT false and drops the default.
         builder.Property(s => s.MaxBillDiscountPercent).HasColumnType("numeric(5,2)");
+        builder.Property(s => s.HsnRequiredFrom).HasColumnType("date");
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("CK_BusinessSettings_ReceiptPostingMode_Valid", "\"ReceiptPostingMode\" IN ('Direct', 'SupervisorApproval')");

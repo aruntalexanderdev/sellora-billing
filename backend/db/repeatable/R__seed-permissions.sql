@@ -107,6 +107,7 @@ FROM (VALUES
   ('Reports.Movement', 'Reports', 'View', 'View the stock movement report.'),
   ('Reports.Purchase', 'Reports', 'View', 'View the purchase report.'),
   ('Reports.Sales', 'Reports', 'View', 'View the sales report.'),
+  ('Reports.Tax', 'Reports', 'View', 'View the tax reports: GST or VAT summary and the HSN summary.'),
   ('Reports.Accounts', 'Reports', 'View', 'View the Accounts reports: payments, outstanding balances, expenses, cash flow, cash & bank and payment methods.'),
   ('Reports.Profit', 'Reports', 'View', 'View the profit/margin summary report.')
 ) AS v("Code", "Module", "Action", "Description")

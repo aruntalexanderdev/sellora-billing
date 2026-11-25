@@ -154,7 +154,7 @@ public class SalesReturnLineConfiguration : IEntityTypeConfiguration<SalesReturn
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("CK_SalesReturnLines_PlaceOfSupply", PurchaseTaxValues.PlaceOfSupplyOrNull);
-            t.HasCheckConstraint("CK_SalesReturnLines_TaxProfile_Pair", PurchaseTaxValues.ProfilePair);
+            t.HasCheckConstraint("CK_SalesReturnLines_TaxProfile_VersionNeedsProfile", PurchaseTaxValues.VersionNeedsProfile);
             t.HasCheckConstraint("CK_SalesReturnLines_Qty_Positive", "\"Qty\" > 0");
             t.HasCheckConstraint("CK_SalesReturnLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
             t.HasCheckConstraint("CK_SalesReturnLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
@@ -200,7 +200,7 @@ public class SalesInvoiceLineConfiguration : IEntityTypeConfiguration<SalesInvoi
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("CK_SalesInvoiceLines_PlaceOfSupply", PurchaseTaxValues.PlaceOfSupplyOrNull);
-            t.HasCheckConstraint("CK_SalesInvoiceLines_TaxProfile_Pair", PurchaseTaxValues.ProfilePair);
+            t.HasCheckConstraint("CK_SalesInvoiceLines_TaxProfile_VersionNeedsProfile", PurchaseTaxValues.VersionNeedsProfile);
             t.HasCheckConstraint("CK_SalesInvoiceLines_HsnCode_Format", TaxValues.HsnFormat);
             t.HasCheckConstraint("CK_SalesInvoiceLines_BillShares_NonNegative", "\"BillDiscountShare\" >= 0 AND \"BillChargeShare\" >= 0");
             t.HasCheckConstraint("CK_SalesInvoiceLines_Qty_Positive", "\"Qty\" > 0");
