@@ -299,7 +299,7 @@ Draft; finalised at the API-contract gate.
 | GET | /api/v1/tax-assignments?countryId= | Tax.View | — | tree: category → subcategory → overrides, with resolved source | — |
 | PUT | /api/v1/tax-assignments | Tax.Manage | scopeType, scopeId, countryId, salesProfileId, purchaseProfileId | AssignmentDto | 400 profile/country mismatch, inactive |
 | DELETE | /api/v1/tax-assignments/{id} | Tax.Manage | — | 204 | 400 deleting the company default |
-| POST | /api/v1/tax/preview | Sales.Create or Purchases.Create | branchId, partyId, date, direction, lines[], bill discount/charges | per-line breakdown + totals (same calculator as save) | 400 per line |
+| POST | /api/v1/tax/preview | Sales.Create or Purchase.Create | branchId, partyId, date, direction, lines[], bill discount/charges | per-line breakdown + totals (same calculator as save) | 400 per line |
 
 Product DTO gains `hsnCode`, `priceIncludesTax`, resolved `salesTaxProfile`, `purchaseTaxProfile`, `taxSource`.
 Sales, purchase and return line DTOs gain `taxes[]`, `placeOfSupply`, `priceIncludesTax`, `billDiscountShare`,
@@ -520,6 +520,105 @@ seeds later and is idempotent. A drift test compares M1's output with `TaxSeedDa
   the inherited profile" action on the Mapping tab in TP-1? Recommended yes.
 - DQ4 Company default for existing companies: the standard rate (GST 18% / country VAT; recommended) or the most-used
   legacy tax?
+
+## TP-2 design (tax calculator)
+
+Status: **proposed, awaiting owner approval** (drafted overnight by the solution architect; design only, nothing built).
+
+### Scope
+- In: a pure, deterministic calculator in the Domain (BR16–BR22, T9), a return-reversal helper (BR25), place-of-supply and
+  rate-set resolution on `ITaxResolver`, `POST /api/v1/tax/preview`, unit tests for every listed AC.
+- Out: sales, POS, purchase and return save paths stay on `SaleMoney` / `Product.Tax` until TP-3/TP-4. No schema change,
+  no frontend.
+
+### Calculator (`Sellora.Domain/Taxes/`)
+- Files: `TaxCalculation.cs` (records), `TaxCalculator.cs`, `TaxReversal.cs`, `TaxMoney.cs` (`Round` = AwayFromZero,
+  twin of `SaleMoney.Round`, which lives in Infrastructure). New enums `PlaceOfSupply {IntraState, InterState,
+  NotApplicable}`, `PartyTaxStatus {Unspecified}`, `TaxDirection {Sale, Purchase}`.
+- Pure: no EF, no I/O, no clock, `decimal` only. Validation errors are collected into one `DomainValidationException`
+  keyed `lines[i].field`, `billDiscount`, `billCharges`.
+- Input: `TaxRateSet` (profile, version, regime, treatment, components with method/applicability/rate/amount) per line;
+  `TaxCalcLine(Qty, BaseQty, UnitPrice, LineDiscount, OtherCharges, PriceIncludesTax, Rates)`;
+  `TaxCalcDocument(Precision, PlaceOfSupply, PartyStatus, BillDiscountPercent?, BillDiscountAmount?, BillCharges, Lines)`.
+- Output: per line gross, discount, bill shares, other charges, taxable, Σ applied percent, tax rows (base, amount), tax
+  total, line total; header subtotal, discount, charges, taxable, tax, grand total, bill discount amount and effective
+  percent (for the T15 cap).
+
+### Algorithm (rounded at document precision, per component, per line)
+1. `Gross = R(Qty × Price)`; discount/charges rounded; negatives, discount > gross, both bill percent and amount,
+   percent outside 0–100, over-precise amounts and empty documents are field errors.
+2. Components: GST uses `Applicability` = place of supply or `Always`; VAT uses all. Non-taxable treatments give one
+   zero row carrying the treatment code (AC19).
+3. Bill shares: weight = `Gross − LineDiscount` in the line's own basis (E2); discount = amount, or `R(W × pct)`;
+   shares `R(D × w/W)`, remainder to the **largest-weight line** (DQ-TP2-1); discount share never exceeds its weight.
+4. Exclusive: `Taxable = Gross − LD − BDS + BCS + OtherCharges`; percent rows `R(Taxable × r)`, per-unit rows
+   `R(BaseQty × amount)`.
+5. Inclusive (T9): `Incl = Gross − LD − BDS`; per-unit tax first (E3 if it exceeds `Incl`);
+   `G0 = R((Incl − PU) / (1 + ΣP))`; percent rows from `G0`; taxable goods = `Incl − PU − Σ rows` (customer pays exactly
+   `Incl`, CGST = SGST); bill/other charges are then added exclusive and taxed at the line's percent rates.
+6. Zero lines (E10) give zero rows; the calculator accepts qty 0 for previews, saves still reject it.
+7. Header = sums of lines (BR20/BR21), `GrandTotal = TaxableTotal + TaxTotal`.
+8. Foreign currency (BR22): the calculator never sees an exchange rate; TP-3's PurchaseService converts each part and
+   each row to base and stores document-currency values in the `Original*` columns.
+
+### Place of supply and rates (`ITaxResolver` additions)
+- `ResolvePlaceOfSupplyAsync(direction, branchId, partyId)`: country → regime (VAT → `NotApplicable`); own state =
+  branch state, else company state (T14), else 400; customer/supplier state; no party state (walk-in) → intra-state
+  (supplier without state also warns); equal states → intra, else inter. A party in another country → inter-state for now.
+- `ResolveRateSetsAsync(direction, countryId, date, products)`: resolver + version valid on the document date (BR5),
+  purchase profile for purchases (BR7), per-line error fields. Reused by TP-3/TP-4.
+
+### Return reversal (BR25)
+`TaxReversal` applies the existing proportional rule (last return takes the remainder; same as `SalesService.cs:414`)
+to every tax row (and `Original*` for purchases), matching rows by component id or code, so legacy rows reverse too.
+Return line tax = Σ reversed rows.
+
+### `POST /api/v1/tax/preview`
+- Policy `Sales.Create|Purchase.Create` (real codes; the spec's "Purchases.Create" was wrong), then the code matching
+  `direction` is required.
+- Request: `direction`, `partyId?`, `date`, `ratesIncludeTax?` (purchases), `billDiscountPercent?`,
+  `billDiscountAmount?`, `billCharges?`, `lines[{productId, productUnitId, qty, unitPrice, discount, otherCharges?}]`.
+  The branch is the working branch, as on save, so the preview always matches the save (DQ-TP2-5).
+- Server: price basis = product → company setting for sales, `ratesIncludeTax` for purchases; precision = base currency
+  (sales) or supplier currency (purchases); unit and quantity checks as on save; BR19a permission and cap. Read-only.
+- Response: place of supply, regime, currency, precision, header totals, warnings (HSN T11, supplier without state) and
+  per line: profile, version, source, HSN, price basis, base qty, money parts and tax rows.
+
+### Tests
+Pure calculator tests with the spec's numbers: AC1–AC9, AC15, AC19, AC23, E2, E3, E10, inclusive + charge, bill
+percent, precision 0/2/3 cases, every validation rule. Invariants over 500 seeded random documents (Σ lines = header,
+CGST = SGST, inclusive total exact, shares sum exactly and stay within weight, returns sum exactly). Parity with
+`SaleMoney.Line` for single-component lines. Service tests for place of supply, purchase profile, field keys, BR19a and
+currency precision; endpoint authorization test.
+
+Worked checks (lead): AC7 → shares 60/40, taxable 540/360, tax 13.50+13.50 and 72.00+72.00, grand 1,071.00.
+AC9 → shares 200/100, CGST = SGST 198/99. E2 (inclusive 118 + exclusive 100, bill discount 21.80) → shares 11.80/10.00,
+both taxable 90.00, grand 212.40. Return of 2, 2, 3 out of 7 on CGST 85.50 → 24.43 / 24.43 / 36.64.
+
+### Work packages
+1. backend-engineer: enums, calculator, reversal, money helper, resolver extensions, preview service/controller/contracts
+   (record signatures frozen first).
+2. test-engineer, in parallel once signatures are frozen: the tests above.
+3. code-reviewer, then `scripts/verify.sh all`. Acceptance: all tests green, `SaleMoney` and save paths unchanged, no
+   migration.
+
+### Design questions (recommendation in brackets)
+- DQ-TP2-1 Rounding remainder of bill shares: BR19 says "last line"; a tiny or zero-weight last line could go negative.
+  [Give it to the largest-weight line, ties to the last; AC7/AC8 still hold.]
+- DQ-TP2-2 Domestic purchases today store tax unrounded (up to 4 dp); BR16 rounds to currency precision, changing TP-3
+  values by up to 0.005 per line. [Accept; note in TP-3 release notes.]
+- DQ-TP2-3 Non-taxable rows and legacy rows both have no component id. [TP-3's additive migration adds a nullable
+  `Treatment` column to the line-tax tables.]
+- DQ-TP2-4 Return line tax = Σ reversed rows instead of today's line-level proportion; may differ by 0.01 on partial
+  returns of multi-row lines, final return exact. [Accept; rows are authoritative.]
+- DQ-TP2-5 Preview uses the working branch, not a `branchId` parameter. [Accept, so preview = save.]
+- DQ-TP2-6 Per-unit row `BaseAmount` holds the base quantity, not money. [Accept; the invoice prints "qty × amount".]
+- DQ-TP2-7 A party in another country is treated as inter-state until exports are in scope. [Accept.]
+
+Risks: CGST and SGST rounded separately can differ by a paisa from today's single-rate tax, so TP-4 totals for the same
+cart may move by 0.01 (release notes). At precision 0 the T9 rule moves the rounding into the taxable value visibly
+(inclusive 99 at GST 5% → taxable 95, CGST 2, SGST 2); this is correct but should be shown to the owner with GCC/India
+precision 2–3 being the normal case.
 
 ## Deployment notes
 
