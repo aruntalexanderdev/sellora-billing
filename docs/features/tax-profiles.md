@@ -372,6 +372,8 @@ Each phase is approved, built, verified and reviewed before the next.
   (BR4: a used version's dates are immutable). Settings PUT is a full replace: omitting `maxBillDiscountPercent`
   clears the cap (the UI always sends it). Legacy tax names matching a standard profile become the company default
   only when the rate also matches.
+- T26 TP-1 lead decisions T23–T25 confirmed by the owner. TP-2 design approved with DQ-TP2-1 to DQ-TP2-7 as
+  recommended. PR #39 (TP-1) waits for CI before merging.
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
@@ -523,7 +525,7 @@ seeds later and is idempotent. A drift test compares M1's output with `TaxSeedDa
 
 ## TP-2 design (tax calculator)
 
-Status: **proposed, awaiting owner approval** (drafted overnight by the solution architect; design only, nothing built).
+Status: **approved by the owner** (DQ-TP2-1 to DQ-TP2-7 as recommended, T26). Not implemented yet.
 
 ### Scope
 - In: a pure, deterministic calculator in the Domain (BR16–BR22, T9), a return-reversal helper (BR25), place-of-supply and
@@ -602,7 +604,7 @@ both taxable 90.00, grand 212.40. Return of 2, 2, 3 out of 7 on CGST 85.50 → 2
 3. code-reviewer, then `scripts/verify.sh all`. Acceptance: all tests green, `SaleMoney` and save paths unchanged, no
    migration.
 
-### Design questions (recommendation in brackets)
+### Design questions (decided as recommended, T26)
 - DQ-TP2-1 Rounding remainder of bill shares: BR19 says "last line"; a tiny or zero-weight last line could go negative.
   [Give it to the largest-weight line, ties to the last; AC7/AC8 still hold.]
 - DQ-TP2-2 Domestic purchases today store tax unrounded (up to 4 dp); BR16 rounds to currency precision, changing TP-3
