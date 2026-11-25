@@ -102,7 +102,8 @@ public class ProductCategoriesController(SelloraDbContext db, IProductCategorySe
         try
         {
             var sub = await service.UpdateSubcategoryAsync(id, subId, ToInput(request), ct);
-            return sub is null ? NotFound() : Ok(await LoadSubcategoryAsync(id, subId, ct));
+            if (sub is null) return NotFound();
+            return Ok((await LoadSubcategoryAsync(id, subId, ct))! with { Warnings = await SalesTaxLookup.MissingHsnWarningsAsync(db, null, ct) });
         }
         catch (DomainValidationException ex)
         {

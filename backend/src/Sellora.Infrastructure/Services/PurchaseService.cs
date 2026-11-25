@@ -117,6 +117,8 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
                 errors.AddRange(ex.Errors);
             }
         }
+        // TP-5a (T11): GST-taxable product without an HSN is an error once the company's HsnRequiredFrom date is reached.
+        errors.AddRange(HsnRules.DocumentErrors(await db.BusinessSettings.AsNoTracking().Select(s => s.HsnRequiredFrom).FirstOrDefaultAsync(ct), input.PurchaseDate, productIds, rates));
         if (errors.Count > 0) throw new DomainValidationException(errors);
 
         // ---- 2. the calculator, in the document currency (BR22): its precision is the supplier currency's

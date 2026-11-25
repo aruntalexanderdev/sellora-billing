@@ -20,6 +20,7 @@ internal sealed class TaxWorld
     public static readonly DateOnly Today = new(2026, 11, 24);
 
     public required SelloraDbContext Db { get; init; }
+    public DbContextOptions<SelloraDbContext> Options { get; init; } = null!;
     public required TimeProvider Clock { get; init; }
     public required Country India { get; init; }
     public required Country Uae { get; init; }
@@ -36,7 +37,8 @@ internal sealed class TaxWorld
 
     public static async Task<TaxWorld> CreateAsync(string companyCountry = "IN", bool seed = true, DateOnly? today = null)
     {
-        var db = TestCompany.NewDb(new DbContextOptionsBuilder<SelloraDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var options = new DbContextOptionsBuilder<SelloraDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        var db = TestCompany.NewDb(options);
         var clock = new FixedTimeProvider(new DateTimeOffset((today ?? Today).ToDateTime(new TimeOnly(10, 0)), TimeSpan.Zero));
         Country C(string code, string name) => new() { Id = Guid.NewGuid(), Code = code, Name = name, IsSystem = true };
         var countries = new[] { C("IN", "India"), C("AE", "United Arab Emirates"), C("OM", "Oman"), C("QA", "Qatar") };
@@ -51,7 +53,7 @@ internal sealed class TaxWorld
         db.AddRange(inr, piece, settings);
         await db.SaveChangesAsync();
 
-        var world = new TaxWorld { Db = db, Clock = clock, India = countries[0], Uae = countries[1], Oman = countries[2], Qatar = countries[3], Settings = settings, Piece = piece };
+        var world = new TaxWorld { Db = db, Options = options, Clock = clock, India = countries[0], Uae = countries[1], Oman = countries[2], Qatar = countries[3], Settings = settings, Piece = piece };
         if (seed)
         {
             await TaxSeeder.SeedCompanyAsync(db, world.CompanyId, settings.CountryId, clock);

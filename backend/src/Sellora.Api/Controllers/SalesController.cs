@@ -76,7 +76,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
 
     private IQueryable<Product> CatalogQuery() =>
         db.Products.AsNoTracking().Where(p => p.IsActive)
-            .Include(p => p.BaseUnit).Include(p => p.Tax).Include(p => p.Units.Where(u => u.IsActive && u.IsSellable).OrderBy(u => u.SortOrder)).ThenInclude(u => u.Unit);
+            .Include(p => p.BaseUnit).Include(p => p.Units.Where(u => u.IsActive && u.IsSellable).OrderBy(u => u.SortOrder)).ThenInclude(u => u.Unit);
 
     private async Task<List<SaleCatalogProductDto>> BuildCatalogItemsAsync(IQueryable<Product> query, Guid? locationId, CancellationToken ct)
     {
@@ -100,7 +100,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             : (await db.ProductSubcategories.Where(s => subIds.Contains(s.Id)).Select(s => new { s.Id, s.Name, s.HsnCode }).ToListAsync(ct))
                 .ToDictionary(s => s.Id, s => (Name: s.Name, Hsn: s.HsnCode));
 
-        // T31a: the rate shown is the sales profile's version valid today (resolver, document country), batched; the mirror tax only when nothing resolves.
+        // T31a/F7: the rate shown is the sales profile's version valid today (resolver, document country), batched. With no country, profile or version it is 0 with a warning (the mirror tax is no longer read).
         var percents = await CurrentPercentsAsync(productIds, ct);
 
         // TP-4: the price basis the unit prices are in (product, else company: the rule of the preview and the save) and the effective HSN/SAC (product, else subcategory).
@@ -109,7 +109,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
 
         return products.Select(p => new SaleCatalogProductDto(
             p.Id, p.Sku, p.Name, p.Category, p.BaseUnit.ShortCode,
-            qtyByProduct.GetValueOrDefault(p.Id, 0m), percents.TryGetValue(p.Id, out var current) ? current : p.Tax.RatePercent,
+            qtyByProduct.GetValueOrDefault(p.Id, 0m), percents.GetValueOrDefault(p.Id, 0m),
             p.Units.OrderBy(u => u.SortOrder).Select(u => new SaleCatalogUnitDto(
                 u.Id, u.UnitId, u.Unit.ShortCode, u.Label ?? u.Unit.Name,
                 u.ConversionFactorToBase, u.Unit.DecimalPlaces, u.IsBaseUnit, u.IsDefaultSalesUnit,
@@ -117,7 +117,8 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             locationId,
             p.CategoryId, p.SubcategoryId is { } sid && subs.TryGetValue(sid, out var sub) ? sub.Name : null,
             SalesTaxRules.PriceIncludesTax(p, settings),
-            !string.IsNullOrEmpty(p.HsnCode) ? p.HsnCode : p.SubcategoryId is { } hid && subs.TryGetValue(hid, out var hsnSub) ? hsnSub.Hsn : null
+            !string.IsNullOrEmpty(p.HsnCode) ? p.HsnCode : p.SubcategoryId is { } hid && subs.TryGetValue(hid, out var hsnSub) ? hsnSub.Hsn : null,
+            percents.ContainsKey(p.Id) ? null : "No tax rate applies to this product today: it shows 0%. Assign a tax profile with a valid version."
         )).ToList();
     }
 

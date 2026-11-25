@@ -170,23 +170,76 @@ internal static class TaxMirror
 }
 
 /// <summary>
-/// "Used" (BR4): a sales or purchase line with the profile's mirror tax dated inside the version's range. Returns reverse their original line and add no information.
+/// T11 / TP5-Q4, Q5 (TP-5a): "HSN missing" is an error once the company's <c>HsnRequiredFrom</c> date is reached, for products whose profile is GST + Taxable.
+/// Product saves are blocked as soon as a date is set; sales and purchases when the document date is on/after it (field <c>lines[i].hsnCode</c>).
+/// Returns, cancellations and non-tax edits never call this.
+/// </summary>
+public static class HsnRules
+{
+    public static bool BlocksDocument(DateOnly? requiredFrom, DateOnly documentDate) => requiredFrom is { } from && documentDate >= from;
+
+    /// <summary>One error <c>lines[i].hsnCode</c> per line whose product has no HSN under a GST-taxable profile, or none when the date is unset or after the document date.</summary>
+    public static List<FieldError> DocumentErrors(DateOnly? requiredFrom, DateOnly documentDate, IReadOnlyList<Guid> lineProductIds, IReadOnlyDictionary<Guid, Sellora.Domain.Taxes.ResolvedLineRates> rates, string field = "lines")
+    {
+        var errors = new List<FieldError>();
+        if (!BlocksDocument(requiredFrom, documentDate)) return errors;
+        for (var i = 0; i < lineProductIds.Count; i++)
+        {
+            if (rates.TryGetValue(lineProductIds[i], out var r) && r.HsnMissingForDocument)
+            {
+                errors.Add(new FieldError($"{field}[{i}].hsnCode", r.HsnWarningMessage ?? "The product has no HSN/SAC code. GST invoices need it."));
+            }
+        }
+        return errors;
+    }
+
+    /// <summary>Active products of the company that resolve to a GST-taxable sales or purchase profile for <paramref name="countryId"/> and have no HSN of their own or of their subcategory (the release-notes query).</summary>
+    public static async Task<int> CountProductsWithoutHsnAsync(SelloraDbContext db, Guid countryId, CancellationToken ct)
+    {
+        var index = await TaxAssignmentIndex.LoadAsync(db, countryId, ct);
+        if (index.Rows.Count == 0) return 0;
+        var gstTaxable = (await db.TaxProfiles.AsNoTracking()
+                .Where(p => p.CountryId == countryId && p.Regime == TaxRegime.Gst && p.Treatment == TaxTreatment.Taxable).Select(p => p.Id).ToListAsync(ct)).ToHashSet();
+        if (gstTaxable.Count == 0) return 0;
+        var subcategoriesWithHsn = (await db.ProductSubcategories.AsNoTracking().Where(s => s.HsnCode != null && s.HsnCode != "").Select(s => s.Id).ToListAsync(ct)).ToHashSet();
+        var products = await db.Products.AsNoTracking().Where(p => p.IsActive && (p.HsnCode == null || p.HsnCode == ""))
+            .Select(p => new { p.Id, p.CategoryId, p.SubcategoryId }).ToListAsync(ct);
+
+        var count = 0;
+        foreach (var p in products)
+        {
+            if (p.SubcategoryId is { } sub && subcategoriesWithHsn.Contains(sub)) continue;
+            if (index.Find(p.Id, p.CategoryId, p.SubcategoryId) is { } a
+                && (gstTaxable.Contains(a.SalesTaxProfileId) || gstTaxable.Contains(TaxAssignmentIndex.EffectivePurchase(a)))) count++;
+        }
+        return count;
+    }
+}
+
+/// <summary>
+/// "Used" (BR4, TP-5a): a sales or purchase line of the profile dated inside the version's range. A line belongs to the profile through its
+/// <c>TaxProfileId</c> (new lines and backfilled history), or, while history is not backfilled yet (<c>TaxProfileId</c> NULL), through the profile's mirror
+/// <c>TaxId</c> (the fallback goes with TP-5b). Returns reverse their original line and add no information.
 /// The branch filter is ignored on purpose: a version used at another branch is still used. The company filter stays.
 /// </summary>
 public static class TaxVersionUsage
 {
-    public static async Task<bool> IsUsedAsync(SelloraDbContext db, Guid mirrorTaxId, DateOnly effectiveFrom, DateOnly? effectiveTo, CancellationToken ct) =>
+    public static async Task<bool> IsUsedAsync(SelloraDbContext db, Guid profileId, Guid mirrorTaxId, DateOnly effectiveFrom, DateOnly? effectiveTo, CancellationToken ct) =>
         await db.SalesInvoiceLines.IgnoreQueryFilters([BranchQueryFilter.Name])
-            .AnyAsync(l => l.TaxId == mirrorTaxId && l.SalesInvoice.InvoiceDate >= effectiveFrom && (effectiveTo == null || l.SalesInvoice.InvoiceDate <= effectiveTo), ct)
+            .AnyAsync(l => (l.TaxProfileId == profileId || (l.TaxProfileId == null && l.TaxId == mirrorTaxId))
+                && l.SalesInvoice.InvoiceDate >= effectiveFrom && (effectiveTo == null || l.SalesInvoice.InvoiceDate <= effectiveTo), ct)
         || await db.PurchaseOrderLines.IgnoreQueryFilters([BranchQueryFilter.Name])
-            .AnyAsync(l => l.TaxId == mirrorTaxId && l.PurchaseOrder.PurchaseDate >= effectiveFrom && (effectiveTo == null || l.PurchaseOrder.PurchaseDate <= effectiveTo), ct);
+            .AnyAsync(l => (l.TaxProfileId == profileId || (l.TaxProfileId == null && l.TaxId == mirrorTaxId))
+                && l.PurchaseOrder.PurchaseDate >= effectiveFrom && (effectiveTo == null || l.PurchaseOrder.PurchaseDate <= effectiveTo), ct);
 
-    /// <summary>The latest document date (sales invoice or purchase) of any line carrying the profile's mirror tax, or null when none (T25, BR4).</summary>
-    public static async Task<DateOnly?> LatestDocumentDateAsync(SelloraDbContext db, Guid mirrorTaxId, CancellationToken ct)
+    /// <summary>The latest document date (sales invoice or purchase) of any line of the profile (same membership as <see cref="IsUsedAsync"/>), or null when none (T25, BR4).</summary>
+    public static async Task<DateOnly?> LatestDocumentDateAsync(SelloraDbContext db, Guid profileId, Guid mirrorTaxId, CancellationToken ct)
     {
-        var sales = await db.SalesInvoiceLines.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(l => l.TaxId == mirrorTaxId)
+        var sales = await db.SalesInvoiceLines.IgnoreQueryFilters([BranchQueryFilter.Name])
+            .Where(l => l.TaxProfileId == profileId || (l.TaxProfileId == null && l.TaxId == mirrorTaxId))
             .Select(l => (DateOnly?)l.SalesInvoice.InvoiceDate).MaxAsync(ct);
-        var purchases = await db.PurchaseOrderLines.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(l => l.TaxId == mirrorTaxId)
+        var purchases = await db.PurchaseOrderLines.IgnoreQueryFilters([BranchQueryFilter.Name])
+            .Where(l => l.TaxProfileId == profileId || (l.TaxProfileId == null && l.TaxId == mirrorTaxId))
             .Select(l => (DateOnly?)l.PurchaseOrder.PurchaseDate).MaxAsync(ct);
         return sales is null ? purchases : purchases is null ? sales : (sales > purchases ? sales : purchases);
     }

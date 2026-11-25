@@ -78,6 +78,10 @@ public class TaxDocumentPreviewService(SelloraDbContext db, ITaxResolver resolve
         // ---- rate sets on the document date
         var rates = await resolver.ResolveRateSetsAsync(input.Direction, place.CountryId, input.Date, input.Lines.Select(l => l.ProductId).ToList(), "lines", ct);
 
+        // TP-5a (T11): the same blocking error as the save, so the screen shows it before the user submits.
+        var hsnErrors = HsnRules.DocumentErrors(settings.HsnRequiredFrom, input.Date, input.Lines.Select(l => l.ProductId).ToList(), rates);
+        if (hsnErrors.Count > 0) throw new DomainValidationException(hsnErrors);
+
         var calcLines = new List<TaxCalcLine>();
         for (var i = 0; i < input.Lines.Count; i++)
         {

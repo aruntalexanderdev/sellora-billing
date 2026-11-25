@@ -394,6 +394,9 @@ Each phase is approved, built, verified and reviewed before the next.
   products are allowed only within one HSN and identical base unit (bounded exception to the no-cross-product-sum rule).
 - T33 TP-5a API contract (section "TP-5 design › API / frontend") approved; TP-5a WP1 done (commit 7880953).
   `Reports.Tax` is branch-scopable like `Reports.Sales`.
+- T34 (TP-5a WP2, lead decision) Settings PUT: `hsnRequiredFrom` omitted or null leaves the date unchanged; clearing it needs
+  `clearHsnRequiredFrom: true`, so an older settings form that never sends the field cannot silently lift the HSN
+  control. Product tax labels show empty (not the mirror name) when the company has no country.
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 

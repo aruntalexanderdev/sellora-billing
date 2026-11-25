@@ -5,13 +5,14 @@ using Microsoft.EntityFrameworkCore;
 using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/pricing")]
 [Authorize(Policy = "Inventory.Price")]
-public class PricingController(SelloraDbContext db, IPricingService pricingService, IEffectivePermissionService effectivePermissions) : ControllerBase
+public class PricingController(SelloraDbContext db, IPricingService pricingService, IEffectivePermissionService effectivePermissions, ITaxResolver? taxResolver = null) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<PricingRowDto>>> List([FromQuery] string? search, CancellationToken ct)
@@ -19,7 +20,6 @@ public class PricingController(SelloraDbContext db, IPricingService pricingServi
         var query = db.ProductUnits
             .Include(u => u.Unit)
             .Include(u => u.Product).ThenInclude(p => p.BaseUnit)
-            .Include(u => u.Product).ThenInclude(p => p.Tax)
             .Where(u => u.IsActive && u.IsSellable && u.Product.IsActive)
             .AsQueryable();
 
@@ -32,6 +32,8 @@ public class PricingController(SelloraDbContext db, IPricingService pricingServi
         var units = await query.OrderBy(u => u.Product.Name).ThenBy(u => u.ProductId).ThenBy(u => u.SortOrder).ToListAsync(ct);
         var unitIds = units.Select(u => u.Id).ToList();
         var productIds = units.Select(u => u.ProductId).Distinct().ToList();
+
+        var taxes = await SalesTaxLookup.ForCompanyAsync(db, taxResolver ?? new TaxResolver(db), productIds, ct);
 
         var currentPrices = await db.SellingPrices
             .Where(p => unitIds.Contains(p.ProductUnitId) && p.EffectiveTo == null)
@@ -73,7 +75,7 @@ public class PricingController(SelloraDbContext db, IPricingService pricingServi
                 u.ProductId, u.Product.Sku, u.Product.Name,
                 u.Id, u.Unit.ShortCode, u.Label ?? u.Unit.Name,
                 u.ConversionFactorToBase, u.Product.BaseUnit.ShortCode, u.SortOrder, u.IsBaseUnit,
-                costPerUnit, hasPrice ? price : null, suggested, margin, u.Product.Tax.Name);
+                costPerUnit, hasPrice ? price : null, suggested, margin, SalesTaxLookup.Label(taxes, u.ProductId));
         }).ToList();
 
         return Ok(rows);

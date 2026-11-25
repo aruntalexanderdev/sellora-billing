@@ -151,7 +151,7 @@ public class TaxProfilesController(SelloraDbContext db, ITaxProfileService servi
         {
             components = await db.TaxProfileVersionComponents.AsNoTracking().Include(c => c.TaxComponent).Where(c => c.TaxProfileVersionId == v.Id).OrderBy(c => c.SortOrder).ToListAsync(ct);
         }
-        var used = await TaxVersionUsage.IsUsedAsync(db, profile.LegacyTaxId, v.EffectiveFrom, v.EffectiveTo, ct);
+        var used = await TaxVersionUsage.IsUsedAsync(db, profile.Id, profile.LegacyTaxId, v.EffectiveFrom, v.EffectiveTo, ct);
         return new TaxVersionDto(v.Id, v.EffectiveFrom, v.EffectiveTo, v.TotalPercent, IsCurrent(v, today), used, v.CreatedAt,
             components.Select(c => new TaxVersionComponentDto(c.Id, c.TaxComponentId, c.TaxComponent.Code, c.TaxComponent.Name, c.TaxComponent.Kind, c.Method,
                 c.Applicability, c.RatePercent, c.AmountPerBaseUnit, c.SortOrder)).ToList());

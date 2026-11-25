@@ -42,7 +42,7 @@ public record ProductListItemDto(
 
 /// <summary><see cref="IsBaseUnitLocked"/> is true when the product has stock history or any unit row is locked.
 /// <see cref="Units"/> is ordered by SortOrder (base first).
-/// Tax (TP-1): <see cref="TaxId"/>/<see cref="TaxLabel"/>/<see cref="TaxRatePercent"/> are the mirror tax row (D3, kept for one release). The rest is what the
+/// Tax (TP-1, TP-5a): <see cref="TaxLabel"/>/<see cref="TaxRatePercent"/> are the resolved sales profile's name and the percent of its version valid today (empty/0 when none applies). <see cref="TaxId"/> is <b>deprecated</b>: the legacy mirror tax id, still written for the TP-4 build and removed in TP-5b; do not use it. The rest is what the
 /// product resolves to for the company country: <see cref="SalesTaxProfile"/>/<see cref="PurchaseTaxProfile"/> with <see cref="TaxSource"/> ("Product",
 /// "Subcategory", "Category", "Company") and <see cref="TaxSourceName"/>, the own override ids (null = inherited), <see cref="HsnCode"/> (own) and
 /// <see cref="EffectiveHsnCode"/> (own or the subcategory's, <see cref="HsnSource"/> "Product"/"Subcategory"/"None"), and <see cref="Warnings"/>
