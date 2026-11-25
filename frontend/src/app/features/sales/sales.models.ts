@@ -189,6 +189,12 @@ export interface SalesInvoiceDetail extends BranchFields, LocationFields {
   placeOfSupplyStateName?: string | null;
   sellerStateId?: string | null;
   sellerStateName?: string | null;
+  /** TP-4 review (T31b): seller block set by the server from the branch / company, readable without Masters.View. */
+  sellerName?: string | null;
+  sellerAddress?: string | null;
+  sellerTaxIdLabel?: string | null;
+  sellerStateGstCode?: string | null;
+  placeOfSupplyStateGstCode?: string | null;
   partyTaxStatus?: string;
   /** Only the create response carries warnings. */
   warnings?: SalesWarning[] | null;

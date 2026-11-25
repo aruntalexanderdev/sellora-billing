@@ -105,6 +105,17 @@ describe('SalesDetail tax invoice (TP-4)', () => {
     expect(text('[data-testid="scope-gstin"]')).toBe('100234567890003');
   });
 
+  it('prints the server seller block and GST state codes for a cashier without Masters.View (T31b)', () => {
+    const { text } = setup(of(taxed({
+      sellerName: 'Sellora Retail Pvt Ltd', sellerAddress: '1 MG Road, Bengaluru', sellerTaxIdLabel: 'GSTIN', sellerStateGstCode: '29',
+      placeOfSupplyStateName: 'Kerala', placeOfSupplyStateGstCode: '32', placeOfSupply: 'InterState',
+    })));
+    expect(text('[data-testid="seller-name"]')).toBe('Sellora Retail Pvt Ltd');
+    expect(text('[data-testid="seller-address"]')).toBe('1 MG Road, Bengaluru, Karnataka (29)');
+    expect(text('[data-testid="seller-tax-id"]')).toBe('GSTIN: 29ABCDE1234F1Z5');
+    expect(text('[data-testid="place-of-supply"]')).toBe('Place of supply: Kerala (32) (Other state)');
+  });
+
   it('intra-state: HSN, discount, taxable and CGST/SGST columns with a component footer', () => {
     const { el } = setup(of(taxed({ billDiscountAmount: 4, billDiscountPercent: 4, billCharges: 10, discountTotal: 4 })));
     expect(texts(el, '[data-testid="tax-col"]')).toEqual(['CGST', 'SGST']);

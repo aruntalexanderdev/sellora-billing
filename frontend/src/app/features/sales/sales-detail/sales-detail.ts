@@ -61,21 +61,26 @@ export class SalesDetail implements OnInit {
   // ---- TP-4: tax invoice (A4 print) ----
   /** Warnings of the save that created this invoice (passed once via the router state; GET returns none). */
   readonly createWarnings = signal<string[]>(((history.state as { warnings?: string[] } | null)?.warnings) ?? []);
-  /** Seller name and address (business settings; only readable with Masters.View, else the branch name is shown). */
+  /** Business settings, read only for the seller's phone and e-mail when the user has Masters.View (name, address and
+   * tax id come from the invoice itself, T31b). */
   readonly seller = signal<BusinessSettings | null>(null);
 
   /** VAT registrations are "TRN", everything else (and history) "GSTIN". */
-  readonly taxIdLabel = computed(() => (this.invoice()?.regime === 'Vat' ? 'TRN' : 'GSTIN'));
-  readonly sellerName = computed(() => this.seller()?.businessName || this.invoice()?.branchName || '');
+  readonly taxIdLabel = computed(() => this.invoice()?.sellerTaxIdLabel || (this.invoice()?.regime === 'Vat' ? 'TRN' : 'GSTIN'));
+  readonly sellerName = computed(() => this.invoice()?.sellerName || this.seller()?.businessName || this.invoice()?.branchName || '');
   readonly sellerAddress = computed(() => {
-    const s = this.seller();
-    const state = this.invoice()?.sellerStateName ?? s?.stateName ?? null;
-    return [s?.addressLine, s?.city, state].filter((x): x is string => !!x).join(', ');
+    const i = this.invoice();
+    const state = withGstCode(i?.sellerStateName ?? null, i?.sellerStateGstCode ?? null);
+    const address = i?.sellerAddress || [this.seller()?.addressLine, this.seller()?.city].filter((x): x is string => !!x).join(', ');
+    return [address, state].filter((x): x is string => !!x).join(', ');
   });
   readonly sellerContact = computed(() => [this.seller()?.phone, this.seller()?.email].filter((x): x is string => !!x).join(' · '));
   readonly placeLabel = computed(() => placeOfSupplyLabel(this.invoice()?.placeOfSupply, this.invoice()?.regime));
   /** State name of the place of supply (GST), else null (VAT or history). */
-  readonly placeState = computed(() => (this.invoice()?.regime === 'Vat' ? null : this.invoice()?.placeOfSupplyStateName ?? null));
+  readonly placeState = computed(() => {
+    const i = this.invoice();
+    return i?.regime === 'Vat' ? null : withGstCode(i?.placeOfSupplyStateName ?? null, i?.placeOfSupplyStateGstCode ?? null);
+  });
 
   /** Tax rows of a line; history without rows shows the line's tax as one legacy "Tax" row. */
   readonly rowsOf = (line: SalesInvoiceLine): TaxRowView[] =>
@@ -240,7 +245,7 @@ export class SalesDetail implements OnInit {
 
   ngOnInit(): void {
     this.load();
-    // Seller name and address for the printed invoice; the endpoint needs Masters.View, otherwise the branch name stands in.
+    // Seller phone/e-mail only (the endpoint needs Masters.View); name, address and tax id come from the invoice.
     if (this.auth.hasPermission('Masters.View')) {
       this.injector.get(SettingsService).get().subscribe({ next: (s) => this.seller.set(s), error: () => undefined });
     }
@@ -354,4 +359,10 @@ export class SalesDetail implements OnInit {
   goBack(): void {
     this.router.navigateByUrl('/sales');
   }
+}
+
+/** "Kerala (32)": a state name with its GST state code when known. */
+function withGstCode(name: string | null, code: string | null): string | null {
+  if (!name) return null;
+  return code ? `${name} (${code})` : name;
 }
