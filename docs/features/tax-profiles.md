@@ -389,6 +389,9 @@ Each phase is approved, built, verified and reviewed before the next.
   customer in another country, the place-of-supply state is left empty. (d) `AddSalesTaxSnapshot` locks the referenced
   tables (States, TaxProfiles, TaxProfileVersions) before the sales tables. (e) Accepted: numeric(18,2) header columns
   and numeric(6,3) line `TaxRatePercent` (display only), noted in the release notes.
+- T32 TP-5 design approved; TP5-Q1 to TP5-Q11 as recommended. TP-5 ships as 5a (additive) then 5b (destructive, only after
+  a separate owner sign-off, CI green and one filed return period from the new reports). HSN quantity sums across
+  products are allowed only within one HSN and identical base unit (bounded exception to the no-cross-product-sum rule).
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
@@ -886,8 +889,8 @@ valid version, cannot sell at all — P1 and P2 must be clean before release.
 
 ## TP-5 design (tax reports and clean-up)
 
-Status: **proposed, awaiting owner approval**. Drafted by the solution architect against the code at 936ccef; nothing
-built. Branch `feature/tax-reports`.
+Status: **approved by the owner** (TP5-Q1..Q11 as recommended, T32). TP-5a in progress on `feature/tax-reports`; TP-5b needs
+a separate owner sign-off.
 
 ### Findings that shape the design
 - F1 Only `SalesInvoiceLines`, `PurchaseOrderLines` and `Products` have `TaxId` (return lines never had one).
@@ -976,7 +979,7 @@ backend-engineer + test-engineer (Postgres backfill/validation tests), gate: API
 frontend-engineer + test-engineer (xUnit report fixtures, Vitest); (4) code review, `verify.sh all`. 5b after sign-off:
 (5) database-engineer M3b; (6) backend/frontend removal + fixture updates; (7) code review, `verify.sh all`.
 
-### Design questions (recommendation in brackets)
+### Design questions (decided as recommended, T32)
 - TP5-Q1 Split into 5a (additive) and 5b (destructive)? [Yes.]
 - TP5-Q2 New permission `Reports.Tax`, granted to current `Reports.Sales` holders? [Yes.]
 - TP5-Q3 Add `Units.Uqc` with a seeded mapping? [Yes.]
