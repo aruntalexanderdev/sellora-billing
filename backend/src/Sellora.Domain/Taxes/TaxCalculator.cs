@@ -13,7 +13,27 @@ public static class TaxCalculator
     private const int MaxPrecision = 6;
     private const int UnitPriceDecimals = 4;
 
+    /// <summary>Largest quantity of a line (column numeric(18,3) with room for the unit factor).</summary>
+    public const decimal MaxQty = 1_000_000_000m;
+
+    /// <summary>Largest money amount of a line gross, discount, charge or bill charge (columns numeric(18,4)); keeps every product below the decimal range.</summary>
+    public const decimal MaxAmount = 100_000_000_000m;
+
+    public const int MaxLines = 500;
+
     public static TaxDocumentResult Calculate(TaxCalcDocument document)
+    {
+        try
+        {
+            return CalculateCore(document);
+        }
+        catch (OverflowException)
+        {
+            throw new DomainValidationException("lines", "A quantity or amount is too large.");
+        }
+    }
+
+    private static TaxDocumentResult CalculateCore(TaxCalcDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
         var precision = document.Precision;
@@ -26,6 +46,7 @@ public static class TaxCalculator
         }
         if (errors.Count > 0) throw new DomainValidationException(errors);
 
+        if (document.Lines.Count > MaxLines) throw new DomainValidationException("lines", $"A document can have at most {MaxLines} lines.");
         var lines = document.Lines;
         var grosses = new decimal[lines.Count];
         var discounts = new decimal[lines.Count];
@@ -37,6 +58,11 @@ public static class TaxCalculator
             string Key(string field) => $"lines[{i}].{field}";
             if (line.Rates is null) errors.Add(new FieldError(Key("productId"), "The line has no tax profile."));
             if (line.Qty < 0) errors.Add(new FieldError(Key("qty"), "Quantity cannot be negative."));
+            else if (line.Qty > MaxQty) errors.Add(new FieldError(Key("qty"), "Quantity is too large."));
+            if (line.UnitPrice > MaxAmount) errors.Add(new FieldError(Key("unitPrice"), "Unit price is too large."));
+            if (line.LineDiscount > MaxAmount) errors.Add(new FieldError(Key("discount"), "Discount is too large."));
+            if (line.OtherCharges > MaxAmount) errors.Add(new FieldError(Key("otherCharges"), "Other charges are too large."));
+            var inBounds = Math.Abs(line.Qty) <= MaxQty && Math.Abs(line.UnitPrice) <= MaxAmount && Math.Abs(line.LineDiscount) <= MaxAmount;
             if (line.UnitPrice < 0) errors.Add(new FieldError(Key("unitPrice"), "Unit price cannot be negative."));
             else if (TaxMoney.Round(line.UnitPrice, UnitPriceDecimals) != line.UnitPrice) errors.Add(new FieldError(Key("unitPrice"), $"Unit price has too many decimals (at most {UnitPriceDecimals})."));
             if (line.LineDiscount < 0) errors.Add(new FieldError(Key("discount"), "Discount cannot be negative."));
@@ -44,8 +70,9 @@ public static class TaxCalculator
             if (line.OtherCharges < 0) errors.Add(new FieldError(Key("otherCharges"), "Other charges cannot be negative."));
             else if (TaxMoney.Round(line.OtherCharges, precision) != line.OtherCharges) errors.Add(new FieldError(Key("otherCharges"), $"Other charges can have at most {precision} decimal places."));
 
-            grosses[i] = TaxMoney.Round(line.Qty * line.UnitPrice, precision);
-            discounts[i] = TaxMoney.Round(line.LineDiscount, precision);
+            grosses[i] = inBounds ? TaxMoney.Round(line.Qty * line.UnitPrice, precision) : 0m;
+            if (inBounds && grosses[i] > MaxAmount) errors.Add(new FieldError(Key("unitPrice"), "The line amount is too large."));
+            discounts[i] = inBounds ? TaxMoney.Round(line.LineDiscount, precision) : 0m;
             if (discounts[i] > grosses[i] && line.LineLooksValid())
             {
                 errors.Add(new FieldError(Key("discount"), $"Discount cannot exceed the line amount of {grosses[i].ToString("F" + precision, System.Globalization.CultureInfo.InvariantCulture)}."));
@@ -61,6 +88,7 @@ public static class TaxCalculator
         else if (amount is { } a && a < 0) errors.Add(new FieldError("billDiscount", "The bill discount cannot be negative."));
         else if (amount is { } a2 && TaxMoney.Round(a2, precision) != a2) errors.Add(new FieldError("billDiscount", $"The bill discount can have at most {precision} decimal places."));
         if (document.BillCharges < 0) errors.Add(new FieldError("billCharges", "Bill charges cannot be negative."));
+        else if (document.BillCharges > MaxAmount) errors.Add(new FieldError("billCharges", "Bill charges are too large."));
         else if (TaxMoney.Round(document.BillCharges, precision) != document.BillCharges) errors.Add(new FieldError("billCharges", $"Bill charges can have at most {precision} decimal places."));
 
         var totalWeight = weights.Sum();

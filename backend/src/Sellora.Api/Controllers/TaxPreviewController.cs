@@ -14,7 +14,7 @@ namespace Sellora.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/tax")]
-public class TaxPreviewController(SelloraDbContext db, ITaxDocumentPreviewService service, IEffectivePermissionService effectivePermissions) : ControllerBase
+public class TaxPreviewController(ITaxDocumentPreviewService service, IEffectivePermissionService effectivePermissions) : ControllerBase
 {
     [HttpPost("preview")]
     [Authorize(Policy = "Sales.Create|Purchase.Create")]
@@ -24,8 +24,17 @@ public class TaxPreviewController(SelloraDbContext db, ITaxDocumentPreviewServic
 
         var direction = request.Direction!.Value;
         var set = await effectivePermissions.GetCurrentAsync(ct);
-        var working = db.BranchContext.ActiveBranchId;
-        bool Has(string code) => set.HasCompanyLevel(code) || (working is { } id && set.HasAtBranch(code, id));
+        Guid working;
+        try
+        {
+            working = await service.ResolveWorkingBranchIdAsync(ct); // the branch the service previews at, so the check and the preview agree
+        }
+        catch (DomainValidationException ex)
+        {
+            foreach (var error in ex.Errors) ModelState.AddModelError(error.Field, error.Message);
+            return ValidationProblem(ModelState);
+        }
+        bool Has(string code) => set.HasCompanyLevel(code) || set.HasAtBranch(code, working);
 
         var required = direction == TaxDirection.Sale ? "Sales.Create" : "Purchase.Create";
         if (!Has(required)) return Forbidden($"You need the {required} permission to preview this document.");
@@ -36,7 +45,7 @@ public class TaxPreviewController(SelloraDbContext db, ITaxDocumentPreviewServic
 
         var input = new TaxDocumentPreviewInput(
             direction, request.PartyId, request.Date!.Value, request.RatesIncludeTax, request.BillDiscountPercent, request.BillDiscountAmount, request.BillCharges,
-            request.Lines.Select(l => new TaxPreviewLineInput(l.ProductId!.Value, l.ProductUnitId!.Value, l.Qty, l.UnitPrice, l.Discount, l.OtherCharges ?? 0m)).ToList());
+            request.Lines.Select(l => new TaxPreviewLineInput(l.ProductId!.Value, l.ProductUnitId!.Value, l.Qty!.Value, l.UnitPrice!.Value, l.Discount, l.OtherCharges ?? 0m)).ToList());
 
         try
         {

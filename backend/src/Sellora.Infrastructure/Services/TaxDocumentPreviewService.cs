@@ -14,9 +14,12 @@ namespace Sellora.Infrastructure.Services;
 /// </summary>
 public class TaxDocumentPreviewService(SelloraDbContext db, ITaxResolver resolver) : ITaxDocumentPreviewService
 {
+    public async Task<Guid> ResolveWorkingBranchIdAsync(CancellationToken ct = default) => (await BranchRules.ResolveWorkingBranchAsync(db, ct)).Id;
+
     public async Task<TaxDocumentPreview> PreviewAsync(TaxDocumentPreviewInput input, CancellationToken ct = default)
     {
         if (input.Lines is null || input.Lines.Count == 0) throw new DomainValidationException("lines", "Add at least one item.");
+        if (input.Lines.Count > TaxCalculator.MaxLines) throw new DomainValidationException("lines", $"A document can have at most {TaxCalculator.MaxLines} lines.");
         var sale = input.Direction == TaxDirection.Sale;
         var companyId = db.CompanyContext.RequireCompanyId();
 
@@ -82,7 +85,7 @@ public class TaxDocumentPreviewService(SelloraDbContext db, ITaxResolver resolve
         {
             var line = input.Lines[i];
             var includes = sale ? products[line.ProductId].PriceIncludesTax ?? settings.SellingPricesIncludeTax : input.RatesIncludeTax ?? false;
-            calcLines.Add(new TaxCalcLine(line.Qty, baseQtys[i], line.UnitPrice, line.Discount, sale ? 0m : line.OtherCharges, includes, rates[line.ProductId].Rates));
+            calcLines.Add(new TaxCalcLine(line.Qty, baseQtys[i], line.UnitPrice, line.Discount, line.OtherCharges, includes, rates[line.ProductId].Rates));
         }
 
         var document = new TaxCalcDocument(
@@ -132,6 +135,8 @@ public class TaxDocumentPreviewService(SelloraDbContext db, ITaxResolver resolve
         if (!sale && !unit.IsPurchasable) throw new DomainValidationException(unitField, $"{display} cannot be purchased for {product.Name}.");
 
         if (line.Qty < 0) throw new DomainValidationException(qtyField, "Quantity cannot be negative.");
+        if (line.Qty > TaxCalculator.MaxQty) throw new DomainValidationException(qtyField, "Quantity is too large.");
+        if (sale && line.OtherCharges != 0m) throw new DomainValidationException($"lines[{i}].otherCharges", "Sale lines carry no other charges.");
         StockQuantity.EnsureEnteredDecimals(line.Qty, unit.Unit.DecimalPlaces, display, qtyField);
         var baseQty = line.Qty * unit.ConversionFactorToBase;
         StockQuantity.EnsureStorable(baseQty, qtyField);

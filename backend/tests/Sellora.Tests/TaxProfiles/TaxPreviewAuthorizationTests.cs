@@ -33,7 +33,7 @@ public class TaxPreviewAuthorizationTests
     private static TaxPreviewController Controller(Fixture f, params string[] companyCodes) => Controller(f, new FakeEffectivePermissions(companyCodes));
 
     private static TaxPreviewController Controller(Fixture f, Sellora.Domain.Abstractions.IEffectivePermissionService permissions) =>
-        new(f.W.Db, new TaxDocumentPreviewService(f.W.Db, f.W.Resolver), permissions) { ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() } };
+        new(new TaxDocumentPreviewService(f.W.Db, f.W.Resolver), permissions) { ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() } };
 
     private static TaxDocumentPreviewRequest Request(Fixture f, TaxDirection direction, decimal? pct = null, decimal? amount = null) =>
         new(direction, direction == TaxDirection.Purchase ? f.Supplier.Id : null, D, false, pct, amount, null, [new TaxPreviewLineRequest(f.Product.Id, f.Unit.Id, 10, 100)]);
@@ -128,5 +128,39 @@ public class TaxPreviewAuthorizationTests
 
         Assert.Equal(403, await StatusAsync(Controller(f, elsewhere), Request(f, TaxDirection.Sale)));
         Assert.Equal(403, await StatusAsync(Controller(f, elsewhere), Request(f, TaxDirection.Purchase)));
+    }
+
+    [Fact]
+    public async Task Preview_CodesGrantedAtTheWorkingBranch_AreAccepted()
+    {
+        var f = await SetupAsync(cap: 10m);
+        var here = FakeScopedPermissions.AtBranch(TestCompany.MainBranchId, "Sales.Create", "Sales.BillDiscount", "Purchase.Create");
+
+        Assert.Equal(200, await StatusAsync(Controller(f, here), Request(f, TaxDirection.Sale, pct: 5m)));
+        Assert.Equal(200, await StatusAsync(Controller(f, here), Request(f, TaxDirection.Purchase)));
+        Assert.Equal(403, await StatusAsync(Controller(f, FakeScopedPermissions.AtBranch(TestCompany.MainBranchId, "Sales.Create")), Request(f, TaxDirection.Sale, pct: 5m)));
+    }
+
+    [Fact]
+    public async Task Preview_SaleBillDiscountAmountAboveCap_Is400OnBillDiscount()
+    {
+        var f = await SetupAsync(cap: 10m);
+        var controller = Controller(f, "Sales.Create", "Sales.BillDiscount");
+
+        Assert.Equal(200, await StatusAsync(controller, Request(f, TaxDirection.Sale, amount: 100m))); // 10% of 1,000.00
+        Assert.Equal("billDiscount", await BadRequestFieldAsync(controller, Request(f, TaxDirection.Sale, amount: 100.01m)));
+    }
+
+    [Fact]
+    public async Task Preview_MissingQtyOrUnitPrice_IsRejectedByTheContract()
+    {
+        var required = typeof(TaxPreviewLineRequest).GetConstructors().Single().GetParameters().Where(p => p.Name is "Qty" or "UnitPrice").ToList();
+
+        Assert.Equal(2, required.Count);
+        Assert.All(required, p =>
+        {
+            Assert.Equal(typeof(decimal?), p.ParameterType);
+            Assert.NotNull(System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.ComponentModel.DataAnnotations.RequiredAttribute>(p));
+        });
     }
 }

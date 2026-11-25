@@ -118,8 +118,8 @@ public record ClearRedundantOverridesResultDto(int Cleared);
 public record TaxPreviewLineRequest(
     [Required] Guid? ProductId,
     [Required] Guid? ProductUnitId,
-    decimal Qty,
-    decimal UnitPrice,
+    [Required] decimal? Qty,
+    [Required] decimal? UnitPrice,
     decimal Discount = 0m,
     decimal? OtherCharges = null);
 

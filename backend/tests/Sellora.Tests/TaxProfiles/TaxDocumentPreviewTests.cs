@@ -235,4 +235,56 @@ public class TaxDocumentPreviewTests
         Assert.Equal(0m, r.Totals.GrandTotal);
         Assert.Equal(2, r.Lines[0].Calc.Rows.Count);
     }
+
+    [Fact]
+    public async Task Preview_OversizedInput_IsA400OnItsField_NeverAnOverflow()
+    {
+        var f = await SetupAsync();
+        await SetCompanyStateAsync(f, Guid.NewGuid());
+        TaxDocumentPreviewInput One(decimal qty, decimal price, decimal discount = 0, decimal? charges = null, decimal? amount = null) =>
+            new(TaxDirection.Sale, null, D, null, null, amount, charges, [new TaxPreviewLineInput(f.Product.Id, f.Unit.Id, qty, price, discount)]);
+
+        Assert.Equal("lines[0].qty", await TaxWorld.FieldOfAsync(() => f.Service.PreviewAsync(One(decimal.MaxValue, 1))));
+        Assert.Equal("lines[0].unitPrice", await TaxWorld.FieldOfAsync(() => f.Service.PreviewAsync(One(1, decimal.MaxValue))));
+        Assert.Equal("lines[0].unitPrice", await TaxWorld.FieldOfAsync(() => f.Service.PreviewAsync(One(1_000_000_000, 99_999_999_999m))));
+        Assert.Equal("lines[0].discount", await TaxWorld.FieldOfAsync(() => f.Service.PreviewAsync(One(1, 1, decimal.MaxValue))));
+        Assert.Equal("billCharges", await TaxWorld.FieldOfAsync(() => f.Service.PreviewAsync(One(1, 1, charges: decimal.MaxValue))));
+        Assert.Equal("billDiscount", await TaxWorld.FieldOfAsync(() => f.Service.PreviewAsync(One(1, 1, amount: decimal.MaxValue))));
+    }
+
+    [Fact]
+    public async Task Preview_MoreThan500Lines_Is400OnLines()
+    {
+        var f = await SetupAsync();
+        var lines = Enumerable.Range(0, 501).Select(_ => new TaxPreviewLineInput(f.Product.Id, f.Unit.Id, 1, 1, 0)).ToList();
+
+        Assert.Equal("lines", await TaxWorld.FieldOfAsync(() => f.Service.PreviewAsync(new(TaxDirection.Sale, null, D, null, null, null, null, lines))));
+    }
+
+    [Fact]
+    public async Task Preview_SaleLineWithOtherCharges_Is400_PurchaseLineAccepts()
+    {
+        var f = await SetupAsync();
+        await SetCompanyStateAsync(f, Guid.NewGuid());
+        var supplier = await SupplierAsync(f, null);
+
+        var sale = new TaxDocumentPreviewInput(TaxDirection.Sale, null, D, null, null, null, null, [new TaxPreviewLineInput(f.Product.Id, f.Unit.Id, 1, 100, 0, 5)]);
+        Assert.Equal("lines[0].otherCharges", await TaxWorld.FieldOfAsync(() => f.Service.PreviewAsync(sale)));
+
+        var purchase = await f.Service.PreviewAsync(new(TaxDirection.Purchase, supplier.Id, D, false, null, null, null, [new TaxPreviewLineInput(f.Product.Id, f.Unit.Id, 1, 100, 0, 5)]));
+        Assert.Equal(105m, purchase.Lines[0].Calc.Taxable);
+    }
+
+    [Fact]
+    public async Task Preview_BillChargesOnZeroWeightBill_AreSpreadEquallyAndTaxed()
+    {
+        var f = await SetupAsync();
+        await SetCompanyStateAsync(f, Guid.NewGuid());
+        var lines = new[] { new TaxPreviewLineInput(f.Product.Id, f.Unit.Id, 1, 0, 0), new TaxPreviewLineInput(f.Product.Id, f.Unit.Id, 1, 0, 0) };
+
+        var r = await f.Service.PreviewAsync(new(TaxDirection.Sale, null, D, null, null, null, 10m, lines));
+
+        Assert.Equal([5m, 5m], r.Lines.Select(l => l.Calc.BillChargeShare));
+        Assert.Equal(11.8m, r.Totals.GrandTotal);
+    }
 }

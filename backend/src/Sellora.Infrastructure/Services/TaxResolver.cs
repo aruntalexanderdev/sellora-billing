@@ -95,9 +95,10 @@ public class TaxResolver(SelloraDbContext db) : ITaxResolver
         (Guid? Country, Guid? State)? party = null;
         if (partyId is { } pid)
         {
-            party = direction == TaxDirection.Sale
-                ? await db.Customers.AsNoTracking().Where(c => c.Id == pid).Select(c => ValueTuple.Create(c.CountryId, c.StateId)).SingleOrDefaultAsync(ct) is { } c ? (c.Item1, c.Item2) : null
-                : await db.Suppliers.AsNoTracking().Where(s => s.Id == pid).Select(s => ValueTuple.Create(s.CountryId, s.StateId)).SingleOrDefaultAsync(ct) is { } s ? (s.Item1, s.Item2) : null;
+            var found = direction == TaxDirection.Sale
+                ? await db.Customers.AsNoTracking().Where(c => c.Id == pid).Select(c => new { c.CountryId, c.StateId }).SingleOrDefaultAsync(ct)
+                : await db.Suppliers.AsNoTracking().Where(x => x.Id == pid).Select(x => new { x.CountryId, x.StateId }).SingleOrDefaultAsync(ct);
+            party = found is null ? null : (found.CountryId, found.StateId);
             if (party is null) throw new DomainValidationException("partyId", direction == TaxDirection.Sale ? "Select a valid customer." : "Select a valid supplier.");
         }
 
@@ -151,7 +152,7 @@ public class TaxResolver(SelloraDbContext db) : ITaxResolver
         var versions = await db.TaxProfileVersions.AsNoTracking().Include(v => v.Components).ThenInclude(c => c.TaxComponent)
             .Where(v => profileIds.Contains(v.TaxProfileId) && v.EffectiveFrom <= date && (v.EffectiveTo == null || v.EffectiveTo >= date))
             .ToListAsync(ct);
-        var versionByProfile = versions.GroupBy(v => v.TaxProfileId).ToDictionary(g => g.Key, g => g.First());
+        var versionByProfile = versions.GroupBy(v => v.TaxProfileId).ToDictionary(g => g.Key, g => g.OrderByDescending(v => v.EffectiveFrom).First());
 
         var result = new Dictionary<Guid, ResolvedLineRates>();
         foreach (var (productId, (resolution, profile)) in picked)
