@@ -22,4 +22,19 @@ public interface ITaxResolver
 
     /// <summary>The version valid on <paramref name="documentDate"/> with its components (BR5); 400 when the profile is inactive or has no version for that date.</summary>
     Task<TaxVersionResolution> ResolveVersionAsync(Guid profileId, DateOnly documentDate, string field = "taxProfile", CancellationToken ct = default);
+
+    /// <summary>
+    /// Place of supply of a document (BR11, BR12, T14). Regime comes from the document country (VAT is <see cref="PlaceOfSupply.NotApplicable"/>).
+    /// GST: own state = the branch's, else the company's (400 <c>branchId</c> when neither is set); a party with no state (walk-in, <paramref name="partyId"/> null)
+    /// is intra-state (a supplier without state also warns); equal states are intra-state, otherwise inter-state; a party in another country is inter-state.
+    /// </summary>
+    Task<PlaceOfSupplyResolution> ResolvePlaceOfSupplyAsync(TaxDirection direction, Guid? branchId, Guid? partyId, CancellationToken ct = default);
+
+    /// <summary>
+    /// The rate set of each product for the document (BR5, BR7): the sales or the purchase profile by <paramref name="direction"/>, and its version valid on
+    /// <paramref name="date"/>. <paramref name="productIds"/> is one id per document line (duplicates allowed); every failing line is reported together as
+    /// <c>{field}[i].productId</c> (default <c>lines[i].productId</c>). Keyed by product id.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, ResolvedLineRates>> ResolveRateSetsAsync(
+        TaxDirection direction, Guid countryId, DateOnly date, IReadOnlyList<Guid> productIds, string field = "lines", CancellationToken ct = default);
 }

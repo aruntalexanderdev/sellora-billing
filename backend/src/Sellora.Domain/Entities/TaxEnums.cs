@@ -52,3 +52,24 @@ public enum TaxScope
     Subcategory,
     Product,
 }
+
+/// <summary>Where a GST supply happens relative to the seller (BR12): decides which component set applies. VAT documents are <see cref="NotApplicable"/>.</summary>
+public enum PlaceOfSupply
+{
+    IntraState,
+    InterState,
+    NotApplicable,
+}
+
+/// <summary>The tax status of the other party (BR13). Only <see cref="Unspecified"/> exists until the party-status phase (T4).</summary>
+public enum PartyTaxStatus
+{
+    Unspecified,
+}
+
+/// <summary>Which side of the business a tax document belongs to: sales use the sales profile, purchases the purchase profile (BR7).</summary>
+public enum TaxDirection
+{
+    Sale,
+    Purchase,
+}
