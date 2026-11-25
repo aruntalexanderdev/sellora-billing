@@ -5,6 +5,8 @@ import { placeLabel } from '../../../../shared/scope/list-scope';
 import { loadErrorText } from '../../../../shared/scope/problem-text';
 import { PurchasesService } from '../../purchases.service';
 import { formatQuantity } from '../../../../shared/units/unit-conversion';
+import { LineTaxBreakdown } from '../../../../shared/tax/line-tax-breakdown/line-tax-breakdown';
+import { taxByComponent } from '../../../../shared/tax/tax-breakdown';
 import type { PurchaseReturnDetail as PurchaseReturnDetailModel } from '../../purchases.models';
 
 const FORMAT = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -12,7 +14,7 @@ const FORMAT = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits:
 @Component({
   selector: 'app-purchase-return-detail',
   standalone: true,
-  imports: [RouterLink, DocumentScope],
+  imports: [RouterLink, DocumentScope, LineTaxBreakdown],
   templateUrl: './purchase-return-detail.html',
   styleUrl: '../../purchase-detail/purchase-detail.scss',
 })
@@ -32,6 +34,17 @@ export class PurchaseReturnDetail implements OnInit {
       { label: 'Issued from', value: placeLabel(r.stockLocationCode, r.stockLocationName), testId: 'scope-location' },
     ];
   });
+
+  /** Reversed tax per component over the return (legacy rows as one "Tax"). */
+  readonly taxByCode = computed(() => taxByComponent((this.ret()?.lines ?? []).map((l) => ({ rows: l.taxes ?? [] }))));
+  readonly expanded = signal<ReadonlySet<string>>(new Set());
+  toggle(id: string): void {
+    this.expanded.update((set) => {
+      const next = new Set(set);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
 
   readonly base = (n: number) => (this.ret()?.baseCurrencySymbol ?? '₹') + FORMAT(n);
   readonly original = (n: number) => (this.ret()?.currencySymbol ?? '') + FORMAT(n);

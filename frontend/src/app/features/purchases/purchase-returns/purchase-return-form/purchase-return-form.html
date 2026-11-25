@@ -47,6 +47,7 @@
               <th class="num">Can return</th>
               <th>Return unit</th>
               <th class="num">Return qty</th>
+              <th class="num">Tax <span class="muted">(estimate)</span></th>
             </tr>
           </thead>
           <tbody>
@@ -79,7 +80,25 @@
                     <div class="field-error">{{ msg }}</div>
                   }
                 </td>
+                <td class="num" data-testid="return-tax-estimate">
+                  @if (estimate(l); as est) {
+                    {{ base(est.tax) }}
+                    <div class="muted">estimate — calculated on save</div>
+                    @if (est.rows.length > 0) {
+                      <a class="link" (click)="toggleTax(l.id)">{{ expandedTax().has(l.id) ? 'Hide rows' : 'Tax rows' }}</a>
+                    }
+                  } @else {
+                    <span class="muted">—</span>
+                  }
+                </td>
               </tr>
+              @if (expandedTax().has(l.id) && estimate(l); as est) {
+                <tr data-testid="return-tax-rows">
+                  <td colspan="7">
+                    <app-line-tax-breakdown [rows]="est.rows" [symbol]="p.baseCurrencySymbol" [precision]="p.baseCurrencyDecimalPrecision" [baseUnitLabel]="l.baseUnitLabel" />
+                  </td>
+                </tr>
+              }
             }
           </tbody>
         </table>

@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { merge } from 'rxjs';
 import { FormArray, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -9,6 +9,12 @@ import { splitLocationError } from '../../../shared/locations/location-errors';
 import { ContextService } from '../../../core/context/context.service';
 import { problemMessage } from '../../../core/http/api-errors';
 import { UiButton } from '../../../shared/ui/button/button';
+import { UiBadge } from '../../../shared/ui/badge/badge';
+import { LineTaxBreakdown } from '../../../shared/tax/line-tax-breakdown/line-tax-breakdown';
+import { taxByComponent, placeOfSupplyLabel } from '../../../shared/tax/tax-breakdown';
+import { TaxPreviewService, planKey, previewStates, type PreviewState } from '../../../shared/tax/tax-preview.service';
+import type { TaxPreviewLine, TaxRowView } from '../../../shared/tax/tax-preview.models';
+import { applyPurchaseProblem, buildPurchasePreview, type BillDiscountMode, billDiscountFields, warningLabel } from '../purchase-tax';
 import { ToastService } from '../../../shared/ui/toast/toast.service';
 import { PurchasesService } from '../purchases.service';
 import { SuppliersService } from '../suppliers/suppliers.service';
@@ -17,7 +23,7 @@ import { ExchangeRatesService } from '../../administration/exchange-rates/exchan
 import type { ResolvedExchangeRate } from '../../administration/exchange-rates/exchange-rates.models';
 import type { SupplierItem } from '../suppliers/suppliers.models';
 import type { ApiProblem } from '../../../core/auth/auth.models';
-import type { PaymentMethod, PurchaseProduct, PurchaseProductUnit } from '../purchases.models';
+import type { PaymentMethod, PurchaseProduct, PurchaseProductUnit, PurchaseWarning } from '../purchases.models';
 import { defaultPurchaseUnit, purchaseBaseDecimalsError, purchaseUnitOptions } from './purchase-units';
 import { convert, formatQuantity } from '../../../shared/units/unit-conversion';
 import { quantityStep, quantityValidators } from '../../../shared/forms/quantity-input';
@@ -37,6 +43,7 @@ type LineGroup = FormGroup<{
   supplierBatchNumber: FormControl<string>;
 }>;
 
+/** Client-side facts of one row (quantity conversion) plus the gross fallback used until the server breakdown arrives. */
 interface LinePreview {
   valid: boolean;
   baseQty: number;
@@ -47,19 +54,25 @@ interface LinePreview {
   subtotal: number;
   otherCharges: number;
   discount: number;
-  taxableValue: number;
-  taxAmount: number;
-  lineTotal: number;
-  // Landed cost per base unit before tax, in the supplier's currency.
-  unitCost: number;
-  // The same line converted to the base currency (only meaningful for a foreign supplier).
-  baseTotal: number;
 }
 
 const EMPTY_PREVIEW: LinePreview = {
   valid: false, baseQty: 0, baseUnitLabel: '', baseUnitDecimalPlaces: 3, baseDecimalsError: null, subtotal: 0, otherCharges: 0, discount: 0,
-  taxableValue: 0, taxAmount: 0, lineTotal: 0, unitCost: 0, baseTotal: 0,
 };
+
+/** What a row shows: the server's figures when the breakdown is current, else a tax-less client estimate. */
+interface LineView {
+  taxable: number;
+  tax: number;
+  lineTotal: number;
+  unitCost: number;
+  hsnCode: string | null;
+  priceIncludesTax: boolean;
+  rows: TaxRowView[];
+  /** True while the figures are the client fallback (no server breakdown yet). */
+  estimated: boolean;
+  profileName: string | null;
+}
 
 const roundTo = (n: number, places: number) => {
   const f = 10 ** places;
@@ -69,7 +82,7 @@ const roundTo = (n: number, places: number) => {
 @Component({
   selector: 'app-purchase-form',
   standalone: true,
-  imports: [LocationSelect, ReactiveFormsModule, RouterLink, UiButton],
+  imports: [LineTaxBreakdown, LocationSelect, ReactiveFormsModule, RouterLink, UiBadge, UiButton],
   templateUrl: './purchase-form.html',
   styleUrl: './purchase-form.scss',
 })
@@ -85,6 +98,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
   private readonly context = inject(ContextService);
+  private readonly taxPreview = inject(TaxPreviewService);
 
   readonly paymentMethods: PaymentMethod[] = ['Cash', 'Upi', 'Card', 'Credit', 'BankTransfer'];
   private readonly allAccountOptions = signal<AccountOption[]>([]);
@@ -108,8 +122,24 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
     accountId: [''],
     paidAmount: [0, [Validators.required, Validators.min(0)]],
     notes: [''],
+    // ---- TP-3: tax basis and bill-level discount / charges
+    ratesIncludeTax: [false],
+    billDiscountPercent: [null as number | null, [Validators.min(0), Validators.max(100)]],
+    billDiscountAmount: [null as number | null, [Validators.min(0)]],
+    billCharges: [0, [Validators.min(0)]],
     lines: this.fb.array<LineGroup>([]),
   });
+
+  /** The bill discount is a percent or an amount, never both: only the active mode's control is shown and sent. */
+  readonly billDiscountMode = signal<BillDiscountMode>('percent');
+
+  setBillDiscountMode(mode: BillDiscountMode): void {
+    if (mode === this.billDiscountMode()) return;
+    this.billDiscountMode.set(mode);
+    const other = mode === 'percent' ? this.form.controls.billDiscountAmount : this.form.controls.billDiscountPercent;
+    other.setValue(null);
+    other.setErrors(null);
+  }
 
   get lines(): FormArray<LineGroup> {
     return this.form.controls.lines;
@@ -120,6 +150,8 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
     initialValue: this.form.controls.paidAmount.value,
   });
 
+  private readonly formValue = toSignal(this.form.valueChanges, { initialValue: this.form.getRawValue() });
+
   readonly previews = computed<LinePreview[]>(() => {
     const cache = this.productCache();
     return this.linesValue().map((row) => {
@@ -127,47 +159,130 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
       const unit = product?.units.find((u) => u.id === row?.productUnitId);
       if (!product || !unit || !row?.qty || row.rate == null) return EMPTY_PREVIEW;
 
-      // Preview only; the server computes and validates the stored base quantity.
+      // Quantity facts only; tax and totals come from the server breakdown (`/api/v1/tax/preview`).
       const baseQty = convert(row.qty, unit.conversionFactorToBase, 1);
       const baseUnitDecimalPlaces = product.units.find((u) => u.isBaseUnit)?.decimalPlaces ?? 3;
       const baseDecimalsError = purchaseBaseDecimalsError(row.qty, unit, baseUnitDecimalPlaces, product.baseUnitLabel);
-
-      // Mirrors the server: for a foreign supplier every invoice figure (tax included) is rounded to the
-      // supplier currency's precision, and each rounded figure is then converted and rounded to the base
-      // currency's precision — so the preview matches what is saved.
-      const foreign = this.isForeign();
-      const places = this.selectedSupplier()?.currencyDecimalPrecision ?? 2;
-      const basePlaces = this.resolvedRate()?.baseCurrencyDecimalPrecision ?? 2;
-      const fx = this.resolvedRate()?.rateToBase ?? 1;
-      const inOriginal = (n: number) => (foreign ? roundTo(n, places) : n);
-      const toBase = (n: number) => (foreign ? roundTo(n * fx, basePlaces) : n);
-
-      const subtotal = inOriginal(row.qty * row.rate);
-      const otherCharges = inOriginal(row.otherCharges ?? 0);
-      const discount = inOriginal(row.discount ?? 0);
-      const taxableValue = subtotal + otherCharges - discount;
-      const taxAmount = inOriginal((taxableValue * product.taxRatePercent) / 100);
-      const baseTotal = toBase(subtotal) + toBase(otherCharges) - toBase(discount) + toBase(taxAmount);
       return {
-        valid: true, baseQty, baseUnitLabel: product.baseUnitLabel, baseUnitDecimalPlaces, baseDecimalsError, subtotal, otherCharges, discount,
-        taxableValue, taxAmount, lineTotal: taxableValue + taxAmount, unitCost: baseQty > 0 ? taxableValue / baseQty : 0, baseTotal,
+        valid: true, baseQty, baseUnitLabel: product.baseUnitLabel, baseUnitDecimalPlaces, baseDecimalsError,
+        subtotal: row.qty * row.rate, otherCharges: row.otherCharges ?? 0, discount: row.discount ?? 0,
+      };
+    });
+  });
+
+  // ---- Live tax breakdown: debounced, newest request wins (switchMap cancels the one in flight) ----
+  readonly previewPlan = computed(() => {
+    const v = this.formValue();
+    return buildPurchasePreview({
+      supplierId: v.supplierId ?? '',
+      purchaseDate: v.purchaseDate ?? '',
+      ratesIncludeTax: v.ratesIncludeTax ?? false,
+      billDiscountMode: this.billDiscountMode(),
+      billDiscountPercent: v.billDiscountPercent ?? null,
+      billDiscountAmount: v.billDiscountAmount ?? null,
+      billCharges: v.billCharges ?? 0,
+      lines: (v.lines ?? []).map((l) => ({
+        productId: l.productId ?? '', productUnitId: l.productUnitId ?? '', qty: l.qty ?? null, rate: l.rate ?? null,
+        otherCharges: l.otherCharges ?? 0, discount: l.discount ?? 0,
+      })),
+    });
+  });
+
+  private readonly previewState = toSignal(
+    previewStates(toObservable(this.previewPlan), (request) => this.taxPreview.preview(request)),
+    { initialValue: { kind: 'idle' } as PreviewState },
+  );
+
+  /** The latest server breakdown (kept while a newer one is loading). */
+  readonly preview = computed(() => {
+    const s = this.previewState();
+    return s.kind === 'ok' ? s.preview : null;
+  });
+  /** The form changed since the shown breakdown was requested. */
+  readonly previewPending = computed(() => {
+    const s = this.previewState();
+    return planKey(this.previewPlan()) !== (s.kind === 'idle' ? '' : planKey(s.plan));
+  });
+  readonly previewError = computed(() => {
+    const s = this.previewState();
+    if (s.kind !== 'error' || this.previewPending()) return null;
+    const fields = Object.values(s.problem?.errors ?? {}).flat();
+    return fields.length > 0 ? fields.join(' ') : problemMessage(s.problem, 'Tax could not be calculated.');
+  });
+
+  private readonly previewRows = computed(() => {
+    const s = this.previewState();
+    const map = new Map<number, TaxPreviewLine>();
+    if (s.kind === 'ok') for (const l of s.preview.lines) map.set(s.plan.rows[l.index], l);
+    return map;
+  });
+
+  readonly precision = computed(() => this.preview()?.precision ?? this.selectedSupplier()?.currencyDecimalPrecision ?? 2);
+  readonly money = (n: number) => this.currencySymbol() + n.toFixed(this.precision());
+
+  readonly lineViews = computed<LineView[]>(() => {
+    const previews = this.previews();
+    const server = this.previewRows();
+    return this.linesValue().map((row, i) => {
+      const fallback = previews[i];
+      const line = server.get(i);
+      if (line) {
+        return {
+          taxable: line.taxable, tax: line.taxTotal, lineTotal: line.lineTotal, hsnCode: line.hsnCode, priceIncludesTax: line.priceIncludesTax,
+          unitCost: line.baseQty > 0 ? line.taxable / line.baseQty : 0, rows: line.rows, estimated: false, profileName: line.profileName,
+        };
+      }
+      const taxable = fallback?.valid ? fallback.subtotal + fallback.otherCharges - fallback.discount : 0;
+      return {
+        taxable, tax: 0, lineTotal: taxable, hsnCode: null, priceIncludesTax: false, rows: [], estimated: true, profileName: null,
+        unitCost: fallback?.valid && fallback.baseQty > 0 ? taxable / fallback.baseQty : 0,
       };
     });
   });
 
   readonly totals = computed(() => {
-    const rows = this.linesValue();
-    const previews = this.previews();
-    let subtotal = 0, otherCharges = 0, discount = 0, tax = 0;
-    rows.forEach((row, i) => {
-      const preview = previews[i];
+    const p = this.preview();
+    if (p) {
+      return {
+        subtotal: p.subtotal, otherCharges: p.chargesTotal, discount: p.discountTotal, taxable: p.taxableTotal, tax: p.taxTotal,
+        grandTotal: p.grandTotal, byComponent: taxByComponent(p.lines), billDiscount: p.billDiscountAmount, estimated: false,
+      };
+    }
+    let subtotal = 0, otherCharges = 0, discount = 0;
+    this.linesValue().forEach((row, i) => {
+      const preview = this.previews()[i];
       subtotal += preview?.valid ? preview.subtotal : (row?.qty ?? 0) * (row?.rate ?? 0);
       otherCharges += preview?.valid ? preview.otherCharges : row?.otherCharges ?? 0;
       discount += preview?.valid ? preview.discount : row?.discount ?? 0;
-      tax += preview?.taxAmount ?? 0;
     });
-    return { subtotal, otherCharges, discount, tax, grandTotal: subtotal + otherCharges - discount + tax };
+    const taxable = subtotal + otherCharges - discount;
+    return { subtotal, otherCharges, discount, taxable, tax: 0, grandTotal: taxable, byComponent: [], billDiscount: 0, estimated: true };
   });
+
+  readonly placeLabel = computed(() => {
+    const p = this.preview();
+    return p ? placeOfSupplyLabel(p.placeOfSupply, p.regime) : null;
+  });
+
+  /** Soft findings of the preview (supplier without state, HSN), with the form row number for `lines[i]` fields. */
+  readonly previewWarnings = computed<string[]>(() => {
+    const s = this.previewState();
+    if (s.kind !== 'ok') return [];
+    return s.preview.warnings.map((w) => warningLabel(w.field, w.message, s.plan.rows));
+  });
+  readonly saveWarnings = signal<string[]>([]);
+
+  private readonly expandedRows = signal<ReadonlySet<LineGroup>>(new Set());
+  isExpanded(row: LineGroup): boolean {
+    return this.expandedRows().has(row);
+  }
+  toggleTax(row: LineGroup): void {
+    this.expandedRows.update((set) => {
+      const next = new Set(set);
+      if (!next.delete(row)) next.add(row);
+      return next;
+    });
+  }
 
   private readonly supplierIdValue = toSignal(this.form.controls.supplierId.valueChanges, { initialValue: '' });
 
@@ -184,8 +299,8 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
     return !!supplier && !!rate && rate.baseCurrencyCode !== supplier.currencyCode;
   });
 
-  // Sum of each line converted on its own, exactly as the server totals them.
-  readonly baseGrandTotal = computed(() => this.previews().reduce((sum, p) => sum + p.baseTotal, 0));
+  // An estimate: the server converts each part and tax row to the base currency and sums them.
+  readonly baseGrandTotal = computed(() => (this.isForeign() ? roundTo(this.totals().grandTotal * (this.resolvedRate()?.rateToBase ?? 1), this.resolvedRate()?.baseCurrencyDecimalPrecision ?? 2) : this.totals().grandTotal));
   readonly baseSymbol = computed(() => this.resolvedRate()?.baseCurrencySymbol ?? this.currencySymbol());
 
   // The payment is entered in the supplier's currency (its code labels the field), so that is also the
@@ -333,6 +448,7 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
       this.serverError.set('Add at least one item.');
       return;
     }
+    this.saveWarnings.set([]);
     if (this.form.invalid || this.previews().some((p) => p.baseDecimalsError)) {
       this.form.markAllAsTouched();
       return;
@@ -349,6 +465,9 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
         paidAmount: v.paidAmount,
         accountId: v.accountId || null,
         stockLocationId: this.locationId(),
+        ratesIncludeTax: v.ratesIncludeTax,
+        ...billDiscountFields(this.billDiscountMode(), v.billDiscountPercent, v.billDiscountAmount),
+        billCharges: v.billCharges ?? 0,
         lines: v.lines.map((l) => ({
           productId: l.productId,
           productUnitId: l.productUnitId,
@@ -365,14 +484,20 @@ export class PurchaseForm implements OnInit, HasUnsavedChanges {
         next: (purchase) => {
           this.saving.set(false);
           this.saved = true;
+          const warnings = (purchase.warnings ?? []).map((w: PurchaseWarning) => warningLabel(w.field, w.message));
+          this.saveWarnings.set(warnings);
           this.toast.show(`${purchase.purchaseNo} received · stock updated.`);
-          this.router.navigate(['/purchases', purchase.id]);
+          // The detail screen shows the warnings once (GET returns none).
+          this.router.navigate(['/purchases', purchase.id], warnings.length > 0 ? { state: { warnings } } : undefined);
         },
         error: (err: HttpErrorResponse) => {
           this.saving.set(false);
           const { locationError, rest } = splitLocationError(err.error as ApiProblem | undefined);
           this.locationError.set(locationError);
-          this.serverError.set(Object.values(rest?.errors ?? {})[0]?.[0] ?? locationError ?? problemMessage(rest, 'Something went wrong.'));
+          const hasFieldErrors = Object.keys(rest?.errors ?? {}).length > 0;
+          this.serverError.set(
+            hasFieldErrors ? applyPurchaseProblem(this.form, rest, this.billDiscountMode()) : locationError ?? problemMessage(rest, 'Something went wrong.'),
+          );
         },
       });
   }

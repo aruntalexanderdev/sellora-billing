@@ -1,0 +1,44 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+.breakdown-scroll {
+  overflow-x: auto;
+}
+.breakdown {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.breakdown th {
+  text-align: left;
+  font-size: 10.5px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--color-text-fainter);
+  font-weight: 650;
+  padding: 3px 8px;
+}
+.breakdown td {
+  padding: 3px 8px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.breakdown .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.breakdown tfoot td {
+  font-weight: 650;
+  color: var(--color-text);
+}
+.treatment {
+  margin-left: 6px;
+  font-size: 10.5px;
+  color: var(--color-text-fainter);
+}
+.no-tax {
+  font-size: 12px;
+  color: var(--color-text-fainter);
+}

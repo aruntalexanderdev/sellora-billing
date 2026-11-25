@@ -1,4 +1,20 @@
 import type { BranchFields, LocationFields } from '../../shared/scope/scope.models';
+import type { PlaceOfSupply, TaxRowView } from '../../shared/tax/tax-preview.models';
+
+/** Mirrors the backend `PartyTaxStatus` (only `Unspecified` exists until the party-status phase). */
+export type PartyTaxStatus = 'Unspecified';
+
+/** Mirrors `PurchaseLineTaxDto` (a purchase or purchase-return line row). `isLegacy` rows predate the calculator. */
+export interface PurchaseLineTax extends TaxRowView {
+  originalBaseAmount: number | null;
+  originalTaxAmount: number | null;
+}
+
+/** Mirrors `PurchaseWarningDto`: field `supplierId` or `lines[i].hsnCode`. Only the create response carries them. */
+export interface PurchaseWarning {
+  field: string;
+  message: string;
+}
 
 export type PurchaseStatus = 'Completed' | 'Cancelled';
 export type PaymentStatus = 'Due' | 'PartiallyPaid' | 'Paid';
@@ -47,6 +63,24 @@ export interface PurchaseLine {
   receivedDate: string | null;
   /** Phase 10: per visible location, the base qty of this line's batch still held there (> 0 only). Present with a location in scope. */
   locationBalances?: PurchaseLineLocationBalance[] | null;
+  // ---- TP-3 tax snapshot (absent / empty on history)
+  taxes?: PurchaseLineTax[] | null;
+  taxProfileId?: string | null;
+  taxProfileName?: string | null;
+  taxProfileVersionId?: string | null;
+  placeOfSupply?: PlaceOfSupply | null;
+  priceIncludesTax?: boolean;
+  hsnCode?: string | null;
+  billDiscountShare?: number;
+  billChargeShare?: number;
+  originalRate?: number | null;
+  originalDiscount?: number | null;
+  originalOtherCharges?: number | null;
+  originalBillDiscountShare?: number | null;
+  originalBillChargeShare?: number | null;
+  originalTaxableValue?: number | null;
+  originalTaxAmount?: number | null;
+  originalLineTotal?: number | null;
 }
 
 /** Mirrors `PurchaseLineLocationBalanceDto`. */
@@ -157,6 +191,22 @@ export interface PurchaseDetail extends BranchFields, LocationFields {
   originalNetTotal: number;
   originalRefundableAmount: number;
   returns: PurchaseReturnSummary[];
+  // ---- TP-3 tax snapshot. `taxableTotal` is always present (the server falls back for history); bill amounts are in the base currency.
+  taxableTotal?: number;
+  ratesIncludeTax?: boolean;
+  billDiscountPercent?: number | null;
+  billDiscountAmount?: number;
+  billCharges?: number;
+  originalBillDiscountAmount?: number;
+  originalBillCharges?: number;
+  placeOfSupply?: PlaceOfSupply | null;
+  placeOfSupplyStateId?: string | null;
+  placeOfSupplyStateName?: string | null;
+  supplierStateId?: string | null;
+  supplierStateName?: string | null;
+  partyTaxStatus?: PartyTaxStatus;
+  /** Create response only; GET returns none. */
+  warnings?: PurchaseWarning[] | null;
 }
 
 export interface CreatePurchaseLineRequest {
@@ -180,6 +230,11 @@ export interface CreatePurchaseRequest {
   /** Receiving location; omitted/null = the working branch's default store. */
   stockLocationId?: string | null;
   lines: CreatePurchaseLineRequest[];
+  // ---- TP-3 (all optional). At most one of the bill discount percent and amount.
+  ratesIncludeTax?: boolean;
+  billDiscountPercent?: number | null;
+  billDiscountAmount?: number | null;
+  billCharges?: number;
 }
 
 export interface UpdatePurchaseHeaderRequest {
@@ -243,6 +298,13 @@ export interface PurchaseReturnLine {
   taxableValue: number;
   taxAmount: number;
   lineTotal: number;
+  // ---- TP-3: the reversed rows of the original line (absent on history)
+  taxes?: PurchaseLineTax[] | null;
+  taxProfileId?: string | null;
+  taxProfileVersionId?: string | null;
+  placeOfSupply?: PlaceOfSupply | null;
+  originalTaxableValue?: number | null;
+  originalTaxAmount?: number | null;
 }
 
 export interface PurchaseReturnDetail extends BranchFields, LocationFields {

@@ -1,0 +1,24 @@
+@if (view().length > 0) {
+  <div class="breakdown-scroll">
+    <table class="breakdown" data-testid="line-tax-breakdown">
+      <thead>
+        <tr><th>Tax</th><th class="num">Rate</th><th class="num">On</th><th class="num">Amount</th></tr>
+      </thead>
+      <tbody>
+        @for (r of view(); track r.code) {
+          <tr [attr.data-legacy]="r.legacy ? 'true' : null">
+            <td>{{ r.code }}@if (r.treatment) { <span class="treatment">{{ r.treatment }}</span> }</td>
+            <td class="num">{{ r.rate }}</td>
+            <td class="num">{{ r.base }}</td>
+            <td class="num">{{ r.tax }}</td>
+          </tr>
+        }
+      </tbody>
+      @if (view().length > 1) {
+        <tfoot><tr><td colspan="3">Total tax</td><td class="num">{{ total() }}</td></tr></tfoot>
+      }
+    </table>
+  </div>
+} @else {
+  <div class="no-tax">No tax on this line.</div>
+}
