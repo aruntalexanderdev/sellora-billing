@@ -14,7 +14,7 @@ namespace Sellora.Api.Controllers;
 [ApiController]
 [Route("api/v1/stock")]
 [Authorize(Policy = "Inventory.View")]
-public class StockController(SelloraDbContext db, IEffectivePermissionService effectivePermissions, ITaxResolver? taxResolver = null) : ControllerBase
+public class StockController(SelloraDbContext db, IEffectivePermissionService effectivePermissions, ITaxResolver taxResolver) : ControllerBase
 {
     [HttpGet("overview")]
     [CompanyScopeRead]
@@ -179,7 +179,7 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
             ? await db.ProductSubcategories.Where(s => s.Id == subId).Select(s => s.Name).FirstOrDefaultAsync(ct)
             : null;
 
-        var taxes = await SalesTaxLookup.ForCompanyAsync(db, taxResolver ?? new TaxResolver(db), [product.Id], ct);
+        var taxes = await SalesTaxLookup.ForCompanyAsync(db, taxResolver, [product.Id], ct);
 
         return Ok(new StockDetailDto(
             product.Id, product.Sku, product.Name, product.Category, product.BaseUnit.ShortCode, SalesTaxLookup.Label(taxes, product.Id),

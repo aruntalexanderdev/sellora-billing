@@ -62,7 +62,7 @@ public class StockMovementEnrichmentEndpointsTests
     {
         var f = await SeedHistoryAsync();
 
-        var detail = Ok(await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).Detail(f.Pen.Id, default));
+        var detail = Ok(await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement"), new Sellora.Infrastructure.Services.TaxResolver(f.Db)).Detail(f.Pen.Id, default));
 
         var opening = Assert.Single(detail.Movements, m => m.Type == StockMovementType.OpeningStock);
         Assert.Equal((AdjustmentType?)AdjustmentType.OpeningStock, opening.ReasonCode);
@@ -77,7 +77,7 @@ public class StockMovementEnrichmentEndpointsTests
     {
         var f = await SeedHistoryAsync();
 
-        var legacy = Assert.Single(Ok(await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).Detail(f.Pen.Id, default)).Movements, m => m.ReferenceNo == "PO-LEGACY");
+        var legacy = Assert.Single(Ok(await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement"), new Sellora.Infrastructure.Services.TaxResolver(f.Db)).Detail(f.Pen.Id, default)).Movements, m => m.ReferenceNo == "PO-LEGACY");
 
         Assert.Null(legacy.ReasonCode);
         Assert.Null(legacy.EnteredQuantity);
@@ -92,7 +92,7 @@ public class StockMovementEnrichmentEndpointsTests
     {
         var f = await SeedHistoryAsync();
 
-        var movements = Ok(await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).Detail(f.Pen.Id, default)).Movements;
+        var movements = Ok(await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement"), new Sellora.Infrastructure.Services.TaxResolver(f.Db)).Detail(f.Pen.Id, default)).Movements;
 
         Assert.All(movements, m => Assert.Equal(m.Type is StockMovementType.Adjustment or StockMovementType.OpeningStock, m.ReasonCode is not null));
     }
@@ -101,7 +101,7 @@ public class StockMovementEnrichmentEndpointsTests
     public async Task Detail_SerialisedWithApiJsonOptions_UsesCamelCaseNamesAndStringEnums()
     {
         var f = await SeedHistoryAsync();
-        var detail = Ok(await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).Detail(f.Pen.Id, default));
+        var detail = Ok(await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement"), new Sellora.Infrastructure.Services.TaxResolver(f.Db)).Detail(f.Pen.Id, default));
 
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(detail, Api));
         var row = doc.RootElement.GetProperty("movements").EnumerateArray().Single(m => m.GetProperty("type").GetString() == "OpeningStock");

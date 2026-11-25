@@ -64,10 +64,10 @@ public class StockQuantityDisplayTests
         Ok(await new ReportsController(db, Perms()).CurrentStock(null, null, null, page, pageSize, ct: default));
 
     private static async Task<PagedResult<StockOverviewItemDto>> OverviewAsync(SelloraDbContext db, int page = 1, int pageSize = 20) =>
-        Ok(await new StockController(db, Perms()).Overview(null, null, null, null, page, pageSize, null, default));
+        Ok(await new StockController(db, Perms(), new Sellora.Infrastructure.Services.TaxResolver(db)).Overview(null, null, null, null, page, pageSize, null, default));
 
     private static async Task<StockDetailDto> DetailAsync(SelloraDbContext db, Guid id) =>
-        Ok(await new StockController(db, Perms()).Detail(id, default));
+        Ok(await new StockController(db, Perms(), new Sellora.Infrastructure.Services.TaxResolver(db)).Detail(id, default));
 
     private static async Task<DashboardLowStockItemDto[]> LowStockAsync(SelloraDbContext db)
     {

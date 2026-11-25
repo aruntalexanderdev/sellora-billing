@@ -42,7 +42,7 @@ public class StockReadsAtMultipleLocationsTests
         Assert.Equal("branch_access_denied", details.Extensions["code"]?.ToString());
     }
 
-    private static StockController Stock(SelloraDbContext db, IEffectivePermissionService p) => new(db, p);
+    private static StockController Stock(SelloraDbContext db, IEffectivePermissionService p) => new(db, p, new Sellora.Infrastructure.Services.TaxResolver(db));
     private static ReportsController Reports(SelloraDbContext db, IEffectivePermissionService p) => new(db, p);
     private static IEffectivePermissionService Everything() => new FakeEffectivePermissions(StockCodes);
 
@@ -259,7 +259,7 @@ public class StockReadsAtMultipleLocationsTests
         var lw = await SeedAsync();
         await using var db = lw.W.Db();
 
-        var rows = Ok(await new PricingController(db, new PricingService(db), new Sellora.Tests.TestData.FakeEffectivePermissions("Inventory.Price", "Inventory.View")).List(null, default));
+        var rows = Ok(await new PricingController(db, new PricingService(db), new Sellora.Tests.TestData.FakeEffectivePermissions("Inventory.Price", "Inventory.View"), new Sellora.Infrastructure.Services.TaxResolver(db)).List(null, default));
 
         var row = Assert.Single(rows);
         Assert.Equal(2600m / 150m, row.CostPerUnit); // base unit, factor 1

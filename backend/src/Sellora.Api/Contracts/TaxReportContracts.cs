@@ -48,7 +48,7 @@ public record TaxReportAmountsDto(decimal TaxableValue, decimal Cgst, decimal Sg
 
 /// <summary>One group of the GST summary: section x seller GSTIN (the document branch's, else the company's) x place-of-supply state x supply type x treatment x rate.
 /// <see cref="RatePercent"/> is the sum of the CGST + SGST/UTGST + IGST rates (the legacy rate for history). <see cref="Treatment"/> is null and <see cref="IsLegacy"/> true for history rows
-/// (<see cref="SupplyType"/> and the state are then usually null too). <see cref="DocumentCount"/> counts the distinct documents in the group.</summary>
+/// (<see cref="SupplyType"/> and the state are then usually null too). <see cref="DocumentCount"/> is the number of documents contributing to this row: a document with lines in several rows is counted once in each, so row counts do not add up to the section's document count (use <see cref="GstSectionTotalDto.DocumentCount"/> for that).</summary>
 public record GstSummaryRowDto(
     GstReportSection Section, string? Gstin, Guid? PlaceOfSupplyStateId, string? PlaceOfSupplyStateName, string? PlaceOfSupplyStateCode,
     PlaceOfSupply? SupplyType, TaxTreatment? Treatment, decimal RatePercent, bool IsLegacy,

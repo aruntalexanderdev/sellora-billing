@@ -15,7 +15,14 @@
 --      Watch the progress from a second session with P2 / R1. It scans every line table once per run: on a very large tenant raise the "-- sellora:timeout" header BEFORE merging
 --      (14400 s today), or run the file by hand with psql.
 --   4. AFTER: run P2 (must show no backfillable lines), R1, R2, then the V__ checks: every V__tax-*.sql returns 0 rows. V__tax-history-profile.sql only warns in 5a but must be 0 before TP-5b.
+--      RETRY: every migration here takes lock_timeout 5 s. If one fails with SQLSTATE 55P03 (lock_not_available) or 40P01 (deadlock_detected) nothing was changed (each runs in one
+--      transaction): wait a few seconds and re-run it, ideally off-peak. Never raise lock_timeout to "make it pass".
+--   3b. AFTER the backfill finishes: VACUUM (ANALYZE) "SalesInvoiceLines", "SalesReturnLines", "PurchaseOrderLines", "PurchaseReturnLines";  The backfill updates every history row
+--      (the TaxProfileId column is indexed, so the updates are not HOT): expect table and index bloat and a burst of WAL. Run the VACUUM (not FULL) once, outside peak hours,
+--      and watch replication lag while the script runs.
 --   5. The APP can still be rolled back to the TP-4 build: it ignores the backfilled profile of history lines, and its own inserts (profile + version) satisfy the relaxed constraint.
+--      After the backfill the TP-4 build's sales and purchase line DTOs carry a profile with a NULL version for history lines. That is tolerated: TaxProfileVersionId is nullable in the
+--      DTOs and models of both builds (Guid? / optional in purchases.models.ts) and no TP-4 sales or purchase detail component reads it (checked with a search of frontend/src/app/features).
 
 -- P1 (BEFORE and AFTER) per company: active products that are GST + Taxable (their resolved sales OR purchase profile, resolution order as in V__tax-products-resolve.sql) with no HSN on the product
 -- and none on its subcategory. The HSN becomes mandatory for them on documents dated on or after BusinessSettings.HsnRequiredFrom. product_ids is capped at 200 per company (see products for the rest).

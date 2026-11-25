@@ -327,15 +327,31 @@ public class TaxHsnRequiredTests
         var sale = await SellAsync(f, D.AddDays(-10), missing); // saved while only a warning
         var cancelled = await SellAsync(f, D.AddDays(-9), missing);
         var purchase = await BuyAsync(f, D.AddDays(-10), missing);
+        var cancelledPurchase = await BuyAsync(f, D.AddDays(-8), missing);
         f.W.Settings.HsnRequiredFrom = D.AddDays(-20); // now every date is covered
 
         var saleReturn = await f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D, null, [new SaleReturnLineInput(sale.Lines.Single().Id, null, 1m)]), f.UserId);
         await f.Sales.CancelSaleAsync(cancelled.Id, f.UserId);
+        await f.Purchases.CancelPurchaseAsync(cancelledPurchase.Id, f.UserId);
         var purchaseReturn = await f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(purchase.Id, D, null, [new PurchaseReturnLineInput(purchase.Lines.Single().Id, null, 1m)]), f.UserId);
 
         Assert.Single(saleReturn.Lines);
         Assert.Single(purchaseReturn.Lines);
         Assert.Equal(SalesStatus.Cancelled, (await f.W.Db.SalesInvoices.SingleAsync(i => i.Id == cancelled.Id)).Status);
+        Assert.Equal(PurchaseStatus.Cancelled, (await f.W.Db.PurchaseOrders.SingleAsync(i => i.Id == cancelledPurchase.Id)).Status);
+    }
+
+    [Fact]
+    public async Task DeactivatingAProductWithoutHsn_IsNeverBlocked_WhenHsnRequiredFromIsSet()
+    {
+        var f = await SetupAsync(required: D);
+        var missing = await DocProductAsync(f, "GST-18");
+        var controller = new ProductsController(f.W.Db, f.Products, f.W.Resolver) { ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() } };
+
+        Assert.IsType<NoContentResult>(await controller.SetActive(missing.Product.Id, new SetActiveRequest(false), default));
+
+        f.W.Db.ChangeTracker.Clear();
+        Assert.False((await f.W.Db.Products.SingleAsync(p => p.Id == missing.Product.Id)).IsActive);
     }
 
     // ------------------------------------------------------------------ assignment / subcategory changes warn with a count

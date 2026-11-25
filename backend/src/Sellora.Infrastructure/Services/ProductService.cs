@@ -537,7 +537,6 @@ public class ProductService(SelloraDbContext db) : IProductService
     private async Task LoadForReturnAsync(Product product, CancellationToken ct)
     {
         await db.Entry(product).Reference(p => p.BaseUnit).LoadAsync(ct);
-        await db.Entry(product).Reference(p => p.Tax).LoadAsync(ct);
         await db.Entry(product).Collection(p => p.Units).Query().Include(u => u.Unit).LoadAsync(ct);
     }
 

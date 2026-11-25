@@ -12,7 +12,7 @@ namespace Sellora.Api.Controllers;
 [ApiController]
 [Route("api/v1/pricing")]
 [Authorize(Policy = "Inventory.Price")]
-public class PricingController(SelloraDbContext db, IPricingService pricingService, IEffectivePermissionService effectivePermissions, ITaxResolver? taxResolver = null) : ControllerBase
+public class PricingController(SelloraDbContext db, IPricingService pricingService, IEffectivePermissionService effectivePermissions, ITaxResolver taxResolver) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<PricingRowDto>>> List([FromQuery] string? search, CancellationToken ct)
@@ -33,7 +33,7 @@ public class PricingController(SelloraDbContext db, IPricingService pricingServi
         var unitIds = units.Select(u => u.Id).ToList();
         var productIds = units.Select(u => u.ProductId).Distinct().ToList();
 
-        var taxes = await SalesTaxLookup.ForCompanyAsync(db, taxResolver ?? new TaxResolver(db), productIds, ct);
+        var taxes = await SalesTaxLookup.ForCompanyAsync(db, taxResolver, productIds, ct);
 
         var currentPrices = await db.SellingPrices
             .Where(p => unitIds.Contains(p.ProductUnitId) && p.EffectiveTo == null)
