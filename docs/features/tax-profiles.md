@@ -392,6 +392,8 @@ Each phase is approved, built, verified and reviewed before the next.
 - T32 TP-5 design approved; TP5-Q1 to TP5-Q11 as recommended. TP-5 ships as 5a (additive) then 5b (destructive, only after
   a separate owner sign-off, CI green and one filed return period from the new reports). HSN quantity sums across
   products are allowed only within one HSN and identical base unit (bounded exception to the no-cross-product-sum rule).
+- T33 TP-5a API contract (section "TP-5 design › API / frontend") approved; TP-5a WP1 done (commit 7880953).
+  `Reports.Tax` is branch-scopable like `Reports.Sales`.
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
