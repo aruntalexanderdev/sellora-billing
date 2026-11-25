@@ -111,7 +111,7 @@ public class TaxResolver(SelloraDbContext db) : ITaxResolver
             if (direction == TaxDirection.Purchase) warnings.Add("The supplier has no state, so the purchase is treated as intra-state. Set the supplier's state.");
         }
         else place = p.State == ownState ? PlaceOfSupply.IntraState : PlaceOfSupply.InterState;
-        return new PlaceOfSupplyResolution(place, regime, countryId, countryCode, warnings);
+        return new PlaceOfSupplyResolution(place, regime, countryId, countryCode, warnings, ownState, party?.State);
     }
 
     public async Task<IReadOnlyDictionary<Guid, ResolvedLineRates>> ResolveRateSetsAsync(
@@ -177,7 +177,7 @@ public class TaxResolver(SelloraDbContext db) : ITaxResolver
                     .ToList());
             result[productId] = new ResolvedLineRates(
                 productId, rates, profile.Code, profile.Name, version.EffectiveFrom, resolution.Source, resolution.SourceName,
-                resolution.HsnCode, resolution.HsnSource, resolution.HsnWarning, resolution.HsnWarningMessage);
+                resolution.HsnCode, resolution.HsnSource, resolution.HsnWarning, resolution.HsnWarningMessage, profile.MirrorTaxId);
         }
 
         if (errors.Count > 0) throw new DomainValidationException(errors.OrderBy(e => LineIndex(e.Field)).ToList());

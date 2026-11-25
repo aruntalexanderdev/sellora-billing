@@ -43,6 +43,7 @@ public class BatchTraceabilityScenarioTests
         db.AddRange(role, user, kg, tax, inr, settings, supplier, customer, rice);
         await db.SaveChangesAsync();
 
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         return new Fixture(db, new PurchaseService(db, new ExchangeRateService(db)), ListPricedSales.For(db), new StockController(db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")),
             supplier, customer, rice, looseKg, user.Id);
     }

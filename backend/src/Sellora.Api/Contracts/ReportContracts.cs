@@ -26,8 +26,12 @@ public record PurchaseReportRowDto(
     decimal Subtotal, decimal TaxTotal, decimal OtherChargesTotal, decimal GrandTotal,
     decimal PaidAmount, decimal DueAmount, PurchaseStatus Status,
     string CurrencyCode, decimal OriginalGrandTotal,
-    Guid BranchId, string? BranchCode, string? BranchName
+    Guid BranchId, string? BranchCode, string? BranchName,
+    decimal TaxableTotal = 0m, IReadOnlyList<PurchaseReportTaxDto>? TaxByKind = null
 );
+
+/// <summary>Tax of one purchase by component kind (TP-3). Rows saved before the calculator (no component) are counted as <c>Other</c>.</summary>
+public record PurchaseReportTaxDto(TaxComponentKind Kind, decimal TaxAmount);
 
 public record SalesReportRowDto(
     Guid Id, string InvoiceNo, DateOnly InvoiceDate, string CustomerName,

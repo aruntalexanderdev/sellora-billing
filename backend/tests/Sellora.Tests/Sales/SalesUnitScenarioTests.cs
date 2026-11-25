@@ -47,6 +47,7 @@ public class SalesUnitScenarioTests
 
         var products = new ProductService(db);
         var pricing = new PricingService(db);
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         var f0 = new Fixture(db, new SalesService(db), new PurchaseService(db, new ExchangeRateService(db)), products, pricing,
             customer, tax, user.Id, pc, box, hctn, fctn, tray, kg, kg2, pack, null!, null!);
         var pen = await products.CreateProductAsync(Input(f0, "STN-PEN", pc.Id,

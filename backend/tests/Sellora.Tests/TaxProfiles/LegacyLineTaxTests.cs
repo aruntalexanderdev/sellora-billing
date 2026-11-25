@@ -32,6 +32,7 @@ public class LegacyLineTaxTests
         var kg = TestProductUnits.Base(product, "kg");
         db.AddRange(role, user, unit, tax, inr, settings, supplier, customer, product);
         await db.SaveChangesAsync();
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         return new Fixture(db, new PurchaseService(db, new ExchangeRateService(db)), ListPricedSales.For(db), supplier, customer, product, kg, user.Id, tax);
     }
 
@@ -70,18 +71,24 @@ public class LegacyLineTaxTests
     }
 
     [Fact]
-    public async Task Purchase_AddsOneLegacyRowPerLine_WithoutDocumentCurrencyAmounts()
+    public async Task Purchase_NoLongerWritesALegacyRow_ButOneCalculatorRowPerComponent() // TP-3 behaviour change: purchases run on the calculator
     {
         var f = await SeedAsync();
 
-        var purchase = await Buy(f, 100, 50m); // 5000 + 5% = 5250
+        var purchase = await Buy(f, 100, 50m); // 5000 + 5% = 5250, intra-state: CGST 2.5% + SGST 2.5%
 
         var line = purchase.Lines.Single();
-        var row = await f.Db.PurchaseOrderLineTaxes.AsNoTracking().SingleAsync();
-        Assert.Equal(line.Id, row.PurchaseOrderLineId);
-        AssertLegacyRow(row, line.Id, f.Tax, 5m, 5000m, 250m);
-        Assert.Null(row.OriginalBaseAmount);
-        Assert.Null(row.OriginalTaxAmount);
+        var rows = await f.Db.PurchaseOrderLineTaxes.AsNoTracking().Where(r => r.PurchaseOrderLineId == line.Id).ToListAsync();
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, r =>
+        {
+            Assert.NotEqual(TaxSeedData.LegacyLineTaxId(line.Id), r.Id);
+            Assert.NotNull(r.TaxComponentId);
+            Assert.Equal(TaxTreatment.Taxable, r.Treatment);
+            Assert.Equal(5000m, r.OriginalBaseAmount);
+            Assert.Equal(125m, r.OriginalTaxAmount);
+        });
+        Assert.Equal((5000m, 250m, 5250m), (line.TaxableValue, line.TaxAmount, line.LineTotal));
     }
 
     [Fact]
@@ -92,6 +99,7 @@ public class LegacyLineTaxTests
         var wheatKg = TestProductUnits.Base(wheat, "kg");
         f.Db.Add(wheat);
         await f.Db.SaveChangesAsync();
+        await TaxFixtures.EnablePurchasesAsync(f.Db);
         await Buy(f, 100, 50m);
         await f.Purchases.CreatePurchaseAsync(new CreatePurchaseInput(f.Supplier.Id, D, null, null, PaymentMethod.Cash, 0, [new PurchaseLineInput(wheat.Id, wheatKg.Id, 100, 40m, 0, 0)]), f.UserId);
 
@@ -128,10 +136,11 @@ public class LegacyLineTaxTests
     }
 
     [Fact]
-    public async Task PurchaseReturns_EachGetOneRow_TakingTheOriginalLinesRate()
+    public async Task PurchaseReturnsOfALegacyPurchase_EachGetOneLegacyRow_TakingTheOriginalLinesRate()
     {
         var f = await SeedAsync();
         var purchase = await Buy(f, 100, 33.33m);
+        await TaxFixtures.MakeLegacyPurchaseAsync(f.Db, purchase.Id); // a purchase saved before TP-3: one legacy row, no document-currency twins
         var lineId = purchase.Lines.Single().Id;
 
         var first = await f.Purchases.CreateReturnAsync(new CreatePurchaseReturnInput(purchase.Id, D, "wrong grade", [new PurchaseReturnLineInput(lineId, null, 30m)]), f.UserId);

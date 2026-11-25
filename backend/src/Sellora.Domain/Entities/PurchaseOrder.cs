@@ -1,4 +1,6 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using Sellora.Domain.Abstractions;
+using Sellora.Domain.Purchasing;
 
 namespace Sellora.Domain.Entities;
 
@@ -80,6 +82,10 @@ public class PurchaseOrder : ICompanyOwned
     public Guid? SupplierStateId { get; set; }
 
     public PartyTaxStatus PartyTaxStatus { get; set; } = PartyTaxStatus.Unspecified;
+
+    /// <summary>Soft findings of the save that created this instance (supplier without state, GST line without HSN). Not stored: empty on a loaded purchase.</summary>
+    [NotMapped]
+    public IReadOnlyList<PurchaseWarning> Warnings { get; set; } = [];
 
     public PurchaseStatus Status { get; set; } = PurchaseStatus.Completed;
 

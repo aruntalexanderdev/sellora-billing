@@ -89,6 +89,7 @@ public class CompanyIsolationServiceTests
         db.SellingPrices.Add(new SellingPrice { Id = Guid.NewGuid(), ProductUnitId = loose.Id, Price = 65m, CreatedByUserId = w.UserId });
         await db.SaveChangesAsync();
         var profile = await TaxFixtures.UseAsCompanyDefaultAsync(db, tax); // each company: country India, GST 5% profile as the company default
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: ... and an own state, so purchases can be placed
         return new Tenant(company, w.UserId, tax.Id, supplier.Id, customer.Id, product.Id, loose.Id, bag.Id, category.Id, account.Id, profile.Id);
     }
 

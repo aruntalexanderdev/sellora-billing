@@ -81,6 +81,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             .Include(p => p.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.Units).ThenInclude(u => u.Unit)
             .Include(p => p.Lines).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
             .Include(p => p.Lines).ThenInclude(l => l.Batch)
+            .Include(p => p.Lines).ThenInclude(l => l.Taxes)
             .Include(p => p.Payments).ThenInclude(pay => pay.CreatedByUser)
             .Include(p => p.Payments).ThenInclude(pay => pay.PurchaseReturn)
             .Include(p => p.Returns).ThenInclude(r => r.Lines)
@@ -108,7 +109,20 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             .ToDictionary(g => g.Key, g => (IReadOnlyList<PurchaseLineLocationBalanceDto>)g
                 .Select(x => new PurchaseLineLocationBalanceDto(x.StockLocationId, visibility.Code(x.StockLocationId) ?? "", visibility.Name(x.StockLocationId) ?? "", x.RemainingBaseQty))
                 .OrderBy(x => x.Code, StringComparer.Ordinal).ToList());
-        return Ok(ToDetail(purchase, baseCurrency, atLocation, byBatch) with { BranchCode = labels.Code(purchase.BranchId), BranchName = labels.Name(purchase.BranchId), StockLocationId = purchase.StockLocationId, StockLocationCode = locLabels.Code(purchase.StockLocationId), StockLocationName = locLabels.Name(purchase.StockLocationId) });
+
+        // TP-3: names of the snapshotted profiles and states (the rows only carry ids).
+        var profileIds = purchase.Lines.Where(l => l.TaxProfileId != null).Select(l => l.TaxProfileId!.Value).Distinct().ToList();
+        var profileNames = await db.TaxProfiles.AsNoTracking().Where(t => profileIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Name, ct);
+        var stateIds = new[] { purchase.PlaceOfSupplyStateId, purchase.SupplierStateId }.Where(x => x != null).Select(x => x!.Value).Distinct().ToList();
+        var stateNames = await db.States.AsNoTracking().Where(st => stateIds.Contains(st.Id)).ToDictionaryAsync(st => st.Id, st => st.Name, ct);
+
+        return Ok(ToDetail(purchase, baseCurrency, atLocation, byBatch, profileNames) with
+        {
+            PlaceOfSupplyStateName = purchase.PlaceOfSupplyStateId is { } ps ? stateNames.GetValueOrDefault(ps) : null,
+            SupplierStateName = purchase.SupplierStateId is { } ss ? stateNames.GetValueOrDefault(ss) : null,
+            Warnings = purchase.Warnings.Select(w => new PurchaseWarningDto(w.Field, w.Message)).ToList(),
+            BranchCode = labels.Code(purchase.BranchId), BranchName = labels.Name(purchase.BranchId), StockLocationId = purchase.StockLocationId, StockLocationCode = locLabels.Code(purchase.StockLocationId), StockLocationName = locLabels.Name(purchase.StockLocationId),
+        });
     }
 
     [HttpPost]
@@ -122,7 +136,8 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             request.SupplierId!.Value, request.PurchaseDate, request.SupplierInvoiceNumber, request.Notes,
             request.PaymentMethod, request.PaidAmount,
             request.Lines.Select(l => new PurchaseLineInput(l.ProductId!.Value, l.ProductUnitId!.Value, l.Qty, l.Rate, l.OtherCharges, l.Discount, l.SupplierBatchNumber)).ToList(),
-            request.AccountId, key, request.StockLocationId);
+            request.AccountId, key, request.StockLocationId,
+            request.RatesIncludeTax, request.BillDiscountPercent, request.BillDiscountAmount, request.BillCharges);
 
         try
         {
@@ -247,11 +262,11 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
 
     private Guid CurrentUserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
 
-    private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency, Dictionary<Guid, decimal> balanceByBatch, Dictionary<Guid, IReadOnlyList<PurchaseLineLocationBalanceDto>> locationsByBatch)
+    private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency, Dictionary<Guid, decimal> balanceByBatch, Dictionary<Guid, IReadOnlyList<PurchaseLineLocationBalanceDto>> locationsByBatch, Dictionary<Guid, string> profileNames)
     {
         var returnedByLine = p.Returns.SelectMany(r => r.Lines).GroupBy(l => l.PurchaseOrderLineId).ToDictionary(g => g.Key, g => g.Sum(l => l.BaseQty));
         var reversed = p.Payments.Where(x => x.ReversesPaymentId != null).Select(x => x.ReversesPaymentId!.Value).ToHashSet();
-        return ToDetail(p, baseCurrency, returnedByLine, reversed, balanceByBatch, locationsByBatch);
+        return ToDetail(p, baseCurrency, returnedByLine, reversed, balanceByBatch, locationsByBatch, profileNames);
     }
 
     // What can still go back to the supplier, in base units: whatever was not returned yet, but no more than is still
@@ -269,7 +284,7 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
                     StockQuantity.MaxEnterableQty(returnableBase, u.ConversionFactorToBase, u.Unit.DecimalPlaces, l.Product.BaseUnit.DecimalPlaces)))
                 .ToList();
 
-    private static PurchaseLineDto ToLineDto(PurchaseOrder p, PurchaseOrderLine l, Dictionary<Guid, decimal> returnedByLine, Dictionary<Guid, decimal> balanceByBatch, Dictionary<Guid, IReadOnlyList<PurchaseLineLocationBalanceDto>> locationsByBatch)
+    private static PurchaseLineDto ToLineDto(PurchaseOrder p, PurchaseOrderLine l, Dictionary<Guid, decimal> returnedByLine, Dictionary<Guid, decimal> balanceByBatch, Dictionary<Guid, IReadOnlyList<PurchaseLineLocationBalanceDto>> locationsByBatch, Dictionary<Guid, string> profileNames)
     {
         var returned = returnedByLine.GetValueOrDefault(l.Id);
         var returnable = p.Status == PurchaseStatus.Cancelled ? 0 : ReturnableBase(l, returned, balanceByBatch);
@@ -280,10 +295,21 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
             l.TaxRatePercent, l.OtherCharges, l.Discount, l.TaxableValue, l.TaxAmount, l.LineTotal, l.UnitCost,
             returned, returnable, ReturnUnits(l, returnable),
             l.Batch?.InternalBatchNo, l.Batch?.SupplierBatchNumber, l.Batch?.ReceivedDate,
-            l.Batch is { } lb && locationsByBatch.TryGetValue(lb.Id, out var lbs) ? lbs : []);
+            l.Batch is { } lb && locationsByBatch.TryGetValue(lb.Id, out var lbs) ? lbs : [],
+            ToTaxDtos(l.Taxes),
+            l.TaxProfileId, l.TaxProfileId is { } tp ? profileNames.GetValueOrDefault(tp) : null, l.TaxProfileVersionId,
+            l.PlaceOfSupply, l.PriceIncludesTax, l.HsnCode, l.BillDiscountShare, l.BillChargeShare,
+            l.OriginalRate, l.OriginalDiscount, l.OriginalOtherCharges, l.OriginalBillDiscountShare, l.OriginalBillChargeShare,
+            l.OriginalTaxableValue, l.OriginalTaxAmount, l.OriginalLineTotal);
     }
 
-    private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency, Dictionary<Guid, decimal> returnedByLine, HashSet<Guid> reversed, Dictionary<Guid, decimal> balanceByBatch, Dictionary<Guid, IReadOnlyList<PurchaseLineLocationBalanceDto>> locationsByBatch) => new(
+    // A legacy row has neither a component nor a treatment (rows written before the calculator, T10).
+    internal static List<PurchaseLineTaxDto> ToTaxDtos(IEnumerable<PurchaseLineTaxBase> rows) =>
+        rows.OrderBy(t => t.Kind).ThenBy(t => t.ComponentCode, StringComparer.Ordinal).Select(t => new PurchaseLineTaxDto(
+            t.TaxComponentId, t.ComponentCode, t.Kind, t.Method, t.RatePercent, t.AmountPerBaseUnit, t.BaseAmount, t.TaxAmount,
+            t.OriginalBaseAmount, t.OriginalTaxAmount, t.Treatment, t.TaxComponentId == null && t.Treatment == null)).ToList();
+
+    private static PurchaseDetailDto ToDetail(PurchaseOrder p, Currency baseCurrency, Dictionary<Guid, decimal> returnedByLine, HashSet<Guid> reversed, Dictionary<Guid, decimal> balanceByBatch, Dictionary<Guid, IReadOnlyList<PurchaseLineLocationBalanceDto>> locationsByBatch, Dictionary<Guid, string> profileNames) => new(
         p.Id, p.PurchaseNo, p.SupplierId, p.Supplier.Name, p.PurchaseDate,
         p.SupplierInvoiceNumber, p.Notes, p.PaymentMethod,
         p.PaidAmount, p.DueAmount, p.PaymentStatus,
@@ -291,14 +317,18 @@ public class PurchasesController(SelloraDbContext db, IPurchaseService purchaseS
         p.Status, $"{p.CreatedByUser.FirstName} {p.CreatedByUser.LastName}", p.CreatedAt, p.CancelledAt,
         p.CurrencyId, p.Currency.Code, p.Currency.Symbol, p.ExchangeRateToBase, p.OriginalGrandTotal, p.OriginalPaidAmount, p.OriginalDueAmount,
         baseCurrency.Code, baseCurrency.Symbol, p.Currency.DecimalPrecision, baseCurrency.DecimalPrecision,
-        p.Lines.Select(l => ToLineDto(p, l, returnedByLine, balanceByBatch, locationsByBatch)).ToList(),
+        p.Lines.Select(l => ToLineDto(p, l, returnedByLine, balanceByBatch, locationsByBatch, profileNames)).ToList(),
         p.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => ToPaymentDto(pay, reversed)).ToList(),
         p.ReturnedAmount, p.OriginalReturnedAmount, p.NetTotal, p.OriginalNetTotal, p.OriginalRefundableAmount,
         p.Returns.OrderBy(r => r.CreatedAt).Select(r => new PurchaseReturnSummaryDto(
             r.Id, r.ReturnNo, r.ReturnDate, r.Total, r.OriginalTotal,
             p.Payments.Where(x => x.PurchaseReturnId == r.Id && x.Kind == PaymentEntryKind.Refund).Sum(x => x.Amount)
         )).ToList(),
-        p.BranchId, null, null);
+        p.BranchId, null, null,
+        TaxableTotal: p.TaxableTotal ?? p.Subtotal + p.OtherChargesTotal - p.DiscountTotal, // NULL on history (TP3-Q1)
+        RatesIncludeTax: p.RatesIncludeTax, BillDiscountPercent: p.BillDiscountPercent, BillDiscountAmount: p.BillDiscountAmount, BillCharges: p.BillCharges,
+        OriginalBillDiscountAmount: p.OriginalBillDiscountAmount, OriginalBillCharges: p.OriginalBillCharges,
+        PlaceOfSupply: p.PlaceOfSupply, PlaceOfSupplyStateId: p.PlaceOfSupplyStateId, SupplierStateId: p.SupplierStateId, PartyTaxStatus: p.PartyTaxStatus);
 
     internal static PurchasePaymentDto ToPaymentDto(PurchasePayment pay, HashSet<Guid> reversed) => new(
         pay.Id, pay.Kind, pay.PaymentDate, pay.Amount, pay.ExchangeRateToBase, pay.BaseAmount, pay.PaymentMethod,
