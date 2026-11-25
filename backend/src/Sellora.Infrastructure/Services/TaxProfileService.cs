@@ -144,11 +144,7 @@ public class TaxProfileService(SelloraDbContext db, TimeProvider? time = null) :
         var now = Clock.GetUtcNow().UtcDateTime;
         var errors = new List<FieldError>();
 
-        // T19: legacy billing cannot switch rate on a date, so a version may not start after today until TP-4.
-        if (input.EffectiveFrom > today)
-        {
-            errors.Add(new FieldError("effectiveFrom", $"The version cannot start after today ({today:yyyy-MM-dd}) yet. Add it on the day it takes effect."));
-        }
+        // T19 is lifted (TP-4): sales and purchases both resolve the version valid on the document date, so a version may start in the future.
 
         var (lines, total) = await ValidateComponentsAsync(profile, input.Components, errors, ct);
 

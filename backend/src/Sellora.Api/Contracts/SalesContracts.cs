@@ -14,7 +14,9 @@ public record SaleCatalogProductDto(
     Guid ProductId, string Sku, string Name, string? Category, string BaseUnitLabel,
     decimal QuantityOnHand, decimal TaxRatePercent, IReadOnlyList<SaleCatalogUnitDto> Units,
     Guid? StockLocationId = null,
-    Guid? CategoryId = null, string? SubcategoryName = null
+    Guid? CategoryId = null, string? SubcategoryName = null,
+    // ---- TP-4: the price basis the unit prices are in (product setting, else the company's) and the effective HSN/SAC (product, else subcategory).
+    bool PriceIncludesTax = false, string? HsnCode = null
 );
 
 public record SalesInvoiceListItemDto(
@@ -36,6 +38,15 @@ public record SaleBatchConsumptionDto(
 public record SaleReturnUnitDto(Guid ProductUnitId, string UnitCode, string DisplayName, short DecimalPlaces,
     decimal ConversionFactorToBase, bool IsLineUnit, decimal MaxQty);
 
+/// <summary>One tax row of a sales or sales-return line (BR23). For a per-base-unit row <see cref="BaseAmount"/> is the base quantity, not money.
+/// <see cref="IsLegacy"/>: a row of a document saved before the calculator (no component, no treatment).</summary>
+public record SalesLineTaxDto(
+    Guid? ComponentId, string Code, TaxComponentKind Kind, TaxCalculationMethod Method, decimal? RatePercent, decimal? AmountPerBaseUnit,
+    decimal BaseAmount, decimal TaxAmount, TaxTreatment? Treatment, bool IsLegacy);
+
+/// <summary>A soft finding of the save: field <c>lines[i].hsnCode</c>. Only the create response carries them.</summary>
+public record SalesWarningDto(string Field, string Message);
+
 public record SalesInvoiceLineDto(
     Guid Id, Guid ProductId, string ProductName, Guid ProductUnitId, string UnitLabel, string UnitCode,
     decimal ConversionFactorToBase, short UnitDecimalPlaces,
@@ -43,7 +54,12 @@ public record SalesInvoiceLineDto(
     decimal UnitPrice, decimal? ListUnitPrice, bool PriceOverridden,
     decimal TaxRatePercent, decimal Discount, decimal TaxableValue, decimal TaxAmount, decimal LineTotal, decimal CostOfGoodsSold,
     decimal ReturnedBaseQty, decimal ReturnableBaseQty, IReadOnlyList<SaleReturnUnitDto> ReturnUnits,
-    IReadOnlyList<SaleBatchConsumptionDto> BatchConsumptions
+    IReadOnlyList<SaleBatchConsumptionDto> BatchConsumptions,
+    // ---- TP-4 tax snapshot (null / empty / false / 0 on history). PriceIncludesTax: UnitPrice (and Discount) include tax.
+    IReadOnlyList<SalesLineTaxDto>? Taxes = null,
+    Guid? TaxProfileId = null, string? TaxProfileName = null, Guid? TaxProfileVersionId = null,
+    PlaceOfSupply? PlaceOfSupply = null, bool PriceIncludesTax = false, string? HsnCode = null,
+    decimal BillDiscountShare = 0m, decimal BillChargeShare = 0m
 );
 
 public record SalesPaymentDto(
@@ -64,7 +80,14 @@ public record SalesInvoiceDetailDto(
     IReadOnlyList<SalesReturnSummaryDto> Returns,
     Guid BranchId, string? BranchCode, string? BranchName,
     string? SellerGstin,
-    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null
+    Guid? StockLocationId = null, string? StockLocationCode = null, string? StockLocationName = null,
+    // ---- TP-4 tax snapshot. TaxableTotal falls back to Subtotal - DiscountTotal for history; Regime is null for history (no place of supply).
+    decimal TaxableTotal = 0m,
+    decimal? BillDiscountPercent = null, decimal BillDiscountAmount = 0m, decimal BillCharges = 0m,
+    PlaceOfSupply? PlaceOfSupply = null, TaxRegime? Regime = null,
+    Guid? PlaceOfSupplyStateId = null, string? PlaceOfSupplyStateName = null,
+    Guid? SellerStateId = null, string? SellerStateName = null, PartyTaxStatus PartyTaxStatus = PartyTaxStatus.Unspecified,
+    IReadOnlyList<SalesWarningDto>? Warnings = null
 );
 
 public record CreateSaleLineRequest(
@@ -83,7 +106,13 @@ public record CreateSaleRequest(
     [Range(0, 999999999)] decimal PaidAmount,
     [MinLength(1), MaxLength(200)] CreateSaleLineRequest[] Lines,
     Guid? AccountId = null,
-    Guid? StockLocationId = null
+    Guid? StockLocationId = null,
+    // ---- TP-4 (all optional: an old client keeps today's behaviour). At most one of the bill discount percent and amount.
+    [Range(0, 100)] decimal? BillDiscountPercent = null,
+    [Range(0, 999999999)] decimal? BillDiscountAmount = null,
+    [Range(0, 999999999)] decimal BillCharges = 0m,
+    // The total the cashier saw; a different saved total is a 400 on expectedGrandTotal, so cash is never taken on a stale total.
+    [Range(0, 999999999)] decimal? ExpectedGrandTotal = null
 );
 
 public record AddSalePaymentRequest(
@@ -130,7 +159,9 @@ public record SalesReturnListItemDto(
 
 public record SalesReturnLineDto(
     Guid Id, string ProductName, string UnitLabel, string UnitCode, decimal Qty, decimal BaseQty, string BaseUnitLabel, short BaseUnitDecimalPlaces,
-    decimal TaxableValue, decimal TaxAmount, decimal LineTotal
+    decimal TaxableValue, decimal TaxAmount, decimal LineTotal,
+    // ---- TP-4: the reversed tax rows of the return line (empty on history that missed the catch-up) and the original line's place of supply
+    IReadOnlyList<SalesLineTaxDto>? Taxes = null, PlaceOfSupply? PlaceOfSupply = null
 );
 
 public record SalesReturnDetailDto(

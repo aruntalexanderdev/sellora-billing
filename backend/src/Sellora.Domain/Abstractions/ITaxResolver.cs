@@ -26,7 +26,7 @@ public interface ITaxResolver
     /// <summary>
     /// Place of supply of a document (BR11, BR12, T14). Regime comes from the document country (VAT is <see cref="PlaceOfSupply.NotApplicable"/>).
     /// GST: own state = the branch's, else the company's (400 <c>branchId</c> when neither is set); a party with no state (walk-in, <paramref name="partyId"/> null)
-    /// is intra-state (a supplier without state also warns); equal states are intra-state, otherwise inter-state; a party in another country is inter-state.
+    /// is intra-state (so is a walk-in customer, whatever state it carries, TP-4) (a supplier without state also warns); equal states are intra-state, otherwise inter-state; a party in another country is inter-state.
     /// </summary>
     Task<PlaceOfSupplyResolution> ResolvePlaceOfSupplyAsync(TaxDirection direction, Guid? branchId, Guid? partyId, CancellationToken ct = default);
 

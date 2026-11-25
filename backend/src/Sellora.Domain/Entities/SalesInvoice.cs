@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using Sellora.Domain.Abstractions;
 
 namespace Sellora.Domain.Entities;
@@ -56,6 +57,10 @@ public class SalesInvoice : ICompanyOwned
     public Guid? SellerStateId { get; set; }
 
     public PartyTaxStatus PartyTaxStatus { get; set; } = PartyTaxStatus.Unspecified;
+
+    /// <summary>Soft findings of the save that created this instance (GST line without HSN). Not stored: empty on a loaded invoice.</summary>
+    [NotMapped]
+    public IReadOnlyList<Sellora.Domain.Sales.SaleWarning> Warnings { get; set; } = [];
 
     public SalesStatus Status { get; set; } = SalesStatus.Completed;
 

@@ -96,10 +96,12 @@ public class TaxResolver(SelloraDbContext db) : ITaxResolver
         if (partyId is { } pid)
         {
             var found = direction == TaxDirection.Sale
-                ? await db.Customers.AsNoTracking().Where(c => c.Id == pid).Select(c => new { c.CountryId, c.StateId }).SingleOrDefaultAsync(ct)
-                : await db.Suppliers.AsNoTracking().Where(x => x.Id == pid).Select(x => new { x.CountryId, x.StateId }).SingleOrDefaultAsync(ct);
+                ? await db.Customers.AsNoTracking().Where(c => c.Id == pid).Select(c => new { c.CountryId, c.StateId, c.IsWalkIn }).SingleOrDefaultAsync(ct)
+                : await db.Suppliers.AsNoTracking().Where(x => x.Id == pid).Select(x => new { x.CountryId, x.StateId, IsWalkIn = false }).SingleOrDefaultAsync(ct);
+            // TP-4 (TP4-Q3): a walk-in customer is always intra-state, whatever state is stored on it (so the preview and the save agree).
             party = found is null ? null : (found.CountryId, found.StateId);
             if (party is null) throw new DomainValidationException("partyId", direction == TaxDirection.Sale ? "Select a valid customer." : "Select a valid supplier.");
+            if (found!.IsWalkIn) party = null;
         }
 
         PlaceOfSupply place;

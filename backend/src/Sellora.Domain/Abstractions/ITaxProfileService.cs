@@ -18,7 +18,7 @@ public interface ITaxProfileService
     /// <summary>
     /// Adds a version under a <c>FOR UPDATE</c> lock on the profile (BR3 set rules, BR4): an earlier date than the latest version is refused
     /// (<c>effectiveFrom</c>); the same date replaces the latest version only while no document line uses it; a later date closes the previous
-    /// version the day before. A date after today is refused until TP-4 (T19). Returns the saved version with its components.
+    /// version the day before. A future date is allowed since TP-4 (T19 lifted). Returns the saved version with its components.
     /// </summary>
     Task<TaxProfileVersion?> AddVersionAsync(Guid profileId, AddTaxVersionInput input, Guid? userId, CancellationToken ct = default);
 

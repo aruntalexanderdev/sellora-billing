@@ -370,29 +370,29 @@ public class TaxCalculatorTests
         Assert.Equal([0.333m, 0.333m, 0.334m], r.Lines.Select(l => l.BillDiscountShare).ToArray());
     }
 
-    // ---- parity with the legacy single-rate calculation ----
+    // ---- single-rate lines: fixed expected values (TP-4 retired SaleMoney; these are the figures its parity tests compared against) ----
 
     [Theory]
-    [InlineData(2, 3, 19.99, 5.00, 18)]
-    [InlineData(2, 7, 0.33, 0.01, 5)]
-    [InlineData(3, 3, 0.333, 0.000, 10)]
-    [InlineData(0, 9, 11, 3, 5)]
-    [InlineData(2, 1, 100, 0, 0)]
-    [InlineData(2, 12, 1234.56, 99.99, 12.5)]
-    public void Calculate_SingleComponentExclusive_MatchesSaleMoneyLine(int precision, double qty, double price, double discount, double rate)
+    [InlineData(2, "3", "19.99", "5.00", "18", "59.97", "54.97", "9.89", "64.86")]
+    [InlineData(2, "7", "0.33", "0.01", "5", "2.31", "2.30", "0.12", "2.42")]
+    [InlineData(3, "3", "0.333", "0.000", "10", "0.999", "0.999", "0.100", "1.099")]
+    [InlineData(0, "9", "11", "3", "5", "99", "96", "5", "101")]
+    [InlineData(2, "1", "100", "0", "0", "100.00", "100.00", "0.00", "100.00")]
+    [InlineData(2, "12", "1234.56", "99.99", "12.5", "14814.72", "14714.73", "1839.34", "16554.07")]
+    [InlineData(2, "1", "0.10", "0", "5", "0.10", "0.10", "0.01", "0.11")]   // tax 0.005 rounds up (banker's rounding would give 0.00)
+    [InlineData(2, "3", "0.335", "0", "5", "1.01", "1.01", "0.05", "1.06")]  // gross 1.005 rounds up; tax 0.0505 -> 0.05
+    public void Calculate_SingleComponentExclusive_FixedValues(int precision, string qty, string price, string discount, string rate, string gross, string taxable, string tax, string total)
     {
-        var legacy = SaleMoney.Line((decimal)qty, (decimal)price, (decimal)discount, (decimal)rate, precision);
+        var vat = Calc(Line(Vat(decimal.Parse(rate)), decimal.Parse(price), decimal.Parse(qty), decimal.Parse(discount)), precision).Lines[0];
+        Assert.Equal(decimal.Parse(gross), vat.Gross);
+        Assert.Equal(decimal.Parse(discount), vat.LineDiscount);
+        Assert.Equal(decimal.Parse(taxable), vat.Taxable);
+        Assert.Equal(decimal.Parse(tax), vat.TaxTotal);
+        Assert.Equal(decimal.Parse(total), vat.LineTotal);
 
-        var vat = Calc(Line(Vat((decimal)rate), (decimal)price, (decimal)qty, (decimal)discount), precision).Lines[0];
-        Assert.Equal(legacy.Gross, vat.Gross);
-        Assert.Equal(legacy.Discount, vat.LineDiscount);
-        Assert.Equal(legacy.Taxable, vat.Taxable);
-        Assert.Equal(legacy.Tax, vat.TaxTotal);
-        Assert.Equal(legacy.LineTotal, vat.LineTotal);
-
-        var igst = Calc(Line(Gst((decimal)rate), (decimal)price, (decimal)qty, (decimal)discount), precision, PlaceOfSupply.InterState).Lines[0];
-        Assert.Equal(legacy.Taxable, igst.Taxable);
-        Assert.Equal(legacy.Tax, igst.TaxTotal);
-        Assert.Equal(legacy.LineTotal, igst.LineTotal);
+        var igst = Calc(Line(Gst(decimal.Parse(rate)), decimal.Parse(price), decimal.Parse(qty), decimal.Parse(discount)), precision, PlaceOfSupply.InterState).Lines[0];
+        Assert.Equal(decimal.Parse(taxable), igst.Taxable);
+        Assert.Equal(decimal.Parse(tax), igst.TaxTotal);
+        Assert.Equal(decimal.Parse(total), igst.LineTotal);
     }
 }
