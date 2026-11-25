@@ -180,4 +180,46 @@ public static class TaxVersionUsage
             .AnyAsync(l => l.TaxId == mirrorTaxId && l.SalesInvoice.InvoiceDate >= effectiveFrom && (effectiveTo == null || l.SalesInvoice.InvoiceDate <= effectiveTo), ct)
         || await db.PurchaseOrderLines.IgnoreQueryFilters([BranchQueryFilter.Name])
             .AnyAsync(l => l.TaxId == mirrorTaxId && l.PurchaseOrder.PurchaseDate >= effectiveFrom && (effectiveTo == null || l.PurchaseOrder.PurchaseDate <= effectiveTo), ct);
+
+    /// <summary>The latest document date (sales invoice or purchase) of any line carrying the profile's mirror tax, or null when none (T25, BR4).</summary>
+    public static async Task<DateOnly?> LatestDocumentDateAsync(SelloraDbContext db, Guid mirrorTaxId, CancellationToken ct)
+    {
+        var sales = await db.SalesInvoiceLines.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(l => l.TaxId == mirrorTaxId)
+            .Select(l => (DateOnly?)l.SalesInvoice.InvoiceDate).MaxAsync(ct);
+        var purchases = await db.PurchaseOrderLines.IgnoreQueryFilters([BranchQueryFilter.Name]).Where(l => l.TaxId == mirrorTaxId)
+            .Select(l => (DateOnly?)l.PurchaseOrder.PurchaseDate).MaxAsync(ct);
+        return sales is null ? purchases : purchases is null ? sales : (sales > purchases ? sales : purchases);
+    }
+}
+
+/// <summary>
+/// T24: changing the company country. Allowed only while the company has no products and no sales or purchase documents (otherwise product mirrors and
+/// history would sit on the old country's taxes). The new country's standard profiles and company default are then seeded; the old country's profiles stay, unused.
+/// Both calls run inside the caller's transaction.
+/// </summary>
+public static class TaxCountryChange
+{
+    /// <summary>True when the company has any product or any sales or purchase document: its country is then locked.</summary>
+    public static async Task<bool> IsLockedAsync(SelloraDbContext db, CancellationToken ct) =>
+        await db.Products.AnyAsync(ct)
+        || await db.SalesInvoices.IgnoreQueryFilters([BranchQueryFilter.Name]).AnyAsync(ct)
+        || await db.PurchaseOrders.IgnoreQueryFilters([BranchQueryFilter.Name]).AnyAsync(ct);
+
+    /// <summary>Takes the assignment advisory lock, then refuses (400 <c>countryId</c>) a change to another country while the country is locked.</summary>
+    public static async Task EnsureAllowedAsync(SelloraDbContext db, CancellationToken ct)
+    {
+        await TaxLocks.LockAssignmentsAsync(db, ct);
+        if (await IsLockedAsync(db, ct))
+        {
+            throw new DomainValidationException("countryId", "The country cannot change once the company has products or sales or purchase documents: their taxes belong to the current country.");
+        }
+    }
+
+    /// <summary>After the new country is saved on the settings: seeds its standard profiles and default, saves, and re-syncs the product mirrors.</summary>
+    public static async Task SeedNewCountryAsync(SelloraDbContext db, Guid companyId, Guid countryId, CancellationToken ct)
+    {
+        await TaxSeeder.SeedCompanyAsync(db, companyId, countryId, null, ct);
+        await db.SaveChangesAsync(ct);
+        if (await TaxMirror.SyncAsync(db, null, ct) > 0) await db.SaveChangesAsync(ct);
+    }
 }

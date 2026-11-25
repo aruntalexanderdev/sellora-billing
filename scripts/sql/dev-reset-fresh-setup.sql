@@ -6,7 +6,10 @@
 -- in the API, which fills in the four values below itself. Keep the four value lines and the RESULT wording as they are.
 --
 -- WHAT IT DOES (ALL companies; Units are global, so it cannot be limited to one company)
---   Removes        Masters    Units, Taxes (with the tax components, profiles and versions, unless taxes are kept), tax assignments (always: they point at products)
+--   Removes        Masters    Units, Taxes (with the tax components, profiles and versions, unless taxes are kept). TaxAssignments always lose the
+--                             product-level rows (they point at products); with taxes kept the company default stays, and the category and subcategory
+--                             rows stay too when categories are kept. Without taxes kept the platform re-seeds the standard profiles and the company
+--                             default afterwards (the API does this in the same transaction; a SQL tool does not).
 --                  Inventory  Products, ProductUnits, SellingPrices, ProductCategories, ProductSubcategories, StockItems,
 --                             PurchaseBatches, BatchLocationBalances, StockMovements, StockAdjustments (incl. opening stock),
 --                             StockReservations, StockTransfers (+ lines, batches, receipts), Shipments (+ vehicles),
@@ -120,7 +123,7 @@ BEGIN
             ('1 Masters',   'TaxProfiles',                       'taxes',              'truncate', 'remove all'),
             ('1 Masters',   'TaxProfileVersions',                'taxes',              'truncate', 'remove all'),
             ('1 Masters',   'TaxProfileVersionComponents',       'taxes',              'truncate', 'remove all'),
-            ('1 Masters',   'TaxAssignments',                    NULL,                 'truncate', 'remove all'),
+            ('1 Masters',   'TaxAssignments',                    NULL,                 'truncate', 'partial'),
             ('2 Inventory', 'Products',                          NULL,                 'truncate', 'remove all'),
             ('2 Inventory', 'ProductUnits',                      NULL,                 'truncate', 'remove all'),
             ('2 Inventory', 'SellingPrices',                     NULL,                 'truncate', 'remove all'),
@@ -169,6 +172,10 @@ BEGIN
             ('6 System',    'IdempotencyKeys',                   NULL,                 'truncate', 'remove all')
         ) AS v (area, name, keep_token, via, note)
         WHERE v.keep_token IS NULL OR v.keep_token <> ALL (v_kept);
+        UPDATE pg_temp.sellora_reset_report SET action = CASE
+            WHEN 'taxes' = ANY (v_kept) THEN 'partial: product assignments removed, company default kept' || CASE WHEN 'categories' = ANY (v_kept) THEN ', category and subcategory assignments kept' ELSE '' END
+            ELSE 'remove all (the standard profiles and company default are re-seeded)' END
+        WHERE table_name = 'TaxAssignments';
         -- Fail closed: every listed table must exist, and no table outside the list may reference a listed one.
         SELECT string_agg(r.table_name, ', ' ORDER BY r.table_name) INTO v_text
         FROM pg_temp.sellora_reset_report r WHERE r.seq > 0 AND to_regclass(format('%I', r.table_name)) IS NULL;
@@ -207,7 +214,13 @@ BEGIN
         -- One TRUNCATE over exactly the listed tables (no CASCADE): PostgreSQL refuses it if any other table still references them.
         SELECT string_agg(format('%I', r.table_name), ', ' ORDER BY r.table_name) INTO v_text
         FROM pg_temp.sellora_reset_report r WHERE r.seq > 0 AND r.via = 'truncate';
+        -- TaxAssignments reference Products, so the table is emptied together with them; the rows that survive are saved first and put back below.
+        DROP TABLE IF EXISTS pg_temp.sellora_reset_kept_assignments;
+        CREATE TEMP TABLE sellora_reset_kept_assignments ON COMMIT DROP AS
+        SELECT a.* FROM "TaxAssignments" a
+        WHERE 'taxes' = ANY (v_kept) AND (a."Scope" = 'Company' OR (a."Scope" IN ('Category', 'Subcategory') AND 'categories' = ANY (v_kept)));
         EXECUTE 'TRUNCATE ' || v_text;
+        INSERT INTO "TaxAssignments" SELECT * FROM pg_temp.sellora_reset_kept_assignments;
         IF NOT ('customers' = ANY (v_kept)) THEN
             DELETE FROM "Customers" WHERE NOT "IsWalkIn";
         END IF;

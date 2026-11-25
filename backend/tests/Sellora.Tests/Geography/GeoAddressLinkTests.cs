@@ -61,8 +61,22 @@ public class GeoAddressLinkTests
                 "customer" => await AddAsync(db, new Customer { Id = Guid.NewGuid(), Name = "Existing" }, c => c.Id),
                 "supplier" => await AddAsync(db, new Supplier { Id = Guid.NewGuid(), Name = "Existing Supplier", CurrencyId = w.CurrencyId }, s => s.Id),
                 "branch" => w.Blr,
-                _ => Guid.Empty,
+                _ => await EmptyCompanyAsync(db),
             };
+        }
+
+        /// <summary>T24: the company country can change only while the company has no products or documents, so the settings cases start from an empty company.</summary>
+        private static async Task<Guid> EmptyCompanyAsync(SelloraDbContext db)
+        {
+            db.SalesInvoiceLines.RemoveRange(await db.SalesInvoiceLines.IgnoreQueryFilters().ToListAsync());
+            db.SalesInvoices.RemoveRange(await db.SalesInvoices.IgnoreQueryFilters().ToListAsync());
+            db.PurchaseBatches.RemoveRange(await db.PurchaseBatches.ToListAsync());
+            db.PurchaseOrderLines.RemoveRange(await db.PurchaseOrderLines.IgnoreQueryFilters().ToListAsync());
+            db.PurchaseOrders.RemoveRange(await db.PurchaseOrders.IgnoreQueryFilters().ToListAsync());
+            db.ProductUnits.RemoveRange(await db.ProductUnits.ToListAsync());
+            db.Products.RemoveRange(await db.Products.ToListAsync());
+            await db.SaveChangesAsync();
+            return Guid.Empty;
         }
 
         private static async Task<Guid> AddAsync<T>(SelloraDbContext db, T entity, Func<T, Guid> id) where T : class

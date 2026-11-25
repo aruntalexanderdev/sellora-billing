@@ -106,6 +106,9 @@ public class TaxSeederTests
             Id = Guid.NewGuid(), CountryId = w.India.Id, Code = "MY-18", Name = "gst 18%", Regime = TaxRegime.Gst, Treatment = TaxTreatment.Taxable,
             LegacyTaxId = legacy.Id, CreatedAt = DateTime.UtcNow,
         });
+        // T25: matched by name only counts as the standard rate when its version today is 18% too.
+        var existing = w.Db.TaxProfiles.Local.Single();
+        w.Db.TaxProfileVersions.Add(new TaxProfileVersion { Id = Guid.NewGuid(), TaxProfileId = existing.Id, EffectiveFrom = new DateOnly(2000, 1, 1), TotalPercent = 18m, CreatedAt = DateTime.UtcNow });
         await w.Db.SaveChangesAsync();
 
         var result = await TaxSeeder.SeedCompanyAsync(w.Db, w.CompanyId, w.India.Id, w.Clock);

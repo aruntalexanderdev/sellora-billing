@@ -536,7 +536,7 @@ public class AddTaxProfilesMigrationTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task TaxSeedData_StandardRates_MatchTheDecisionsT12()
+    public void TaxSeedData_StandardRates_MatchTheDecisionsT12()
     {
         // pure data check next to the SQL drift check: the rates and the single default per country of the seed table
         Assert.Equal(["IN", "AE", "SA", "BH", "OM"], TaxSeedData.SeededCountryCodes);
@@ -545,7 +545,6 @@ public class AddTaxProfilesMigrationTests(PostgresFixture postgres)
         Assert.Equal(["GST-NIL", "GST-EXEMPT", "GST-5", "GST-18", "GST-40"], TaxSeedData.ProfilesFor("IN").Select(p => p.Code));
         Assert.Equal(["VAT-5", "VAT-ZERO", "VAT-EXEMPT"], TaxSeedData.ProfilesFor("AE").Select(p => p.Code));
         Assert.Empty(TaxSeedData.ProfilesFor("QA"));
-        await Task.CompletedTask;
     }
 
     // ------------------------------------------------------------------------------------------------------------------------- script path, NOT VALID, Down/Up, lock timeout

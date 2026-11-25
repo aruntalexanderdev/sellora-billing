@@ -150,7 +150,7 @@ public class TaxAssignmentService(SelloraDbContext db, TimeProvider? time = null
 
     /// <summary>BR10 and BR6: the profile exists, belongs to the country and is active (an inactive profile already on the row may stay).</summary>
     private async Task EnsureAssignableAsync(Guid profileId, Guid countryId, Guid? currentProfileId, string field, CancellationToken ct) =>
-        await TaxAssignmentRules.EnsureAssignableAsync(db, profileId, countryId, currentProfileId, field, ct);
+        await TaxAssignmentRules.EnsureAssignableAsync(db, profileId, countryId, currentProfileId, field, TaxRules.Today(Clock), ct);
 
     private static Expression<Func<Product, bool>>? ScopeFilter(TaxScope scope, Guid? categoryId, Guid? subcategoryId, Guid? productId) => scope switch
     {
@@ -183,11 +183,21 @@ public class TaxAssignmentService(SelloraDbContext db, TimeProvider? time = null
 /// <summary>Profile checks shared by the assignment service and the product service (product overrides).</summary>
 internal static class TaxAssignmentRules
 {
-    public static async Task EnsureAssignableAsync(SelloraDbContext db, Guid profileId, Guid countryId, Guid? currentProfileId, string field, CancellationToken ct)
+    /// <summary>BR10, BR6, T25: the profile exists, belongs to the country, is active and has a version valid today (a profile that cannot resolve would break
+    /// every product that inherits it). A profile already on the row may stay (the current value is exempt from the active and version checks).</summary>
+    public static async Task EnsureAssignableAsync(SelloraDbContext db, Guid profileId, Guid countryId, Guid? currentProfileId, string field, DateOnly today, CancellationToken ct)
     {
         var profile = await db.TaxProfiles.AsNoTracking().Where(p => p.Id == profileId).Select(p => new { p.Name, p.CountryId, p.IsActive }).SingleOrDefaultAsync(ct)
             ?? throw new DomainValidationException(field, "Select a valid tax profile.");
         if (profile.CountryId != countryId) throw new DomainValidationException(field, $"{profile.Name} belongs to another country than the assignment.");
-        if (!profile.IsActive && currentProfileId != profileId) throw new DomainValidationException(field, $"{profile.Name} is inactive and cannot be newly assigned.");
+        if (currentProfileId == profileId) return;
+        if (!profile.IsActive) throw new DomainValidationException(field, $"{profile.Name} is inactive and cannot be newly assigned.");
+        if (!await HasVersionValidOnAsync(db, profileId, today, ct))
+        {
+            throw new DomainValidationException(field, $"{profile.Name} has no version valid today. Add a version first.");
+        }
     }
+
+    public static Task<bool> HasVersionValidOnAsync(SelloraDbContext db, Guid profileId, DateOnly date, CancellationToken ct) =>
+        db.TaxProfileVersions.AsNoTracking().AnyAsync(v => v.TaxProfileId == profileId && v.EffectiveFrom <= date && (v.EffectiveTo == null || v.EffectiveTo >= date), ct);
 }

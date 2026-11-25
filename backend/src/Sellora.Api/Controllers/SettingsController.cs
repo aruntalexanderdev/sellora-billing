@@ -58,6 +58,23 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
         // The company prefix is a numbering segment shared with the branches: the check and the save run under the same
         // company row lock the branch service uses, so a concurrent branch edit cannot slip a colliding prefix in.
         await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
+        // T24: the country can change only while no product or document exists; the new country's standard tax profiles are seeded below.
+        // While products or documents exist the country is locked: a different country is refused, and an omitted one (which would clear it) leaves it as it is.
+        var countryId = request.CountryId;
+        if (countryId is null && settings.CountryId is not null && await TaxCountryChange.IsLockedAsync(db, ct)) countryId = settings.CountryId;
+        var countryChanging = countryId != settings.CountryId;
+        if (countryChanging)
+        {
+            try
+            {
+                await TaxCountryChange.EnsureAllowedAsync(db, ct);
+            }
+            catch (DomainValidationException ex)
+            {
+                ModelState.AddModelError(ex.Field, ex.Message);
+                return ValidationProblem(ModelState);
+            }
+        }
         var invoicePrefix = request.InvoicePrefix.Trim().ToUpperInvariant();
         if (!string.Equals(invoicePrefix, settings.InvoicePrefix, StringComparison.Ordinal))
         {
@@ -75,8 +92,12 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
         settings.BusinessName = request.BusinessName.Trim();
         settings.AddressLine = request.AddressLine;
         settings.City = request.City;
-        settings.CountryId = request.CountryId; // D17: null clears; legacy State text is frozen (request.State ignored)
-        settings.StateId = request.StateId;
+        // D17: null clears (unless the country is locked by products or documents, T24: then country and state stay); legacy State text is frozen (request.State ignored)
+        if (request.CountryId is not null || countryId is null)
+        {
+            settings.CountryId = countryId;
+            settings.StateId = request.StateId;
+        }
         settings.Gstin = request.Gstin;
         settings.Phone = request.Phone;
         settings.Email = request.Email;
@@ -124,6 +145,7 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
         company.Name = settings.BusinessName;
 
         await db.SaveChangesAsync(ct);
+        if (countryChanging && countryId is { } newCountry) await TaxCountryChange.SeedNewCountryAsync(db, companyId, newCountry, ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
         return Ok(await ToDtoAsync(settings, ct));
     }

@@ -33,6 +33,10 @@ public record BusinessSettingsDto(
     bool SellingPricesIncludeTax = true, decimal? MaxBillDiscountPercent = null
 );
 
+/// <summary>The settings PUT is a full replace for the nullable fields marked below: an omitted <c>maxBillDiscountPercent</c> clears the cap and an omitted
+/// <c>countryId</c> clears the country link (T25, D17). The form always posts the current values. <c>countryId</c> may change only while the company has no
+/// products and no sales or purchase documents (400 on <c>countryId</c>, T24; the new country's standard tax profiles are then seeded); while it has them,
+/// an omitted <c>countryId</c> leaves country and state unchanged instead of clearing them.</summary>
 public record UpdateBusinessSettingsRequest(
     [Required, MaxLength(150)] string BusinessName,
     [MaxLength(300)] string? AddressLine,

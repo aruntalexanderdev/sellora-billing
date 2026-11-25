@@ -88,24 +88,54 @@ public static class TaxSeeder
         }
 
         // T12/T21: the standard rate becomes the company default, unless the company already has one for the country.
-        var defaultSet = false;
-        var standard = TaxSeedData.DefaultFor(cc);
-        if (standard is not null && !await db.TaxAssignments.AnyAsync(a => a.Scope == TaxScope.Company && a.CountryId == cid, ct)
-            && !db.TaxAssignments.Local.Any(a => a.Scope == TaxScope.Company && a.CountryId == cid))
-        {
-            var chosen = profiles.Where(p => p.Code == standard.Code || string.Equals(p.Name, standard.Name, StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(p => p.Code == standard.Code).ThenBy(p => p.Id).FirstOrDefault();
-            if (chosen is not null)
-            {
-                db.TaxAssignments.Add(new TaxAssignment
-                {
-                    Id = TaxSeedData.CompanyDefaultAssignmentId(companyId, cc), CompanyId = companyId, Scope = TaxScope.Company, CountryId = cid,
-                    SalesTaxProfileId = chosen.Id, PurchaseTaxProfileId = null, CreatedAt = now,
-                });
-                defaultSet = true;
-            }
-        }
+        var defaultSet = await EnsureCompanyDefaultAsync(db, companyId, cid, cc, profiles, today, now, ct);
 
         return new TaxSeedResult(true, componentsAdded, added, skipped, defaultSet);
+    }
+
+    /// <summary>
+    /// T21 / T25: adds the company-default assignment of the country when it has none, pointing at the standard-rate profile (found by code, then by name) only
+    /// when that profile has a version valid today whose total equals the standard rate. Does not save. For a company that kept its tax masters through a data
+    /// reset. Returns whether a default was added.
+    /// </summary>
+    public static async Task<bool> RestoreCompanyDefaultAsync(SelloraDbContext db, Guid companyId, Guid countryId, TimeProvider? time = null, CancellationToken ct = default)
+    {
+        var country = await db.Countries.AsNoTracking().SingleOrDefaultAsync(c => c.Id == countryId, ct);
+        if (country is null || !TaxSeedData.SeededCountryCodes.Contains(country.Code)) return false;
+        var clock = time ?? TimeProvider.System;
+        var profiles = await db.TaxProfiles.Where(p => p.CountryId == countryId).ToListAsync(ct);
+        return await EnsureCompanyDefaultAsync(db, companyId, countryId, country.Code, profiles, TaxRules.Today(clock), clock.GetUtcNow().UtcDateTime, ct);
+    }
+
+    private static async Task<bool> EnsureCompanyDefaultAsync(
+        SelloraDbContext db, Guid companyId, Guid cid, string cc, List<TaxProfile> profiles, DateOnly today, DateTime now, CancellationToken ct)
+    {
+        var standard = TaxSeedData.DefaultFor(cc);
+        if (standard is null) return false;
+        if (await db.TaxAssignments.AnyAsync(a => a.Scope == TaxScope.Company && a.CountryId == cid, ct)
+            || db.TaxAssignments.Local.Any(a => a.Scope == TaxScope.Company && a.CountryId == cid)) return false;
+
+        foreach (var candidate in profiles.Where(p => p.IsActive && (p.Code == standard.Code || string.Equals(p.Name, standard.Name, StringComparison.OrdinalIgnoreCase)))
+                     .OrderByDescending(p => p.Code == standard.Code).ThenBy(p => p.Id))
+        {
+            if (await CurrentTotalAsync(db, candidate, today, ct) != standard.TotalPercent) continue;
+            db.TaxAssignments.Add(new TaxAssignment
+            {
+                Id = TaxSeedData.CompanyDefaultAssignmentId(companyId, cc), CompanyId = companyId, Scope = TaxScope.Company, CountryId = cid,
+                SalesTaxProfileId = candidate.Id, PurchaseTaxProfileId = null, CreatedAt = now,
+            });
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>The total percent of the version valid on <paramref name="today"/> (the in-memory versions of a profile just added, else the stored ones); null when none.</summary>
+    private static async Task<decimal?> CurrentTotalAsync(SelloraDbContext db, TaxProfile profile, DateOnly today, CancellationToken ct)
+    {
+        var local = profile.Versions.FirstOrDefault(v => v.EffectiveFrom <= today && (v.EffectiveTo == null || v.EffectiveTo >= today));
+        if (local is not null) return local.TotalPercent;
+        return await db.TaxProfileVersions.AsNoTracking()
+            .Where(v => v.TaxProfileId == profile.Id && v.EffectiveFrom <= today && (v.EffectiveTo == null || v.EffectiveTo >= today))
+            .Select(v => (decimal?)v.TotalPercent).FirstOrDefaultAsync(ct);
     }
 }

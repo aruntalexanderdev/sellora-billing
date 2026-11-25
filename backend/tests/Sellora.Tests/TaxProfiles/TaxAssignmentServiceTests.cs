@@ -64,7 +64,7 @@ public class TaxAssignmentServiceTests
     public async Task Upsert_ProfileOfAnotherCountry_RefusedOnTheProfileField()
     {
         var s = await SeedAsync();
-        var uaeVat = await s.W.Profiles.CreateAsync(new(s.W.Uae.Id, "VAT-5", "VAT 5%", TaxRegime.Vat, TaxTreatment.Exempt), null);
+        var uaeVat = await s.W.Profiles.CreateAsync(new(s.W.Uae.Id, "VAT-5", "VAT 5%", TaxRegime.Vat, TaxTreatment.Exempt, TaxWorld.Version(new DateOnly(2020, 1, 1))), null);
 
         Assert.Equal("salesProfileId", await TaxWorld.FieldOfAsync(() => s.W.Assignments.UpsertAsync(new(TaxScope.Category, s.Beverages.Id, s.W.India.Id, uaeVat.Id, null))));
         Assert.Equal("purchaseProfileId", await TaxWorld.FieldOfAsync(() => s.W.Assignments.UpsertAsync(new(TaxScope.Category, s.Beverages.Id, s.W.India.Id, s.Gst5.Id, uaeVat.Id))));
@@ -160,7 +160,7 @@ public class TaxAssignmentServiceTests
     public async Task Upsert_OtherCountryAssignment_DoesNotTouchTheMirror()
     {
         var s = await SeedAsync();
-        var uae = await s.W.Profiles.CreateAsync(new(s.W.Uae.Id, "VAT-5", "VAT 5%", TaxRegime.Vat, TaxTreatment.Exempt), null);
+        var uae = await s.W.Profiles.CreateAsync(new(s.W.Uae.Id, "VAT-5", "VAT 5%", TaxRegime.Vat, TaxTreatment.Exempt, TaxWorld.Version(new DateOnly(2020, 1, 1))), null);
         var before = await TaxIdOfAsync(s, s.Cola);
 
         await s.W.Assignments.UpsertAsync(new(TaxScope.Product, s.Cola.Id, s.W.Uae.Id, uae.Id, null));
@@ -200,7 +200,7 @@ public class TaxAssignmentServiceTests
         var s = await SeedAsync();
         var p = await s.W.AddProductAsync("P");
         await s.W.Assignments.UpsertAsync(new(TaxScope.Product, p.Id, s.W.India.Id, s.Gst18.Id, null));
-        var uae = await s.W.Profiles.CreateAsync(new(s.W.Uae.Id, "VAT-5", "VAT 5%", TaxRegime.Vat, TaxTreatment.Exempt), null);
+        var uae = await s.W.Profiles.CreateAsync(new(s.W.Uae.Id, "VAT-5", "VAT 5%", TaxRegime.Vat, TaxTreatment.Exempt, TaxWorld.Version(new DateOnly(2020, 1, 1))), null);
         await s.W.Assignments.UpsertAsync(new(TaxScope.Company, null, s.W.Uae.Id, uae.Id, null));
         await s.W.Assignments.UpsertAsync(new(TaxScope.Product, p.Id, s.W.Uae.Id, uae.Id, null));
 

@@ -365,6 +365,8 @@ Each phase is approved, built, verified and reviewed before the next.
   company has no products and no sales/purchase documents; the standard profiles and company default of the new
   country are then seeded (old-country profiles stay, unused). Otherwise 400 on `countryId`. Reason: a later change
   would leave product mirrors and history on the old country's taxes.
+  Refinement (implementation): once products or documents exist, an omitted `countryId` on the settings PUT keeps the
+  current country and state instead of clearing them; only an explicit different country is refused.
 - T25 (TP-1 review) A profile can be assigned (company, category, subcategory or product) only if it has a version
   valid today; a new version may not start on or before the date of the latest document that used the profile
   (BR4: a used version's dates are immutable). Settings PUT is a full replace: omitting `maxBillDiscountPercent`

@@ -593,9 +593,9 @@ public class ProductService(SelloraDbContext db) : IProductService
         Guid salesProfileId;
         if (input.SalesTaxProfileId is { } sales)
         {
-            await TaxAssignmentRules.EnsureAssignableAsync(db, sales, countryId, current?.SalesTaxProfileId, "salesTaxProfileId", ct);
+            await TaxAssignmentRules.EnsureAssignableAsync(db, sales, countryId, current?.SalesTaxProfileId, "salesTaxProfileId", TaxRules.Today(TimeProvider.System), ct);
             var purchase = input.PurchaseTaxProfileId is { } p && p != sales ? p : (Guid?)null;
-            if (purchase is { } purchaseId) await TaxAssignmentRules.EnsureAssignableAsync(db, purchaseId, countryId, current?.PurchaseTaxProfileId, "purchaseTaxProfileId", ct);
+            if (purchase is { } purchaseId) await TaxAssignmentRules.EnsureAssignableAsync(db, purchaseId, countryId, current?.PurchaseTaxProfileId, "purchaseTaxProfileId", TaxRules.Today(TimeProvider.System), ct);
 
             if (current is null)
             {
