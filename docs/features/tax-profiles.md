@@ -521,6 +521,23 @@ seeds later and is idempotent. A drift test compares M1's output with `TaxSeedDa
 
 ## Deployment notes
 
+### TP-1 release runbook (additions)
+1. Before the release: run section P of `scripts/sql/tax-profiles-release-notes.sql`. Every company that has taxes must
+   have `BusinessSettings.CountryId`; otherwise `AddTaxProfiles` stops the release (preflight, by design).
+2. A database upgraded from an old baseline in one idempotent script gets `CountryId` from the earlier
+   country/state migration in the same run. If its backfill cannot link a company's country (see that migration's
+   unmatched report), set the country manually between the two migrations, or the preflight fails.
+3. Back up, then apply `AddTaxProfiles` and `ValidateTaxLineForeignKeys` from the Database releases page (never at
+   startup, D10). Expect short ACCESS EXCLUSIVE locks on Products, ProductSubcategories and BusinessSettings at the end
+   of the transaction (lock_timeout 5 s; on 55P03 retry).
+4. After the release: all `V__tax-*.sql` checks must return zero failing rows (the missing-rows and mirror-drift
+   checks warn only). Then run sections R1–R7 and send the owner: zero-rate conversions, skipped standard seeds,
+   company default per company (R7 lists defaults whose rate differs from the standard), companies without a country.
+5. Deploy the TP-1 application build. Rollback is application-only: the previous build keeps working because every
+   profile has a mirror tax and `Products.TaxId` is maintained.
+6. Not verified before release while CI is down (until 1 Dec): Testcontainers suites that run psql inside the
+   container (release rehearsal, idempotent-script psql paths) and PostgreSQL 17. Run full CI green before any deploy.
+
 - M1 runs as a manual, pre-deploy database release (D10), never at startup. Back up first; validation SQL must return
   zero failing rows before M2 code is deployed.
 - M2 keeps writing legacy `TaxId` mirrors so the previous build can be redeployed without a database rollback.
