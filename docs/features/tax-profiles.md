@@ -374,6 +374,8 @@ Each phase is approved, built, verified and reviewed before the next.
   only when the rate also matches.
 - T26 TP-1 lead decisions T23–T25 confirmed by the owner. TP-2 design approved with DQ-TP2-1 to DQ-TP2-7 as
   recommended. PR #39 (TP-1) waits for CI before merging.
+- T27 TP-3 design approved; TP3-Q1 to TP3-Q6 as recommended. No company uses a 3-decimal base currency, so the
+  existing numeric(18,2) purchase header columns stay; new header columns use numeric(18,4).
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
@@ -628,8 +630,7 @@ precision 2–3 being the normal case.
 
 ## TP-3 design (purchases on the calculator)
 
-Status: **proposed, awaiting owner approval**. Drafted by the solution architect against the code at 40b94d7; nothing
-built. Branch `feature/tax-purchases`.
+Status: **approved by the owner** (TP3-Q1..Q6 as recommended, T27). Branch `feature/tax-purchases`.
 
 ### Scope
 - Changes: purchase create (place of supply + rate sets + `TaxCalculator`), purchase returns (`TaxReversal`), purchase
@@ -728,7 +729,7 @@ Purchase register gains `taxableTotal` and tax by component kind (legacy rows un
 3. frontend-engineer; test-engineer in parallel: xUnit service tests and Vitest.
 4. code-reviewer, then `scripts/verify.sh all`.
 
-### Design questions (recommendation in brackets)
+### Design questions (decided as recommended, T27)
 - TP3-Q1 Header `TaxableTotal` for history: null with a DTO fallback, or backfill every purchase (row locks, blocks
   purchase payments while it runs)? [Null + fallback.]
 - TP3-Q2 Header money columns are numeric(18,2) while lines are (18,4); with a 3-decimal base currency (BHD, OMR, KWD)
