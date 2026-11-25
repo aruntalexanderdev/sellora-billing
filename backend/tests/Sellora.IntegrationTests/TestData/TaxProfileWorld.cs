@@ -20,15 +20,18 @@ public static class TaxProfileWorld
     /// <summary>TP-3: the additive purchase tax snapshot (constraints NOT VALID) and the migration that validates them and creates the FK indexes. The latest migration of the tax programme.</summary>
     public const string PurchaseSnapshot = "20261125062951_AddPurchaseTaxSnapshot";
     public const string ValidatePurchase = "20261125063043_ValidatePurchaseTaxConstraints";
+    /// <summary>TP-4: the additive sales tax snapshot (one short ACCESS EXCLUSIVE window, constraints NOT VALID) and the migration that validates them and creates the indexes. The latest migration of the tax programme.</summary>
+    public const string SalesSnapshot = "20261125092815_AddSalesTaxSnapshot";
+    public const string ValidateSales = "20261125092833_ValidateSalesTaxConstraints";
     public const string SeedResource = "20261124120429_AddTaxProfiles.seed.sql";
     public const string BackfillResource = "20261124120429_AddTaxProfiles.backfill.sql";
     public const string LegacyRowsResource = "20261124120429_AddTaxProfiles.legacy-rows.sql";
 
-    /// <summary>The eight V__ files of the tax profiles design (six of TP-1, two added by TP-3) (name without the V__ prefix).</summary>
+    /// <summary>The nine V__ files of the tax profiles design (six of TP-1, two added by TP-3, one by TP-4) (name without the V__ prefix).</summary>
     public static readonly string[] ValidationFiles =
     [
         "tax-profiles-integrity.sql", "tax-gst-rules.sql", "tax-products-resolve.sql", "tax-line-rows-consistency.sql", "tax-line-rows-missing.sql", "tax-mirror-drift.sql",
-        "tax-line-rows-missing-purchases.sql", "tax-purchase-snapshot.sql",
+        "tax-line-rows-missing-purchases.sql", "tax-purchase-snapshot.sql", "tax-sales-snapshot.sql",
     ];
 
     /// <summary>Deterministic ids of the extra rows (the fixture's own rows use <see cref="Fx"/>).</summary>
@@ -180,7 +183,7 @@ public static class TaxProfileWorld
         return await CloneAsync(postgres, template);
     }
 
-    /// <summary>The legacy world migrated up to <see cref="ValidatePurchase"/> (the head of the tax programme), shared by read-only tests (probes must roll back). Not disposed by tests.</summary>
+    /// <summary>The legacy world migrated up to <see cref="ValidateSales"/> (the head of the tax programme), shared by read-only tests (probes must roll back). Not disposed by tests.</summary>
     public static async Task<TestDatabase> MigratedAsync(PostgresFixture postgres)
     {
         var template = await PreviousTemplateAsync(postgres);
@@ -189,7 +192,7 @@ public static class TaxProfileWorld
         {
             if (migrated is not null) return migrated;
             var d = await CloneAsync(postgres, template);
-            await MigrateExactlyAsync(d, ValidatePurchase);
+            await MigrateExactlyAsync(d, ValidateSales);
             migrated = d;
             return d;
         }

@@ -77,13 +77,15 @@ ORDER BY c."CompanyId", c."Id";
 -- their TaxableTotal is NULL and the API derives it as Subtotal - DiscountTotal. The pre-existing header money columns stay numeric(18,2); the new ones are numeric(18,4).
 
 -- ======================================================================================================================================================================
--- RUNBOOK (TP4-Q9), BEFORE the migration, on production-sized databases. Commented out: copy each statement into its own psql call (CONCURRENTLY cannot run in a transaction or a
+-- RUNBOOK (TP4-Q9), BETWEEN the two migrations, on production-sized databases. Commented out: copy each statement into its own psql call (CONCURRENTLY cannot run in a transaction or a
 -- multi-statement script). They build the two partial indexes on SalesInvoiceLines without blocking sales; AddSalesTaxSnapshot/ValidateSalesTaxConstraints then find them
 -- (CREATE INDEX IF NOT EXISTS) and skip the build. The indexes can only be created AFTER the columns exist, so the practical order is:
 --   1. apply AddSalesTaxSnapshot (metadata only, milliseconds) up to but NOT including ValidateSalesTaxConstraints
 --        (dotnet ef migrations script <ValidatePurchaseTaxConstraints> <AddSalesTaxSnapshot> --idempotent  ->  psql -f),
 --   2. run the two statements below (sales keep flowing),
 --   3. apply ValidateSalesTaxConstraints (VALIDATE of the constraints, the other four plain indexes on small tables, no build on SalesInvoiceLines).
+--      Even when the indexes exist, CREATE INDEX IF NOT EXISTS still takes a brief SHARE lock on SalesInvoiceLines: a sale that is being saved at that
+--      moment makes the migration wait up to the 5 s lock_timeout and fail with 55P03; nothing is applied, simply re-run it (ideally in a quiet minute).
 -- Small databases may skip the runbook: ValidateSalesTaxConstraints builds the indexes itself (a plain CREATE INDEX, it blocks writes to SalesInvoiceLines while it runs).
 --
 --   CREATE INDEX CONCURRENTLY IF NOT EXISTS "IX_SalesInvoiceLines_TaxProfileId" ON "SalesInvoiceLines" ("TaxProfileId") WHERE "TaxProfileId" IS NOT NULL;

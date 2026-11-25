@@ -351,7 +351,7 @@ public class TaxPurchaseValidationFilesTests(PostgresFixture postgres)
         await AssertProbeAsync(MissingPurchases, (p, d) => Exec(p, $"""DELETE FROM "PurchaseOrderLineTaxes" WHERE "Id" = '{d.Sgst}'"""), _ => []);
 
     [Fact]
-    public async Task MissingPurchases_SalesGaps_AreNotItsBusiness_TheyStayInTheWarnFile()
+    public async Task MissingPurchases_SalesGaps_AreNotItsBusiness_TheyStayInTheSalesFile()
     {
         var d = await MigratedAsync(postgres);
 
