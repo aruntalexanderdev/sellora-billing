@@ -4,8 +4,9 @@ export type CsvCell = string | number | boolean | null | undefined;
 /** RFC 4180 escaping: quote when the cell holds a comma, quote, CR or LF; double inner quotes. A leading `=+-@` is neutralised against spreadsheet formula injection (text only; numbers are untouched). */
 export function csvEscape(cell: CsvCell): string {
   if (cell === null || cell === undefined) return '';
-  let text = typeof cell === 'number' ? String(cell) : String(cell);
-  if (typeof cell === 'string' && /^[=+\-@\t\r]/.test(text) && !/^-?\d+(\.\d+)?$/.test(text)) text = `'${text}`;
+  let text = String(cell);
+  // Leading spaces do not stop a spreadsheet from evaluating "  =cmd()", so the first non-space character decides.
+  if (typeof cell === 'string' && /^[ ]*[=+\-@\t\r]/.test(text) && !/^-?\d+(\.\d+)?$/.test(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 

@@ -397,6 +397,10 @@ Each phase is approved, built, verified and reviewed before the next.
 - T34 (TP-5a WP2, lead decision) Settings PUT: `hsnRequiredFrom` omitted or null leaves the date unchanged; clearing it needs
   `clearHsnRequiredFrom: true`, so an older settings form that never sends the field cannot silently lift the HSN
   control. Product tax labels show empty (not the mirror name) when the company has no country.
+- T35 (TP-5a review, lead decisions) Deactivating a product is never blocked by the HSN rule. `PrepareTaxHistoryBackfill` is
+  split so the small-table changes (UQC, HSN date, `Reports.Tax`) run in an earlier migration and only the line-table
+  constraint swap holds the exclusive lock; runbook: retry on 55P03/40P01 and VACUUM (ANALYZE) the line tables after the
+  backfill. CSV export neutralises formulas behind leading spaces. GST row document counts are per row.
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 

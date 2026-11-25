@@ -17,6 +17,11 @@ describe('csv', () => {
     expect(csvEscape('=SUM(A1)')).toBe("'=SUM(A1)");
     expect(csvEscape('-5')).toBe('-5');
   });
+  it('neutralises a formula hidden behind leading spaces', () => {
+    expect(csvEscape('  =HYPERLINK("x")')).toBe(`"'  =HYPERLINK(""x"")"`);
+    expect(csvEscape('  plain')).toBe('  plain');
+  });
+
   it('joins rows with CRLF', () => {
     expect(toCsv(['a', 'b'], [[1, 'x,y']])).toBe('a,b\r\n1,"x,y"');
   });
