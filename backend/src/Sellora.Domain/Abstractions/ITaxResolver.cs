@@ -37,4 +37,10 @@ public interface ITaxResolver
     /// </summary>
     Task<IReadOnlyDictionary<Guid, ResolvedLineRates>> ResolveRateSetsAsync(
         TaxDirection direction, Guid countryId, DateOnly date, IReadOnlyList<Guid> productIds, string field = "lines", CancellationToken ct = default);
+
+    /// <summary>
+    /// The total percent of the sales profile version valid on <paramref name="date"/> for each product (T31a): what a screen shows as the product's rate. Batched, never throws
+    /// for a product without a profile or version (it is simply absent from the result), so a catalog page never fails on one product.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, decimal>> ResolveCurrentSalesPercentsAsync(Guid countryId, DateOnly date, IReadOnlyCollection<Guid> productIds, CancellationToken ct = default);
 }

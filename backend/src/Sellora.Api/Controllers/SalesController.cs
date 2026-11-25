@@ -18,8 +18,10 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/sales")]
-public class SalesController(SelloraDbContext db, ISalesService salesService, IEffectivePermissionService effectivePermissions) : ControllerBase
+public class SalesController(SelloraDbContext db, ISalesService salesService, IEffectivePermissionService effectivePermissions, ITaxResolver? taxResolver = null) : ControllerBase
 {
+    private readonly ITaxResolver resolver = taxResolver ?? new TaxResolver(db);
+
     /// <summary>Product/price/stock lookup for the POS cart — kept under the Sales module so a Sales-only
     /// user can bill without needing Inventory permissions.</summary>
     [HttpGet("catalog")]
@@ -98,13 +100,16 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             : (await db.ProductSubcategories.Where(s => subIds.Contains(s.Id)).Select(s => new { s.Id, s.Name, s.HsnCode }).ToListAsync(ct))
                 .ToDictionary(s => s.Id, s => (Name: s.Name, Hsn: s.HsnCode));
 
+        // T31a: the rate shown is the sales profile's version valid today (resolver, document country), batched; the mirror tax only when nothing resolves.
+        var percents = await CurrentPercentsAsync(productIds, ct);
+
         // TP-4: the price basis the unit prices are in (product, else company: the rule of the preview and the save) and the effective HSN/SAC (product, else subcategory).
         var companyId = db.CompanyContext.RequireCompanyId();
         var settings = await db.BusinessSettings.AsNoTracking().Where(s => s.CompanyId == companyId).SingleAsync(ct);
 
         return products.Select(p => new SaleCatalogProductDto(
             p.Id, p.Sku, p.Name, p.Category, p.BaseUnit.ShortCode,
-            qtyByProduct.GetValueOrDefault(p.Id, 0m), p.Tax.RatePercent,
+            qtyByProduct.GetValueOrDefault(p.Id, 0m), percents.TryGetValue(p.Id, out var current) ? current : p.Tax.RatePercent,
             p.Units.OrderBy(u => u.SortOrder).Select(u => new SaleCatalogUnitDto(
                 u.Id, u.UnitId, u.Unit.ShortCode, u.Label ?? u.Unit.Name,
                 u.ConversionFactorToBase, u.Unit.DecimalPlaces, u.IsBaseUnit, u.IsDefaultSalesUnit,
@@ -114,6 +119,19 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             SalesTaxRules.PriceIncludesTax(p, settings),
             !string.IsNullOrEmpty(p.HsnCode) ? p.HsnCode : p.SubcategoryId is { } hid && subs.TryGetValue(hid, out var hsnSub) ? hsnSub.Hsn : null
         )).ToList();
+    }
+
+    private async Task<IReadOnlyDictionary<Guid, decimal>> CurrentPercentsAsync(IReadOnlyCollection<Guid> productIds, CancellationToken ct)
+    {
+        try
+        {
+            var countryId = await resolver.ResolveDocumentCountryAsync(db.BranchContext.ActiveBranchId, "branchId", ct);
+            return await resolver.ResolveCurrentSalesPercentsAsync(countryId, DateOnly.FromDateTime(DateTime.UtcNow), productIds, ct);
+        }
+        catch (DomainValidationException)
+        {
+            return new Dictionary<Guid, decimal>(); // no country configured: the mirror rate, as before
+        }
     }
 
     /// <summary>Selling location for catalog availability: the requested one (must be visible by branch access, else 403 branch_access_denied),
@@ -252,13 +270,27 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
         // TP-4: names of the snapshotted profiles and states (the rows only carry ids).
         var profileIds = invoice.Lines.Where(l => l.TaxProfileId != null).Select(l => l.TaxProfileId!.Value).Distinct().ToList();
         var profileNames = await db.TaxProfiles.AsNoTracking().Where(t => profileIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Name, ct);
-        var stateIds = new[] { invoice.PlaceOfSupplyStateId, invoice.SellerStateId }.Where(x => x != null).Select(x => x!.Value).Distinct().ToList();
-        var stateNames = await db.States.AsNoTracking().Where(st => stateIds.Contains(st.Id)).ToDictionaryAsync(st => st.Id, st => st.Name, ct);
+        // T31b: the seller block, from the invoice's branch with the company settings as fallback (read here, not through the Masters endpoints, so any reader of the invoice gets it).
+        var branch = await db.Branches.AsNoTracking().Where(b => b.CompanyId == invoice.CompanyId && b.Id == invoice.BranchId)
+            .Select(b => new { b.AddressLine, b.City, b.State, b.StateId }).SingleOrDefaultAsync(ct);
+        var company = await db.BusinessSettings.AsNoTracking().Where(b => b.CompanyId == invoice.CompanyId)
+            .Select(b => new { b.BusinessName, b.AddressLine, b.City, b.State, b.StateId }).SingleAsync(ct);
+        var sellerStateId = invoice.SellerStateId ?? branch?.StateId ?? company.StateId;
+        var stateIds = new[] { invoice.PlaceOfSupplyStateId, sellerStateId }.Where(x => x != null).Select(x => x!.Value).Distinct().ToList();
+        var states = await db.States.AsNoTracking().Where(st => stateIds.Contains(st.Id)).ToDictionaryAsync(st => st.Id, st => (st.Name, Code: st.GstStateCode), ct);
+        var stateNames = states.ToDictionary(kv => kv.Key, kv => kv.Value.Name);
+        var hasBranchAddress = !string.IsNullOrWhiteSpace(branch?.AddressLine) || !string.IsNullOrWhiteSpace(branch?.City);
+        var sellerAddress = string.Join(", ", (hasBranchAddress ? new[] { branch!.AddressLine, branch.City } : [company.AddressLine, company.City]).Where(x => !string.IsNullOrWhiteSpace(x)));
 
         return Ok(ToDetail(invoice, batchSources, profileNames) with
         {
             PlaceOfSupplyStateName = invoice.PlaceOfSupplyStateId is { } ps ? stateNames.GetValueOrDefault(ps) : null,
-            SellerStateName = invoice.SellerStateId is { } ss ? stateNames.GetValueOrDefault(ss) : null,
+            SellerStateName = sellerStateId is { } ss ? stateNames.GetValueOrDefault(ss) ?? (!string.IsNullOrWhiteSpace(branch?.State) ? branch!.State : company.State) : null,
+            SellerStateGstCode = sellerStateId is { } sc && states.TryGetValue(sc, out var sellerState) ? sellerState.Code : null,
+            PlaceOfSupplyStateGstCode = invoice.PlaceOfSupplyStateId is { } pc && states.TryGetValue(pc, out var posState) ? posState.Code : null,
+            SellerName = company.BusinessName,
+            SellerAddress = sellerAddress.Length == 0 ? null : sellerAddress,
+            SellerTaxIdLabel = invoice.PlaceOfSupply == PlaceOfSupply.NotApplicable ? "TRN" : "GSTIN",
             Warnings = invoice.Warnings.Select(w => new SalesWarningDto(w.Field, w.Message)).ToList(),
             BranchCode = labels.Code(invoice.BranchId), BranchName = labels.Name(invoice.BranchId), StockLocationId = invoice.StockLocationId, StockLocationCode = locLabels.Code(invoice.StockLocationId), StockLocationName = locLabels.Name(invoice.StockLocationId), SellerGstin = sellerGstin,
         });

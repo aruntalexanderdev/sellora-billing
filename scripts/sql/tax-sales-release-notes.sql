@@ -91,3 +91,33 @@ ORDER BY c."CompanyId", c."Id";
 --
 -- A failed CONCURRENTLY build leaves an INVALID index of the same name: check, DROP INDEX CONCURRENTLY it and re-run the statement (the migration refuses to continue past an invalid one):
 --   SELECT c.relname, i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname LIKE 'IX\_SalesInvoiceLines\_TaxProfile%';
+
+-- ======================================================================================================================================================================
+-- RUNBOOK additions (T31)
+--
+-- 1. After the release: if the blocking V__tax-line-rows-missing.sql still flags lines (a TP-3 build instance inserted a sale between the catch-up and the app swap), re-run the frozen,
+--    idempotent catch-up file backend/src/Sellora.Infrastructure/Data/Migrations/Sql/20261124120429_AddTaxProfiles.legacy-rows.sql (never edit it; running it again is a no-op for
+--    lines that already have a row), then re-run V__tax-line-rows-missing.sql. It must return no rows.
+--
+-- 2. BEFORE rolling back to a pre-TP-4 build: the POS catalog and the product screen of that build show the mirror tax (Taxes.RatePercent / IsActive), which only changes when a
+--    tax write happens. A version that took effect by date since the last write (T19 lifted: future-dated versions) has not refreshed it. Refresh every profile's mirror from the
+--    version valid today (run in one transaction, review the SELECT first; no version valid today = 0):
+--
+--      SELECT t."Id", t."RatePercent" AS mirror_rate, COALESCE(v."TotalPercent", 0) AS current_rate, t."IsActive" AS mirror_active, p."IsActive" AS profile_active
+--      FROM "TaxProfiles" p
+--      JOIN "Taxes" t ON t."Id" = p."LegacyTaxId" AND t."CompanyId" = p."CompanyId"
+--      LEFT JOIN "TaxProfileVersions" v ON v."TaxProfileId" = p."Id" AND v."EffectiveFrom" <= CURRENT_DATE AND (v."EffectiveTo" IS NULL OR v."EffectiveTo" >= CURRENT_DATE)
+--      WHERE t."RatePercent" <> COALESCE(v."TotalPercent", 0) OR t."IsActive" <> p."IsActive";
+--
+--      UPDATE "Taxes" t SET "RatePercent" = COALESCE(v."TotalPercent", 0), "IsActive" = p."IsActive"
+--      FROM "TaxProfiles" p
+--      LEFT JOIN "TaxProfileVersions" v ON v."TaxProfileId" = p."Id" AND v."EffectiveFrom" <= CURRENT_DATE AND (v."EffectiveTo" IS NULL OR v."EffectiveTo" >= CURRENT_DATE)
+--      WHERE t."Id" = p."LegacyTaxId" AND t."CompanyId" = p."CompanyId"
+--        AND (t."RatePercent" <> COALESCE(v."TotalPercent", 0) OR t."IsActive" <> p."IsActive");
+--
+--    V__tax-mirror-drift.sql reports the same drift; it must return no rows afterwards. A return made by the old build on a TP-4 line writes one legacy row next to the component rows
+--    (totals stay right, the per-component split is approximate).
+--
+-- 3. Accepted (T31e), no action: the pre-existing SalesInvoices header money columns stay numeric(18,2), so a base currency with 3 decimals (OMR, KWD, BHD) stores the header
+--    Subtotal/TaxTotal/DiscountTotal/GrandTotal at 2 decimals while the lines (numeric(18,4)) and TaxableTotal keep the exact value; and SalesInvoiceLines.TaxRatePercent is numeric(6,3)
+--    (display only: a Σ applied percent with more than 3 decimals is rounded in that column; amounts are unaffected).

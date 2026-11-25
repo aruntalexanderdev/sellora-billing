@@ -16,7 +16,9 @@ namespace Sellora.Infrastructure.Data.Migrations
         {
             // TP-4 design (docs/features/tax-profiles.md): purely additive, one transaction, no table rewrite (every column is nullable or has a CONSTANT default), so the
             // TP-3 build can keep inserting during the app swap and can be redeployed without a database rollback. Rollback is application-only; Down() is dev-only.
-            // Lock order: ONE LOCK TABLE (SalesInvoices, SalesInvoiceLines, SalesReturnLines: the order the sales service takes its row locks), then only metadata ALTERs.
+            // Lock order (T31d): first the REFERENCED tables (States, TaxProfiles, TaxProfileVersions) in SHARE ROW EXCLUSIVE mode, because adding a foreign key takes a lock on the
+            // referenced table and must not be requested inside the exclusive window below (a long reader of those tables would then hold the sales tables locked while it waits);
+            // then ONE ACCESS EXCLUSIVE LOCK TABLE (SalesInvoices, SalesInvoiceLines, SalesReturnLines: the order the sales service takes its row locks), then only metadata ALTERs.
             // Every constraint is added NOT VALID (no scan under the lock); ValidateSalesTaxConstraints validates them and creates the indexes. The *LineTaxes tables are
             // untouched (Treatment exists since AddPurchaseTaxSnapshot).
             migrationBuilder.Sql("SET LOCAL lock_timeout = '5s';");
@@ -24,6 +26,8 @@ namespace Sellora.Infrastructure.Data.Migrations
             // D2 catch-up: lines saved by the TP-3 build between the TP-1 commit and now have no tax row. The frozen, SHA-pinned, idempotent file runs FIRST, before the lock
             // (it takes only row-level locks and runs exactly as released); re-running it is a no-op. Do not edit it.
             migrationBuilder.Sql(MigrationSql.Read("20261124120429_AddTaxProfiles.legacy-rows.sql"));
+
+            migrationBuilder.Sql("LOCK TABLE \"States\", \"TaxProfiles\", \"TaxProfileVersions\" IN SHARE ROW EXCLUSIVE MODE;");
 
             // The single ACCESS EXCLUSIVE window. Everything below is catalog-only (constant defaults, nullable columns, NOT VALID constraints).
             migrationBuilder.Sql("LOCK TABLE \"SalesInvoices\", \"SalesInvoiceLines\", \"SalesReturnLines\" IN ACCESS EXCLUSIVE MODE;");

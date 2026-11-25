@@ -208,13 +208,15 @@ public class SalesTaxTests
     {
         var f = await SetupAsync();
         var p = await ProductAsync(f);
-        var abroad = new Customer { Id = Guid.NewGuid(), Name = "Dubai Importer", CountryId = f.W.Uae.Id };
+        var abroad = new Customer { Id = Guid.NewGuid(), Name = "Dubai Importer", CountryId = f.W.Uae.Id, StateId = f.Other.Id }; // a stale Indian state on a foreign customer
         f.W.Db.Customers.Add(abroad);
         await f.W.Db.SaveChangesAsync();
 
         var sale = await SellAsync(f, p, 1, 100m, abroad);
 
         Assert.Equal(PlaceOfSupply.InterState, sale.PlaceOfSupply); // DQ-TP2-7
+        Assert.Null(sale.PlaceOfSupplyStateId); // T31c: no GST state for a buyer abroad
+        Assert.Equal(f.Home.Id, sale.SellerStateId);
         Assert.Equal(TaxComponentKind.Igst, Assert.Single(await RowsAsync(f, sale.Lines.Single())).Kind);
     }
 
@@ -960,5 +962,66 @@ public class SalesTaxTests
         Assert.Equal(200m, rowLegacy.TaxableTotal);
         var other = Assert.Single(rowLegacy.TaxByKind!);
         Assert.Equal((TaxComponentKind.Other, 36m), (other.Kind, other.TaxAmount));
+    }
+
+    // ------------------------------------------------------------------ T31a: the rate shown comes from the version valid today
+
+    [Fact]
+    public async Task Catalog_AndProductDetail_ShowTheVersionValidToday_NotTheMirrorTax()
+    {
+        var f = await SetupAsync();
+        var five = await ProductAsync(f, sales: "GST-5");
+        var eighteen = await ProductAsync(f);
+        var cess = await ProductAsync(f, sales: (await CustomProfileAsync(f.W)).Code);
+        var gst18 = await f.W.ProfileAsync("GST-18");
+        await f.W.Profiles.AddVersionAsync(gst18.Id, TaxWorld.Version(D.AddDays(10), await f.W.GstSetAsync(28m)), null); // future: not valid today
+        foreach (var mirror in await f.W.Db.Taxes.ToListAsync()) mirror.RatePercent = 99m; // a stale mirror (rollback copy)
+        await f.W.Db.SaveChangesAsync();
+        foreach (var x in new[] { five, eighteen, cess }) await SetListPriceAsync(f, x.Unit, 10m);
+
+        var items = Ok(await Controller(f, "Sales.Create").Catalog(null, null, default));
+        var detail = Ok(await new ProductsController(f.W.Db, new ProductService(f.W.Db), f.W.Resolver).Get(five.Product.Id, default));
+
+        Assert.Equal(5m, items.Single(i => i.ProductId == five.Product.Id).TaxRatePercent);
+        Assert.Equal(18m, items.Single(i => i.ProductId == eighteen.Product.Id).TaxRatePercent);
+        Assert.Equal(28m, items.Single(i => i.ProductId == cess.Product.Id).TaxRatePercent);
+        Assert.Equal(5m, detail.TaxRatePercent);
+    }
+
+    // ------------------------------------------------------------------ T31b: the seller block
+
+    [Fact]
+    public async Task Get_CarriesTheSellerBlockFromTheBranch_ForAReaderWithoutMastersView()
+    {
+        var f = await SetupAsync();
+        var p = await ProductAsync(f);
+        var branch = await f.W.Db.Branches.FirstAsync();
+        (branch.AddressLine, branch.City, branch.Gstin) = ("12 MG Road", "Bengaluru", "29ABCDE1234F1Z5");
+        await f.W.Db.SaveChangesAsync();
+        var sale = await SellAsync(f, p, 1, 100m, f.Far);
+        f.W.Db.ChangeTracker.Clear();
+
+        var dto = Ok(await Controller(f, "Sales.View").Get(sale.Id, default)); // Sales.View only: no Masters.View, no Settings.View
+
+        Assert.Equal(("Sellora Mart", "12 MG Road, Bengaluru", "29ABCDE1234F1Z5", "GSTIN"), (dto.SellerName, dto.SellerAddress, dto.SellerGstin, dto.SellerTaxIdLabel));
+        Assert.Equal(("Karnataka", "29", "Maharashtra", "27"), (dto.SellerStateName, dto.SellerStateGstCode, dto.PlaceOfSupplyStateName, dto.PlaceOfSupplyStateGstCode));
+    }
+
+    [Fact]
+    public async Task Get_SellerBlock_FallsBackToTheCompany_AndAVatInvoiceLabelsTheTaxIdTrn()
+    {
+        var f = await SetupAsync("AE");
+        var vat5 = (await f.W.Db.TaxProfiles.Include(p => p.Versions).Where(p => p.CountryId == f.W.Uae.Id && p.Treatment == TaxTreatment.Taxable).ToListAsync()).Single(p => p.Versions.Single().TotalPercent == 5m);
+        var p = await ProductAsync(f, sales: vat5.Code, country: f.W.Uae);
+        f.W.Settings.AddressLine = "Sheikh Zayed Road";
+        f.W.Settings.City = "Dubai";
+        await f.W.Db.SaveChangesAsync();
+        var sale = await SellAsync(f, p, 1, 100m);
+        f.W.Db.ChangeTracker.Clear();
+
+        var dto = Ok(await Controller(f, "Sales.View").Get(sale.Id, default));
+
+        Assert.Equal(("TRN", "Sheikh Zayed Road, Dubai"), (dto.SellerTaxIdLabel, dto.SellerAddress));
+        Assert.Null(dto.PlaceOfSupplyStateGstCode);
     }
 }

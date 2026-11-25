@@ -186,6 +186,23 @@ public class TaxResolver(SelloraDbContext db) : ITaxResolver
         return result;
     }
 
+    public async Task<IReadOnlyDictionary<Guid, decimal>> ResolveCurrentSalesPercentsAsync(
+        Guid countryId, DateOnly date, IReadOnlyCollection<Guid> productIds, CancellationToken ct = default)
+    {
+        var ids = productIds.Distinct().ToArray();
+        if (ids.Length == 0) return new Dictionary<Guid, decimal>();
+        var products = await db.Products.AsNoTracking().Where(p => ids.Contains(p.Id))
+            .Select(p => new Facts(p.Id, p.Name, p.CategoryId, p.SubcategoryId, p.HsnCode, null, null, true)).ToListAsync(ct);
+        var resolved = await ResolveCoreAsync(products, countryId, ct);
+        var profileByProduct = products.Zip(resolved).Where(x => x.Second is not null).ToDictionary(x => x.First.ProductId!.Value, x => x.Second!.SalesProfile.Id);
+        var profileIds = profileByProduct.Values.Distinct().ToArray();
+        var totals = await db.TaxProfileVersions.AsNoTracking()
+            .Where(v => profileIds.Contains(v.TaxProfileId) && v.EffectiveFrom <= date && (v.EffectiveTo == null || v.EffectiveTo >= date))
+            .Select(v => new { v.TaxProfileId, v.EffectiveFrom, v.TotalPercent }).ToListAsync(ct);
+        var byProfile = totals.GroupBy(v => v.TaxProfileId).ToDictionary(g => g.Key, g => g.OrderByDescending(v => v.EffectiveFrom).First().TotalPercent);
+        return profileByProduct.Where(kv => byProfile.ContainsKey(kv.Value)).ToDictionary(kv => kv.Key, kv => byProfile[kv.Value]);
+    }
+
     private static int LineIndex(string key)
     {
         var open = key.IndexOf('[');

@@ -87,7 +87,11 @@ public record SalesInvoiceDetailDto(
     PlaceOfSupply? PlaceOfSupply = null, TaxRegime? Regime = null,
     Guid? PlaceOfSupplyStateId = null, string? PlaceOfSupplyStateName = null,
     Guid? SellerStateId = null, string? SellerStateName = null, PartyTaxStatus PartyTaxStatus = PartyTaxStatus.Unspecified,
-    IReadOnlyList<SalesWarningDto>? Warnings = null
+    IReadOnlyList<SalesWarningDto>? Warnings = null,
+    // ---- T31b: the seller as the printed tax invoice shows it, set by the server from the invoice's branch (company settings as fallback), so it does not depend
+    // on the reader's permissions. SellerTaxIdLabel is "TRN" for VAT invoices, else "GSTIN".
+    string? SellerName = null, string? SellerAddress = null, string SellerTaxIdLabel = "GSTIN",
+    string? SellerStateGstCode = null, string? PlaceOfSupplyStateGstCode = null
 );
 
 public record CreateSaleLineRequest(

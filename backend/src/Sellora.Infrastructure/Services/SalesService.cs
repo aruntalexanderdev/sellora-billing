@@ -169,7 +169,10 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         invoice.BillCharges = invoice.Lines.Sum(l => l.BillChargeShare);
         invoice.GrandTotal = invoice.Lines.Sum(l => l.LineTotal);
         invoice.PlaceOfSupply = place.Place;
-        invoice.PlaceOfSupplyStateId = place.PartyStateId ?? place.OwnStateId; // the buyer's state, else the seller's own (walk-in, customer without state)
+        // The buyer's state when the buyer is in the same country, else the seller's own (walk-in, customer without state). A buyer in another country has no GST
+        // state here (T31c): the supply is inter-state and the state stays empty.
+        var abroad = customer.CountryId is { } customerCountry && customerCountry != place.CountryId;
+        invoice.PlaceOfSupplyStateId = abroad ? null : place.PartyStateId ?? place.OwnStateId;
         invoice.SellerStateId = place.OwnStateId;
         invoice.PartyTaxStatus = PartyTaxStatus.Unspecified;
         invoice.Warnings = warnings;

@@ -209,8 +209,12 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
             own?.SalesTaxProfileId, own?.PurchaseTaxProfileId), ct);
         if (resolution is null) return detail;
 
+        // T31a: the rate shown is the sales profile's version valid today, not the mirror tax (which stays for rollback).
+        var current = (await taxResolver.ResolveCurrentSalesPercentsAsync(country, DateOnly.FromDateTime(DateTime.UtcNow), [product.Id], ct)).GetValueOrDefault(product.Id, detail.TaxRatePercent);
+
         return detail with
         {
+            TaxRatePercent = current,
             EffectiveHsnCode = resolution.HsnCode,
             HsnSource = resolution.HsnSource.ToString(),
             SalesTaxProfile = ToRef(resolution.SalesProfile),
