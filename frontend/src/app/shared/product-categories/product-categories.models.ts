@@ -7,6 +7,8 @@ export interface ProductSubcategory {
   sortOrder: number;
   isActive: boolean;
   productCount: number;
+  /** Default HSN/SAC code of the subcategory's products (BR9). */
+  hsnCode?: string | null;
 }
 
 /** Mirrors backend `ProductCategoryDto`. */
@@ -25,6 +27,8 @@ export interface UpsertClassificationRequest {
   code: string;
   name: string;
   sortOrder: number;
+  /** Subcategories only: 4/6/8 digits, null/empty = none. */
+  hsnCode?: string | null;
 }
 
 /** Value emitted by `app-category-filter`. */

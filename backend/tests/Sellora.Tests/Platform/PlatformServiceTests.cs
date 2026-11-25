@@ -355,6 +355,58 @@ public class PlatformServiceTests
         Assert.Equal(created.Id, audit.CompanyId);
     }
 
+    // ---- tax profiles (TP-1: T12, T18, AC21) ------------------------------------------------------------------------------------
+
+    private static CreateCompanyInput WithCountry(CreateCompanyInput input, Guid? country) => input with { CountryId = country };
+
+    [Fact]
+    public async Task CreateCompany_InIndia_SeedsTheStandardGstProfilesAndTheGst18Default_AndPricesIncludeTax()
+    {
+        var w = new World();
+        var india = new Country { Id = Guid.NewGuid(), Code = "IN", Name = "India", IsSystem = true };
+        w.Db.Countries.Add(india);
+        w.Db.SaveChanges();
+
+        var created = await w.Service().CreateCompanyAsync(WithCountry(Input(w), india.Id), w.Ops.Id, null);
+
+        w.Db.ChangeTracker.Clear();
+        var profiles = w.Db.TaxProfiles.IgnoreQueryFilters().Where(p => p.CompanyId == created.Id).OrderBy(p => p.Code).ToList();
+        Assert.Equal(["GST-18", "GST-40", "GST-5", "GST-EXEMPT", "GST-NIL"], profiles.Select(p => p.Code));
+        Assert.Equal(6, w.Db.TaxComponents.IgnoreQueryFilters().Count(c => c.CompanyId == created.Id));
+        Assert.Equal(5, w.Db.Taxes.IgnoreQueryFilters().Count(t => t.CompanyId == created.Id));
+        var assignment = w.Db.TaxAssignments.IgnoreQueryFilters().Single(a => a.CompanyId == created.Id);
+        Assert.Equal((TaxScope.Company, profiles.Single(p => p.Code == "GST-18").Id), (assignment.Scope, assignment.SalesTaxProfileId));
+        Assert.True(w.Db.BusinessSettings.IgnoreQueryFilters().Single(b => b.CompanyId == created.Id).SellingPricesIncludeTax); // T18
+    }
+
+    [Fact]
+    public async Task CreateCompany_InTheUae_SeedsVatFiveZeroRatedAndExempt()
+    {
+        var w = new World();
+        var uae = new Country { Id = Guid.NewGuid(), Code = "AE", Name = "United Arab Emirates", IsSystem = true };
+        w.Db.Countries.Add(uae);
+        w.Db.SaveChanges();
+
+        var created = await w.Service().CreateCompanyAsync(WithCountry(Input(w), uae.Id), w.Ops.Id, null);
+
+        w.Db.ChangeTracker.Clear();
+        Assert.Equal(["VAT-5", "VAT-EXEMPT", "VAT-ZERO"], w.Db.TaxProfiles.IgnoreQueryFilters().Where(p => p.CompanyId == created.Id).Select(p => p.Code).AsEnumerable().Order());
+        Assert.Equal(5m, w.Db.Taxes.IgnoreQueryFilters().Single(t => t.CompanyId == created.Id && t.Name == "VAT 5%").RatePercent);
+    }
+
+    [Fact]
+    public async Task CreateCompany_WithoutACountry_SeedsNoTaxes_ButStillPricesIncludeTax()
+    {
+        var w = new World();
+
+        var created = await w.Service().CreateCompanyAsync(Input(w), w.Ops.Id, null);
+
+        w.Db.ChangeTracker.Clear();
+        Assert.Empty(w.Db.TaxProfiles.IgnoreQueryFilters().Where(p => p.CompanyId == created.Id).ToList());
+        Assert.Empty(w.Db.TaxAssignments.IgnoreQueryFilters().Where(a => a.CompanyId == created.Id).ToList());
+        Assert.True(w.Db.BusinessSettings.IgnoreQueryFilters().Single(b => b.CompanyId == created.Id).SellingPricesIncludeTax);
+    }
+
     [Fact]
     public async Task CreateCompany_ExistingUserWithMembershipInAnotherCompany_IsRejectedOnOwner()
     {

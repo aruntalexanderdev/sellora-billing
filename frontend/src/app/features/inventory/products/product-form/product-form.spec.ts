@@ -5,7 +5,6 @@ import { ProductForm } from './product-form';
 import { ProductCategoriesService } from '../../../../shared/product-categories/product-categories.service';
 import { ProductsService } from '../products.service';
 import { UnitsService } from '../../../masters/units/units.service';
-import { TaxesService } from '../../../masters/taxes/taxes.service';
 import { AuthService } from '../../../../core/auth/auth.service';
 import type { MeasurementCategory, UnitItem } from '../../../masters/units/units.models';
 import type { ProductDetail, ProductUnit } from '../products.models';
@@ -40,6 +39,8 @@ function product(baseUnitId: string, extra: Partial<ProductDetail> = {}): Produc
     id: 'p1', sku: 'SKU', name: 'Legacy', category: null, categoryId: null, categoryName: null, subcategoryId: null, subcategoryName: null, baseUnitId, baseUnitLabel: baseUnitId,
     taxId: 't1', taxLabel: 'GST 5%', taxRatePercent: 5, reorderLevel: 0, isActive: true,
     isBaseUnitLocked: false, units: [pu({ unitId: baseUnitId })],
+    hsnCode: null, effectiveHsnCode: null, hsnSource: 'None', priceIncludesTax: null, salesTaxProfile: null, purchaseTaxProfile: null,
+    taxSource: null, taxSourceName: null, salesOverrideProfileId: null, purchaseOverrideProfileId: null, warnings: null,
     ...extra,
   };
 }
@@ -50,7 +51,6 @@ function setup(id: string | null, baseUnitId = 'kg', detail: ProductDetail = pro
     providers: [
       { provide: UnitsService, useValue: { list: () => of(UNITS) } },
       { provide: ProductCategoriesService, useValue: { list: () => of([]) } },
-      { provide: TaxesService, useValue: { list: () => of([{ id: 't1', name: 'GST 5%', ratePercent: 5, isActive: true }]) } },
       { provide: ProductsService, useValue: { get: () => of(detail) } },
       { provide: AuthService, useValue: { hasPermission: (code: string) => canManageCategories && code === 'Inventory.Categories' } },
       { provide: Router, useValue: { navigateByUrl: vi.fn() } },
@@ -309,5 +309,43 @@ describe('ProductForm category / subcategory pickers', () => {
     const sub = { id: 's10', categoryId: 'c-new', code: 'N', name: 'New', sortOrder: 0, isActive: true, productCount: 0 };
     c.onSubcategoryCreated({ kind: 'subcategory', created: true, subcategory: sub });
     expect(c.buildRequest()).toMatchObject({ categoryId: 'c-new', subcategoryId: 's10' });
+  });
+});
+
+describe('ProductForm tax fields', () => {
+  it('loads the stored overrides, HSN and price basis into the tax group', () => {
+    const c = setup('p1', 'kg', product('kg', { salesOverrideProfileId: 'gst5', purchaseOverrideProfileId: 'gst18', hsnCode: '1006', priceIncludesTax: false }));
+    expect(c.form.controls.tax.getRawValue()).toEqual({
+      overrideEnabled: true, salesProfileId: 'gst5', purchaseSameAsSales: false, purchaseProfileId: 'gst18', hsnCode: '1006', priceBasis: 'false',
+    });
+    expect(c.initialPriceBasis()).toBe('false');
+  });
+
+  it('always resends the override ids on save, and no taxId', () => {
+    const c = setup('p1', 'kg', product('kg', { salesOverrideProfileId: 'gst5', purchaseOverrideProfileId: null }));
+    const request = c.buildRequest();
+    expect(request).toMatchObject({ salesTaxProfileId: 'gst5', purchaseTaxProfileId: null, hsnCode: null, priceIncludesTax: null });
+    expect('taxId' in request).toBe(false);
+  });
+
+  it('sends null ids when there is no override so a stored one is removed', () => {
+    const c = setup('p1', 'kg');
+    expect(c.buildRequest()).toMatchObject({ salesTaxProfileId: null, purchaseTaxProfileId: null });
+  });
+
+  it('maps taxProfile, hsnCode and salesTaxProfileId errors onto the tax controls', () => {
+    const c = setup(null);
+    c.form.controls.tax.controls.overrideEnabled.setValue(true);
+    c.applyServerErrors({ errors: { taxProfile: ['No tax profile applies.'], HsnCode: ['Bad HSN.'], SalesTaxProfileId: ['Wrong country.'] } });
+    expect(c.form.controls.tax.errors?.['server']).toBe('No tax profile applies.');
+    expect(c.form.controls.tax.controls.hsnCode.errors?.['server']).toBe('Bad HSN.');
+    expect(c.form.controls.tax.controls.salesProfileId.errors?.['server']).toBe('Wrong country.');
+    expect(c.serverError()).toBeNull();
+  });
+
+  it('an invalid HSN blocks the form', () => {
+    const c = setup(null);
+    c.form.controls.tax.controls.hsnCode.setValue('12');
+    expect(c.form.controls.tax.invalid).toBe(true);
   });
 });

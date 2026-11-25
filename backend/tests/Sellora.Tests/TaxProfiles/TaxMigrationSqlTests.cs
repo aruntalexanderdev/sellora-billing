@@ -11,7 +11,7 @@ public class TaxMigrationSqlTests
     // Frozen embedded migration SQL: an edit to an applied migration's SQL must fail CI (add a new migration instead).
     [Theory]
     [InlineData("20261124120429_AddTaxProfiles.seed.sql", "3a1db339ef88d97dffabc20bad10aed5fc0e5218360885aee7543befd9ec6a3a")]
-    [InlineData("20261124120429_AddTaxProfiles.backfill.sql", "f458005eda1733ae8e14667907850117c7aed708fe835b3b2f6a1b445d5b5cd3")]
+    [InlineData("20261124120429_AddTaxProfiles.backfill.sql", "37f2a65d3059a25eb9ec421ee526f6f59a55e9be3027b36c6e0e7aa0ab363776")]
     [InlineData("20261124120429_AddTaxProfiles.legacy-rows.sql", "284ec03227940bea0c54bb137d0f4a85e21c2c2118233ed3a5a9643967068afe")]
     public void Embedded_migration_sql_is_frozen_and_lf_only(string resource, string sha256)
     {

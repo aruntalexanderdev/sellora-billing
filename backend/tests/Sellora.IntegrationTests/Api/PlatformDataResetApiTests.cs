@@ -96,14 +96,14 @@ public class PlatformDataResetApiTests(PostgresFixture postgres)
         Assert.False(report!.Applied);
         Assert.Equal(database, report.Database);
         Assert.Equal(["customers", "suppliers"], report.KeptMasters);
-        Assert.Equal(42, report.Tables.Count);
+        Assert.Equal(51, report.Tables.Count);   // 42 + the nine tax profile tables
         Assert.DoesNotContain(report.Tables, t => t.Table is "Customers" or "Suppliers");
         Assert.Equal(units, report.Tables.Single(t => t.Table == "Units").RowsBefore);
         Assert.Equal(products, report.Tables.Single(t => t.Table == "Products").RowsBefore);
         Assert.All(report.Tables, t => Assert.Null(t.RowsAfter));
-        Assert.Equal(44, everything!.Tables.Count);
+        Assert.Equal(53, everything!.Tables.Count);   // 44 + the nine tax profile tables
         Assert.Empty(everything.KeptMasters);
-        Assert.Equal(37, keeping!.Tables.Count);
+        Assert.Equal(42, keeping!.Tables.Count);   // 37 + the nine tax profile tables: keepTaxes keeps only the Taxes table today, the profile masters are still wiped (reported to the lead as an open question)
         Assert.DoesNotContain(keeping.Tables, t => t.Table is "Taxes" or "ProductCategories" or "ProductSubcategories" or "ExpenseCategories" or "FinancialAccounts");
 
         Assert.Equal(units, await CountAsync(host, "Units"));
@@ -152,7 +152,7 @@ public class PlatformDataResetApiTests(PostgresFixture postgres)
         var report = (await response.Content.ReadFromJsonAsync<DataResetReportDto>(ApiHost.Json))!;
         Assert.True(report.Applied);
         Assert.Equal(database, report.Database);
-        Assert.Equal(42, report.Tables.Count);
+        Assert.Equal(51, report.Tables.Count);   // 42 + the nine tax profile tables
         Assert.All(report.Tables, t => Assert.NotNull(t.RowsBefore));
         Assert.All(report.Tables.Where(t => t.Table != "FinancialAccounts"), t => Assert.Equal(0L, t.RowsAfter));
         Assert.Equal(companies, report.Tables.Single(t => t.Table == "FinancialAccounts").RowsAfter);

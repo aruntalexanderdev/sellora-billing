@@ -1,0 +1,50 @@
+@use '../../../../../shared/styles/form-fields';
+
+:host { display: block; min-width: 0; }
+
+.tax-section {
+  border-top: 1px solid var(--color-border);
+  margin-top: 8px;
+  padding-top: 16px;
+  margin-bottom: 8px;
+}
+.section-title { font-size: 14px; font-weight: 650; margin: 0 0 10px; }
+.resolved {
+  padding: 10px 12px;
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  font-size: 13.5px;
+  margin-bottom: 10px;
+  overflow-wrap: anywhere;
+}
+.strong { font-weight: 600; }
+.muted { color: var(--color-text-muted); }
+.chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 650;
+  background: var(--color-accent-soft-bg);
+  color: var(--color-accent-soft-fg);
+}
+.warn { color: #7a5a10; }
+.warn-box {
+  padding: 8px 11px;
+  border: 1px solid #f1d9a6;
+  background: #fff8e6;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: #7a5a10;
+  margin-top: 8px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  margin: 6px 0 12px;
+}
+.override { margin-top: 4px; }

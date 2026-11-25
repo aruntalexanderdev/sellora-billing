@@ -93,7 +93,7 @@ public class UnitRestructuringIdempotentScriptTests(PostgresFixture postgres)
             Assert.False(db.Database.HasPendingModelChanges());
             // Multi-company: the head model's CompanyId filters read columns added by later migrations, so bring the schema to head
             // before the EF-model assertions below (the data assertions themselves are unchanged).
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
             await ProductUnitValidation.AssertHoldAsync(db);
             await UnitMasterValidation.AssertHoldAsync(db);
 
@@ -169,7 +169,7 @@ public class UnitRestructuringIdempotentScriptTests(PostgresFixture postgres)
                 await db.Database.GetPendingMigrationsAsync());
             // Multi-company: the head model's CompanyId filters read columns added by later migrations, so bring the schema to head
             // before the EF-model assertions below (the data assertions themselves are unchanged).
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
             await ProductUnitValidation.AssertHoldAsync(db);
             await StockInvariants.AssertHoldAsync(db);
             var adjustments = await db.StockAdjustments.AsNoTracking().Include(a => a.ProductUnit).ToDictionaryAsync(a => a.Id);

@@ -31,6 +31,7 @@ public class ProductService(SelloraDbContext db) : IProductService
     {
         EnsureUnitCount(input.Units);
         await using var transaction = await StockLocks.BeginAsync(db, ct);
+        await TaxLocks.LockAssignmentsAsync(db, ct); // before the product lock: the same order as the assignment writers (mirror TaxId)
 
         var units = await LoadUnitsAsync(ReferencedUnitIds(input.BaseUnitId, input.Units, []), lockForShare: true, ct);
         await ValidateReferencesAsync(input, units, currentBaseUnitId: null, ct);
@@ -40,6 +41,8 @@ public class ProductService(SelloraDbContext db) : IProductService
         var productId = Guid.NewGuid();
         var plan = BuildDrafts(input.Units, [], NoLocks, units);
         var result = await ValidateOrThrowAsync(productId, input.BaseUnitId, units, storedBaseUnitId: null, hasStockHistory: false, plan, ct);
+        var hsnCode = TaxRules.NormaliseHsn(input.HsnCode);
+        var mirrorTaxId = await ApplyTaxAssignmentAsync(productId, input, isNew: true, ct);
 
         var product = new Product
         {
@@ -50,7 +53,9 @@ public class ProductService(SelloraDbContext db) : IProductService
             CategoryId = input.CategoryId,
             SubcategoryId = input.SubcategoryId,
             BaseUnitId = input.BaseUnitId,
-            TaxId = input.TaxId,
+            TaxId = mirrorTaxId,
+            HsnCode = hsnCode,
+            PriceIncludesTax = input.PriceIncludesTax,
             ReorderLevel = input.ReorderLevel,
         };
         foreach (var draft in plan.Drafts)
@@ -73,6 +78,9 @@ public class ProductService(SelloraDbContext db) : IProductService
         EnsureUnitCount(input.Units);
         await using var transaction = await StockLocks.BeginAsync(db, ct);
 
+        // 0. The assignment advisory lock (mirror TaxId), always before the product row lock.
+        await TaxLocks.LockAssignmentsAsync(db, ct);
+
         // 1. Product row lock, then the rows it owns (no Unit includes: units are read below under their own lock).
         await StockLocks.LockProductForUpdateAsync(db, productId, ct);
         var product = await db.Products.Include(p => p.Units).SingleOrDefaultAsync(p => p.Id == productId, ct);
@@ -92,6 +100,8 @@ public class ProductService(SelloraDbContext db) : IProductService
         var hasStockHistory = input.BaseUnitId != product.BaseUnitId && await ProductUnitUsage.HasStockHistoryAsync(db, productId, ct);
         var plan = BuildDrafts(input.Units, product.Units.ToList(), locks, units);
         var result = await ValidateOrThrowAsync(productId, input.BaseUnitId, units, product.BaseUnitId, hasStockHistory, plan, ct);
+        var hsnCode = TaxRules.NormaliseHsn(input.HsnCode);
+        var mirrorTaxId = await ApplyTaxAssignmentAsync(productId, input, isNew: false, ct);
 
         product.Sku = input.Sku.Trim();
         product.Name = input.Name.Trim();
@@ -99,7 +109,9 @@ public class ProductService(SelloraDbContext db) : IProductService
         product.CategoryId = input.CategoryId;
         product.SubcategoryId = input.SubcategoryId;
         product.BaseUnitId = input.BaseUnitId;
-        product.TaxId = input.TaxId;
+        product.TaxId = mirrorTaxId;
+        product.HsnCode = hsnCode;
+        product.PriceIncludesTax = input.PriceIncludesTax;
         product.ReorderLevel = input.ReorderLevel;
 
         await ApplyUpdateAsync(product, plan, result, ct);
@@ -558,10 +570,60 @@ public class ProductService(SelloraDbContext db) : IProductService
         {
             throw new DomainValidationException(nameof(input.BaseUnitId), ProductUnitConfigurationValidator.InactiveBaseUnitMessage);
         }
-        if (!await db.Taxes.AnyAsync(t => t.Id == input.TaxId, ct))
+    }
+
+    /// <summary>
+    /// TP-1: writes the product-level tax assignment of the company country (sales override, purchase profile empty = same as sales; no override deletes the row)
+    /// and returns the mirror <c>Taxes</c> id the product must carry (D3): the mirror of its resolved sales profile. 400 <c>taxProfile</c> when the company has
+    /// no country or nothing applies; <c>salesTaxProfileId</c> / <c>purchaseTaxProfileId</c> for a profile that is unknown, inactive or of another country (BR10).
+    /// The caller saves the product and the assignment together.
+    /// </summary>
+    private async Task<Guid> ApplyTaxAssignmentAsync(Guid productId, UpsertProductInput input, bool isNew, CancellationToken ct)
+    {
+        var countryId = await db.BusinessSettings.AsNoTracking().Select(s => s.CountryId).FirstOrDefaultAsync(ct)
+            ?? throw new DomainValidationException("taxProfile", "Set the company's country in the business settings before saving products: tax profiles are per country.");
+        if (input.PurchaseTaxProfileId is not null && input.SalesTaxProfileId is null)
         {
-            throw new DomainValidationException(nameof(input.TaxId), "Select a valid tax.");
+            throw new DomainValidationException("salesTaxProfileId", "Choose a sales profile to override the purchase profile.");
         }
+
+        var current = isNew ? null
+            : await db.TaxAssignments.SingleOrDefaultAsync(a => a.Scope == TaxScope.Product && a.ProductId == productId && a.CountryId == countryId, ct);
+
+        Guid salesProfileId;
+        if (input.SalesTaxProfileId is { } sales)
+        {
+            await TaxAssignmentRules.EnsureAssignableAsync(db, sales, countryId, current?.SalesTaxProfileId, "salesTaxProfileId", ct);
+            var purchase = input.PurchaseTaxProfileId is { } p && p != sales ? p : (Guid?)null;
+            if (purchase is { } purchaseId) await TaxAssignmentRules.EnsureAssignableAsync(db, purchaseId, countryId, current?.PurchaseTaxProfileId, "purchaseTaxProfileId", ct);
+
+            if (current is null)
+            {
+                db.TaxAssignments.Add(new TaxAssignment
+                {
+                    Id = Guid.NewGuid(), Scope = TaxScope.Product, CountryId = countryId, ProductId = productId,
+                    SalesTaxProfileId = sales, PurchaseTaxProfileId = purchase, CreatedAt = DateTime.UtcNow,
+                });
+            }
+            else if (current.SalesTaxProfileId != sales || current.PurchaseTaxProfileId != purchase)
+            {
+                current.SalesTaxProfileId = sales;
+                current.PurchaseTaxProfileId = purchase;
+                current.UpdatedAt = DateTime.UtcNow;
+            }
+            salesProfileId = sales;
+        }
+        else
+        {
+            if (current is not null) db.TaxAssignments.Remove(current);
+            var index = await TaxAssignmentIndex.LoadAsync(db, countryId, ct);
+            var inherited = index.Find(null, input.CategoryId, input.SubcategoryId, includeProduct: false)
+                ?? throw new DomainValidationException("taxProfile",
+                    $"No tax profile applies to {input.Name.Trim()}. Choose a tax profile for the product, assign one to its category or set a company default.");
+            salesProfileId = inherited.SalesTaxProfileId;
+        }
+
+        return await db.TaxProfiles.AsNoTracking().Where(p => p.Id == salesProfileId).Select(p => p.LegacyTaxId).SingleAsync(ct);
     }
 
     /// <summary>Phase 08 (FI-D16): the category must exist in the company, the subcategory must belong to it and a subcategory needs

@@ -99,3 +99,38 @@ describe('ClassificationEditorDialog', () => {
     expect(closed()).toBe(1);
   });
 });
+
+describe('ClassificationEditorDialog HSN code (subcategories)', () => {
+  it('shows the HSN field for a subcategory', () => {
+    expect(mount({ kind: 'subcategory', categoryId: 'c1', id: null }).el.querySelector('#ce-hsn')).not.toBeNull();
+  });
+
+  it('has no HSN field for a category', () => {
+    expect(mount({ kind: 'category', categoryId: null, id: null }).el.querySelector('#ce-hsn')).toBeNull();
+  });
+
+  it('posts a 4/6/8 digit code on create', () => {
+    const { c, svc } = mount({ kind: 'subcategory', categoryId: 'c1', id: null });
+    c.form.patchValue({ code: 'OTH', name: 'Others', hsnCode: '2202' });
+    c.submit();
+    expect(svc.createSubcategory).toHaveBeenCalledWith('c1', { code: 'OTH', name: 'Others', sortOrder: 0, hsnCode: '2202' });
+  });
+
+  it('prefills the code on edit and posts null when it is emptied', () => {
+    const { c, svc } = mount({ kind: 'subcategory', categoryId: 'c1', id: 's9', existing: { code: 'OTH', name: 'Others', sortOrder: 0, hsnCode: '100630' } });
+    expect(c.form.controls.hsnCode.value).toBe('100630');
+    c.form.controls.hsnCode.setValue('');
+    c.submit();
+    expect(svc.updateSubcategory).toHaveBeenCalledWith('c1', 's9', expect.objectContaining({ hsnCode: null }));
+  });
+
+  it('rejects an invalid HSN and maps a server hsnCode error', () => {
+    const { c, svc } = mount({ kind: 'subcategory', categoryId: 'c1', id: null });
+    c.form.patchValue({ code: 'OTH', name: 'Others', hsnCode: '12345' });
+    c.submit();
+    expect(svc.createSubcategory).not.toHaveBeenCalled();
+    expect(c.fieldError('hsnCode')).toBe('The HSN/SAC code must be 4, 6 or 8 digits.');
+    c.applyServerErrors({ errors: { hsnCode: ['Bad code.'] } });
+    expect(c.fieldError('hsnCode')).toBe('Bad code.');
+  });
+});

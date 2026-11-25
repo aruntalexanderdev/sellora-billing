@@ -104,6 +104,32 @@
       </div>
       <div class="field-hint" data-testid="receipt-policy-help">A change applies only to receipts recorded afterwards. Receipts already recorded keep the policy they were created under.</div>
 
+      <h2 class="section-title" style="margin-top: 24px">Tax and discounts</h2>
+      <div class="grid-2">
+        <div>
+          <label class="field-label" for="sellingPricesIncludeTax">Selling prices</label>
+          <label class="check">
+            <input id="sellingPricesIncludeTax" type="checkbox" formControlName="sellingPricesIncludeTax" data-testid="prices-include-tax" />
+            Selling prices include tax
+          </label>
+          <div class="field-hint">A product can override this. Changing it does not convert the prices already stored.</div>
+          @if (form.get('sellingPricesIncludeTax')?.errors?.['server']) {
+            <div class="field-error">{{ form.get('sellingPricesIncludeTax')?.errors?.['server'] }}</div>
+          }
+        </div>
+        <div>
+          <label class="field-label" for="maxBillDiscountPercent">Maximum bill discount (%)</label>
+          <input id="maxBillDiscountPercent" type="number" min="0" max="100" step="any" formControlName="maxBillDiscountPercent" class="field-input" placeholder="No limit" data-testid="max-bill-discount" />
+          <div class="field-hint">Cap for a whole-bill discount on a sale. Leave empty for no cap.</div>
+          @if (form.get('maxBillDiscountPercent')?.errors?.['min'] || form.get('maxBillDiscountPercent')?.errors?.['max']) {
+            <div class="field-error">Enter a percentage between 0 and 100.</div>
+          }
+          @if (form.get('maxBillDiscountPercent')?.errors?.['server']) {
+            <div class="field-error">{{ form.get('maxBillDiscountPercent')?.errors?.['server'] }}</div>
+          }
+        </div>
+      </div>
+
       @if (canEdit()) {
         <div class="actions">
           <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save settings' }}</ui-button>

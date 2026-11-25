@@ -6,7 +6,7 @@ import type { CreateRoleRequest, RoleScope, UpdateRoleRequest } from './roles.mo
  * `scope` (the server `scope` is preferred); the server stays authoritative (it rejects any other code on a branch role).
  */
 export const BRANCH_ELIGIBLE_CODES: ReadonlySet<string> = new Set([
-  'Sales.View', 'Sales.Create', 'Sales.PriceOverride', 'Sales.Edit', 'Sales.Receive', 'Sales.Return', 'Sales.Refund', 'Sales.Cancel',
+  'Sales.View', 'Sales.Create', 'Sales.PriceOverride', 'Sales.BillDiscount', 'Sales.Edit', 'Sales.Receive', 'Sales.Return', 'Sales.Refund', 'Sales.Cancel',
   'Purchase.View', 'Purchase.Create', 'Purchase.Edit', 'Purchase.Pay', 'Purchase.Return', 'Purchase.Refund', 'Purchase.Cancel',
   'Inventory.Adjust', 'StockLocations.View', 'Inventory.View',
   'StockTransfers.View', 'StockTransfers.Create', 'StockTransfers.Approve', 'StockTransfers.Dispatch', 'StockTransfers.Receive', 'StockTransfers.Cancel', 'Shipments.View', 'Shipments.Plan', 'Shipments.Load',

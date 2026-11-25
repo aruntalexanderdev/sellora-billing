@@ -89,10 +89,11 @@ public partial class ProductCategoryService(SelloraDbContext db) : IProductCateg
         if (!category.IsActive)
             throw new DomainValidationException("categoryId", "Activate the category first; subcategories cannot be added to an inactive category.");
         await EnsureSubcategoryUniqueAsync(categoryId, null, code, name, ct);
+        var hsn = TaxRules.NormaliseHsn(input.HsnCode);
 
         var sub = new ProductSubcategory
         {
-            Id = Guid.NewGuid(), CategoryId = categoryId, Code = code, Name = name, SortOrder = input.SortOrder, IsActive = true, CreatedAt = DateTime.UtcNow,
+            Id = Guid.NewGuid(), CategoryId = categoryId, Code = code, Name = name, SortOrder = input.SortOrder, HsnCode = hsn, IsActive = true, CreatedAt = DateTime.UtcNow,
         };
         db.ProductSubcategories.Add(sub);
         await SaveAsync(ct);
@@ -109,6 +110,7 @@ public partial class ProductCategoryService(SelloraDbContext db) : IProductCateg
         sub.Code = code;
         sub.Name = name;
         sub.SortOrder = input.SortOrder;
+        sub.HsnCode = TaxRules.NormaliseHsn(input.HsnCode);
         sub.UpdatedAt = DateTime.UtcNow;
         await SaveAsync(ct);
         return sub;

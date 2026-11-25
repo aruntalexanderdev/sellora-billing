@@ -246,7 +246,10 @@ public sealed partial class PlatformService(
             Id = Guid.NewGuid(), CompanyId = companyId, BusinessName = businessName, InvoicePrefix = prefix, BaseCurrencyId = currency.Id,
             AddressLine = Clean(input.AddressLine), City = Clean(input.City), CountryId = input.CountryId, StateId = input.StateId, Gstin = Clean(input.Gstin),
             Phone = Clean(input.Phone), Email = Clean(input.Email),
+            SellingPricesIncludeTax = true, // T18: new companies price tax-inclusive (existing companies keep false)
         });
+        // T12/T21: the standard tax components and profiles of the company's country, the standard rate as the company default. Nothing without a country.
+        await TaxSeeder.SeedCompanyAsync(db, companyId, input.CountryId, null, ct);
 
         var branchId = Guid.NewGuid();
         db.Branches.Add(new Branch

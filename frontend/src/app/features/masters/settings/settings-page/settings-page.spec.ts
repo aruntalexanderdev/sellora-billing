@@ -11,7 +11,7 @@ import { SettingsPage } from './settings-page';
 
 const settings = (over: Partial<BusinessSettings> = {}): BusinessSettings => ({
   id: 's', businessName: 'Acme', addressLine: null, city: null, state: null, gstin: null, phone: null, email: null, invoicePrefix: 'INV',
-  baseCurrencyId: 'cur', baseCurrencyCode: 'INR', baseCurrencySymbol: '₹', companyId: 'co', receiptPostingMode: 'Direct', receiptSeparationOfDuties: false, countryId: null, countryName: null, stateId: null, stateName: null, ...over,
+  baseCurrencyId: 'cur', baseCurrencyCode: 'INR', baseCurrencySymbol: '₹', companyId: 'co', receiptPostingMode: 'Direct', receiptSeparationOfDuties: false, sellingPricesIncludeTax: true, maxBillDiscountPercent: null, countryId: null, countryName: null, stateId: null, stateName: null, ...over,
 });
 
 function render(s: BusinessSettings, update = vi.fn(() => of(s)), canEdit = true) {
@@ -83,5 +83,47 @@ describe('SettingsPage receipt approval (FI-D39)', () => {
     const { el } = render(settings({ state: 'Kerla' }));
     expect(el.querySelector('[data-testid="geo-legacy"]')?.textContent).toContain('Kerla');
     expect(el.querySelector('input[formControlName="state"]')).toBeNull();
+  });
+});
+
+describe('SettingsPage tax and discount fields (TP-1)', () => {
+  const body = (update: ReturnType<typeof vi.fn>) => (update.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+
+  it('loads the price basis and the discount cap', () => {
+    const { el } = render(settings({ sellingPricesIncludeTax: false, maxBillDiscountPercent: 15 }));
+    expect((el.querySelector('[data-testid="prices-include-tax"]') as HTMLInputElement).checked).toBe(false);
+    expect((el.querySelector('[data-testid="max-bill-discount"]') as HTMLInputElement).value).toBe('15');
+  });
+
+  it('always posts both fields; an empty cap posts null (no cap)', () => {
+    const { fixture, update } = render(settings());
+    fixture.componentInstance.submit();
+    expect(body(update)).toMatchObject({ sellingPricesIncludeTax: true, maxBillDiscountPercent: null });
+    expect('maxBillDiscountPercent' in body(update)).toBe(true);
+  });
+
+  it('posts the chosen basis and cap', () => {
+    const { fixture, update } = render(settings());
+    fixture.componentInstance.form.patchValue({ sellingPricesIncludeTax: false, maxBillDiscountPercent: 12.5 });
+    fixture.componentInstance.submit();
+    expect(body(update)).toMatchObject({ sellingPricesIncludeTax: false, maxBillDiscountPercent: 12.5 });
+  });
+
+  it('rejects a cap outside 0-100 without calling the API', () => {
+    const { fixture, update } = render(settings());
+    fixture.componentInstance.form.patchValue({ maxBillDiscountPercent: 101 });
+    fixture.componentInstance.submit();
+    expect(update).not.toHaveBeenCalled();
+    fixture.componentInstance.form.patchValue({ maxBillDiscountPercent: -1 });
+    fixture.componentInstance.submit();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('maps a server error on maxBillDiscountPercent onto the field', () => {
+    const err = new HttpErrorResponse({ status: 400, error: { errors: { MaxBillDiscountPercent: ['Must be between 0 and 100.'] } } });
+    const { fixture, el } = render(settings(), vi.fn(() => throwError(() => err)));
+    fixture.componentInstance.submit();
+    fixture.detectChanges();
+    expect(el.textContent).toContain('Must be between 0 and 100.');
   });
 });

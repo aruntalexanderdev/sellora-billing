@@ -25,15 +25,24 @@ public sealed record ProductUnitInputItem(
     bool IsActive
 );
 
+/// <summary>
+/// A product as submitted. Tax (TP-1): <see cref="HsnCode"/> (4, 6 or 8 digits, empty = inherit from the subcategory), <see cref="PriceIncludesTax"/> (null =
+/// follow the company setting) and the optional product-level profiles for the company country: <see cref="SalesTaxProfileId"/> overrides what the
+/// subcategory, category or company default gives (omitted = no override, a stored override is removed); <see cref="PurchaseTaxProfileId"/> needs a sales
+/// override and empty means same as sales. The mirror <c>Product.TaxId</c> is written by the service.
+/// </summary>
 public sealed record UpsertProductInput(
     string Sku,
     string Name,
     Guid? CategoryId,
     Guid? SubcategoryId,
     Guid BaseUnitId,
-    Guid TaxId,
     decimal ReorderLevel,
-    IReadOnlyList<ProductUnitInputItem> Units
+    IReadOnlyList<ProductUnitInputItem> Units,
+    string? HsnCode = null,
+    bool? PriceIncludesTax = null,
+    Guid? SalesTaxProfileId = null,
+    Guid? PurchaseTaxProfileId = null
 );
 
 /// <summary>A submitted row as it would be saved. <see cref="Index"/> is the position in the submitted list.</summary>

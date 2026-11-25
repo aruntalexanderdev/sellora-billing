@@ -17,7 +17,8 @@ public sealed record Ids(
     Guid Company, string Token, Guid UserId, Guid ProductId, Guid ProductUnitId, Guid BaseUnitId, Guid SupplierId, Guid CustomerId,
     Guid TaxId, Guid CategoryId, Guid AccountId, Guid PurchaseId, Guid PurchaseLineId, Guid PurchaseReturnId, Guid SaleId,
     Guid SaleLineId, Guid SalesReturnId, Guid AdjustmentId, Guid ExpenseId, Guid ExchangeRateId, Guid BatchId, Guid CurrencyId, Guid BranchId, Guid LocationId, Guid WarehouseId, Guid VehicleId, Guid GovernanceMemberId,
-    Guid RoleId, Guid StaffUserId, Guid AssignmentId);
+    Guid RoleId, Guid StaffUserId, Guid AssignmentId,
+    Guid CountryId, Guid TaxProfileId, Guid TaxComponentId, Guid TaxAssignmentId);
 
 public static class IdsExtensions
 {
@@ -102,9 +103,15 @@ public sealed class IsolationWorld
     {
         await using var source = host.Database.CreateDbContext();
         await using var target = host.Database.CreateDbContext(company);
+        // TP-1: the company gets the country of A and its own standard tax profiles (TaxSeeder), and every source tax maps onto the same-named mirror tax of the new company
+        // (a source tax with no seeded twin is copied as a plain tax). Product-level assignments of A are copied below.
+        var sourceSettings = await source.BusinessSettings.AsNoTracking().SingleAsync();
+        await TaxSeeder.SeedCompanyAsync(target, company, sourceSettings.CountryId);
+        await target.SaveChangesAsync();
         var taxes = await source.Taxes.AsNoTracking().ToListAsync();
-        var taxMap = taxes.ToDictionary(t => t.Id, _ => Guid.NewGuid());
-        target.Taxes.AddRange(taxes.Select(t => new Tax { Id = taxMap[t.Id], Name = t.Name, RatePercent = t.RatePercent, IsActive = t.IsActive }));
+        var targetTaxes = await target.Taxes.AsNoTracking().ToListAsync();
+        var taxMap = taxes.ToDictionary(t => t.Id, t => targetTaxes.FirstOrDefault(x => x.Name == t.Name)?.Id ?? Guid.NewGuid());
+        target.Taxes.AddRange(taxes.Where(t => targetTaxes.All(x => x.Id != taxMap[t.Id])).Select(t => new Tax { Id = taxMap[t.Id], Name = t.Name, RatePercent = t.RatePercent, IsActive = t.IsActive }));
         target.Suppliers.AddRange((await source.Suppliers.AsNoTracking().ToListAsync()).Select(s => new Supplier
             { Id = Guid.NewGuid(), Name = s.Name, City = s.City, Gstin = s.Gstin, PaymentTerms = s.PaymentTerms, IsActive = s.IsActive, CurrencyId = s.CurrencyId }));
         target.Customers.AddRange((await source.Customers.AsNoTracking().ToListAsync()).Select(c => new Customer
@@ -113,12 +120,13 @@ public sealed class IsolationWorld
         target.FinancialAccounts.AddRange((await source.FinancialAccounts.AsNoTracking().ToListAsync()).Select(a => new FinancialAccount
             { Id = Guid.NewGuid(), Name = a.Name, Kind = a.Kind, Reference = a.Reference, IsActive = a.IsActive, CreatedByUserId = userId }));
         var settings = await source.BusinessSettings.AsNoTracking().SingleAsync();
-        target.BusinessSettings.Add(new BusinessSettings { Id = Guid.NewGuid(), BusinessName = settings.BusinessName, InvoicePrefix = settings.InvoicePrefix, BaseCurrencyId = settings.BaseCurrencyId });
+        target.BusinessSettings.Add(new BusinessSettings { Id = Guid.NewGuid(), BusinessName = settings.BusinessName, InvoicePrefix = settings.InvoicePrefix, BaseCurrencyId = settings.BaseCurrencyId, CountryId = settings.CountryId, SellingPricesIncludeTax = settings.SellingPricesIncludeTax });
         foreach (var rate in await source.ExchangeRates.AsNoTracking().ToListAsync())
         {
             target.ExchangeRates.Add(new ExchangeRate { Id = Guid.NewGuid(), CurrencyId = rate.CurrencyId, RateToBase = rate.RateToBase, EffectiveDate = rate.EffectiveDate, CreatedByUserId = userId });
         }
 
+        var productMap = new Dictionary<Guid, Guid>();
         foreach (var p in await source.Products.AsNoTracking().Include(p => p.Units).ToListAsync())
         {
             var unitMap = p.Units.ToDictionary(u => u.Id, _ => Guid.NewGuid());
@@ -133,7 +141,21 @@ public sealed class IsolationWorld
                     IsDefaultSalesUnit = u.IsDefaultSalesUnit, SortOrder = u.SortOrder, IsActive = u.IsActive,
                 });
             }
+            productMap[p.Id] = copy.Id;
             target.Products.Add(copy);
+        }
+
+        // product-level tax assignments of A (a product whose rate is not the company default), mapped onto the new company's profiles by code
+        var sourceProfiles = await source.TaxProfiles.AsNoTracking().ToDictionaryAsync(x => x.Id);
+        var targetProfiles = await target.TaxProfiles.AsNoTracking().ToListAsync();
+        foreach (var a in await source.TaxAssignments.AsNoTracking().Where(x => x.Scope == TaxScope.Product).ToListAsync())
+        {
+            Guid Map(Guid id) => targetProfiles.First(x => x.CountryId == a.CountryId && x.Code == sourceProfiles[id].Code).Id;
+            target.TaxAssignments.Add(new TaxAssignment
+            {
+                Id = Guid.NewGuid(), Scope = TaxScope.Product, CountryId = a.CountryId, ProductId = productMap[a.ProductId!.Value],
+                SalesTaxProfileId = Map(a.SalesTaxProfileId), PurchaseTaxProfileId = a.PurchaseTaxProfileId is { } pp ? Map(pp) : null, CreatedAt = DateTime.UtcNow,
+            });
         }
         await target.SaveChangesAsync();
     }
@@ -171,6 +193,10 @@ public sealed class IsolationWorld
         // Phase 7: the company's Administrator role and assignment (roles are company-owned), and a plain member to address in role-assignment writes.
         var administratorRole = await db.Roles.Where(r => r.IsSystem).Select(r => r.Id).SingleAsync();
         var assignment = await db.UserRoleAssignments.Where(a => a.RoleId == administratorRole).Select(a => a.Id).SingleAsync();
+        var countryId = await db.BusinessSettings.Select(s => s.CountryId!.Value).SingleAsync();
+        var taxProfileId = await db.TaxAssignments.Where(a => a.Scope == TaxScope.Company).Select(a => a.SalesTaxProfileId).SingleAsync();
+        var taxComponentId = await db.TaxComponents.Where(c => c.Code == "CGST").Select(c => c.Id).SingleAsync();
+        var taxAssignmentId = await db.TaxAssignments.Where(a => a.Scope == TaxScope.Product).OrderBy(a => a.Id).Select(a => a.Id).FirstAsync();
         var staff = new User
         {
             Id = Guid.NewGuid(), FirstName = "Staff", LastName = "Member", Username = "staff" + company.ToString("N")[^4..], Email = $"staff{company.ToString("N")[^4..]}@selloramart.in",
@@ -184,14 +210,15 @@ public sealed class IsolationWorld
             await db.Branches.Where(b => b.IsDefault).Select(b => b.Id).SingleAsync(),
             await db.StockLocations.Where(l => l.LocationType == Sellora.Domain.Inventory.StockLocationType.BranchStore).Select(l => l.Id).SingleAsync(),
             warehouse.Id, vehicle.Id, await db.CompanyGovernanceMembers.Select(m => m.Id).SingleAsync(),
-            administratorRole, staff.Id, assignment);
+            administratorRole, staff.Id, assignment, countryId, taxProfileId, taxComponentId, taxAssignmentId);
     }
 
     /// <summary>Every row id (as lower-case text) owned by a company: company tables plus the child tables owned through their parent.</summary>
     private static async Task<HashSet<string>> RowIdsAsync(ApiHost host, Guid company)
     {
         var tables = CompanyTables.Where(t => t != "StockItems").Append("Branches").Append("StockLocations").Append("Warehouses").Append("Vehicles")
-            .Append("CompanyGovernanceMembers").Append("GovernanceMemberPermissions").Append("Roles").Append("UserRoleAssignments");
+            .Append("CompanyGovernanceMembers").Append("GovernanceMemberPermissions").Append("Roles").Append("UserRoleAssignments")
+            .Append("TaxComponents").Append("TaxProfiles").Append("TaxProfileVersions").Append("TaxProfileVersionComponents").Append("TaxAssignments");
         var parts = tables.Select(t => $"""SELECT "Id"::text FROM "{t}" WHERE "CompanyId" = '{company}'""").Concat(
         [
             $"""SELECT l."Id"::text FROM "PurchaseOrderLines" l JOIN "PurchaseOrders" p ON p."Id" = l."PurchaseOrderId" WHERE p."CompanyId" = '{company}'""",

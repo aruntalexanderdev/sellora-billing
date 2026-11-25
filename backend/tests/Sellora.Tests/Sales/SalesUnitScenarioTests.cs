@@ -43,6 +43,7 @@ public class SalesUnitScenarioTests
         var pack = TestUnits.New("Pack", "pk", MeasurementCategory.Packaging, 3, null);
         db.AddRange(user.Role, user, tax, inr, settings, supplier, customer, pc, box, hctn, fctn, tray, kg, kg2, pack);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);
 
         var products = new ProductService(db);
         var pricing = new PricingService(db);
@@ -65,7 +66,7 @@ public class SalesUnitScenarioTests
         new(id, unitId, innerUnitId, qty, null, barcode, true, sellable, false, false, active);
 
     private static UpsertProductInput Input(Fixture f, string sku, Guid baseUnitId, params ProductUnitInputItem[] units) =>
-        new(sku, "Ball Pen", null, null, baseUnitId, f.Tax.Id, 0m, units);
+        new(sku, "Ball Pen", null, null, baseUnitId, 0m, units);
 
     private static async Task<Dictionary<Guid, ProductUnit>> RowsAsync(Fixture f, Guid productId) =>
         (await f.Db.ProductUnits.AsNoTracking().Where(u => u.ProductId == productId).ToListAsync()).ToDictionary(u => u.UnitId);

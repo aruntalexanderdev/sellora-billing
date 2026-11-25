@@ -6,6 +6,7 @@ using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Inventory;
+using Sellora.Domain.Taxes;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
 
@@ -13,7 +14,7 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/products")]
-public class ProductsController(SelloraDbContext db, IProductService productService) : ControllerBase
+public class ProductsController(SelloraDbContext db, IProductService productService, ITaxResolver taxResolver) : ControllerBase
 {
     [HttpGet]
     [Authorize(Policy = "Inventory.View")]
@@ -151,8 +152,8 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
     }
 
     private static UpsertProductInput ToInput(UpsertProductRequest request) => new(
-        request.Sku, request.Name, request.CategoryId, request.SubcategoryId, request.BaseUnitId!.Value, request.TaxId!.Value, request.ReorderLevel,
-        ToUnitInputs(request.Units));
+        request.Sku, request.Name, request.CategoryId, request.SubcategoryId, request.BaseUnitId!.Value, request.ReorderLevel,
+        ToUnitInputs(request.Units), request.HsnCode, request.PriceIncludesTax, request.SalesTaxProfileId, request.PurchaseTaxProfileId);
 
     private static List<ProductUnitInputItem> ToUnitInputs(IEnumerable<UpsertProductUnitRequest> units) => units
         .Select(u => new ProductUnitInputItem(u.Id, u.UnitId!.Value, u.InnerUnitId, u.InnerQuantity, u.Label, u.Barcode,
@@ -187,10 +188,40 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
             ? await db.ProductSubcategories.Where(s => s.Id == subId).Select(s => s.Name).FirstOrDefaultAsync(ct)
             : null;
 
-        return new ProductDetailDto(
+        var detail = new ProductDetailDto(
             product.Id, product.Sku, product.Name, product.Category,
             product.CategoryId, product.Category, product.SubcategoryId, subcategoryName, product.BaseUnitId, product.BaseUnit.ShortCode,
             product.TaxId, product.Tax.Name, product.Tax.RatePercent, product.ReorderLevel, product.IsActive,
-            isBaseUnitLocked, dtos);
+            isBaseUnitLocked, dtos, product.HsnCode, PriceIncludesTax: product.PriceIncludesTax);
+        return await WithTaxAsync(detail, product, ct);
     }
+
+    /// <summary>Adds what the product resolves to for the company country (BR8, BR9) and the T11 HSN warning. Unchanged when the company has no country or nothing applies.</summary>
+    private async Task<ProductDetailDto> WithTaxAsync(ProductDetailDto detail, Product product, CancellationToken ct)
+    {
+        var countryId = await db.BusinessSettings.AsNoTracking().Select(s => s.CountryId).FirstOrDefaultAsync(ct);
+        if (countryId is not { } country) return detail;
+
+        var own = await db.TaxAssignments.AsNoTracking()
+            .Where(a => a.Scope == TaxScope.Product && a.ProductId == product.Id && a.CountryId == country)
+            .Select(a => new { a.SalesTaxProfileId, a.PurchaseTaxProfileId }).SingleOrDefaultAsync(ct);
+        var resolution = await taxResolver.PreviewAsync(new TaxPreviewInput(country, product.Id, product.Name, product.CategoryId, product.SubcategoryId, product.HsnCode,
+            own?.SalesTaxProfileId, own?.PurchaseTaxProfileId), ct);
+        if (resolution is null) return detail;
+
+        return detail with
+        {
+            EffectiveHsnCode = resolution.HsnCode,
+            HsnSource = resolution.HsnSource.ToString(),
+            SalesTaxProfile = ToRef(resolution.SalesProfile),
+            PurchaseTaxProfile = ToRef(resolution.PurchaseProfile),
+            TaxSource = resolution.Source,
+            TaxSourceName = resolution.SourceName,
+            SalesOverrideProfileId = own?.SalesTaxProfileId,
+            PurchaseOverrideProfileId = own?.PurchaseTaxProfileId,
+            Warnings = resolution.HsnWarning ? [new FieldErrorDto("hsnCode", resolution.HsnWarningMessage!)] : [],
+        };
+    }
+
+    private static TaxProfileRefDto ToRef(ResolvedTaxProfile p) => new(p.Id, p.Code, p.Name, p.Regime, p.Treatment, p.IsActive);
 }

@@ -57,26 +57,8 @@ export const ADMINISTRATION_ROUTES: Routes = [
     canActivate: [permissionGuard('Masters.View')],
     data: { group: 'Administration', page: 'Units' },
   },
-  {
-    path: 'taxes',
-    loadComponent: () => import('../masters/taxes/tax-list/tax-list').then((m) => m.TaxList),
-    canActivate: [permissionGuard('Masters.View')],
-    data: { group: 'Administration', page: 'Taxes' },
-  },
-  {
-    path: 'taxes/new',
-    loadComponent: () => import('../masters/taxes/tax-form/tax-form').then((m) => m.TaxForm),
-    canActivate: [permissionGuard('Masters.Edit')],
-    canDeactivate: [unsavedChangesGuard],
-    data: { group: 'Administration', page: 'New tax' },
-  },
-  {
-    path: 'taxes/:id/edit',
-    loadComponent: () => import('../masters/taxes/tax-form/tax-form').then((m) => m.TaxForm),
-    canActivate: [permissionGuard('Masters.Edit')],
-    canDeactivate: [unsavedChangesGuard],
-    data: { group: 'Administration', page: 'Edit tax' },
-  },
+  // Taxes moved to Inventory > Tax setup (tax profiles); keep old bookmarks working.
+  { path: 'taxes', redirectTo: '/inventory/tax-setup', pathMatch: 'full' },
   {
     path: 'currencies',
     loadComponent: () => import('./currencies/currency-list/currency-list').then((m) => m.CurrencyList),

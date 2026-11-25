@@ -33,8 +33,9 @@ public sealed record PenScenario(Guid PenId, Guid TaxId, Guid UserId, Guid Pc, G
             Id = Guid.NewGuid(), FirstName = "Ravi", LastName = "Krishnan", Username = "admin",
             Email = "admin@selloramart.in", PasswordHash = "x", RoleId = role.Id, Role = role,
         };
-        db.AddRange(pc, box, hctn, fctn, kg, g, bag, tax, role, user);
+        db.AddRange(pc, box, hctn, fctn, kg, g, bag, role, user);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);   // products need a company country and a resolvable profile (TP-1); the mirror tax keeps the 12% rate
 
         var scenario = new PenScenario(Guid.Empty, tax.Id, user.Id, pc.Id, box.Id, hctn.Id, fctn.Id, kg.Id, g.Id, bag.Id);
         var pen = await new ProductService(db).CreateProductAsync(scenario.Input(PenSku, pc.Id,
@@ -47,7 +48,7 @@ public sealed record PenScenario(Guid PenId, Guid TaxId, Guid UserId, Guid Pc, G
         new(id, unitId, innerUnitId, qty, null, barcode, true, true, false, defaultSales, active);
 
     public UpsertProductInput Input(string sku, Guid baseUnitId, params ProductUnitInputItem[] units) =>
-        new(sku, "Ball Pen " + sku, null, null, baseUnitId, TaxId, 0m, units);
+        new(sku, "Ball Pen " + sku, null, null, baseUnitId, 0m, units);
 
     /// <summary>The product's active stored rows as the editor would resubmit them, keyed by UnitId.</summary>
     public static async Task<Dictionary<Guid, ProductUnitInputItem>> CurrentAsync(SelloraDbContext db, Guid productId)

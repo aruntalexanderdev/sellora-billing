@@ -39,6 +39,13 @@ public static class IsolationCases
         new("CustomersController.List", _ => "/api/v1/customers"),
         new("CustomersController.Get", i => $"/api/v1/customers/{i.CustomerId}", Detail: true),
         new("TaxesController.List", _ => "/api/v1/taxes"),
+        // TP-1 tax profiles
+        new("TaxProfilesController.List", _ => "/api/v1/tax-profiles?includeInactive=true"),
+        new("TaxProfilesController.Get", i => $"/api/v1/tax-profiles/{i.TaxProfileId}", Detail: true),
+        new("TaxComponentsController.List", _ => "/api/v1/tax-components?includeInactive=true"),
+        new("TaxComponentsController.Get", i => $"/api/v1/tax-components/{i.TaxComponentId}", Detail: true),
+        new("TaxAssignmentsController.Tree", i => $"/api/v1/tax-assignments?countryId={i.CountryId}"),
+        new("TaxAssignmentsController.Resolve", i => $"/api/v1/tax-assignments/resolve?countryId={i.CountryId}&productId={i.ProductId}"),
         new("ExpenseCategoriesController.List", _ => "/api/v1/expense-categories"),
         new("ExpensesController.List", _ => "/api/v1/expenses"),
         new("ExpensesController.Get", i => $"/api/v1/expenses/{i.ExpenseId}", Detail: true),
@@ -125,10 +132,12 @@ public static class IsolationCases
             ($"/api/v1/vehicles/{other.VehicleId}/status", new SetStatusRequest(false, "test"))),
         new("VehiclesController.Create", "other company's branch", Post, (own, other) =>
             ("/api/v1/vehicles", new CreateVehicleRequest("ISO-X", "Cross branch", "Van", other.BranchId))),
-        new("ProductsController.Create", "other company's tax", Post, (own, other) =>
-            ("/api/v1/products", new UpsertProductRequest("ISO-1", "Isolation", null, null, own.BaseUnitId, other.TaxId, 0m, [EachUnit(own)]))),
+        new("ProductsController.Create", "other company's tax profile", Post, (own, other) =>
+            ("/api/v1/products", new UpsertProductRequest("ISO-1", "Isolation", null, null, own.BaseUnitId, 0m, [EachUnit(own)], SalesTaxProfileId: other.TaxProfileId))),
+        new("ProductsController.Update", "own product with other company's tax profile", Put, (own, other) =>
+            ($"/api/v1/products/{own.ProductId}", new UpsertProductRequest("STN-PEN", "Pen", null, null, own.BaseUnitId, 0m, [EachUnit(own) with { Id = own.ProductUnitId }], SalesTaxProfileId: other.TaxProfileId))),
         new("ProductsController.Update", "other company's product", Put, (own, other) =>
-            ($"/api/v1/products/{other.ProductId}", new UpsertProductRequest("STN-PEN", "Hijacked", null, null, own.BaseUnitId, own.TaxId, 0m, [EachUnit(own)]))),
+            ($"/api/v1/products/{other.ProductId}", new UpsertProductRequest("STN-PEN", "Hijacked", null, null, own.BaseUnitId, 0m, [EachUnit(own)]))),
         new("ProductsController.SetActive", "other company's product", Post, (own, other) =>
             ($"/api/v1/products/{other.ProductId}/status", new SetActiveRequest(false))),
         new("ProductsController.Delete", "other company's product", Delete, (own, other) =>
@@ -143,10 +152,26 @@ public static class IsolationCases
             ($"/api/v1/customers/{other.CustomerId}", new UpsertCustomerRequest("Hijacked", null, null))),
         new("CustomersController.SetActive", "other company's customer", Post, (own, other) =>
             ($"/api/v1/customers/{other.CustomerId}/status", new SetActiveRequest(false))),
-        new("TaxesController.Update", "other company's tax", Put, (own, other) =>
-            ($"/api/v1/taxes/{other.TaxId}", new UpsertTaxRequest("Hijacked", 1m))),
-        new("TaxesController.SetActive", "other company's tax", Post, (own, other) =>
-            ($"/api/v1/taxes/{other.TaxId}/status", new SetActiveRequest(false))),
+        new("TaxProfilesController.Update", "other company's profile", Put, (own, other) =>
+            ($"/api/v1/tax-profiles/{other.TaxProfileId}", new UpdateTaxProfileRequest("HIJACK", "Hijacked"))),
+        new("TaxProfilesController.AddVersion", "other company's profile", Post, (own, other) =>
+            ($"/api/v1/tax-profiles/{other.TaxProfileId}/versions", new AddTaxVersionRequest(Today, []))),
+        new("TaxProfilesController.SetActive", "other company's profile", Post, (own, other) =>
+            ($"/api/v1/tax-profiles/{other.TaxProfileId}/status", new SetActiveRequest(false))),
+        new("TaxProfilesController.Create", "other company's country-less profile", Post, (own, other) =>
+            ("/api/v1/tax-profiles", new CreateTaxProfileRequest(Guid.NewGuid(), "ISO-X", "Isolation profile", TaxRegime.Gst, TaxTreatment.Exempt))),
+        new("TaxComponentsController.Create", "unknown country", Post, (own, other) =>
+            ("/api/v1/tax-components", new CreateTaxComponentRequest(Guid.NewGuid(), "ISO-X", "Isolation component", TaxComponentKind.Other, TaxCalculationMethod.Percent))),
+        new("TaxComponentsController.Update", "other company's component", Put, (own, other) =>
+            ($"/api/v1/tax-components/{other.TaxComponentId}", new UpdateTaxComponentRequest("HIJACK", "Hijacked", TaxComponentKind.Other, TaxCalculationMethod.Percent))),
+        new("TaxComponentsController.SetActive", "other company's component", Post, (own, other) =>
+            ($"/api/v1/tax-components/{other.TaxComponentId}/status", new SetActiveRequest(false))),
+        new("TaxAssignmentsController.Upsert", "other company's profile", Put, (own, other) =>
+            ("/api/v1/tax-assignments", new UpsertTaxAssignmentRequest(TaxScope.Company, null, own.CountryId, other.TaxProfileId, null))),
+        new("TaxAssignmentsController.Upsert", "other company's product", Put, (own, other) =>
+            ("/api/v1/tax-assignments", new UpsertTaxAssignmentRequest(TaxScope.Product, other.ProductId, own.CountryId, own.TaxProfileId, null))),
+        new("TaxAssignmentsController.Delete", "other company's assignment", Delete, (own, other) =>
+            ($"/api/v1/tax-assignments/{other.TaxAssignmentId}", null)),
         new("ExpenseCategoriesController.Rename", "other company's category", Put, (own, other) =>
             ($"/api/v1/expense-categories/{other.CategoryId}", new UpsertExpenseCategoryRequest("Hijacked"))),
         new("ExpenseCategoriesController.SetActive", "other company's category", Post, (own, other) =>
@@ -281,7 +306,10 @@ public static class IsolationCases
     public static readonly HashSet<string> CoveredElsewhere =
     [
         "UsersController.List", "UsersController.Get", "UsersController.Create", "UsersController.Update", "UsersController.SetStatus", "UsersController.ResetPassword",
-        "SettingsController.Update", "BranchesController.Create", "SuppliersController.Create", "CustomersController.Create", "TaxesController.Create",
+        "SettingsController.Update", "BranchesController.Create", "SuppliersController.Create", "CustomersController.Create",
+        // TP-1: TaxProfilesController.SeedStandard and TaxAssignmentsController.ClearRedundantOverrides only ever act on the caller's own company and country (no foreign id in their input);
+        // the same-name and ownership rules are proven by Create_SameNameTaxProfileInBothCompanies_SucceedsButDuplicateWithinACompanyIsRefused and the writes above.
+        "TaxProfilesController.SeedStandard", "TaxAssignmentsController.ClearRedundantOverrides",
         "ExpenseCategoriesController.Create", "FinancialAccountsController.Create", "ExchangeRatesController.Create",
         // Phase 07: reversing another company's transaction id is a 404 and writes nothing - CashBankOperationsApiTests.Reverse_AnotherCompanysTransaction_IsNotFound_AndUnknownIdIsNotFound.
         "FinancialTransactionsController.Reverse",

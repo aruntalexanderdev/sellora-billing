@@ -42,6 +42,8 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
     baseCurrencyId: ['', Validators.required],
     receiptPostingMode: ['Direct' as ReceiptPostingMode],
     receiptSeparationOfDuties: [false],
+    sellingPricesIncludeTax: [true],
+    maxBillDiscountPercent: [null as number | null, [Validators.min(0), Validators.max(100)]],
   });
 
   readonly postingModes: { value: ReceiptPostingMode; label: string }[] = [
@@ -82,6 +84,8 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
           baseCurrencyId: s.baseCurrencyId,
           receiptPostingMode: s.receiptPostingMode ?? 'Direct',
           receiptSeparationOfDuties: s.receiptSeparationOfDuties ?? false,
+          sellingPricesIncludeTax: s.sellingPricesIncludeTax ?? true,
+          maxBillDiscountPercent: s.maxBillDiscountPercent ?? null,
         });
         this.storedCountry.set(s.countryId ? { id: s.countryId, name: s.countryName ?? '' } : null);
         this.storedState.set(s.stateId ? { id: s.stateId, name: s.stateName ?? '' } : null);
@@ -92,10 +96,11 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
     });
   }
 
-  /** Always posts the current links (null clears, D22); the legacy free-text state is never written (D6). */
+  /** Always posts the current links (null clears, D22) and the discount cap; the legacy free-text state is never written (D6). */
   buildRequest() {
     const v = this.form.getRawValue();
-    return { ...v, countryId: v.countryId || null, stateId: v.countryId ? v.stateId || null : null };
+    // maxBillDiscountPercent is always posted: empty clears the cap (T15).
+    return { ...v, countryId: v.countryId || null, stateId: v.countryId ? v.stateId || null : null, maxBillDiscountPercent: v.maxBillDiscountPercent ?? null };
   }
 
   submit(): void {

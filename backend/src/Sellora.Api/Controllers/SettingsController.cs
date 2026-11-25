@@ -96,6 +96,10 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
             settings.ReceiptPostingMode = postingMode;
         }
         if (request.ReceiptSeparationOfDuties is { } separation) settings.ReceiptSeparationOfDuties = separation;
+
+        // Tax profiles (TP-1): the price basis of stored selling prices (omitted = unchanged) and the whole-bill discount cap (null = no limit).
+        if (request.SellingPricesIncludeTax is { } includeTax) settings.SellingPricesIncludeTax = includeTax;
+        settings.MaxBillDiscountPercent = request.MaxBillDiscountPercent is { } cap ? Math.Round(cap, 2, MidpointRounding.AwayFromZero) : null;
         var afterPolicy = new { mode = settings.ReceiptPostingMode.ToString(), separation = settings.ReceiptSeparationOfDuties };
         if (!beforePolicy.Equals(afterPolicy))
         {
@@ -132,5 +136,6 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
 
     private static BusinessSettingsDto ToDto(Domain.Entities.BusinessSettings s, GeoNames geo) =>
         new(s.Id, s.BusinessName, s.AddressLine, s.City, s.State, s.Gstin, s.Phone, s.Email, s.InvoicePrefix, s.BaseCurrencyId, s.BaseCurrency.Code, s.BaseCurrency.Symbol, s.CompanyId, s.ReceiptPostingMode, s.ReceiptSeparationOfDuties,
-            s.CountryId, geo.Country(s.CountryId), s.StateId, geo.State(s.StateId));
+            s.CountryId, geo.Country(s.CountryId), s.StateId, geo.State(s.StateId),
+            s.SellingPricesIncludeTax, s.MaxBillDiscountPercent);
 }

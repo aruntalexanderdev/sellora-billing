@@ -17,7 +17,7 @@ END $p$;
 
 -- 1. One legacy profile + one version from 2000-01-01 per Taxes row that has no profile yet.
 --    India: CGST/SGST halves intra-state, IGST inter-state; every other country: one VAT line. Rate 0: India NilRated, others ZeroRated (deviation e), no components.
---    Two taxes whose names differ only by case get a numeric suffix on the later ones (profile names are unique per company and country, case-insensitive).
+--    Two taxes whose names differ only by case get a suffix derived from their tax id on the later ones (' (legacy <last 8 hex>)', the full id if that name is itself a real tax name; 60 characters at most; the first keeps its name) (profile names are unique per company and country, case-insensitive).
 CREATE TEMP TABLE _taxfill_legacy ON COMMIT DROP AS
 SELECT t."Id" AS tax_id, t."CompanyId" AS company_id, b."CountryId" AS country_id, c."Code" AS cc, t."Name" AS name,
        t."RatePercent" AS rate, t."IsActive" AS is_active,
@@ -31,7 +31,10 @@ WHERE NOT EXISTS (SELECT 1 FROM "TaxProfiles" p WHERE p."CompanyId" = t."Company
 
 INSERT INTO "TaxProfiles" ("Id", "CompanyId", "CountryId", "Code", "Name", "Regime", "Treatment", "LegacyTaxId", "IsActive", "CreatedAt")
 SELECT l.profile_id, l.company_id, l.country_id, 'LEGACY-' || upper(right(replace(l.tax_id::text, '-', ''), 12)),
-       CASE WHEN l.rn = 1 THEN l.name ELSE left(l.name, 55) || ' (' || l.rn::text || ')' END,
+       CASE WHEN l.rn = 1 THEN l.name
+            WHEN NOT EXISTS (SELECT 1 FROM "Taxes" x WHERE x."CompanyId" = l.company_id AND lower(x."Name") = lower(left(l.name, 42) || ' (legacy ' || right(replace(l.tax_id::text, '-', ''), 8) || ')'))
+              THEN left(l.name, 42) || ' (legacy ' || right(replace(l.tax_id::text, '-', ''), 8) || ')'
+            ELSE left(l.name, 18) || ' (legacy ' || replace(l.tax_id::text, '-', '') || ')' END,
        CASE WHEN l.cc = 'IN' THEN 'Gst' ELSE 'Vat' END,
        CASE WHEN l.rate > 0 THEN 'Taxable' WHEN l.cc = 'IN' THEN 'NilRated' ELSE 'ZeroRated' END,
        l.tax_id, l.is_active, now()
