@@ -616,6 +616,10 @@ both taxable 90.00, grand 212.40. Return of 2, 2, 3 out of 7 on CGST 85.50 → 2
 - DQ-TP2-5 Preview uses the working branch, not a `branchId` parameter. [Accept, so preview = save.]
 - DQ-TP2-6 Per-unit row `BaseAmount` holds the base quantity, not money. [Accept; the invoice prints "qty × amount".]
 - DQ-TP2-7 A party in another country is treated as inter-state until exports are in scope. [Accept.]
+- DQ-TP2-8 (TP-2 review, lead decision) Bill charges on a document whose total line weight is 0 are spread
+  equally over its lines (still taxed, sums exact). Sales lines carry no line-level other charges: a non-zero
+  `otherCharges` on a sale line is rejected (400 `lines[i].otherCharges`). Preview requests are bounded (quantity,
+  price, amounts, at most 500 lines) so oversized input gives 400, never 500.
 
 Risks: CGST and SGST rounded separately can differ by a paisa from today's single-rate tax, so TP-4 totals for the same
 cart may move by 0.01 (release notes). At precision 0 the T9 rule moves the rounding into the taxable value visibly
