@@ -36,6 +36,27 @@ public class SalesInvoice : ICompanyOwned
     public decimal DiscountTotal { get; set; }
     public decimal GrandTotal { get; set; }
 
+    // ---- Tax snapshot (TP-4, docs/features/tax-profiles.md). History rows keep the defaults / NULL; NULL TaxableTotal and PlaceOfSupply mean "legacy". ----
+
+    /// <summary>The whole-bill discount percentage as entered (NULL when an amount, or nothing, was entered).</summary>
+    public decimal? BillDiscountPercent { get; set; }
+
+    /// <summary>Whole-bill discount and charges in the invoice currency (numeric(18,4)).</summary>
+    public decimal BillDiscountAmount { get; set; }
+    public decimal BillCharges { get; set; }
+
+    /// <summary>Σ line taxable values, numeric(18,4). NULL on history (the DTO falls back to Subtotal - DiscountTotal).</summary>
+    public decimal? TaxableTotal { get; set; }
+
+    /// <summary>Place of supply (BR12) resolved when the sale was saved; NULL on history.</summary>
+    public PlaceOfSupply? PlaceOfSupply { get; set; }
+
+    /// <summary>The state the supply was placed in (for a sale: the buyer's state, else the seller's own) and the seller's own state, snapshotted; NULL when unknown.</summary>
+    public Guid? PlaceOfSupplyStateId { get; set; }
+    public Guid? SellerStateId { get; set; }
+
+    public PartyTaxStatus PartyTaxStatus { get; set; } = PartyTaxStatus.Unspecified;
+
     public SalesStatus Status { get; set; } = SalesStatus.Completed;
 
     public Guid CreatedByUserId { get; set; }

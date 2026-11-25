@@ -79,5 +79,10 @@ public class SalesReturnLine
     /// <summary>The landed cost of the batches the goods went back into — what comes off cost of goods sold.</summary>
     public decimal CostRestored { get; set; }
 
+    // ---- Tax snapshot (TP-4): copied from the original sales line; NULL on history. ----
+    public Guid? TaxProfileId { get; set; }
+    public Guid? TaxProfileVersionId { get; set; }
+    public PlaceOfSupply? PlaceOfSupply { get; set; }
+
     public ICollection<SalesReturnLineTax> Taxes { get; set; } = new List<SalesReturnLineTax>();
 }

@@ -54,6 +54,26 @@ public class SalesInvoiceLine
     /// <summary>Actual FIFO-consumed landed cost for this line — the real COGS basis (docx §12.5, §17).</summary>
     public decimal CostOfGoodsSold { get; set; }
 
+    // ---- Tax snapshot (TP-4). History keeps NULL / the defaults (history lines were tax-exclusive). ----
+
+    /// <summary>The sales profile and the exact dated version the line was calculated with (BR24). Simple FKs: lines carry no CompanyId; "version belongs to the profile
+    /// and company" is a blocking V__tax-sales-snapshot.sql check. NULL on history until the TP-5 backfill.</summary>
+    public Guid? TaxProfileId { get; set; }
+    public Guid? TaxProfileVersionId { get; set; }
+
+    /// <summary>Place of supply the line was calculated with; NULL on history.</summary>
+    public PlaceOfSupply? PlaceOfSupply { get; set; }
+
+    /// <summary>HSN/SAC snapshot (BR14), NULL when none.</summary>
+    public string? HsnCode { get; set; }
+
+    /// <summary>The line's <see cref="UnitPrice"/> included tax (the calculator's inclusive mode).</summary>
+    public bool PriceIncludesTax { get; set; }
+
+    /// <summary>Shares of the bill discount / bill charges allocated to this line.</summary>
+    public decimal BillDiscountShare { get; set; }
+    public decimal BillChargeShare { get; set; }
+
     public ICollection<SalesInvoiceLineTax> Taxes { get; set; } = new List<SalesInvoiceLineTax>();
 
     public ICollection<SalesInvoiceLineBatchConsumption> BatchConsumptions { get; set; } = new List<SalesInvoiceLineBatchConsumption>();
