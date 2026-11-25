@@ -353,6 +353,14 @@ Each phase is approved, built, verified and reviewed before the next.
   confirm step, reports how many were cleared).
 - T21 (DQ4) Company default for existing companies is the standard rate (GST 18% / country VAT standard); the
   most-used legacy tax is only the fallback when no standard profile exists for that company.
+- T23 (BA consult, owner away; lead chose the BA recommendation) Platform data reset and tax tables:
+  `keepTaxes=true` keeps Taxes, TaxComponents, TaxProfiles, TaxProfileVersions and TaxProfileVersionComponents;
+  keeps company-scope TaxAssignments; keeps category/subcategory-scope assignments only with `keepCategories=true`;
+  always deletes product-scope assignments (products are always wiped); restores a missing company default per T21.
+  `keepTaxes=false` wipes all nine tax tables and then re-seeds the T12 standard profiles and company default in the
+  same operation, so the company can create products immediately. The reset preview shows TaxAssignments as a
+  partial action and reports re-seeded profiles. Alternatives considered: keep masters but wipe all assignments
+  (loses the default, product create fails); remove the option (breaks the API contract).
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
