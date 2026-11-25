@@ -55,6 +55,32 @@ public class PurchaseOrder : ICompanyOwned
     public decimal DiscountTotal { get; set; }
     public decimal GrandTotal { get; set; }
 
+    // ---- Tax snapshot (TP-3, docs/features/tax-profiles.md). History rows keep the defaults / NULL; NULL TaxableTotal and PlaceOfSupply mean "legacy". ----
+
+    /// <summary>The supplier's rates were entered tax-inclusive (header toggle). Lines carry their own <see cref="PurchaseOrderLine.PriceIncludesTax"/>.</summary>
+    public bool RatesIncludeTax { get; set; }
+
+    /// <summary>The whole-bill discount percentage as entered (NULL when an amount, or nothing, was entered).</summary>
+    public decimal? BillDiscountPercent { get; set; }
+
+    /// <summary>Whole-bill discount and charges in the base currency (numeric(18,4)); the <c>Original*</c> twins are in the transaction currency.</summary>
+    public decimal BillDiscountAmount { get; set; }
+    public decimal BillCharges { get; set; }
+    public decimal OriginalBillDiscountAmount { get; set; }
+    public decimal OriginalBillCharges { get; set; }
+
+    /// <summary>Σ line taxable values in the base currency, numeric(18,4). NULL on history (the DTO falls back to Subtotal + OtherChargesTotal - DiscountTotal).</summary>
+    public decimal? TaxableTotal { get; set; }
+
+    /// <summary>Place of supply (BR12) resolved when the purchase was saved; NULL on history.</summary>
+    public PlaceOfSupply? PlaceOfSupply { get; set; }
+
+    /// <summary>The state the supply was placed in (the buyer's branch or company state) and the supplier's state, snapshotted; NULL when unknown.</summary>
+    public Guid? PlaceOfSupplyStateId { get; set; }
+    public Guid? SupplierStateId { get; set; }
+
+    public PartyTaxStatus PartyTaxStatus { get; set; } = PartyTaxStatus.Unspecified;
+
     public PurchaseStatus Status { get; set; } = PurchaseStatus.Completed;
 
     public Guid CreatedByUserId { get; set; }

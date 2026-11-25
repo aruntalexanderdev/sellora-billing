@@ -208,6 +208,8 @@ internal static class LineTaxMapping
         builder.Property(r => r.AmountPerBaseUnit).HasColumnType("numeric(18,6)");
         builder.Property(r => r.BaseAmount).HasColumnType("numeric(18,4)");
         builder.Property(r => r.TaxAmount).HasColumnType("numeric(18,4)");
+        // TP-3 (DQ-TP2-3): NULL = legacy row. Added last by AddPurchaseTaxSnapshot, the constraint NOT VALID then validated.
+        builder.Property(r => r.Treatment).HasConversion<string>().HasMaxLength(20);
 
         builder.HasIndex(lineColumn).HasDatabaseName($"IX_{table}_{lineColumn}");
         builder.HasIndex(r => r.TaxComponentId, $"IX_{table}_TaxComponentId");
@@ -220,6 +222,7 @@ internal static class LineTaxMapping
         {
             t.HasCheckConstraint($"CK_{table}_Kind", $"\"Kind\" IN ({TaxValues.KindList})");
             t.HasCheckConstraint($"CK_{table}_MethodShape", TaxValues.MethodShape);
+            t.HasCheckConstraint($"CK_{table}_Treatment", "\"Treatment\" IS NULL OR \"Treatment\" IN ('Taxable','NilRated','Exempt','ZeroRated','NonTaxable')");
         });
     }
 

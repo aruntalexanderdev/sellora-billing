@@ -81,6 +81,15 @@ public class PurchaseReturnLine
     public decimal TaxAmount { get; set; }
     public decimal LineTotal { get; set; }
 
+    // ---- Tax snapshot (TP-3): copied from the original purchase line; NULL on history. ----
+    public Guid? TaxProfileId { get; set; }
+    public Guid? TaxProfileVersionId { get; set; }
+    public PlaceOfSupply? PlaceOfSupply { get; set; }
+
+    /// <summary>The reversed taxable value / tax in the purchase's document currency; NULL on history.</summary>
+    public decimal? OriginalTaxableValue { get; set; }
+    public decimal? OriginalTaxAmount { get; set; }
+
     /// <summary>The landed cost of the stock taken out.</summary>
     public decimal CostRemoved { get; set; }
 

@@ -23,6 +23,9 @@ public abstract class LineTaxBase
     /// <summary>The amount this row was calculated on (the line's taxable value for percent rows, the base quantity's value for per-unit rows).</summary>
     public decimal BaseAmount { get; set; }
     public decimal TaxAmount { get; set; }
+
+    /// <summary>Treatment of the profile the row was calculated under (DQ-TP2-3). NULL marks a legacy row (and rows written before the calculator); a calculator row always has one.</summary>
+    public TaxTreatment? Treatment { get; set; }
 }
 
 /// <summary>Purchase rows also carry the document-currency amounts (NULL on legacy rows: not recorded).</summary>
