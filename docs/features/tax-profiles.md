@@ -361,6 +361,15 @@ Each phase is approved, built, verified and reviewed before the next.
   same operation, so the company can create products immediately. The reset preview shows TaxAssignments as a
   partial action and reports re-seeded profiles. Alternatives considered: keep masters but wipe all assignments
   (loses the default, product create fails); remove the option (breaks the API contract).
+- T24 (TP-1 review, lead decision while owner away) Changing `BusinessSettings.CountryId` is allowed only while the
+  company has no products and no sales/purchase documents; the standard profiles and company default of the new
+  country are then seeded (old-country profiles stay, unused). Otherwise 400 on `countryId`. Reason: a later change
+  would leave product mirrors and history on the old country's taxes.
+- T25 (TP-1 review) A profile can be assigned (company, category, subcategory or product) only if it has a version
+  valid today; a new version may not start on or before the date of the latest document that used the profile
+  (BR4: a used version's dates are immutable). Settings PUT is a full replace: omitting `maxBillDiscountPercent`
+  clears the cap (the UI always sends it). Legacy tax names matching a standard profile become the company default
+  only when the rate also matches.
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
