@@ -631,7 +631,7 @@ precision 2–3 being the normal case.
 
 ## TP-3 design (purchases on the calculator)
 
-Status: **approved by the owner** (TP3-Q1..Q6 as recommended, T27). Branch `feature/tax-purchases`.
+Status: **implemented and reviewed** (TP3-Q1..Q6 as recommended, T27). Branch `feature/tax-purchases`.
 
 ### Scope
 - Changes: purchase create (place of supply + rate sets + `TaxCalculator`), purchase returns (`TaxReversal`), purchase
