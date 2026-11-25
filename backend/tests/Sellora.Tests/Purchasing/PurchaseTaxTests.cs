@@ -340,7 +340,7 @@ public class PurchaseTaxTests
         var both = await RejectedAsync(() => BuyAsync(f, [Line(p, 1, 100m)], pct: 5m, amount: 5m));
 
         Assert.Contains(discount.Errors, e => e.Field == "lines[0].discount");
-        Assert.Contains(both.Errors, e => e.Field == "billDiscount");
+        Assert.Contains(both.Errors, e => e.Field == "billDiscountPercent"); // the request field, not the calculator's billDiscount
     }
 
     [Fact]
@@ -462,6 +462,72 @@ public class PurchaseTaxTests
         Assert.Equal(r1.TaxAmount, first.Lines.Single().Taxes.Sum(t => t.TaxAmount));
         Assert.All(first.Lines.Single().Taxes, t => Assert.NotNull(t.OriginalTaxAmount));
         Assert.Equal((purchase.GrandTotal, purchase.OriginalGrandTotal), (purchase.ReturnedAmount, purchase.OriginalReturnedAmount));
+    }
+
+    [Fact]
+    public async Task Create_BillDiscountOverTheBill_IsKeyedByTheFieldTheCallerSent()
+    {
+        var f = await SetupAsync();
+        var p = await ProductAsync(f);
+
+        var amount = await RejectedAsync(() => BuyAsync(f, [Line(p, 1, 100m)], amount: 500m));
+        var charges = await RejectedAsync(() => BuyAsync(f, [Line(p, 1, 100m)], charges: 1.005m));
+
+        Assert.Equal(["billDiscountAmount"], amount.Errors.Select(e => e.Field));
+        Assert.Contains(charges.Errors, e => e.Field == "billCharges");
+    }
+
+    [Fact]
+    public async Task Post_OldStyleBodyWithOverPreciseDiscount_Is400OnTheLineDiscount()
+    {
+        var f = await SetupAsync();
+        var p = await ProductAsync(f);
+
+        var result = await Controller(f).Create(new CreatePurchaseRequest(
+            f.Supplier.Id, D, null, null, PaymentMethod.Cash, 0, [new CreatePurchaseLineRequest(p.Product.Id, p.Unit.Id, 1, 100m, 0, 2.505m)]), default);
+
+        var problem = Assert.IsType<ValidationProblemDetails>(Assert.IsType<ObjectResult>(result.Result).Value);
+        Assert.Contains("lines[0].discount", problem.Errors.Keys);
+        Assert.Empty(await f.W.Db.PurchaseOrders.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Create_ForeignInclusiveLine_BaseAndOriginalReconcileWithinOneBaseUnit_AndHeaderSumsAreExact()
+    {
+        var f = await SetupAsync();
+        var usd = await UsdSupplierAsync(f);
+        var a = await ProductAsync(f);
+        var b = await ProductAsync(f, sales: "GST-5");
+
+        var purchase = await BuyAsync(f, [Line(a, 3, 33.33m), Line(b, 7, 12.34m)], usd, inclusive: true);
+
+        foreach (var line in purchase.Lines)
+        {
+            Assert.True(Math.Abs(line.OriginalTaxableValue!.Value * purchase.ExchangeRateToBase - line.TaxableValue) <= 1m);
+            Assert.Equal(line.TaxableValue + line.TaxAmount, line.LineTotal);
+            Assert.Equal(line.TaxAmount, (await RowsAsync(f, line)).Sum(r => r.TaxAmount));
+        }
+        Assert.Equal(purchase.Lines.Sum(l => l.LineTotal), purchase.GrandTotal);
+        Assert.Equal(purchase.Lines.Sum(l => l.TaxableValue), purchase.TaxableTotal);
+        Assert.Equal(purchase.Lines.Sum(l => l.TaxAmount), purchase.TaxTotal);
+        Assert.Equal(purchase.Lines.Sum(l => l.OriginalLineTotal), purchase.OriginalGrandTotal);
+    }
+
+    [Fact]
+    public async Task Return_ForeignPurchaseFullyReturnedInTwo_OriginalAndBaseReturnedTotalsEqualTheDocumentTotals()
+    {
+        var f = await SetupAsync();
+        var usd = await UsdSupplierAsync(f);
+        var p = await ProductAsync(f);
+        var purchase = await BuyAsync(f, p, 7, 13.37m, usd);
+        var lineId = purchase.Lines.Single().Id;
+
+        await f.Service.CreateReturnAsync(new CreatePurchaseReturnInput(purchase.Id, D, null, [new PurchaseReturnLineInput(lineId, null, 3m)]), f.UserId);
+        await f.Service.CreateReturnAsync(new CreatePurchaseReturnInput(purchase.Id, D, null, [new PurchaseReturnLineInput(lineId, null, 4m)]), f.UserId);
+
+        Assert.Equal(purchase.OriginalGrandTotal, purchase.OriginalReturnedAmount);
+        Assert.Equal(purchase.GrandTotal, purchase.ReturnedAmount);
+        Assert.Equal((0m, 0m), (purchase.NetTotal, purchase.OriginalNetTotal));
     }
 
     // ------------------------------------------------------------------ returns (AC15)

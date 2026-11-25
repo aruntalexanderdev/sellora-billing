@@ -842,7 +842,12 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         }
         catch (DomainValidationException ex)
         {
-            throw new DomainValidationException(ex.Errors.Select(e => e with { Field = e.Field.Replace(".unitPrice", ".rate", StringComparison.Ordinal) }).ToList());
+            // Request names: the calculator's unitPrice is the line's rate, and its single billDiscount is whichever of percent/amount the caller sent.
+            var discountField = input.BillDiscountPercent is not null ? "billDiscountPercent" : "billDiscountAmount";
+            throw new DomainValidationException(ex.Errors.Select(e => e with
+            {
+                Field = e.Field == "billDiscount" ? discountField : e.Field.Replace(".unitPrice", ".rate", StringComparison.Ordinal),
+            }).ToList());
         }
     }
 
@@ -864,6 +869,8 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         var billDiscountShare = Base(calc.BillDiscountShare);
         var billChargeShare = Base(calc.BillChargeShare);
         var otherCharges = Base(calc.OtherCharges);
+        // Exclusive: the base taxable value is the sum of the separately converted parts (so the header and lines add up), hence for a foreign supplier
+        // OriginalTaxableValue x rate can differ from it by up to one base unit per line (accepted, TP3-Q5). Inclusive lines convert the taxable value itself.
         var taxableValue = input.RatesIncludeTax ? Base(calc.Taxable) : gross - lineDiscount - billDiscountShare + billChargeShare + otherCharges;
 
         var lineId = Guid.NewGuid();
