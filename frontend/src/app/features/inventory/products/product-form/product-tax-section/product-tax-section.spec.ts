@@ -29,13 +29,13 @@ class Host {
   initialBasis: string | null = null;
 }
 
-function render(resolve = vi.fn(() => of(resolution())), host: Partial<Host> = {}) {
+function render(resolve = vi.fn(() => of(resolution())), host: Partial<Host> = {}, canViewTax = true) {
   TestBed.configureTestingModule({
     imports: [Host],
     providers: [
       provideRouter([]),
       { provide: TaxSetupService, useValue: { resolve, listProfiles: () => of([profile('gst5', 'GST 5%'), profile('gst18', 'GST 18%'), profile('old', 'Old 12%', false)]) } },
-      { provide: AuthService, useValue: { hasPermission: () => true } },
+      { provide: AuthService, useValue: { hasPermission: () => canViewTax } },
     ],
   });
   const fixture = TestBed.createComponent(Host);
@@ -51,6 +51,15 @@ describe('ProductTaxSection', () => {
     expect(q(el, 'tax-resolved')?.textContent).toContain('GST 18%');
     expect(q(el, 'tax-resolved')?.textContent).toContain('Same as sales');
     expect(q(el, 'tax-source')?.textContent?.trim()).toBe('From subcategory Soft Drinks');
+  });
+
+  it('without Tax.View shows a notice, hides the override and never calls resolve', () => {
+    const { el, resolve } = render(undefined, {}, false);
+    expect(q(el, 'tax-no-permission')?.textContent).toContain('Tax view permission');
+    expect(q(el, 'override-toggle')).toBeNull();
+    expect(q(el, 'tax-resolved')).toBeNull();
+    expect(resolve).not.toHaveBeenCalled();
+    expect(q(el, 'hsn-input')).not.toBeNull();
   });
 
   it('labels the company default source', () => {

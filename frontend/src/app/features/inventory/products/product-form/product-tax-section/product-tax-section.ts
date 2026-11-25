@@ -81,6 +81,11 @@ export function taxProblemPath(key: string): string | null {
     <section class="tax-section" [formGroup]="group()" aria-label="Tax">
       <h2 class="section-title">Tax</h2>
 
+      @if (!canViewTax()) {
+        <div class="muted" data-testid="tax-no-permission">
+          Tax profiles are managed in Tax setup. You need the Tax view permission to see or override them; saving keeps the product's current tax.
+        </div>
+      } @else {
       <div class="resolved" data-testid="tax-resolved" aria-live="polite">
         @if (resolution(); as r) {
           @if (r.resolved) {
@@ -135,6 +140,7 @@ export function taxProblemPath(key: string): string | null {
             }
           </div>
         </div>
+      }
       }
 
       <div class="grid-2">
@@ -217,6 +223,8 @@ export class ProductTaxSection implements OnInit {
       });
 
     effect(() => {
+      // Resolve and the profile list need Tax.View; without it the section only shows a notice (TP-1 review).
+      if (!this.canViewTax()) return;
       const q = { ...this.formState(), categoryId: this.categoryId(), subcategoryId: this.subcategoryId() };
       this.resolve$.next(q);
     });
