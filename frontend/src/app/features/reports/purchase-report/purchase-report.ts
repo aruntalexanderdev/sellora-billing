@@ -7,19 +7,35 @@ import { ScopeFilters } from '../../../shared/scope/scope-filters';
 import { injectBranchColumnVisible, placeLabel } from '../../../shared/scope/list-scope';
 import { ReportsService } from '../reports.service';
 import type { PurchaseReportRow } from '../reports.models';
+import type { TaxComponentKind } from '../../inventory/tax-setup/tax-setup.models';
 import { UiCompanyViewToggle } from '../../../shared/ui/company-view-toggle/company-view-toggle';
 
-const BASE_COLS: DataTableColumn[] = [
+const HEAD_COLS: DataTableColumn[] = [
   { label: 'Purchase No', align: 'left' },
   { label: 'Date', align: 'left' },
   { label: 'Supplier', align: 'left' },
   { label: 'Subtotal', align: 'right' },
+  { label: 'Taxable', align: 'right' },
   { label: 'Tax', align: 'right' },
+];
+const TAIL_COLS: DataTableColumn[] = [
   { label: 'Other', align: 'right' },
   { label: 'Total', align: 'right' },
   { label: 'Paid', align: 'right' },
   { label: 'Due', align: 'right' },
 ];
+
+const KIND_ORDER: TaxComponentKind[] = ['Cgst', 'Sgst', 'Utgst', 'Igst', 'Cess', 'Vat', 'Other'];
+const KIND_LABEL: Record<TaxComponentKind, string> = { Cgst: 'CGST', Sgst: 'SGST', Utgst: 'UTGST', Igst: 'IGST', Cess: 'Cess', Vat: 'VAT', Other: 'Other tax' };
+
+/** Distinct tax component kinds present in the rows, in a fixed order (legacy tax is under `Other`). */
+export function reportTaxKinds(rows: readonly { taxByKind?: readonly { kind: TaxComponentKind }[] | null }[]): TaxComponentKind[] {
+  const seen = new Set<TaxComponentKind>();
+  for (const r of rows) for (const t of r.taxByKind ?? []) seen.add(t.kind);
+  return KIND_ORDER.filter((k) => seen.has(k));
+}
+
+export const reportTaxLabel = (kind: TaxComponentKind): string => KIND_LABEL[kind];
 
 const INR = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
 
@@ -39,7 +55,13 @@ export class PurchaseReport implements OnInit {
   private readonly reportsService = inject(ReportsService);
 
   readonly showBranch = injectBranchColumnVisible();
-  readonly cols = computed<DataTableColumn[]>(() => [...BASE_COLS, ...(this.showBranch() ? [{ label: 'Branch', align: 'left' as const }] : [])]);
+  readonly taxKinds = computed(() => reportTaxKinds(this.items()));
+  readonly cols = computed<DataTableColumn[]>(() => [
+    ...HEAD_COLS,
+    ...this.taxKinds().map((k) => ({ label: reportTaxLabel(k), align: 'right' as const })),
+    ...TAIL_COLS,
+    ...(this.showBranch() ? [{ label: 'Branch', align: 'left' as const }] : []),
+  ]);
   readonly branchId = signal<string | null>(null);
   readonly errorMessage = signal<string | null>(null);
   readonly search = signal('');
@@ -71,7 +93,14 @@ export class PurchaseReport implements OnInit {
         { kind: 'text', text: p.purchaseDate, color: 'var(--color-text-muted)' },
         { kind: 'text', text: p.supplierName },
         { kind: 'text', text: INR(p.subtotal), align: 'right', color: 'var(--color-text-muted)' },
+        { kind: 'text', text: INR(p.taxableTotal ?? p.subtotal + p.otherChargesTotal), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(p.taxTotal), align: 'right', color: 'var(--color-text-muted)' },
+        ...this.taxKinds().map((k) => ({
+          kind: 'text' as const,
+          text: INR((p.taxByKind ?? []).filter((t) => t.kind === k).reduce((s, t) => s + t.taxAmount, 0)),
+          align: 'right' as const,
+          color: 'var(--color-text-muted)',
+        })),
         { kind: 'text', text: INR(p.otherChargesTotal), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(p.grandTotal), sub: originalAmount(p.currencyCode, p.originalGrandTotal, p.grandTotal), align: 'right', weight: '650' },
         { kind: 'text', text: INR(p.paidAmount), align: 'right', color: 'var(--color-text-muted)' },

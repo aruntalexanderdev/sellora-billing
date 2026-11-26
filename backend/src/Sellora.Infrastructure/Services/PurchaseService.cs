@@ -3,12 +3,15 @@ using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Payments;
 using Sellora.Domain.Purchasing;
+using Sellora.Domain.Taxes;
 using Sellora.Infrastructure.Data;
 
 namespace Sellora.Infrastructure.Services;
 
-public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeRateService, IEffectivePermissionService? permissions = null) : IPurchaseService
+public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeRateService, IEffectivePermissionService? permissions = null, ITaxResolver? taxResolver = null) : IPurchaseService
 {
+    private readonly ITaxResolver resolver = taxResolver ?? new TaxResolver(db);
+
     public async Task<PurchaseOrder> CreatePurchaseAsync(CreatePurchaseInput input, Guid createdByUserId, CancellationToken ct = default)
     {
         if (input.Lines.Count == 0)
@@ -43,6 +46,23 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         var companyLevel = await StockLocationRules.HasCompanyLevelAsync(permissions, "Purchase.Create", ct);
         var locationId = await StockLocationRules.ResolveAsync(db, PostingKind.Purchase, input.StockLocationId, branch.Id, companyLevel, ct);
         await StockLocks.LockProductsKeyShareAsync(db, input.Lines.Select(l => l.ProductId), ct);
+
+        // TP-3: place of supply (BR12) and the rate sets valid on the purchase date with the purchase profile (BR5, BR7). The profiles are then locked
+        // FOR KEY SHARE (after the products, before the locations and StockItems: no new deadlock path) so a version cannot be superseded under this
+        // purchase, and the versions are resolved again under the lock (TP3-Q6).
+        var place = await resolver.ResolvePlaceOfSupplyAsync(TaxDirection.Purchase, branch.Id, supplier.Id, ct);
+        var productIds = input.Lines.Select(l => l.ProductId).ToList();
+        var rates = await resolver.ResolveRateSetsAsync(TaxDirection.Purchase, place.CountryId, input.PurchaseDate, productIds, "lines", ct);
+        await StockLocks.LockTaxProfilesKeyShareAsync(db, rates.Values.Select(r => r.Rates.ProfileId), ct);
+        if (db.Database.IsRelational())
+        {
+            var again = await resolver.ResolveRateSetsAsync(TaxDirection.Purchase, place.CountryId, input.PurchaseDate, productIds, "lines", ct);
+            if (again.Any(kv => !rates.TryGetValue(kv.Key, out var first) || first.Rates.VersionId != kv.Value.Rates.VersionId || first.Rates.ProfileId != kv.Value.Rates.ProfileId))
+            {
+                throw new DomainValidationException("lines", "A tax rate changed while the purchase was being saved. Review the tax and save again.");
+            }
+        }
+
         await StockLocks.LockLocationsKeyShareAsync(db, [locationId], ct);
         await StockLocationRules.ResolveAsync(db, PostingKind.Purchase, locationId, branch.Id, companyLevel, ct);
 
@@ -75,31 +95,74 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             PaymentMethod = input.PaymentMethod,
             Status = PurchaseStatus.Completed,
             CreatedByUserId = createdByUserId,
+            RatesIncludeTax = input.RatesIncludeTax,
+            BillDiscountPercent = input.BillDiscountPercent,
+            PlaceOfSupply = place.Place,
+            PlaceOfSupplyStateId = place.OwnStateId,
+            SupplierStateId = place.PartyStateId,
+            PartyTaxStatus = PartyTaxStatus.Unspecified,
         };
 
-        decimal subtotal = 0, taxTotal = 0, otherChargesTotal = 0, discountTotal = 0, originalGrandTotal = 0;
-
-        foreach (var lineInput in input.Lines)
+        // ---- 1. validate every line (units, quantities), collecting the errors of all lines
+        var errors = new List<FieldError>();
+        var prepared = new List<PreparedLine>(input.Lines.Count);
+        for (var i = 0; i < input.Lines.Count; i++)
         {
-            var supplierBatchNumber = NormalizeSupplierBatchNumber(lineInput.SupplierBatchNumber);
-            var (line, lineSubtotal, originalLineTotal) = await BuildLineAsync(purchase, lineInput, rateToBase, transactionCurrency.DecimalPrecision, basePrecision, ct);
+            try
+            {
+                prepared.Add(await PrepareLineAsync(i, input.Lines[i], ct));
+            }
+            catch (DomainValidationException ex)
+            {
+                errors.AddRange(ex.Errors);
+            }
+        }
+        // TP-5a (T11): GST-taxable product without an HSN is an error once the company's HsnRequiredFrom date is reached.
+        errors.AddRange(HsnRules.DocumentErrors(await db.BusinessSettings.AsNoTracking().Select(s => s.HsnRequiredFrom).FirstOrDefaultAsync(ct), input.PurchaseDate, productIds, rates));
+        if (errors.Count > 0) throw new DomainValidationException(errors);
+
+        // ---- 2. the calculator, in the document currency (BR22): its precision is the supplier currency's
+        var calc = Calculate(input, place, rates, prepared, transactionCurrency.DecimalPrecision);
+
+        // ---- 3. convert each part and each row to base and build the lines
+        var warnings = place.Warnings.Select(w => new PurchaseWarning("supplierId", w)).ToList();
+        var warnedProducts = new HashSet<Guid>();
+        decimal subtotal = 0, taxTotal = 0, taxableTotal = 0, otherChargesTotal = 0, discountTotal = 0, grandTotal = 0, originalGrandTotal = 0, billDiscount = 0, billCharges = 0;
+
+        for (var i = 0; i < prepared.Count; i++)
+        {
+            var line = BuildLine(purchase, prepared[i], calc.Lines[i], rates[prepared[i].Product.Id], input, place.Place, rateToBase, basePrecision);
             purchase.Lines.Add(line);
+            if (rates[line.ProductId] is { HsnWarning: true, HsnWarningMessage: { } hsnMessage } && warnedProducts.Add(line.ProductId))
+            {
+                warnings.Add(new PurchaseWarning($"lines[{i}].hsnCode", hsnMessage));
+            }
 
-            subtotal += lineSubtotal;
+            subtotal += ToBase(calc.Lines[i].Gross, rateToBase, basePrecision);
             taxTotal += line.TaxAmount;
-            otherChargesTotal += line.OtherCharges;
-            discountTotal += line.Discount;
-            originalGrandTotal += originalLineTotal;
+            taxableTotal += line.TaxableValue;
+            otherChargesTotal += line.OtherCharges + line.BillChargeShare;
+            discountTotal += line.Discount + line.BillDiscountShare;
+            grandTotal += line.LineTotal;
+            originalGrandTotal += line.OriginalLineTotal!.Value;
+            billDiscount += line.BillDiscountShare;
+            billCharges += line.BillChargeShare;
 
-            ApplyPurchaseLineToStock(line, stockItems[(locationId, line.ProductId)], purchaseNo, input.PurchaseDate, supplierBatchNumber, createdByUserId);
+            ApplyPurchaseLineToStock(line, stockItems[(locationId, line.ProductId)], purchaseNo, input.PurchaseDate, prepared[i].SupplierBatchNumber, createdByUserId);
         }
 
         purchase.Subtotal = subtotal;
         purchase.TaxTotal = taxTotal;
+        purchase.TaxableTotal = taxableTotal;
         purchase.OtherChargesTotal = otherChargesTotal;
         purchase.DiscountTotal = discountTotal;
-        purchase.GrandTotal = subtotal + otherChargesTotal - discountTotal + taxTotal;
-        purchase.OriginalGrandTotal = Math.Round(originalGrandTotal, transactionCurrency.DecimalPrecision, MidpointRounding.AwayFromZero);
+        purchase.GrandTotal = grandTotal; // TP-3: Σ line totals (the old Subtotal + charges - discount + tax identity breaks for tax-inclusive lines)
+        purchase.OriginalGrandTotal = originalGrandTotal;
+        purchase.BillDiscountAmount = billDiscount;
+        purchase.BillCharges = billCharges;
+        purchase.OriginalBillDiscountAmount = calc.BillDiscountAmount;
+        purchase.OriginalBillCharges = calc.Lines.Sum(l => l.BillChargeShare);
+        purchase.Warnings = warnings;
         if (input.PaidAmount > 0)
         {
             RecordPayment(purchase, input.PaidAmount, input.PaymentMethod, input.PurchaseDate, createdByUserId, input.AccountId, transactionCurrency.DecimalPrecision, basePrecision);
@@ -424,9 +487,9 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         await StockLocationRules.ResolveReturnSourceAsync(db, locationId, purchase.StockLocationId, purchase.BranchId, companyLevel, ct);
         // Lock the stock rows before reading the batches, so the remaining quantities checked below are current.
         var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, purchaseLineProductIds.Select(id => (locationId, id)), ct);
-        var lines = await db.PurchaseOrderLines.Include(l => l.Product).ThenInclude(p => p.BaseUnit).Include(l => l.Batch)
+        var lines = await db.PurchaseOrderLines.Include(l => l.Product).ThenInclude(p => p.BaseUnit).Include(l => l.Batch).Include(l => l.Tax).Include(l => l.Taxes)
             .Where(l => l.PurchaseOrderId == purchase.Id).ToListAsync(ct);
-        var priorReturns = await db.PurchaseReturnLines
+        var priorReturns = await db.PurchaseReturnLines.Include(r => r.Taxes)
             .Where(r => r.PurchaseOrderLine.PurchaseOrderId == purchase.Id).ToListAsync(ct);
         var productUnits = await db.ProductUnits.Include(u => u.Unit)
             .Where(u => purchaseLineProductIds.Contains(u.ProductId)).ToListAsync(ct);
@@ -487,10 +550,13 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
             // Returning whatever is left takes the exact remainder, so per-line rounding can never leave a stray
             // paisa of credit unissued (or issue one too many) once an item is fully returned. Credit is prorated
-            // by base quantity, so returns in different units of the same line add up.
-            var last = baseQty == returnableBase;
-            var taxable = last ? line.TaxableValue - prior.Sum(r => r.TaxableValue) : Math.Round(line.TaxableValue * baseQty / line.BaseQty, basePrecision, MidpointRounding.AwayFromZero);
-            var tax = last ? line.TaxAmount - prior.Sum(r => r.TaxAmount) : Math.Round(line.TaxAmount * baseQty / line.BaseQty, basePrecision, MidpointRounding.AwayFromZero);
+            // by base quantity, so returns in different units of the same line add up. Every tax row of the original is
+            // reversed on its own (BR25, TaxReversal) and the return line's tax is the sum of the returned rows (DQ-TP2-4);
+            // the document-currency values of a TP-3 purchase are reversed at that currency's precision.
+            var taxable = TaxReversal.Share(line.TaxableValue, prior.Sum(r => r.TaxableValue), baseQty, returnableBase, line.BaseQty, basePrecision);
+            var rows = TaxReversal.ReverseRows(
+                OriginalRows(line), prior.SelectMany(r => r.Taxes).Select(t => ToRow(t, original: false)).ToList(), baseQty, returnableBase, line.BaseQty, basePrecision);
+            var tax = rows.Sum(r => r.TaxAmount);
 
             var returnLine = new PurchaseReturnLine
             {
@@ -508,7 +574,45 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
                 TaxAmount = tax,
                 LineTotal = taxable + tax,
                 CostRemoved = StockCost.Money(baseQty * batch.UnitCost),
+                TaxProfileId = line.TaxProfileId,
+                TaxProfileVersionId = line.TaxProfileVersionId,
+                PlaceOfSupply = line.PlaceOfSupply,
             };
+
+            // Document-currency twins: only for a TP-3 original (NULL on history, which keeps the old proportional rule below).
+            IReadOnlyList<TaxRowResult>? originalRows = null;
+            if (line.OriginalTaxableValue is { } originalTaxable)
+            {
+                returnLine.OriginalTaxableValue = TaxReversal.Share(
+                    originalTaxable, prior.Sum(r => r.OriginalTaxableValue ?? 0m), baseQty, returnableBase, line.BaseQty, currency.DecimalPrecision);
+                originalRows = TaxReversal.ReverseRows(
+                    OriginalRows(line, original: true), prior.SelectMany(r => r.Taxes).Select(t => ToRow(t, original: true)).ToList(),
+                    baseQty, returnableBase, line.BaseQty, currency.DecimalPrecision);
+                returnLine.OriginalTaxAmount = originalRows.Sum(r => r.TaxAmount);
+            }
+
+            foreach (var row in rows)
+            {
+                var originalRow = originalRows?.SingleOrDefault(o => TaxReversal.RowKey(o.ComponentId, o.Code) == TaxReversal.RowKey(row.ComponentId, row.Code));
+                var source = line.Taxes.FirstOrDefault(t => TaxReversal.RowKey(t.TaxComponentId, t.ComponentCode) == TaxReversal.RowKey(row.ComponentId, row.Code));
+                var legacy = row.ComponentId is null && source?.Treatment is null && rows.Count == 1; // the one legacy row keeps the id the SQL catch-up gives it
+                returnLine.Taxes.Add(new PurchaseReturnLineTax
+                {
+                    Id = legacy ? TaxSeedData.LegacyLineTaxId(returnLine.Id) : Guid.NewGuid(),
+                    PurchaseReturnLineId = returnLine.Id,
+                    TaxComponentId = row.ComponentId,
+                    ComponentCode = row.Code,
+                    Kind = row.Kind,
+                    Method = row.Method,
+                    RatePercent = row.RatePercent,
+                    AmountPerBaseUnit = row.AmountPerBaseUnit,
+                    BaseAmount = row.BaseAmount,
+                    TaxAmount = row.TaxAmount,
+                    Treatment = source?.Treatment,
+                    OriginalBaseAmount = originalRow?.BaseAmount,
+                    OriginalTaxAmount = originalRow?.TaxAmount,
+                });
+            }
             purchaseReturn.Lines.Add(returnLine);
             priorReturns.Add(returnLine);
             purchaseReturn.TaxableTotal += taxable;
@@ -535,11 +639,16 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
 
         purchaseReturn.Total = purchaseReturn.TaxableTotal + purchaseReturn.TaxTotal;
 
-        // The same credit in the purchase's own currency. Returning the last of the goods credits exactly what is
-        // left of the original total; otherwise the base credit's share of the purchase is applied to it.
+        // The same credit in the purchase's own currency. A TP-3 purchase reversed its document-currency values line by line, so the credit
+        // is their sum. A legacy purchase keeps the old rule: returning the last of the goods credits exactly what is left of the original
+        // total; otherwise the base credit's share of the purchase is applied to it.
         decimal originalCredit;
         var originalLeft = purchase.OriginalGrandTotal - purchase.OriginalReturnedAmount;
-        if (purchase.ExchangeRateToBase == 1m)
+        if (purchaseReturn.Lines.All(l => l.OriginalTaxableValue is not null))
+        {
+            originalCredit = purchaseReturn.Lines.Sum(l => l.OriginalTaxableValue!.Value + l.OriginalTaxAmount!.Value);
+        }
+        else if (purchase.ExchangeRateToBase == 1m)
         {
             originalCredit = purchaseReturn.Total;
         }
@@ -644,112 +753,187 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         if (transaction is not null) await transaction.CommitAsync(ct);
     }
 
+    // A tax row as the reversal helper reads it: the base-currency amounts, or (original) the document-currency ones.
+    private static TaxRowResult ToRow(PurchaseLineTaxBase t, bool original) => new(
+        t.TaxComponentId, t.ComponentCode, t.Kind, t.Method, t.RatePercent, t.AmountPerBaseUnit,
+        original ? t.OriginalBaseAmount ?? t.BaseAmount : t.BaseAmount, original ? t.OriginalTaxAmount ?? t.TaxAmount : t.TaxAmount);
+
+    // The rows of a purchase line to reverse. A line without rows (history that missed the catch-up) reverses as the one legacy row it would have had.
+    private static IReadOnlyList<TaxRowResult> OriginalRows(PurchaseOrderLine line, bool original = false) =>
+        line.Taxes.Count > 0
+            ? line.Taxes.Select(t => ToRow(t, original)).ToList()
+            : [new TaxRowResult(null, line.Tax.Name, TaxComponentKind.Other, TaxCalculationMethod.Percent, line.TaxRatePercent, null,
+                original ? line.OriginalTaxableValue ?? line.TaxableValue : line.TaxableValue, original ? line.OriginalTaxAmount ?? line.TaxAmount : line.TaxAmount)];
+
     // The supplier's lot number is kept exactly as entered; a blank entry just means "none given".
-    private static string? NormalizeSupplierBatchNumber(string? value)
+    private static string? NormalizeSupplierBatchNumber(string? value, string field)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
         if (value.Length > 60)
         {
-            throw new DomainValidationException("SupplierBatchNumber", "Supplier batch number can be at most 60 characters.");
+            throw new DomainValidationException(field, "Supplier batch number can be at most 60 characters.");
         }
         return value;
     }
 
-    // Returns the line with every monetary field in the business base currency, plus the line's pre-tax
-    // subtotal (also base currency) for the header, and the line total in the original transaction
-    // currency for the purchase's OriginalGrandTotal. The user's rate/charges/discount are entered in the
-    // transaction currency; a real conversion (rate != 1) rounds each converted component to the base
-    // currency's precision so header totals always equal the sum of their lines.
-    private async Task<(PurchaseOrderLine Line, decimal Subtotal, decimal OriginalLineTotal)> BuildLineAsync(
-        PurchaseOrder purchase, PurchaseLineInput input, decimal rateToBase, int transactionPrecision, int basePrecision, CancellationToken ct)
+    /// <summary>A line whose product, unit and quantities were checked (all in the entered document currency; nothing converted yet).</summary>
+    private sealed record PreparedLine(PurchaseLineInput Input, Product Product, ProductUnit Unit, decimal BaseQty, string? SupplierBatchNumber);
+
+    // The product, unit and quantity rules of a purchase line. Errors are keyed lines[i].field so the form can map them to the row.
+    private async Task<PreparedLine> PrepareLineAsync(int index, PurchaseLineInput input, CancellationToken ct)
     {
-        if (input.Qty <= 0)
+        string Key(string field) => $"lines[{index}].{field}";
+        var errors = new List<FieldError>();
+        void Fail(string field, string message) => errors.Add(new FieldError(Key(field), message));
+
+        if (input.Qty <= 0) Fail("qty", "Quantity must be greater than zero.");
+        if (input.Rate < 0) Fail("rate", "Rate cannot be negative.");
+        string? supplierBatchNumber = null;
+        try
         {
-            throw new DomainValidationException("Lines", "Quantity must be greater than zero.");
+            supplierBatchNumber = NormalizeSupplierBatchNumber(input.SupplierBatchNumber, Key("supplierBatchNumber"));
         }
-        if (input.Rate < 0)
+        catch (DomainValidationException ex)
         {
-            throw new DomainValidationException("Lines", "Rate cannot be negative.");
+            errors.AddRange(ex.Errors);
         }
 
-        var product = await db.Products.Include(p => p.BaseUnit).SingleOrDefaultAsync(p => p.Id == input.ProductId, ct)
-            ?? throw new DomainValidationException("Lines", "Select a valid product.");
-        if (!product.IsActive)
+        var product = await db.Products.Include(p => p.BaseUnit).SingleOrDefaultAsync(p => p.Id == input.ProductId, ct);
+        if (product is null)
         {
-            throw new DomainValidationException("Lines", $"{product.Name} is inactive.");
+            Fail("productId", "Select a valid product.");
+            throw new DomainValidationException(errors);
         }
+        if (!product.IsActive) Fail("productId", $"{product.Name} is inactive.");
 
-        var productUnit = await db.ProductUnits
-            .Include(u => u.Unit)
-            .SingleOrDefaultAsync(u => u.Id == input.ProductUnitId, ct)
-            ?? throw new DomainValidationException("Lines", "Select a valid unit.");
+        var productUnit = await db.ProductUnits.Include(u => u.Unit).SingleOrDefaultAsync(u => u.Id == input.ProductUnitId, ct);
+        if (productUnit is null)
+        {
+            Fail("productUnitId", "Select a valid unit.");
+            throw new DomainValidationException(errors);
+        }
         if (productUnit.ProductId != product.Id)
         {
-            throw new DomainValidationException("Lines", "The selected unit does not belong to this product.");
+            Fail("productUnitId", "The selected unit does not belong to this product.");
+            throw new DomainValidationException(errors);
         }
         var unitDisplay = productUnit.Label ?? productUnit.Unit.Name;
-        if (!productUnit.IsActive)
-        {
-            throw new DomainValidationException("Lines", $"{unitDisplay} is no longer active.");
-        }
-        if (!productUnit.IsPurchasable)
-        {
-            throw new DomainValidationException("Lines", $"{unitDisplay} cannot be purchased for {product.Name}.");
-        }
-
-        var tax = await db.Taxes.SingleAsync(t => t.Id == product.TaxId, ct);
+        if (!productUnit.IsActive) Fail("productUnitId", $"{unitDisplay} is no longer active.");
+        else if (!productUnit.IsPurchasable) Fail("productUnitId", $"{unitDisplay} cannot be purchased for {product.Name}.");
+        if (errors.Count > 0) throw new DomainValidationException(errors);
 
         // The stored factor is snapshotted onto the line; history is never recomputed from configuration.
-        StockQuantity.EnsureEnteredDecimals(input.Qty, productUnit.Unit.DecimalPlaces, unitDisplay, "Lines");
+        StockQuantity.EnsureEnteredDecimals(input.Qty, productUnit.Unit.DecimalPlaces, unitDisplay, Key("qty"));
         var baseQty = input.Qty * productUnit.ConversionFactorToBase;
-        StockQuantity.EnsureStorable(baseQty, "Lines");
-        StockQuantity.EnsureWithinBaseDecimals(input.Qty, productUnit.Unit.ShortCode, baseQty, product.BaseUnit, "Lines");
-        var foreign = rateToBase != 1m;
+        StockQuantity.EnsureStorable(baseQty, Key("qty"));
+        StockQuantity.EnsureWithinBaseDecimals(input.Qty, productUnit.Unit.ShortCode, baseQty, product.BaseUnit, Key("qty"));
+        return new PreparedLine(input, product, productUnit, baseQty, supplierBatchNumber);
+    }
 
-        // A foreign invoice's figures exist in whole units of its own currency, so each is rounded to that
-        // currency's precision first (tax included, as the supplier's invoice would print it) and only
-        // those rounded figures are converted. This keeps original × rate consistent with the base value.
-        decimal InOriginal(decimal amount) => foreign ? Math.Round(amount, transactionPrecision, MidpointRounding.AwayFromZero) : amount;
-        decimal ToBase(decimal amount) => foreign ? Math.Round(amount * rateToBase, basePrecision, MidpointRounding.AwayFromZero) : amount;
+    // The tax calculator on the document as entered (document currency, precision of the supplier's currency; BR22). Its field names
+    // (lines[i].unitPrice) are mapped to the request's (lines[i].rate).
+    private static TaxDocumentResult Calculate(
+        CreatePurchaseInput input, PlaceOfSupplyResolution place, IReadOnlyDictionary<Guid, ResolvedLineRates> rates, IReadOnlyList<PreparedLine> lines, int precision)
+    {
+        var calcLines = lines.Select(l => new TaxCalcLine(
+            l.Input.Qty, l.BaseQty, l.Input.Rate, l.Input.Discount, l.Input.OtherCharges, input.RatesIncludeTax, rates[l.Product.Id].Rates)).ToList();
+        try
+        {
+            return TaxCalculator.Calculate(new TaxCalcDocument(
+                precision, place.Place, PartyTaxStatus.Unspecified, input.BillDiscountPercent, input.BillDiscountAmount, input.BillCharges, calcLines));
+        }
+        catch (DomainValidationException ex)
+        {
+            // Request names: the calculator's unitPrice is the line's rate, and its single billDiscount is whichever of percent/amount the caller sent.
+            var discountField = input.BillDiscountPercent is not null ? "billDiscountPercent" : "billDiscountAmount";
+            throw new DomainValidationException(ex.Errors.Select(e => e with
+            {
+                Field = e.Field == "billDiscount" ? discountField : e.Field.Replace(".unitPrice", ".rate", StringComparison.Ordinal),
+            }).ToList());
+        }
+    }
 
-        var originalSubtotal = InOriginal(input.Qty * input.Rate);
-        var originalOtherCharges = InOriginal(input.OtherCharges);
-        var originalDiscount = InOriginal(input.Discount);
-        var originalTaxable = originalSubtotal + originalOtherCharges - originalDiscount;
-        var originalTax = InOriginal(originalTaxable * tax.RatePercent / 100);
-        var originalLineTotal = originalTaxable + originalTax;
+    // A foreign invoice's figures exist in whole units of its own currency (the calculator rounded each to that precision), and only
+    // those rounded figures are converted, so original x rate stays consistent with the base value (the rule of the old BuildLineAsync).
+    private static decimal ToBase(decimal amount, decimal rateToBase, int basePrecision) =>
+        rateToBase != 1m ? Math.Round(amount * rateToBase, basePrecision, MidpointRounding.AwayFromZero) : amount;
 
-        var subtotal = ToBase(originalSubtotal);
-        var otherCharges = ToBase(originalOtherCharges);
-        var discount = ToBase(originalDiscount);
-        var taxableValue = subtotal + otherCharges - discount;
-        var taxAmount = ToBase(originalTax);
-        var lineTotal = taxableValue + taxAmount;
-        var unitCost = baseQty > 0 ? StockCost.PerBaseUnit(taxableValue / baseQty) : 0;
+    // The line with every monetary field in the business base currency; the document-currency values of the calculator are kept in the
+    // Original* columns (always set for a TP-3 purchase, so NULL means history). The taxable value includes the bill charge share and the
+    // line's other charges and is net of line and bill discount, and the landed cost per base unit is derived from it (AC9). Cost excludes tax (TP3-Q3).
+    private static PurchaseOrderLine BuildLine(
+        PurchaseOrder purchase, PreparedLine prepared, TaxLineResult calc, ResolvedLineRates rates, CreatePurchaseInput input,
+        PlaceOfSupply place, decimal rateToBase, int basePrecision)
+    {
+        decimal Base(decimal amount) => ToBase(amount, rateToBase, basePrecision);
+        var gross = Base(calc.Gross);
+        var lineDiscount = Base(calc.LineDiscount);
+        var billDiscountShare = Base(calc.BillDiscountShare);
+        var billChargeShare = Base(calc.BillChargeShare);
+        var otherCharges = Base(calc.OtherCharges);
+        // Exclusive: the base taxable value is the sum of the separately converted parts (so the header and lines add up), hence for a foreign supplier
+        // OriginalTaxableValue x rate can differ from it by up to one base unit per line (accepted, TP3-Q5). Inclusive lines convert the taxable value itself.
+        var taxableValue = input.RatesIncludeTax ? Base(calc.Taxable) : gross - lineDiscount - billDiscountShare + billChargeShare + otherCharges;
+
+        var lineId = Guid.NewGuid();
+        var rows = calc.Rows.Select(r => new PurchaseOrderLineTax
+        {
+            Id = Guid.NewGuid(),
+            PurchaseOrderLineId = lineId,
+            TaxComponentId = r.ComponentId,
+            ComponentCode = r.Code,
+            Kind = r.Kind,
+            Method = r.Method,
+            RatePercent = r.RatePercent,
+            AmountPerBaseUnit = r.AmountPerBaseUnit,
+            // A per-unit row's base amount is the base quantity, not money (DQ-TP2-6): copied, not converted.
+            BaseAmount = r.Method == TaxCalculationMethod.AmountPerBaseUnit ? r.BaseAmount : Base(r.BaseAmount),
+            TaxAmount = Base(r.TaxAmount),
+            Treatment = rates.Rates.Treatment,
+            OriginalBaseAmount = r.BaseAmount,
+            OriginalTaxAmount = r.TaxAmount,
+        }).ToList();
+        var taxAmount = rows.Sum(r => r.TaxAmount);
+        var unitCost = prepared.BaseQty > 0 ? StockCost.PerBaseUnit(taxableValue / prepared.BaseQty) : 0;
 
         var line = new PurchaseOrderLine
         {
-            Id = Guid.NewGuid(),
+            Id = lineId,
             PurchaseOrderId = purchase.Id,
-            ProductId = product.Id,
-            ProductUnitId = productUnit.Id,
-            UnitId = productUnit.UnitId,
-            UnitCode = productUnit.Unit.ShortCode,
-            Qty = input.Qty,
-            ConversionFactorToBase = productUnit.ConversionFactorToBase,
-            BaseQty = baseQty,
-            Rate = rateToBase == 1m ? input.Rate : Math.Round(input.Rate * rateToBase, 4, MidpointRounding.AwayFromZero),
-            TaxId = tax.Id,
-            TaxRatePercent = tax.RatePercent,
+            ProductId = prepared.Product.Id,
+            ProductUnitId = prepared.Unit.Id,
+            UnitId = prepared.Unit.UnitId,
+            UnitCode = prepared.Unit.Unit.ShortCode,
+            Qty = prepared.Input.Qty,
+            ConversionFactorToBase = prepared.Unit.ConversionFactorToBase,
+            BaseQty = prepared.BaseQty,
+            Rate = rateToBase == 1m ? prepared.Input.Rate : Math.Round(prepared.Input.Rate * rateToBase, 4, MidpointRounding.AwayFromZero),
+            TaxId = rates.MirrorTaxId, // the purchase profile's mirror tax: keeps the TP-2 build and the T25 "used version" check working
+            TaxRatePercent = calc.TaxRatePercent,
             OtherCharges = otherCharges,
-            Discount = discount,
+            Discount = lineDiscount,
             TaxableValue = taxableValue,
             TaxAmount = taxAmount,
-            LineTotal = lineTotal,
+            LineTotal = taxableValue + taxAmount,
             UnitCost = unitCost,
+            TaxProfileId = rates.Rates.ProfileId,
+            TaxProfileVersionId = rates.Rates.VersionId,
+            PlaceOfSupply = place,
+            HsnCode = rates.HsnCode,
+            PriceIncludesTax = input.RatesIncludeTax,
+            BillDiscountShare = billDiscountShare,
+            BillChargeShare = billChargeShare,
+            OriginalRate = prepared.Input.Rate,
+            OriginalDiscount = calc.LineDiscount,
+            OriginalOtherCharges = calc.OtherCharges,
+            OriginalBillDiscountShare = calc.BillDiscountShare,
+            OriginalBillChargeShare = calc.BillChargeShare,
+            OriginalTaxableValue = calc.Taxable,
+            OriginalTaxAmount = calc.TaxTotal,
+            OriginalLineTotal = calc.LineTotal,
         };
-
-        return (line, subtotal, originalLineTotal);
+        foreach (var row in rows) line.Taxes.Add(row);
+        return line;
     }
 
     private void ApplyPurchaseLineToStock(PurchaseOrderLine line, StockItem stockItem, string purchaseNo, DateOnly receivedDate, string? supplierBatchNumber, Guid userId)

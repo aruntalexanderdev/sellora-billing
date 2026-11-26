@@ -37,7 +37,7 @@ public class PurchaseReturnLockConcurrencyTests(PostgresFixture postgres)
         var pen = await PenScenario.SeedAsync(db);
         var inr = await db.Currencies.SingleAsync(c => c.Code == "INR");
         var supplier = new Supplier { Id = Guid.NewGuid(), Name = "Annapoorna Traders", CurrencyId = inr.Id };
-        db.AddRange(supplier, new BusinessSettings { Id = Guid.NewGuid(), BusinessName = "Sellora Mart", InvoicePrefix = "INV", BaseCurrencyId = inr.Id });
+        db.AddRange(supplier);   // the settings row (with the company country) comes from PenScenario
         await db.SaveChangesAsync();
         var box = await ActiveRowAsync(db, pen.PenId, pen.Box);
         var purchase = await new PurchaseService(db, new ExchangeRateService(db)).CreatePurchaseAsync(

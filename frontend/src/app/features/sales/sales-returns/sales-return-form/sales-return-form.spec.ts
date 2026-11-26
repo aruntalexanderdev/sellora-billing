@@ -20,11 +20,11 @@ const LINE: SalesInvoiceLine = {
   returnUnits: [ru('pu-pc', 'pc', 1, 26), ru('pu-box', 'box', 10, 2, true)],
 };
 
-function setup() {
+function setup(line: SalesInvoiceLine = LINE) {
   const createReturn = vi.fn(() => of({ id: 'r1', returnNo: 'SR-1' }));
   const invoice = {
     id: 'inv', invoiceNo: 'INV-1', customerName: 'Walk-in', invoiceDate: '2026-11-01', paymentMethod: 'Cash', paidAmount: 270,
-    netTotal: 270, lines: [LINE],
+    netTotal: 270, lines: [line],
   } as unknown as SalesInvoiceDetail;
   TestBed.configureTestingModule({
     imports: [SalesReturnForm],
@@ -97,5 +97,33 @@ describe('SalesReturnForm', () => {
     expect(req).not.toHaveProperty('stockLocationId');
     expect(typeof key).toBe('string');
     expect(key.length).toBeGreaterThan(8);
+  });
+});
+
+describe('SalesReturnForm tax estimate (TP-4)', () => {
+  const row = (code: string, kind: 'Cgst' | 'Sgst', tax: number) =>
+    ({ code, kind, method: 'Percent' as const, ratePercent: 9, amountPerBaseUnit: null, baseAmount: 270, taxAmount: tax });
+  const TAXED: SalesInvoiceLine = { ...LINE, taxRatePercent: 18, taxAmount: 48.6, lineTotal: 318.6, taxes: [row('CGST', 'Cgst', 24.3), row('SGST', 'Sgst', 24.3)] };
+
+  it('estimates the tax of the entered quantity from the original rows (half the line = half the tax)', () => {
+    const { fixture, c } = setup(TAXED);
+    expect(c.estimateFor(TAXED)).toBeNull();
+    c.setUnit('l1', 'pu-pc');
+    c.setQty('l1', '15');
+    fixture.detectChanges();
+    expect(c.estimateFor(TAXED)).toEqual({ taxable: 135, tax: 24.3 });
+    expect(c.taxEstimate()).toBe(24.3);
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="return-tax-estimate"]')?.textContent).toContain('≈');
+    expect(el.querySelector('[data-testid="return-tax-total"]')?.textContent).toContain('estimate');
+    expect(c.credit()).toBe(159.3);
+  });
+
+  it('estimates a legacy line (no rows) from its tax amount', () => {
+    const legacy: SalesInvoiceLine = { ...LINE, taxRatePercent: 18, taxAmount: 48.6, lineTotal: 318.6, taxes: [] };
+    const { c } = setup(legacy);
+    c.setUnit('l1', 'pu-pc');
+    c.setQty('l1', '15');
+    expect(c.estimateFor(legacy)).toEqual({ taxable: 135, tax: 24.3 });
   });
 });

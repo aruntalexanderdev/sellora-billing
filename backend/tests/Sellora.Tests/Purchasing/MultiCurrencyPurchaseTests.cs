@@ -58,6 +58,7 @@ public class MultiCurrencyPurchaseTests
         await db.SaveChangesAsync();
 
         var rates = new ExchangeRateService(db);
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         return new Fixture(db, new PurchaseService(db, rates), rates, inr, usd, usdSupplier, inrSupplier, product, bag, usdRate, user.Id);
     }
 
@@ -124,13 +125,14 @@ public class MultiCurrencyPurchaseTests
         });
         await f.Db.SaveChangesAsync();
 
-        // 1 × USD 4.38: tax 0.219 is invoiced as USD 0.22, so the invoice total is USD 4.60.
+        // 1 × USD 4.38: tax 0.219 is invoiced as USD 0.22 (TP-3: CGST 0.11 + SGST 0.11), so the invoice total is USD 4.60.
+        // Each tax row is converted on its own (0.11 × 95.97 = 10.56 twice), so the base tax is one paisa above 0.22 × 95.97.
         var purchase = await f.Purchases.CreatePurchaseAsync(Input(f, f.UsdSupplier, new DateOnly(2026, 9, 18), 1, 4.38m), f.UserId);
 
         Assert.Equal(4.60m, purchase.OriginalGrandTotal);
         Assert.Equal(420.35m, purchase.Subtotal);   // 4.38 × 95.97
-        Assert.Equal(21.11m, purchase.TaxTotal);    // 0.22 × 95.97
-        Assert.Equal(441.46m, purchase.GrandTotal); // 4.60 × 95.97, matching what the invoice shows
+        Assert.Equal(21.12m, purchase.TaxTotal);    // 2 × (0.11 × 95.97): TP-3 converts each row
+        Assert.Equal(441.47m, purchase.GrandTotal); // Σ line totals
         Assert.Equal(purchase.Subtotal + purchase.TaxTotal, purchase.Lines.Single().LineTotal);
     }
 

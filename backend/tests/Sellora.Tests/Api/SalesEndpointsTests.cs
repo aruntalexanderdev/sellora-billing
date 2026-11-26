@@ -50,8 +50,9 @@ public class SalesEndpointsTests
         var (pc, box, hctn, fctn) = (TestUnits.Piece(), TestUnits.Box(), TestUnits.HalfCarton(), TestUnits.FullCarton());
         db.AddRange(user.Role, user, tax, inr, settings, supplier, customer, pc, box, hctn, fctn);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);
 
-        var pen = await new ProductService(db).CreateProductAsync(new UpsertProductInput("STN-PEN", "Ball Pen", null, null, pc.Id, tax.Id, 0m,
+        var pen = await new ProductService(db).CreateProductAsync(new UpsertProductInput("STN-PEN", "Ball Pen", null, null, pc.Id, 0m,
         [
             Item(pc.Id, null, null, PcCode), Item(box.Id, pc.Id, 10m, BoxCode), Item(hctn.Id, box.Id, 5m), Item(fctn.Id, hctn.Id, 2m),
         ]));
@@ -60,6 +61,7 @@ public class SalesEndpointsTests
         await pricing.SetPriceAsync(rows["pc"].Id, 12m, user.Id);
         await pricing.SetPriceAsync(rows["box"].Id, 100m, user.Id);
         // Half Carton and Full Carton stay unpriced.
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         var purchases = new PurchaseService(db, new ExchangeRateService(db));
         await purchases.CreatePurchaseAsync(new CreatePurchaseInput(supplier.Id, D, null, null, PaymentMethod.Cash, 0,
             [new PurchaseLineInput(pen.Id, rows["fctn"].Id, 1m, 1000m, 0, 0)]), user.Id); // 100 pc
@@ -236,7 +238,7 @@ public class SalesEndpointsTests
         var result = await f.Sales.Create(Request(f, overridePrice: false), default);
 
         var problem = Assert.IsType<ValidationProblemDetails>(Assert.IsAssignableFrom<ObjectResult>(result.Result).Value);
-        Assert.Equal("The price of Ball Pen (Box) is now 100.00. Refresh the item and try again.", problem.Errors["Lines"].Single());
+        Assert.Equal("The price of Ball Pen (Box) is now 100.00. Refresh the item and try again.", problem.Errors["lines[0].unitPrice"].Single());
         Assert.Empty(await f.Db.SalesInvoices.ToListAsync());
     }
 

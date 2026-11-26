@@ -49,6 +49,11 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
 
     public DbSet<Unit> Units => Set<Unit>();
     public DbSet<Tax> Taxes => Set<Tax>();
+    public DbSet<TaxComponent> TaxComponents => Set<TaxComponent>();
+    public DbSet<TaxProfile> TaxProfiles => Set<TaxProfile>();
+    public DbSet<TaxProfileVersion> TaxProfileVersions => Set<TaxProfileVersion>();
+    public DbSet<TaxProfileVersionComponent> TaxProfileVersionComponents => Set<TaxProfileVersionComponent>();
+    public DbSet<TaxAssignment> TaxAssignments => Set<TaxAssignment>();
     public DbSet<Currency> Currencies => Set<Currency>();
     public DbSet<Country> Countries => Set<Country>();
     public DbSet<State> States => Set<State>();
@@ -97,6 +102,10 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
 
     public DbSet<SalesInvoice> SalesInvoices => Set<SalesInvoice>();
     public DbSet<SalesInvoiceLine> SalesInvoiceLines => Set<SalesInvoiceLine>();
+    public DbSet<SalesInvoiceLineTax> SalesInvoiceLineTaxes => Set<SalesInvoiceLineTax>();
+    public DbSet<SalesReturnLineTax> SalesReturnLineTaxes => Set<SalesReturnLineTax>();
+    public DbSet<PurchaseOrderLineTax> PurchaseOrderLineTaxes => Set<PurchaseOrderLineTax>();
+    public DbSet<PurchaseReturnLineTax> PurchaseReturnLineTaxes => Set<PurchaseReturnLineTax>();
     public DbSet<SalesInvoiceLineBatchConsumption> SalesInvoiceLineBatchConsumptions => Set<SalesInvoiceLineBatchConsumption>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -157,6 +166,11 @@ public class SelloraDbContext(DbContextOptions<SelloraDbContext> options, ICompa
         modelBuilder.Entity<SalesReturnLine>().HasQueryFilter(CompanyQueryFilter.Name, e => e.SalesReturn.CompanyId == CurrentCompanyId);
         modelBuilder.Entity<SalesInvoiceLineBatchConsumption>().HasQueryFilter(CompanyQueryFilter.Name, e => e.PurchaseBatch.CompanyId == CurrentCompanyId);
         modelBuilder.Entity<SellingPrice>().HasQueryFilter(CompanyQueryFilter.Name, e => e.ProductUnit.CompanyId == CurrentCompanyId);
+        // Tax profiles (D1): line tax rows reach the company through their line's header, like the lines themselves.
+        modelBuilder.Entity<SalesInvoiceLineTax>().HasQueryFilter(CompanyQueryFilter.Name, e => e.Line.SalesInvoice.CompanyId == CurrentCompanyId);
+        modelBuilder.Entity<SalesReturnLineTax>().HasQueryFilter(CompanyQueryFilter.Name, e => e.Line.SalesReturn.CompanyId == CurrentCompanyId);
+        modelBuilder.Entity<PurchaseOrderLineTax>().HasQueryFilter(CompanyQueryFilter.Name, e => e.Line.PurchaseOrder.CompanyId == CurrentCompanyId);
+        modelBuilder.Entity<PurchaseReturnLineTax>().HasQueryFilter(CompanyQueryFilter.Name, e => e.Line.PurchaseReturn.CompanyId == CurrentCompanyId);
         // Phase 7: Roles are company-owned (filtered above); a role's permission rows follow their role.
         modelBuilder.Entity<RolePermission>().HasQueryFilter(CompanyQueryFilter.Name, e => e.Role.CompanyId == CurrentCompanyId);
     }

@@ -37,7 +37,7 @@ public class StockTransferReadsTests
         var w = await InTransitAsync();
         var permissions = new FakeEffectivePermissions("Inventory.View");
         await using var db = w.Db();
-        var controller = new StockController(db, permissions);
+        var controller = new StockController(db, permissions, new Sellora.Infrastructure.Services.TaxResolver(db));
 
         var row = Ok(await controller.Overview(null, null, null, null)).Items.Single(i => i.ProductId == w.PenId);
         Assert.Equal(100m, row.QuantityOnHand); // 60 at Main + 40 in transit: company value is conserved
@@ -54,7 +54,7 @@ public class StockTransferReadsTests
         var w = await InTransitAsync();
         var permissions = FakeScopedPermissions.AtBranch(w.Blr, "Inventory.View");
         await using var db = w.W.Db(w.Blr, allowed: new HashSet<Guid> { w.Blr });
-        var controller = new StockController(db, permissions);
+        var controller = new StockController(db, permissions, new Sellora.Infrastructure.Services.TaxResolver(db));
 
         var row = Ok(await controller.Overview(null, null, null, null)).Items.SingleOrDefault(i => i.ProductId == w.PenId);
         Assert.DoesNotContain(row?.Locations ?? [], l => l.LocationId == w.L.Transit);
@@ -74,7 +74,7 @@ public class StockTransferReadsTests
         var w = await InTransitAsync();
         var permissions = FakeScopedPermissions.AtBranch(w.Main, "Inventory.View"); // not company-level, although the context can access both branches
         await using var db = w.W.Db();
-        var row = Ok(await new StockController(db, permissions).Overview(null, null, null, null)).Items.Single(i => i.ProductId == w.PenId);
+        var row = Ok(await new StockController(db, permissions, new Sellora.Infrastructure.Services.TaxResolver(db)).Overview(null, null, null, null)).Items.Single(i => i.ProductId == w.PenId);
 
         Assert.DoesNotContain(row.Locations!, l => l.LocationId == w.L.Transit);
         Assert.Equal(60m, row.QuantityOnHand);

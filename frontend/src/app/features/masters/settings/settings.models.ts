@@ -22,6 +22,14 @@ export interface BusinessSettings {
   countryName: string | null;
   stateId: string | null;
   stateName: string | null;
+  /** Whether stored selling prices include tax (T2/T18). */
+  sellingPricesIncludeTax: boolean;
+  /** Cap of a whole-bill discount in percent; null = no cap (T15). */
+  maxBillDiscountPercent: number | null;
+  /** Date (yyyy-MM-dd) from which a GST-taxable line without HSN is blocked; null = warning only (T11). */
+  hsnRequiredFrom?: string | null;
+  /** Read-only: active products under a GST-taxable profile without HSN; null when the company has no country. */
+  productsWithoutHsnCount?: number | null;
 }
 
 export interface UpdateBusinessSettingsRequest {
@@ -39,4 +47,11 @@ export interface UpdateBusinessSettingsRequest {
   /** Always post the current values: null clears the link (D17/D22). */
   countryId: string | null;
   stateId: string | null;
+  sellingPricesIncludeTax: boolean;
+  /** 0-100; always post the current value, null clears the cap. */
+  maxBillDiscountPercent: number | null;
+  /** Omitted/null = unchanged (T34); clearing needs clearHsnRequiredFrom. */
+  hsnRequiredFrom?: string | null;
+  /** true removes the date (warning only again); wins over hsnRequiredFrom. */
+  clearHsnRequiredFrom?: boolean;
 }

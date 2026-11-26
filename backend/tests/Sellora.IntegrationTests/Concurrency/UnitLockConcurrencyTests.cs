@@ -1,3 +1,4 @@
+using Sellora.IntegrationTests.TestData;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Sellora.Domain.Abstractions;
@@ -35,14 +36,15 @@ public class UnitLockConcurrencyTests(PostgresFixture postgres)
         await using var db = database.CreateDbContext();
         var piece = new Unit { Id = Guid.NewGuid(), Name = "Piece", ShortCode = "pc", MeasurementCategory = MeasurementCategory.Count };
         var tax = new Tax { Id = Guid.NewGuid(), Name = "GST 12%", RatePercent = 12m };
-        db.AddRange(piece, tax);
+        db.AddRange(piece);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);   // products need a company country and a resolvable profile (TP-1)
         return new Seed(piece.Id, tax.Id);
     }
 
     private static Task CreateProductAsync(SelloraDbContext db, Seed seed) =>
         new ProductService(db).CreateProductAsync(new UpsertProductInput(
-            "SNK-MIX", "Namkeen Mixture", null, null, seed.PieceId, seed.TaxId, 25m, [new ProductUnitInputItem(null, seed.PieceId, null, 1m, "Piece", null, true, true, false, false, true)]));
+            "SNK-MIX", "Namkeen Mixture", null, null, seed.PieceId, 25m, [new ProductUnitInputItem(null, seed.PieceId, null, 1m, "Piece", null, true, true, false, false, true)]));
 
     [Theory]
     [InlineData(1)]

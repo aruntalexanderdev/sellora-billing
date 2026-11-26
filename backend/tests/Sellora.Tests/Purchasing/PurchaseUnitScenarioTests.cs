@@ -50,8 +50,10 @@ public class PurchaseUnitScenarioTests
         var pack = TestUnits.New("Pack", "pk", MeasurementCategory.Packaging, 3, null);
         db.AddRange(role, user, tax, inr, usd, settings, inrSupplier, usdSupplier, customer, rate, pc, box, hctn, fctn, tray, kg, kg2, pack);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);
 
         var products = new ProductService(db);
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         var f0 = new Fixture(db, new PurchaseService(db, new ExchangeRateService(db)), ListPricedSales.For(db), products,
             inrSupplier, usdSupplier, customer, tax, user.Id, pc, box, hctn, fctn, tray, kg, kg2, pack, null!, null!);
         var pen = await products.CreateProductAsync(Input(f0, "STN-PEN", pc.Id,
@@ -63,7 +65,7 @@ public class PurchaseUnitScenarioTests
         new(id, unitId, innerUnitId, qty, null, null, purchasable, true, false, false, active);
 
     private static UpsertProductInput Input(Fixture f, string sku, Guid baseUnitId, params ProductUnitInputItem[] units) =>
-        new(sku, "Ball Pen", null, null, baseUnitId, f.Tax.Id, 0m, units);
+        new(sku, "Ball Pen", null, null, baseUnitId, 0m, units);
 
     private static async Task<Dictionary<Guid, ProductUnit>> RowsAsync(Fixture f, Guid productId) =>
         (await f.Db.ProductUnits.AsNoTracking().Where(u => u.ProductId == productId).ToListAsync()).ToDictionary(u => u.UnitId);
@@ -311,7 +313,10 @@ public class PurchaseUnitScenarioTests
 
         Assert.Equal(line.ProductUnitId, returned.ProductUnitId);
         Assert.Equal(Math.Round(line.TaxableValue * 1m / line.Qty, 2, MidpointRounding.AwayFromZero), returned.TaxableValue);
-        Assert.Equal(Math.Round(line.TaxAmount * 1m / line.Qty, 2, MidpointRounding.AwayFromZero), returned.TaxAmount);
+        // TP-3 (DQ-TP2-4): the return line's tax is the sum of its reversed rows (CGST and SGST each prorated), not one line-level proration.
+        var expectedTax = (await f.Db.PurchaseOrderLineTaxes.Where(r => r.PurchaseOrderLineId == line.Id).ToListAsync())
+            .Sum(r => Math.Round(r.TaxAmount * 1m / line.Qty, 2, MidpointRounding.AwayFromZero));
+        Assert.Equal(expectedTax, returned.TaxAmount);
         Assert.Equal((1m, 10m, 10m), (returned.Qty, returned.ConversionFactorToBase, returned.BaseQty));
     }
 
@@ -322,7 +327,7 @@ public class PurchaseUnitScenarioTests
     {
         var f = await SeedAsync();
 
-        await RejectedAsync(() => BuyAsync(f, Line(f.PenRows[f.Box.Id], 1.5m, 100m)), "Lines", "Box is counted in whole numbers.");
+        await RejectedAsync(() => BuyAsync(f, Line(f.PenRows[f.Box.Id], 1.5m, 100m)), "lines[0].qty", "Box is counted in whole numbers.");
 
         Assert.Empty(await f.Db.PurchaseOrders.ToListAsync());
         Assert.Empty(await f.Db.PurchaseBatches.ToListAsync());
@@ -335,7 +340,7 @@ public class PurchaseUnitScenarioTests
         var rice = await f.Products.CreateProductAsync(Input(f, "RICE", f.Kg.Id, Row(f.Kg.Id, null, null)));
         var kg = (await RowsAsync(f, rice.Id))[f.Kg.Id];
 
-        await RejectedAsync(() => BuyAsync(f, Line(kg, 0.0001m, 50m)), "Lines", "Kilogram allows at most 3 decimal place(s).");
+        await RejectedAsync(() => BuyAsync(f, Line(kg, 0.0001m, 50m)), "lines[0].qty", "Kilogram allows at most 3 decimal place(s).");
 
         Assert.Empty(await f.Db.PurchaseOrders.ToListAsync());
     }
@@ -347,7 +352,7 @@ public class PurchaseUnitScenarioTests
         var rice = await f.Products.CreateProductAsync(Input(f, "RICE2", f.Kg2.Id, Row(f.Kg2.Id, null, null), Row(f.Pack.Id, f.Kg2.Id, 0.5m)));
         var rows = await RowsAsync(f, rice.Id);
 
-        var ex = await RejectedAsync(() => BuyAsync(f, Line(rows[f.Pack.Id], 0.01m, 10m)), "Lines");
+        var ex = await RejectedAsync(() => BuyAsync(f, Line(rows[f.Pack.Id], 0.01m, 10m)), "lines[0].qty");
 
         Assert.Equal("0.01 pk = 0.005 kg2; Kilogram (2 dp) is tracked to 2 decimal place(s).", ex.Message);
         await BuyAsync(f, Line(rows[f.Pack.Id], 0.02m, 10m)); // 0.01 kg fits: the rule rejects only what does not fit
@@ -468,7 +473,7 @@ public class PurchaseUnitScenarioTests
         var f = await SeedAsync();
         var (_, rows) = await CreateTrayPenAsync(f, pieceIsPurchasable: false);
         var purchase = await BuyAsync(f, Line(rows[f.Box.Id], 2m, 100m));
-        await RejectedAsync(() => BuyAsync(f, Line(rows[f.Pc.Id], 5m, 10m)), "Lines", "Piece cannot be purchased for Ball Pen.");
+        await RejectedAsync(() => BuyAsync(f, Line(rows[f.Pc.Id], 5m, 10m)), "lines[0].productUnitId", "Piece cannot be purchased for Ball Pen.");
 
         var returned = (await ReturnAsync(f, purchase, purchase.Lines.Single(), rows[f.Pc.Id], 5m)).Lines.Single();
 

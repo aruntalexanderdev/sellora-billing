@@ -35,7 +35,7 @@ public class StockQuantityDisplayPostgresTests(PostgresFixture postgres)
         var perms = new FakePermissions("Inventory.View", "Reports.Stock", "Reports.Movement");
         await using var read = database.CreateDbContext();
         var report = Ok(await new ReportsController(read, perms).CurrentStock(null, null, null, ct: default)).Items.Single(r => r.ProductId == s.PenId);
-        var overview = Ok(await new StockController(read, perms).Overview(null, null, null, null, 1, 20, null, default)).Items.Single(r => r.ProductId == s.PenId);
+        var overview = Ok(await new StockController(read, perms, new Sellora.Infrastructure.Services.TaxResolver(read)).Overview(null, null, null, null, 1, 20, null, default)).Items.Single(r => r.ProductId == s.PenId);
 
         foreach (var units in new[] { report.BreakdownUnits, overview.BreakdownUnits })
         {

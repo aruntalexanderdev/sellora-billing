@@ -1,0 +1,44 @@
+name: Branch flow
+
+# Branch model (CLAUDE.md, Git): work branch -> analyse_copy (working branch) -> claude_dev (deployment branch).
+# - A pull request into claude_dev must come from analyse_copy.
+# - A pull request into analyse_copy must come from a work branch, never from a long-lived branch.
+# The check is only binding once it is required: Settings -> Rules -> Rulesets, on analyse_copy and claude_dev,
+# "Require status checks to pass" -> add "Branch flow".
+on:
+  pull_request:
+    branches: [analyse_copy, claude_dev]
+    types: [opened, reopened, synchronize, edited] # edited: the base branch of an open pull request can be changed
+
+permissions: {}
+
+jobs:
+  branch-flow:
+    name: Branch flow
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check source and target branch
+        # Branch names come from the event through env, never interpolated into the script.
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "Pull request: $HEAD_REPO:$HEAD -> $BASE"
+          if [[ "$BASE" == "claude_dev" ]]; then
+            if [[ "$HEAD" != "analyse_copy" || "$HEAD_REPO" != "$REPO" ]]; then
+              echo "::error::claude_dev is the deployment branch: it only takes pull requests from analyse_copy. Merge '$HEAD' into analyse_copy first, then open analyse_copy -> claude_dev."
+              exit 1
+            fi
+          elif [[ "$BASE" == "analyse_copy" ]]; then
+            case "$HEAD" in
+              claude_dev | dev | main)
+                echo "::error::analyse_copy takes work branches (feature/..., fix/..., chore/...), not the long-lived branch '$HEAD'."
+                exit 1
+                ;;
+            esac
+          fi
+          echo "Branch flow OK."

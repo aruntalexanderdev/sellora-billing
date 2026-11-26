@@ -224,7 +224,7 @@ UPDATE "StockItems" SET "QuantityOnHand" = 6 WHERE "ProductId" = pg_temp.g(20);
 
         await using (var db = database.CreateDbContext())
         {
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
             Assert.Empty(await db.Database.GetPendingMigrationsAsync());
             Assert.False(db.Database.HasPendingModelChanges());
         }
@@ -254,7 +254,7 @@ UPDATE "StockItems" SET "QuantityOnHand" = 6 WHERE "ProductId" = pg_temp.g(20);
     public async Task AddMovementTypesAndReasonCode_NewWritesAfterMigration_V9ReturnsZeroAndSplitRowsKeepUnitOnly()
     {
         await using var database = await CreateLegacyDatabaseAsync(postgres);
-        await using (var db = database.CreateDbContext()) await db.Database.MigrateAsync();
+        await using (var db = database.CreateDbContext()) await db.MigrateToHeadAsync();
         var deployed = DateTimeOffset.UtcNow; // legacy rows were stamped now() by the fixture, before this instant
 
         await using (var db = database.CreateDbContext())
@@ -292,7 +292,7 @@ UPDATE "StockItems" SET "QuantityOnHand" = 6 WHERE "ProductId" = pg_temp.g(20);
 
         await using (var db = database.CreateDbContext())
         {
-            var ex = await Assert.ThrowsAsync<PostgresException>(() => db.Database.MigrateAsync());
+            var ex = await Assert.ThrowsAsync<PostgresException>(() => db.MigrateToHeadAsync());
             Assert.Contains(expected, ex.MessageText);
             Assert.Contains(guard, ex.MessageText); // the raising guard is named in the error
         }
@@ -309,7 +309,7 @@ UPDATE "StockItems" SET "QuantityOnHand" = 6 WHERE "ProductId" = pg_temp.g(20);
     {
         await using var database = await CreateLegacyDatabaseAsync(postgres);
         var before = await QueryAsync(database, LedgerSql, r => r.GetString(0));
-        await using (var db = database.CreateDbContext()) await db.Database.MigrateAsync();
+        await using (var db = database.CreateDbContext()) await db.MigrateToHeadAsync();
         Assert.NotEqual(before, await QueryAsync(database, LedgerSql, r => r.GetString(0))); // Up relabelled
 
         await using (var db = database.CreateDbContext())
@@ -336,13 +336,13 @@ UPDATE "StockItems" SET "QuantityOnHand" = 6 WHERE "ProductId" = pg_temp.g(20);
     {
         await using var database = await CreateLegacyDatabaseAsync(postgres);
         var rowsBefore = await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "StockMovements" """);
-        await using (var db = database.CreateDbContext()) await db.Database.MigrateAsync();
+        await using (var db = database.CreateDbContext()) await db.MigrateToHeadAsync();
         var firstHash = await ScalarAsync<string>(database, RowHashSql);
 
         await using (var db = database.CreateDbContext())
         {
             await db.GetService<IMigrator>().MigrateAsync(Previous);
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
         }
 
         await AssertBackfilledAsync(database);

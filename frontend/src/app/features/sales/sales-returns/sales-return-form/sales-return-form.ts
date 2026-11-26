@@ -11,6 +11,7 @@ import type { AccountOption } from '../../../accounts/cash-bank/cash-bank.models
 import { formatQuantity } from '../../../../shared/units/unit-conversion';
 import { quantityStep } from '../../../../shared/forms/quantity-input';
 import { defaultReturnUnit, proratedCredit, returnAllChoice, returnBaseQty, returnQtyError } from '../../../../shared/units/return-units';
+import { estimateReturnTax } from '../../../purchases/purchase-tax';
 import type { PaymentMethod, SaleReturnUnit, SalesInvoiceDetail, SalesInvoiceLine } from '../../sales.models';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
@@ -93,6 +94,18 @@ export class SalesReturnForm implements OnInit, HasUnsavedChanges {
     }
     return Math.round(total * 100) / 100;
   });
+
+  /** Estimated taxable value and tax of the quantity entered on a line (the original rows prorated by base quantity); null when none is entered. */
+  estimateFor(l: SalesInvoiceLine): { taxable: number; tax: number } | null {
+    const q = this.qty()[l.id] ?? 0;
+    const unit = this.unitFor(l);
+    if (!(q > 0) || !unit) return null;
+    const e = estimateReturnTax(l, returnBaseQty(q, unit));
+    return { taxable: e.taxable, tax: e.tax };
+  }
+
+  /** Estimated tax inside the credit (labelled an estimate: the server reverses the rows exactly, the last return takes the remainder). */
+  readonly taxEstimate = computed(() => Math.round(this.lines().reduce((s, l) => s + (this.estimateFor(l)?.tax ?? 0), 0) * 100) / 100);
 
   readonly chosen = computed(() => this.lines().filter((l) => (this.qty()[l.id] ?? 0) > 0));
   readonly linesValid = computed(() => this.chosen().length > 0 && this.lines().every((l) => !this.qtyError(l)));

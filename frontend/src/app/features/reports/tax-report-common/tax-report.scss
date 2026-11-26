@@ -1,0 +1,106 @@
+@use '../../../shared/styles/page-head';
+@use '../../../shared/styles/report-filters';
+
+.tr-banner {
+  background: #fff7e0;
+  border: 1px solid #f0d58a;
+  color: #6b4e00;
+  border-radius: var(--radius-control);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.tr-error {
+  background: #fdecec;
+  border: 1px solid #f3b4b4;
+  color: #8a1c1c;
+  border-radius: var(--radius-control);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.tr-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tr-block {
+  margin-bottom: 22px;
+}
+.tr-block h2 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+/* Wide tables scroll in their own container so the page never scrolls sideways. */
+.tr-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  -webkit-overflow-scrolling: touch;
+}
+.tr-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tr-table th,
+.tr-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  white-space: nowrap;
+}
+.tr-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--color-text-fainter);
+}
+.tr-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tr-table tfoot td,
+.tr-table .tr-total td {
+  font-weight: 650;
+}
+.tr-section td {
+  background: #f4f6f7;
+  font-weight: 650;
+}
+.tr-legacy {
+  border-bottom: 1px dotted var(--color-text-muted);
+  cursor: help;
+}
+.tr-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+.tr-toggle {
+  display: inline-flex;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.tr-toggle button {
+  padding: 8px 14px;
+  border: none;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tr-toggle button.on {
+  background: var(--color-text);
+  color: #fff;
+}
+@media (max-width: 640px) {
+  .tr-table th,
+  .tr-table td {
+    padding: 6px 8px;
+  }
+}

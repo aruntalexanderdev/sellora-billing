@@ -13,6 +13,7 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { ContextService } from '../../../core/context/context.service';
 import { StockLocationsService } from '../../../shared/locations/stock-locations.service';
 import { ToastService } from '../../../shared/ui/toast/toast.service';
+import { TaxPreviewService } from '../../../shared/tax/tax-preview.service';
 import type { StockLocation } from '../../../shared/locations/locations.models';
 import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
 
@@ -39,6 +40,7 @@ function setup(opts: { view?: boolean; locations?: StockLocation[]; create?: () 
       { provide: AuthService, useValue: { hasPermission: (c: string) => (opts.view ?? true) && c === 'StockLocations.View' } },
       { provide: ContextService, useValue: { contextVersion: signal(0).asReadonly(), workingBranch: signal({ id: 'b1' }) } },
       { provide: ToastService, useValue: { show: vi.fn() } },
+      { provide: TaxPreviewService, useValue: { preview: () => of() } },
     ],
   });
   vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);

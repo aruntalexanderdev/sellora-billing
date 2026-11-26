@@ -164,6 +164,24 @@ internal static class StockLocks
     }
 
     /// <summary>
+    /// FOR KEY SHARE on the tax profiles a purchase was calculated with (distinct, id order), after the product locks and before the locations
+    /// and StockItems (TP-3, TP3-Q6). <c>AddVersionAsync</c> locks the profile FOR UPDATE, so a purchase cannot commit on a version that is being
+    /// superseded. KEY SHARE does not conflict with other purchases. Callers re-check the resolved version ids afterwards.
+    /// </summary>
+    public static async Task LockTaxProfilesKeyShareAsync(SelloraDbContext db, IEnumerable<Guid> profileIds, CancellationToken ct)
+    {
+        if (!db.Database.IsRelational()) return;
+
+        var ids = profileIds.Distinct().Order().ToArray();
+        if (ids.Length == 0) return;
+        var companyId = db.CompanyContext.RequireCompanyId();
+
+        await db.Database
+            .SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM \"TaxProfiles\" WHERE \"CompanyId\" = {companyId} AND \"Id\" = ANY({ids}) ORDER BY \"Id\" FOR KEY SHARE")
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
     /// Exclusive FOR UPDATE lock on one product row: serialises product-unit edits and price changes against each
     /// other and against document creates holding KEY SHARE. Callers must be inside a transaction.
     /// </summary>

@@ -561,7 +561,7 @@ public class AddCountryStateMastersMigrationTests(PostgresFixture postgres)
             await create.ExecuteNonQueryAsync();
         }
         await using var d = new TestDatabase(name, PostgresFixture.ConnectionStringFor(postgres.ConnectionString, name), postgres.ConnectionString);
-        await using (var db = d.CreateDbContext()) await db.Database.MigrateAsync();
+        await using (var db = d.CreateDbContext()) await db.MigrateToHeadAsync();
 
         // 1. the SQL function itself (text taken from the frozen resource) against GeoSeedData.Normalize
         var text = MigrationSql.Read(BackfillResource);

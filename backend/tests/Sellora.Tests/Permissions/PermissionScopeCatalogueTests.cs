@@ -7,14 +7,14 @@ public class PermissionScopeCatalogueTests
 {
     private static readonly string[] ExpectedBranchEligible =
     [
-        "Sales.View", "Sales.Create", "Sales.PriceOverride", "Sales.Edit", "Sales.Receive", "Sales.Return", "Sales.Refund", "Sales.Cancel",
+        "Sales.View", "Sales.Create", "Sales.PriceOverride", "Sales.BillDiscount", "Sales.Edit", "Sales.Receive", "Sales.Return", "Sales.Refund", "Sales.Cancel",
         "Purchase.View", "Purchase.Create", "Purchase.Edit", "Purchase.Pay", "Purchase.Return", "Purchase.Refund", "Purchase.Cancel",
         "Inventory.Adjust", "StockLocations.View", "Inventory.View",
         "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.ApproveReceipt", "StockTransfers.Cancel",
         "Shipments.View", "Shipments.Plan", "Shipments.Load",
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
         "Customers.View",
-        "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",
+        "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement", "Reports.Tax",
         "Branch.Roles.View", "Branch.Roles.Manage", "Branch.Users.AssignRoles",
         // Phase 01b (FI-D44): branch user administration
         "Branch.Users.View", "Branch.Users.Create", "Branch.Users.Edit", "Branch.Users.Disable", "Branch.Users.ResetPassword",

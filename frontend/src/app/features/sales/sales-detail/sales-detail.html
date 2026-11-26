@@ -30,7 +30,51 @@
     }
   </div>
 
-  <app-document-scope [items]="scopeItems()" />
+  @if (createWarnings().length > 0) {
+    <div class="tax-warning no-print" data-testid="create-warnings">
+      @for (w of createWarnings(); track w) {
+        <div>{{ w }}</div>
+      }
+    </div>
+  }
+
+  <div class="no-print"><app-document-scope [items]="scopeItems()" /></div>
+
+  <!-- Printed tax invoice header (A4); on screen the page header and scope strip above carry the same facts. -->
+  <div class="invoice-head print-only" data-testid="invoice-head">
+    <div class="invoice-title">
+      <h2 data-testid="invoice-title">Tax Invoice</h2>
+      <div><span class="muted">Invoice no.</span> <strong>{{ i.invoiceNo }}</strong></div>
+      <div><span class="muted">Date</span> {{ i.invoiceDate }}</div>
+      @if (i.status === 'Cancelled') {
+        <div class="cancelled-note">CANCELLED</div>
+      }
+    </div>
+    <div class="invoice-parties">
+      <div data-testid="seller">
+        <div class="party-label">Seller</div>
+        <strong data-testid="seller-name">{{ sellerName() }}</strong>
+        @if (sellerAddress()) {
+          <div data-testid="seller-address">{{ sellerAddress() }}</div>
+        }
+        @if (sellerContact()) {
+          <div>{{ sellerContact() }}</div>
+        }
+        @if (i.sellerGstin) {
+          <div data-testid="seller-tax-id">{{ taxIdLabel() }}: {{ i.sellerGstin }}</div>
+        }
+      </div>
+      <div data-testid="buyer">
+        <div class="party-label">Bill to</div>
+        <strong>{{ i.customerName }}</strong>
+        @if (placeState() || placeLabel()) {
+          <div data-testid="place-of-supply">
+            Place of supply: {{ placeState() ?? '—' }}@if (placeLabel()) { <span class="muted"> ({{ placeLabel() }})</span> }
+          </div>
+        }
+      </div>
+    </div>
+  </div>
 
   @if (i.refundableAmount > 0) {
     <div class="fx-card no-print">
@@ -177,15 +221,22 @@
   }
 
   <div class="detail-card">
-    <div class="lines-table-wrap">
+    <div class="lines-table-wrap invoice-lines">
       <table class="lines-table">
         <thead>
           <tr>
             <th>Product</th>
+            @if (hasHsn()) {
+              <th data-testid="hsn-col">HSN</th>
+            }
             <th>Unit</th>
             <th class="num">Qty</th>
-            <th class="num">Unit price</th>
-            <th class="num">Tax</th>
+            <th class="num">Rate</th>
+            <th class="num">Discount</th>
+            <th class="num">Taxable</th>
+            @for (code of taxCols(); track code) {
+              <th class="num" data-testid="tax-col">{{ code }}</th>
+            }
             <th class="num">Line total</th>
           </tr>
         </thead>
@@ -193,18 +244,24 @@
           @for (line of i.lines; track line.id) {
             <tr>
               <td class="strong">{{ line.productName }}</td>
+              @if (hasHsn()) {
+                <td data-testid="hsn">{{ line.hsnCode || '—' }}</td>
+              }
               <td>{{ line.unitLabel }} <span class="muted">({{ formatQuantity(line.baseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }})</span></td>
               <td class="num">
                 {{ formatQuantity(line.qty, line.unitDecimalPlaces) }} {{ line.unitCode }}
                 @if (line.returnedBaseQty > 0) {
-                  <div class="muted">{{ formatQuantity(line.returnedBaseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }} returned</div>
+                  <div class="muted no-print">{{ formatQuantity(line.returnedBaseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }} returned</div>
                 }
                 @if (line.returnableBaseQty > 0 && i.status === 'Completed') {
-                  <div class="muted">{{ formatQuantity(line.returnableBaseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }} returnable</div>
+                  <div class="muted no-print">{{ formatQuantity(line.returnableBaseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }} returnable</div>
                 }
               </td>
               <td class="num">
                 {{ INR(line.unitPrice) }}
+                @if (line.priceIncludesTax) {
+                  <div class="muted" data-testid="incl-tax">incl. tax</div>
+                }
                 @if (line.unitPrice === 0) {
                   <div><ui-badge text="Free" tone="good" data-testid="free-badge" /></div>
                 }
@@ -212,12 +269,22 @@
                   <div><ui-badge text="Override" tone="warn" /><span class="muted"> (list {{ line.listUnitPrice === null ? 'not recorded' : INR(line.listUnitPrice) }})</span></div>
                 }
               </td>
-              <td class="num">{{ line.taxRatePercent }}%</td>
+              <td class="num" data-testid="line-discount">{{ INR(line.discount) }}</td>
+              <td class="num" data-testid="line-taxable">{{ INR(line.taxableValue) }}</td>
+              @for (code of taxCols(); track code) {
+                <td class="num" data-testid="tax-cell">
+                  @if (cell(line, code); as c) {
+                    {{ INR(c.taxAmount) }}@if (c.ratePercent !== null) { <span class="muted"> ({{ c.ratePercent }}%)</span> }
+                  } @else {
+                    <span class="muted">—</span>
+                  }
+                </td>
+              }
               <td class="num strong">{{ INR(line.lineTotal) }}</td>
             </tr>
             @if (line.batchConsumptions.length > 0) {
-              <tr class="batch-trace-row">
-                <td colspan="6">
+              <tr class="batch-trace-row no-print">
+                <td [attr.colspan]="7 + taxCols().length + (hasHsn() ? 1 : 0)">
                   <span class="batch-trace-label">Drawn from</span>
                   @for (c of line.batchConsumptions; track c.purchaseBatchId) {
                     <span class="batch-trace-chip">
@@ -235,10 +302,22 @@
 
     <div class="summary-and-payment">
       <div class="summary-card">
-        <div class="totals-row"><span>Subtotal</span><span>{{ INR(i.subtotal) }}</span></div>
+        <div class="totals-row"><span>Subtotal{{ anyInclusive() ? ' (incl. tax)' : '' }}</span><span>{{ INR(i.subtotal) }}</span></div>
         <div class="totals-row"><span>Discount</span><span>−{{ INR(i.discountTotal) }}</span></div>
+        @if (billDiscount() > 0) {
+          <div class="totals-row sub-row" data-testid="bill-discount"><span>of which bill discount{{ i.billDiscountPercent != null ? ' (' + i.billDiscountPercent + '%)' : '' }}</span><span>−{{ INR(billDiscount()) }}</span></div>
+        }
+        @if (billCharges() > 0) {
+          <div class="totals-row" data-testid="bill-charges"><span>Bill charges</span><span>{{ INR(billCharges()) }}</span></div>
+        }
+        <div class="totals-row" data-testid="taxable-total"><span>Taxable value</span><span>{{ INR(taxable()) }}</span></div>
+        @if (taxByCode().length > 1 || (taxByCode().length === 1 && !taxByCode()[0].isLegacy)) {
+          @for (c of taxByCode(); track c.code) {
+            <div class="totals-row sub-row" data-testid="tax-component"><span>{{ c.code }}</span><span>{{ INR(c.taxAmount) }}</span></div>
+          }
+        }
         <div class="totals-row"><span>Tax</span><span>{{ INR(i.taxTotal) }}</span></div>
-        <div class="totals-row totals-grand"><span>Grand total</span><span>{{ INR(i.grandTotal) }}</span></div>
+        <div class="totals-row totals-grand"><span>Grand total</span><span data-testid="grand-total">{{ INR(i.grandTotal) }}</span></div>
         @if (i.returnedAmount > 0) {
           <div class="totals-row"><span>Returned goods</span><span>−{{ INR(i.returnedAmount) }}</span></div>
           <div class="totals-row totals-grand"><span>Net total</span><span>{{ INR(i.netTotal) }}</span></div>

@@ -13,6 +13,40 @@
   <form [formGroup]="form" (ngSubmit)="submit()">
     <div class="grid-2">
       <div>
+        <label class="field-label" for="pf-category">Category</label>
+        <ui-combobox
+          formControlName="categoryId"
+          inputId="pf-category"
+          ariaLabel="Category"
+          placeholder="Search categories…"
+          [options]="categoryComboOptions()"
+        />
+        @if (form.get('categoryId')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('categoryId')?.errors?.['server'] }}</div>
+        }
+      </div>
+      <div>
+        <div class="label-row">
+          <label class="field-label" for="pf-subcategory">Subcategory</label>
+          @if (canManageCategories()) {
+            <button type="button" class="link-button" (click)="openNewSubcategory()">+ New subcategory</button>
+          }
+        </div>
+        <ui-combobox
+          formControlName="subcategoryId"
+          inputId="pf-subcategory"
+          ariaLabel="Subcategory"
+          placeholder="Search subcategories…"
+          [options]="subcategoryComboOptions()"
+        />
+        @if (form.get('subcategoryId')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('subcategoryId')?.errors?.['server'] }}</div>
+        }
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div>
         <label class="field-label">SKU</label>
         <input type="text" formControlName="sku" class="field-input" placeholder="RICE-BP10" />
         @if (form.get('sku')?.touched && form.get('sku')?.errors?.['required']) {
@@ -27,38 +61,6 @@
         <input type="text" formControlName="name" class="field-input" />
         @if (form.get('name')?.touched && form.get('name')?.invalid) {
           <div class="field-error">Name is required.</div>
-        }
-      </div>
-    </div>
-
-    <div class="grid-2">
-      <div>
-        <label class="field-label">Category</label>
-        <select formControlName="categoryId" class="field-input">
-          <option value="">None</option>
-          @for (c of categoryOptions(); track c.id) {
-            <option [value]="c.id">{{ c.name }}{{ c.isActive ? '' : ' (inactive)' }}</option>
-          }
-        </select>
-        @if (form.get('categoryId')?.errors?.['server']) {
-          <div class="field-error">{{ form.get('categoryId')?.errors?.['server'] }}</div>
-        }
-        <label class="field-label" style="margin-top: 10px">Subcategory</label>
-        <select formControlName="subcategoryId" class="field-input" [attr.disabled]="form.controls.categoryId.value ? null : ''">
-          <option value="">None</option>
-          @for (s of subcategoryOptions(); track s.id) {
-            <option [value]="s.id">{{ s.name }}{{ s.isActive ? '' : ' (inactive)' }}</option>
-          }
-        </select>
-        @if (form.get('subcategoryId')?.errors?.['server']) {
-          <div class="field-error">{{ form.get('subcategoryId')?.errors?.['server'] }}</div>
-        }
-      </div>
-      <div>
-        <label class="field-label">Reorder level</label>
-        <input type="number" step="0.001" formControlName="reorderLevel" class="field-input" />
-        @if (form.get('reorderLevel')?.touched && form.get('reorderLevel')?.invalid) {
-          <div class="field-error">Enter a reorder level of 0 or more.</div>
         }
       </div>
     </div>
@@ -83,18 +85,21 @@
         }
       </div>
       <div>
-        <label class="field-label">Tax</label>
-        <select formControlName="taxId" class="field-input">
-          <option value="" disabled>Select a tax…</option>
-          @for (t of taxes(); track t.id) {
-            <option [value]="t.id">{{ t.name }}</option>
-          }
-        </select>
-        @if (form.get('taxId')?.touched && form.get('taxId')?.invalid) {
-          <div class="field-error">Select a tax.</div>
+        <label class="field-label">Reorder level</label>
+        <input type="number" step="0.001" formControlName="reorderLevel" class="field-input" />
+        @if (form.get('reorderLevel')?.touched && form.get('reorderLevel')?.invalid) {
+          <div class="field-error">Enter a reorder level of 0 or more.</div>
         }
       </div>
     </div>
+
+    <app-product-tax-section
+      [group]="form.controls.tax"
+      [categoryId]="selectedCategoryId()"
+      [subcategoryId]="selectedSubcategoryId()"
+      [isEdit]="isEdit()"
+      [initialBasis]="initialPriceBasis()"
+    />
 
     <app-product-units-editor [units]="unitRows" [allUnits]="allUnits()" [productId]="isEdit() ? productId : null" />
 
@@ -104,3 +109,12 @@
     </div>
   </form>
 </div>
+
+@if (subcategoryEditor(); as target) {
+  <app-classification-editor-dialog
+    [target]="target"
+    [categories]="allCategories()"
+    (saved)="onSubcategoryCreated($event)"
+    (closed)="subcategoryEditor.set(null)"
+  />
+}

@@ -11,6 +11,40 @@ const ret: Detail = {
   branchId: 'b2', branchCode: 'NTH', branchName: 'North', stockLocationId: 'l1', stockLocationCode: 'VAN1', stockLocationName: 'Van 1',
 };
 
+function render(detail: Detail) {
+  TestBed.resetTestingModule();
+  TestBed.configureTestingModule({
+    providers: [
+      provideRouter([]),
+      { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: 'r1' }) } } },
+      { provide: SalesService, useValue: { getReturn: vi.fn(() => of(detail)) } },
+    ],
+  });
+  const fixture = TestBed.createComponent(SalesReturnDetail);
+  fixture.detectChanges();
+  return fixture.nativeElement as HTMLElement;
+}
+const rr = (code: string, kind: 'Cgst' | 'Sgst' | 'Igst', tax: number) => ({ code, kind, method: 'Percent' as const, ratePercent: 9, amountPerBaseUnit: null, baseAmount: 100, taxAmount: tax });
+const retLine = (over: Partial<Detail['lines'][number]> = {}) =>
+  ({ id: 'rl', productName: 'Pen', unitLabel: 'Box', unitCode: 'box', qty: 1, baseQty: 10, baseUnitLabel: 'pc', baseUnitDecimalPlaces: 0, taxableValue: 100, taxAmount: 18, lineTotal: 118, ...over }) as Detail['lines'][number];
+
+describe('SalesReturnDetail reversed tax rows (TP-4)', () => {
+  it('shows one column per reversed component and the component totals', () => {
+    const el = render({ ...ret, taxableTotal: 100, taxTotal: 18, total: 118, lines: [retLine({ taxes: [rr('CGST', 'Cgst', 9), rr('SGST', 'Sgst', 9)] })] });
+    expect(Array.from(el.querySelectorAll('[data-testid="tax-col"]')).map((e) => e.textContent!.trim())).toEqual(['CGST', 'SGST']);
+    expect(Array.from(el.querySelectorAll('[data-testid="tax-cell"]')).map((e) => e.textContent!.replace(/\s+/g, ' ').trim())).toEqual(['₹9.00 (9%)', '₹9.00 (9%)']);
+    expect(Array.from(el.querySelectorAll('[data-testid="tax-component"]')).map((e) => e.textContent!.replace(/\s+/g, ' ').trim())).toEqual(['CGST reversed₹9.00', 'SGST reversed₹9.00']);
+  });
+
+  it('shows IGST for an inter-state return and one "Tax" column for a line without rows', () => {
+    const inter = render({ ...ret, lines: [retLine({ taxes: [rr('IGST', 'Igst', 18)] })] });
+    expect(Array.from(inter.querySelectorAll('[data-testid="tax-col"]')).map((e) => e.textContent!.trim())).toEqual(['IGST']);
+    const legacy = render({ ...ret, lines: [retLine({ taxes: [] })] });
+    expect(Array.from(legacy.querySelectorAll('[data-testid="tax-col"]')).map((e) => e.textContent!.trim())).toEqual(['Tax']);
+    expect(legacy.querySelector('[data-testid="tax-component"]')).toBeNull();
+  });
+});
+
 describe('SalesReturnDetail scope', () => {
   it('shows the branch and the restock location', () => {
     TestBed.configureTestingModule({

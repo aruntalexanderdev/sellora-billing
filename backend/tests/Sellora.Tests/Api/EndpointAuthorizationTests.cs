@@ -303,6 +303,18 @@ public class EndpointAuthorizationTests
         });
     }
 
+    [Fact]
+    public void TaxPreview_RequiresSalesCreateOrPurchaseCreate_OnItsRoute()
+    {
+        var controller = typeof(TaxPreviewController);
+        var method = controller.GetMethod("Preview")!;
+        var http = method.GetCustomAttributes<HttpMethodAttribute>().Single();
+
+        Assert.Equal(["Sales.Create|Purchase.Create"], Policies(controller, method));
+        Assert.Equal(("POST", "preview"), (http.HttpMethods.Single(), http.Template));
+        Assert.Equal("api/v1/tax", controller.GetCustomAttribute<RouteAttribute>()!.Template);
+    }
+
     [Theory]
     [InlineData(typeof(ProductsController), "PreviewUnits", "Inventory.View", "POST", "unit-preview")]
     [InlineData(typeof(ProductsController), "Create", "Inventory.Create", "POST", null)]

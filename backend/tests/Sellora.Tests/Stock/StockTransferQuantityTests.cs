@@ -496,8 +496,10 @@ public class StockTransferQuantityTests
         var items = product.Units.Select(u => new Sellora.Domain.Inventory.ProductUnitInputItem(u.Id, u.UnitId, u.InnerProductUnitId is { } i ? product.Units.Single(x => x.Id == i).UnitId : null,
             u.Id == w.Box ? 12m : u.InnerQuantity, u.Label, null, u.IsPurchasable, u.IsSellable, u.IsDefaultPurchaseUnit, u.IsDefaultSalesUnit, u.IsActive)).ToList();
 
+        // The product's tax needs a company country and profile since TP-1; the refusal under test must be the locked unit.
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, await db.Taxes.SingleAsync(t => t.Id == product.TaxId));
         await Assert.ThrowsAsync<DomainValidationException>(() => new ProductService(db).UpdateProductAsync(w.PenId,
-            new Sellora.Domain.Inventory.UpsertProductInput(product.Sku, product.Name, product.CategoryId, product.SubcategoryId, product.BaseUnitId, product.TaxId, product.ReorderLevel, items)));
+            new Sellora.Domain.Inventory.UpsertProductInput(product.Sku, product.Name, product.CategoryId, product.SubcategoryId, product.BaseUnitId, product.ReorderLevel, items)));
     }
 
     private static async Task<decimal> RemainingOfBatchesAsync(TransferWorld w)

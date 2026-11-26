@@ -37,6 +37,9 @@ The main session is the **Lead Architect / Delivery Lead**. It plans, delegates,
 | `devops-release-engineer` | Yes (CI/config only) | GitHub workflows, migration scripts, rollback, auto-migrate gating |
 | `code-reviewer` | No | Independent review against invariants before the lead reports done |
 | `business-analyst` | Docs only | Requirements + acceptance criteria in `docs/features/<slug>.md` for work outside the restructuring programme |
+| `owner-proxy` | No | Owner-away mode only: answers gate questions as the owner would (DECIDE / DEFER / ESCALATE) |
+
+**Owner-away mode:** when the owner says they are offline, follow `.claude/rules/owner-away.md`. Gate questions go to `owner-proxy` instead of `AskUserQuestion`, and every verdict is logged in `docs/decisions/owner-proxy-log.md` for the owner to review. Phase starts, deploys, destructive changes and overrides of owner decisions are never delegated.
 
 Entry points:
 
@@ -83,8 +86,21 @@ If unsure, pick the smaller size and escalate.
 
 ## Git
 
-- Never push to `main` and never force-push (blocked by `.claude/hooks/guard-bash.sh`).
-- Pushing to `dev` deploys the API to Azure — only when the user asks.
+Branch model (owner decision):
+
+| Branch | Role | How it changes |
+|---|---|---|
+| `analyse_copy` | Working (integration) branch | Only by pull request from a work branch |
+| `claude_dev` | Deployment branch: a merge deploys API + frontend to the claude-dev environment (`.github/workflows/deploy-claude-dev.yml`) | Only by pull request from `analyse_copy` |
+| `feature/<slug>`, `fix/<slug>`, `chore/<slug>` | One work branch per feature or bug, created from the latest `analyse_copy` | Commits and pushes |
+
+Flow: branch from `analyse_copy` → work → `/verify` → PR to `analyse_copy` → CI green → merge → PR `analyse_copy` → `claude_dev` → CI green → merge (deploys).
+
+- Never commit or push directly to `analyse_copy`, `claude_dev` or `main`, and never force-push (blocked by `.claude/hooks/guard-bash.sh`). When a session starts on `analyse_copy`, create the work branch before the first change.
+- A PR into `claude_dev` comes only from `analyse_copy`, after the work PR was merged there (checked by the `Branch flow` workflow).
+- Merge with a merge commit, never squash or rebase: `claude_dev` must keep the commits of `analyse_copy`.
+- Creating and merging PRs happens when the user asks. Merging into `claude_dev` deploys: check that CI is green on the head commit first, and say that it deploys.
+- `dev` and `main` are outside this flow. Pushing to `dev` deploys the API to Azure — only when the user asks.
 - Subagents never commit or push; the main session does, when asked.
 
 

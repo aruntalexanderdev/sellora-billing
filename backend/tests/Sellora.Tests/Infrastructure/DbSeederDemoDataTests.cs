@@ -104,6 +104,12 @@ public class DbSeederDemoDataTests
         db.Products.RemoveRange(await db.Products.ToListAsync());
         db.ProductCategories.RemoveRange(await db.ProductCategories.ToListAsync());
         db.Units.RemoveRange(await db.Units.ToListAsync());
+        // The reset removes the tax profiles with the taxes (the mirror tax of every profile hangs on them).
+        db.TaxAssignments.RemoveRange(await db.TaxAssignments.ToListAsync());
+        db.TaxProfileVersionComponents.RemoveRange(await db.TaxProfileVersionComponents.ToListAsync());
+        db.TaxProfileVersions.RemoveRange(await db.TaxProfileVersions.ToListAsync());
+        db.TaxProfiles.RemoveRange(await db.TaxProfiles.ToListAsync());
+        db.TaxComponents.RemoveRange(await db.TaxComponents.ToListAsync());
         db.Taxes.RemoveRange(await db.Taxes.ToListAsync());
         db.ExpenseCategories.RemoveRange(await db.ExpenseCategories.ToListAsync());
         db.FinancialAccounts.RemoveRange(await db.FinancialAccounts.ToListAsync());

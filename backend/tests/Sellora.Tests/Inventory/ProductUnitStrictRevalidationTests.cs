@@ -130,6 +130,7 @@ public class ProductUnitStrictRevalidationTests
         db.AddRange(extraUnits);
         db.Add(product);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);
         return new Fixture(new ProductService(db), product, baseRow, child, tax);
     }
 
@@ -137,7 +138,7 @@ public class ProductUnitStrictRevalidationTests
         new(id, unitId, innerUnitId, qty, null, null, true, true, false, false, true);
 
     private static UpsertProductInput Upsert(Fixture f, Guid baseUnitId, params ProductUnitInputItem[] units) =>
-        new(f.Product.Sku, f.Product.Name, null, null, baseUnitId, f.Tax.Id, 0m, units);
+        new(f.Product.Sku, f.Product.Name, null, null, baseUnitId, 0m, units);
 
     [Fact]
     public async Task UpdateProductAsync_BaseKgToPieceWithGramRow_Rejected()

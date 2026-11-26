@@ -6,6 +6,7 @@ using Sellora.Api.Contracts;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Inventory;
+using Sellora.Domain.Taxes;
 using Sellora.Infrastructure.Data;
 using Sellora.Infrastructure.Services;
 
@@ -13,7 +14,7 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/products")]
-public class ProductsController(SelloraDbContext db, IProductService productService) : ControllerBase
+public class ProductsController(SelloraDbContext db, IProductService productService, ITaxResolver taxResolver) : ControllerBase
 {
     [HttpGet]
     [Authorize(Policy = "Inventory.View")]
@@ -24,7 +25,7 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var query = db.Products.Include(p => p.BaseUnit).Include(p => p.Tax).AsQueryable();
+        var query = db.Products.Include(p => p.BaseUnit).AsQueryable();
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim().ToLower();
@@ -41,12 +42,15 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
             .Select(p => new ProductListItemDto(p.Id, p.Sku, p.Name, p.Category,
                 p.CategoryId, p.Category, p.SubcategoryId,
                 db.ProductSubcategories.Where(s => s.Id == p.SubcategoryId).Select(s => s.Name).FirstOrDefault(),
-                p.BaseUnit.ShortCode, p.Tax.Name, p.ReorderLevel, p.IsActive))
+                p.BaseUnit.ShortCode, string.Empty, p.ReorderLevel, p.IsActive))
             .ToListAsync(ct);
+
+        // F7: the tax label is the resolved sales profile's name (one batched call for the page), not the legacy mirror.
+        var taxes = await SalesTaxLookup.ForCompanyAsync(db, taxResolver, items.Select(i => i.Id).ToList(), ct);
 
         // One query per history source for the whole page (not per row).
         var history = await ProductUnitUsage.GetProductHistoryAsync(db, items.Select(i => i.Id).ToList(), ct);
-        items = items.Select(i => i with { CanDelete = !history.ContainsKey(i.Id) }).ToList();
+        items = items.Select(i => i with { CanDelete = !history.ContainsKey(i.Id), TaxLabel = SalesTaxLookup.Label(taxes, i.Id) }).ToList();
 
         return Ok(new PagedResult<ProductListItemDto>(items, total, page, pageSize));
     }
@@ -151,8 +155,8 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
     }
 
     private static UpsertProductInput ToInput(UpsertProductRequest request) => new(
-        request.Sku, request.Name, request.CategoryId, request.SubcategoryId, request.BaseUnitId!.Value, request.TaxId!.Value, request.ReorderLevel,
-        ToUnitInputs(request.Units));
+        request.Sku, request.Name, request.CategoryId, request.SubcategoryId, request.BaseUnitId!.Value, request.ReorderLevel,
+        ToUnitInputs(request.Units), request.HsnCode, request.PriceIncludesTax, request.SalesTaxProfileId, request.PurchaseTaxProfileId);
 
     private static List<ProductUnitInputItem> ToUnitInputs(IEnumerable<UpsertProductUnitRequest> units) => units
         .Select(u => new ProductUnitInputItem(u.Id, u.UnitId!.Value, u.InnerUnitId, u.InnerQuantity, u.Label, u.Barcode,
@@ -162,7 +166,7 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
     private async Task<ProductDetailDto?> LoadDetailAsync(Guid id, CancellationToken ct)
     {
         var product = await db.Products.AsNoTracking()
-            .Include(p => p.BaseUnit).Include(p => p.Tax).Include(p => p.Units).ThenInclude(u => u.Unit)
+            .Include(p => p.BaseUnit).Include(p => p.Units).ThenInclude(u => u.Unit)
             .SingleOrDefaultAsync(p => p.Id == id, ct);
         if (product is null) return null;
 
@@ -187,10 +191,45 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
             ? await db.ProductSubcategories.Where(s => s.Id == subId).Select(s => s.Name).FirstOrDefaultAsync(ct)
             : null;
 
-        return new ProductDetailDto(
+        var detail = new ProductDetailDto(
             product.Id, product.Sku, product.Name, product.Category,
             product.CategoryId, product.Category, product.SubcategoryId, subcategoryName, product.BaseUnitId, product.BaseUnit.ShortCode,
-            product.TaxId, product.Tax.Name, product.Tax.RatePercent, product.ReorderLevel, product.IsActive,
-            isBaseUnitLocked, dtos);
+            product.TaxId, string.Empty, 0m, product.ReorderLevel, product.IsActive,
+            isBaseUnitLocked, dtos, product.HsnCode, PriceIncludesTax: product.PriceIncludesTax);
+        return await WithTaxAsync(detail, product, ct);
     }
+
+    /// <summary>Adds what the product resolves to for the company country (BR8, BR9) and the T11 HSN warning. Unchanged when the company has no country or nothing applies.</summary>
+    private async Task<ProductDetailDto> WithTaxAsync(ProductDetailDto detail, Product product, CancellationToken ct)
+    {
+        var countryId = await db.BusinessSettings.AsNoTracking().Select(s => s.CountryId).FirstOrDefaultAsync(ct);
+        if (countryId is not { } country) return detail;
+
+        var own = await db.TaxAssignments.AsNoTracking()
+            .Where(a => a.Scope == TaxScope.Product && a.ProductId == product.Id && a.CountryId == country)
+            .Select(a => new { a.SalesTaxProfileId, a.PurchaseTaxProfileId }).SingleOrDefaultAsync(ct);
+        var resolution = await taxResolver.PreviewAsync(new TaxPreviewInput(country, product.Id, product.Name, product.CategoryId, product.SubcategoryId, product.HsnCode,
+            own?.SalesTaxProfileId, own?.PurchaseTaxProfileId), ct);
+        if (resolution is null) return detail;
+
+        // T31a: the rate shown is the sales profile's version valid today, not the mirror tax (which stays for rollback).
+        var current = (await taxResolver.ResolveCurrentSalesProfilesAsync(country, DateOnly.FromDateTime(DateTime.UtcNow), [product.Id], ct)).GetValueOrDefault(product.Id);
+
+        return detail with
+        {
+            TaxLabel = current?.ProfileName ?? resolution.SalesProfile.Name,
+            TaxRatePercent = current?.Percent ?? 0m,
+            EffectiveHsnCode = resolution.HsnCode,
+            HsnSource = resolution.HsnSource.ToString(),
+            SalesTaxProfile = ToRef(resolution.SalesProfile),
+            PurchaseTaxProfile = ToRef(resolution.PurchaseProfile),
+            TaxSource = resolution.Source,
+            TaxSourceName = resolution.SourceName,
+            SalesOverrideProfileId = own?.SalesTaxProfileId,
+            PurchaseOverrideProfileId = own?.PurchaseTaxProfileId,
+            Warnings = resolution.HsnWarning ? [new FieldErrorDto("hsnCode", resolution.HsnWarningMessage!)] : [],
+        };
+    }
+
+    private static TaxProfileRefDto ToRef(ResolvedTaxProfile p) => new(p.Id, p.Code, p.Name, p.Regime, p.Treatment, p.IsActive);
 }

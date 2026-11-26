@@ -63,12 +63,13 @@ public class ProductServiceTests
         }
 
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);
 
         return new Fixture(db, new ProductService(db), product, bag, looseKg, unit, tax);
     }
 
     private static UpsertProductInput BuildInput(Fixture f, params ProductUnitInputItem[] units) => new(
-        f.Product.Sku, f.Product.Name, f.Product.CategoryId, f.Product.SubcategoryId, f.Unit.Id, f.Tax.Id, f.Product.ReorderLevel, units);
+        f.Product.Sku, f.Product.Name, f.Product.CategoryId, f.Product.SubcategoryId, f.Unit.Id, f.Product.ReorderLevel, units);
 
     /// <summary>The stored base row (Loose kg), optionally re-pointed at another base unit.</summary>
     private static ProductUnitInputItem BaseRow(Fixture f, Guid? unitId = null) =>
@@ -209,7 +210,7 @@ public class ProductServiceTests
     // ---------- Base unit rules (Phase 1: Unit Master) ----------
 
     private static UpsertProductInput NewProductInput(Fixture f, Guid baseUnitId) => new(
-        "NEW-SKU", "New product", null, null, baseUnitId, f.Tax.Id, 0m, [new ProductUnitInputItem(null, baseUnitId, null, 1m, "Each", null, true, true, false, false, true)]);
+        "NEW-SKU", "New product", null, null, baseUnitId, 0m, [new ProductUnitInputItem(null, baseUnitId, null, 1m, "Each", null, true, true, false, false, true)]);
 
     private static UpsertProductInput UnchangedInput(Fixture f) => BuildInput(f, BagRow(f), BaseRow(f));
 

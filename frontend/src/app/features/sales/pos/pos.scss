@@ -226,3 +226,73 @@
     grid-template-columns: 1fr;
   }
 }
+
+// ---- TP-4: bill discount / charges, tax detail, totals
+.totals-card.stale {
+  opacity: .7;
+}
+.bill-adjust {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.bill-discount-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.seg-btn {
+  background: #fff;
+  border: none;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.seg-btn.active {
+  background: var(--color-accent);
+  color: #fff;
+}
+.sub-row {
+  padding-left: 14px;
+  font-size: 12px;
+}
+.tax-toggle {
+  background: none;
+  border: none;
+  padding: 0 4px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.tax-detail {
+  padding: 4px 0 8px;
+  max-width: 480px;
+  min-width: 0;
+}
+.tax-detail-head {
+  font-size: 11px;
+  color: var(--color-text-fainter);
+  margin-bottom: 4px;
+}
+
+.sr-tax-warn {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-warning-text, #8a5a00);
+  background: var(--color-warning-bg, #fff4d6);
+}

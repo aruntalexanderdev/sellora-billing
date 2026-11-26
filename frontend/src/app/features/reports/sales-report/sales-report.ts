@@ -7,15 +7,19 @@ import { ScopeFilters } from '../../../shared/scope/scope-filters';
 import { injectBranchColumnVisible, placeLabel } from '../../../shared/scope/list-scope';
 import { ReportsService } from '../reports.service';
 import type { PaymentMethod, SalesReportRow } from '../reports.models';
+import { reportTaxKinds, reportTaxLabel } from '../purchase-report/purchase-report';
 import { UiCompanyViewToggle } from '../../../shared/ui/company-view-toggle/company-view-toggle';
 
-const BASE_COLS: DataTableColumn[] = [
+const HEAD_COLS: DataTableColumn[] = [
   { label: 'Invoice', align: 'left' },
   { label: 'Date', align: 'left' },
   { label: 'Customer', align: 'left' },
   { label: 'Subtotal', align: 'right' },
-  { label: 'Tax', align: 'right' },
   { label: 'Discount', align: 'right' },
+  { label: 'Taxable', align: 'right' },
+  { label: 'Tax', align: 'right' },
+];
+const TAIL_COLS: DataTableColumn[] = [
   { label: 'Total', align: 'right' },
   { label: 'Paid', align: 'right' },
   { label: 'Due', align: 'right' },
@@ -36,7 +40,13 @@ export class SalesReport implements OnInit {
   private readonly reportsService = inject(ReportsService);
 
   readonly showBranch = injectBranchColumnVisible();
-  readonly cols = computed<DataTableColumn[]>(() => [...BASE_COLS, ...(this.showBranch() ? [{ label: 'Branch', align: 'left' as const }] : [])]);
+  readonly taxKinds = computed(() => reportTaxKinds(this.items()));
+  readonly cols = computed<DataTableColumn[]>(() => [
+    ...HEAD_COLS,
+    ...this.taxKinds().map((k) => ({ label: reportTaxLabel(k), align: 'right' as const })),
+    ...TAIL_COLS,
+    ...(this.showBranch() ? [{ label: 'Branch', align: 'left' as const }] : []),
+  ]);
   readonly branchId = signal<string | null>(null);
   readonly errorMessage = signal<string | null>(null);
   readonly search = signal('');
@@ -78,8 +88,15 @@ export class SalesReport implements OnInit {
         { kind: 'text', text: s.invoiceDate, color: 'var(--color-text-muted)' },
         { kind: 'text', text: s.customerName },
         { kind: 'text', text: INR(s.subtotal), align: 'right', color: 'var(--color-text-muted)' },
-        { kind: 'text', text: INR(s.taxTotal), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(s.discountTotal), align: 'right', color: 'var(--color-text-muted)' },
+        { kind: 'text', text: INR(s.taxableTotal ?? s.subtotal - s.discountTotal), align: 'right', color: 'var(--color-text-muted)' },
+        { kind: 'text', text: INR(s.taxTotal), align: 'right', color: 'var(--color-text-muted)' },
+        ...this.taxKinds().map((k) => ({
+          kind: 'text' as const,
+          text: INR((s.taxByKind ?? []).filter((t) => t.kind === k).reduce((sum, t) => sum + t.taxAmount, 0)),
+          align: 'right' as const,
+          color: 'var(--color-text-muted)',
+        })),
         { kind: 'text', text: INR(s.grandTotal), align: 'right', weight: '650' },
         { kind: 'text', text: INR(s.paidAmount), align: 'right', color: 'var(--color-text-muted)' },
         { kind: 'text', text: INR(s.dueAmount), align: 'right', color: s.dueAmount > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)' },

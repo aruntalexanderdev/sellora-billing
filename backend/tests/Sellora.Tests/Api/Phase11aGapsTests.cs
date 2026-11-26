@@ -147,7 +147,7 @@ public class Phase11aGapsTests
     {
         var f = await SeedAsync();
 
-        var result = await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement")).Detail(f.Pen.Id, default);
+        var result = await new StockController(f.Db, new FakeEffectivePermissions("Inventory.View", "Reports.Stock", "Reports.Movement"), new Sellora.Infrastructure.Services.TaxResolver(f.Db)).Detail(f.Pen.Id, default);
 
         var movements = ((StockDetailDto)Assert.IsType<OkObjectResult>(result.Result).Value!).Movements;
         Assert.Equal(f.SaleRef, Assert.Single(movements, m => m.ReferenceNo == "INV-1").ReferenceId);

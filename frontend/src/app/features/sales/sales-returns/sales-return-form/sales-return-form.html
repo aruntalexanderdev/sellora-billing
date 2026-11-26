@@ -21,6 +21,7 @@
               <th class="num">Can return</th>
               <th>Return unit</th>
               <th class="num">Return qty</th>
+              <th class="num" title="Estimated: the server reverses the original tax rows exactly when the return is saved.">Tax (est.)</th>
             </tr>
           </thead>
           <tbody>
@@ -53,6 +54,13 @@
                     <div class="field-error">{{ msg }}</div>
                   }
                 </td>
+                <td class="num muted" data-testid="return-tax-estimate">
+                  @if (estimateFor(l); as e) {
+                    ≈ {{ INR(e.tax) }}
+                  } @else {
+                    —
+                  }
+                </td>
               </tr>
             }
           </tbody>
@@ -74,7 +82,10 @@
       </div>
 
       <div class="pay-preview">
-        Credit to the customer (tax included): <strong>{{ INR(credit()) }}</strong>
+        Credit to the customer (tax included): <strong data-testid="return-credit">{{ INR(credit()) }}</strong>
+        @if (credit() > 0) {
+          <span class="muted" data-testid="return-tax-total">(≈ {{ INR(taxEstimate()) }} tax, estimate)</span>
+        }
         @if (i.paidAmount > 0) {
           · then refundable: <strong>{{ INR(refundableAfter()) }}</strong>
         }

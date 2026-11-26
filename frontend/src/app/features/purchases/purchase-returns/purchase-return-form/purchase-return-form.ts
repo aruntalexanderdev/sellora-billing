@@ -13,6 +13,8 @@ import type { AccountOption } from '../../../accounts/cash-bank/cash-bank.models
 import { formatQuantity } from '../../../../shared/units/unit-conversion';
 import { quantityStep } from '../../../../shared/forms/quantity-input';
 import { defaultReturnUnit, proratedCredit, returnAllChoice, returnBaseQty, returnQtyError } from '../../purchase-form/purchase-units';
+import { LineTaxBreakdown } from '../../../../shared/tax/line-tax-breakdown/line-tax-breakdown';
+import { estimateReturnTax, type ReturnTaxEstimate } from '../../purchase-tax';
 import type { PaymentMethod, PurchaseDetail, PurchaseLine, PurchaseReturnUnit } from '../../purchases.models';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
@@ -30,7 +32,7 @@ const todayIso = () => {
 @Component({
   selector: 'app-purchase-return-form',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton],
+  imports: [LineTaxBreakdown, ReactiveFormsModule, RouterLink, UiButton],
   templateUrl: './purchase-return-form.html',
   styleUrl: '../../purchase-detail/purchase-detail.scss',
 })
@@ -124,6 +126,25 @@ export class PurchaseReturnForm implements OnInit, HasUnsavedChanges {
     if (!p || p.grandTotal <= 0) return 0;
     return roundTo((this.creditBase() / p.grandTotal) * p.originalGrandTotal, p.currencyDecimalPrecision);
   });
+
+  /**
+   * Estimated tax of the quantity entered on a line: the original line's tax rows prorated by base quantity.
+   * Shown as "estimate - calculated on save"; the server reverses the rows exactly and is authoritative.
+   */
+  estimate(l: PurchaseLine): ReturnTaxEstimate | null {
+    const q = this.qty()[l.id] ?? 0;
+    const unit = this.unitFor(l);
+    if (!(q > 0) || !unit) return null;
+    return estimateReturnTax(l, returnBaseQty(q, unit), this.purchase()?.baseCurrencyDecimalPrecision ?? 2);
+  }
+  readonly expandedTax = signal<ReadonlySet<string>>(new Set());
+  toggleTax(id: string): void {
+    this.expandedTax.update((set) => {
+      const next = new Set(set);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
 
   readonly chosen = computed(() => this.lines().filter((l) => (this.qty()[l.id] ?? 0) > 0));
   readonly linesValid = computed(() => this.chosen().length > 0 && this.lines().every((l) => !this.qtyError(l)));

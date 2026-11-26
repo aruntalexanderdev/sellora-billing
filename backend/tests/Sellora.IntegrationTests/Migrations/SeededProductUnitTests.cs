@@ -34,7 +34,8 @@ public class SeededProductUnitTests(PostgresFixture postgres)
         Assert.Equal(new[] { 1m, 10m, 5m, 2m }, ordered.Select(u => u.InnerQuantity));
         Assert.All(ordered, u => Assert.True(u.IsActive && u.IsSellable && u.IsPurchasable));
         Assert.Equal(("pc", MeasurementCategory.Count), (ordered[0].Unit.ShortCode, ordered[0].Unit.MeasurementCategory));
-        Assert.Equal(12m, (await check.Taxes.AsNoTracking().SingleAsync(t => t.Id == pen.TaxId)).RatePercent);
+        // TP-1: the demo seeder maps products onto the standard GST profiles (5%, 18% default); "GST 12%" is no standard profile, so Ball Pen is now 18%
+        Assert.Equal(18m, (await check.Taxes.AsNoTracking().SingleAsync(t => t.Id == pen.TaxId)).RatePercent);
     }
 
     [Fact]
@@ -72,7 +73,7 @@ public class SeededProductUnitTests(PostgresFixture postgres)
             var product = await LoadAsync(db, sku);
             before = product.Units.OrderBy(u => u.Id).Select(u => (u.Id, u.UnitId, u.ConversionFactorToBase, u.SortOrder)).ToList();
             var byId = product.Units.ToDictionary(u => u.Id);
-            var input = new Sellora.Domain.Inventory.UpsertProductInput(product.Sku, product.Name, product.CategoryId, product.SubcategoryId, product.BaseUnitId, product.TaxId, product.ReorderLevel,
+            var input = new Sellora.Domain.Inventory.UpsertProductInput(product.Sku, product.Name, product.CategoryId, product.SubcategoryId, product.BaseUnitId, product.ReorderLevel,
                 product.Units.Select(u => new Sellora.Domain.Inventory.ProductUnitInputItem(u.Id, u.UnitId,
                     u.InnerProductUnitId is { } i ? byId[i].UnitId : null, u.InnerQuantity, u.Label, u.Barcode,
                     u.IsPurchasable, u.IsSellable, u.IsDefaultPurchaseUnit, u.IsDefaultSalesUnit, u.IsActive)).ToList());

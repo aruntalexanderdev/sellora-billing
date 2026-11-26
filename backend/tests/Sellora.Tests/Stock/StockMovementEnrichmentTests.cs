@@ -37,9 +37,10 @@ public class StockMovementEnrichmentTests
         var (pcUnit, boxUnit) = (TestUnits.Piece(), TestUnits.Box());
         db.AddRange(user.Role, user, tax, inr, settings, supplier, customer, pcUnit, boxUnit);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);
 
         var products = new ProductService(db);
-        var pen = await products.CreateProductAsync(new UpsertProductInput("STN-PEN", "Ball Pen", null, null, pcUnit.Id, tax.Id, 0m,
+        var pen = await products.CreateProductAsync(new UpsertProductInput("STN-PEN", "Ball Pen", null, null, pcUnit.Id, 0m,
         [
             new ProductUnitInputItem(null, pcUnit.Id, null, null, null, null, true, true, false, false, true),
             new ProductUnitInputItem(null, boxUnit.Id, pcUnit.Id, 10m, null, null, true, true, false, false, true),
@@ -49,6 +50,7 @@ public class StockMovementEnrichmentTests
         var pricing = new PricingService(db);
         await pricing.SetPriceAsync(pc.Id, 12m, user.Id);
         await pricing.SetPriceAsync(box.Id, 100m, user.Id);
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         return new Fixture(db, new SalesService(db), new PurchaseService(db, new ExchangeRateService(db)), new StockAdjustmentService(db),
             user.Id, customer, supplier, pen, pc, box);
     }
