@@ -11,7 +11,7 @@ import { SettingsPage } from './settings-page';
 
 const settings = (over: Partial<BusinessSettings> = {}): BusinessSettings => ({
   id: 's', businessName: 'Acme', addressLine: null, city: null, state: null, gstin: null, phone: null, email: null, invoicePrefix: 'INV',
-  baseCurrencyId: 'cur', baseCurrencyCode: 'INR', baseCurrencySymbol: '₹', companyId: 'co', receiptPostingMode: 'Direct', receiptSeparationOfDuties: false, sellingPricesIncludeTax: true, maxBillDiscountPercent: null, countryId: null, countryName: null, stateId: null, stateName: null, ...over,
+  baseCurrencyId: 'cur', baseCurrencyCode: 'INR', baseCurrencySymbol: '₹', companyId: 'co', receiptPostingMode: 'Direct', receiptSeparationOfDuties: false, sellingPricesIncludeTax: true, maxBillDiscountPercent: null, transferApprovalSeparationOfDuties: true, countryId: null, countryName: null, stateId: null, stateName: null, ...over,
 });
 
 function render(s: BusinessSettings, update = vi.fn(() => of(s)), canEdit = true) {
@@ -48,6 +48,18 @@ describe('SettingsPage receipt approval (FI-D39)', () => {
     fixture.componentInstance.form.patchValue({ receiptPostingMode: 'SupervisorApproval', receiptSeparationOfDuties: true });
     fixture.componentInstance.submit();
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ receiptPostingMode: 'SupervisorApproval', receiptSeparationOfDuties: true, businessName: 'Acme' }));
+  });
+
+  it('loads and saves the transfer approval maker-checker setting (on when the API omits it)', () => {
+    const omitted = render({ ...settings(), transferApprovalSeparationOfDuties: undefined } as unknown as BusinessSettings);
+    expect(omitted.fixture.componentInstance.form.getRawValue().transferApprovalSeparationOfDuties).toBe(true);
+    TestBed.resetTestingModule();
+
+    const { fixture, update, el } = render(settings({ transferApprovalSeparationOfDuties: true }));
+    expect((el.querySelector('[data-testid="transfer-approval-separation"]') as HTMLInputElement).checked).toBe(true);
+    fixture.componentInstance.form.patchValue({ transferApprovalSeparationOfDuties: false });
+    fixture.componentInstance.submit();
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ transferApprovalSeparationOfDuties: false }));
   });
 
   it('maps a server error on receiptPostingMode onto the control', () => {

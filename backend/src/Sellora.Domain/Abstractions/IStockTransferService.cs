@@ -21,6 +21,13 @@ public interface IStockTransferService
 
     Task<StockTransfer?> SubmitAsync(Guid id, Guid userId, string? correlationId = null, CancellationToken ct = default);
     Task<StockTransfer?> ApproveAsync(Guid id, Guid userId, string? correlationId = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Requested only. Lines may be approved at less than requested (down to 0, in the requested unit; the difference is closed); a reason is
+    /// required when any line is reduced and at least one line must stay above 0 (otherwise reject). Under the request's approval
+    /// separation snapshot, neither its creator nor its submitter may approve it.
+    /// </summary>
+    Task<StockTransfer?> ApproveAsync(Guid id, ApproveStockTransferInput input, Guid userId, string? correlationId = null, CancellationToken ct = default);
     Task<StockTransfer?> RejectAsync(Guid id, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default);
     Task<StockTransfer?> CancelAsync(Guid id, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default);
 
@@ -39,4 +46,10 @@ public interface IStockTransferService
 
     /// <summary>Dispatched / PartiallyReceived, company-level StockTransfers.Resolve: closes all outstanding quantity (write-off or return to source) and completes the transfer.</summary>
     Task<StockTransferReceiptResult?> ResolveAsync(Guid id, ResolveStockTransferInput input, Guid userId, string? correlationId = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// True when the caller's active branch (or company-level grant) fits the transfer's source for StockTransfers.Approve — the same check
+    /// approve / reject / close run. Does not check that the permission is held (the policy does that) nor the status. Read-only.
+    /// </summary>
+    Task<bool> FitsApproverAsync(StockTransfer transfer, CancellationToken ct = default);
 }

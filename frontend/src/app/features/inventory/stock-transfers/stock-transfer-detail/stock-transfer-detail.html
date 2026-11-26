@@ -21,6 +21,10 @@
     <div class="server-error" role="alert" data-testid="action-error">{{ e }}</div>
   }
 
+  @if (awaitingApprovalBy(); as by) {
+    <p class="muted" data-testid="awaiting-approval">Waiting for approval by {{ by }} — the branch that supplies the stock decides.</p>
+  }
+
   <div class="action-bar" data-testid="actions">
     @if (can('edit')) {
       <ui-button data-testid="act-edit" (onClick)="edit()">Edit draft</ui-button>
@@ -56,6 +60,9 @@
   }
 
   @switch (panel()) {
+    @case ('approve') {
+      <app-transfer-approve-dialog [transfer]="t" [submission]="submissionFor('approve')" (done)="onUpdated($event, 'Transfer approved.')" (cancelled)="close()" />
+    }
     @case ('reject') {
       <app-reason-prompt title="Reject this transfer" confirmLabel="Reject" [destructive]="true" [busy]="busy()" [error]="actionError()" (confirmed)="confirmReason('reject', $event)" (cancelled)="close()" />
     }
@@ -107,6 +114,9 @@
             <td>{{ l.productName }}<div class="sub">{{ l.sku }}</div></td>
             <td class="num">
               {{ entered(l.requestedQty) }} {{ l.unitCode }}
+              @if (l.approvedQty != null && l.approvedQty !== l.requestedQty) {
+                <div class="sub" [attr.data-testid]="'approved-' + l.lineNo">approved {{ entered(l.approvedQty) }} {{ l.unitCode }}</div>
+              }
               <div class="sub">= {{ base(l, l.requestedBaseQty) }} {{ l.baseUnitCode }} (1 {{ l.unitCode }} = {{ factor(l.conversionFactorToBase) }})</div>
             </td>
             <td class="num" [attr.data-testid]="'allocated-' + l.lineNo">{{ base(l, l.allocatedBaseQty) }} {{ l.baseUnitCode }}<div class="sub">{{ inLineUnit(l, l.allocatedBaseQty) }}</div></td>

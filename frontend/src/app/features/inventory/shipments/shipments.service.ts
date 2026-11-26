@@ -8,7 +8,7 @@ import { idempotencyHeaders } from '../../../core/idempotency';
 import { primaryLoad } from '../../../core/http/request-context';
 import type {
   AddShipmentVehicleRequest, AllocateShipmentRequest, CreateShipmentRequest, LoadConsignmentRequest, Shipment, ShipmentListItem,
-  ShipmentListQuery, UpdateShipmentRequest,
+  ShipmentEligibleVehicle, ShipmentListQuery, UpdateShipmentRequest,
 } from './shipments.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/shipments`;
@@ -53,6 +53,11 @@ export class ShipmentsService {
 
   cancel(id: string, reason: string, idempotencyKey: string): Observable<Shipment> {
     return this.http.post<Shipment>(`${BASE_URL}/${id}/cancel`, { reason }, { headers: idempotencyHeaders(idempotencyKey) });
+  }
+
+  /** Own-fleet vehicles this shipment may use; needs Shipments.Plan only (not the company vehicle master permission). */
+  eligibleVehicles(id: string): Observable<ShipmentEligibleVehicle[]> {
+    return this.http.get<ShipmentEligibleVehicle[]>(`${BASE_URL}/${id}/eligible-vehicles`);
   }
 
   addVehicle(id: string, request: AddShipmentVehicleRequest): Observable<Shipment> {

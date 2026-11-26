@@ -22,6 +22,12 @@ public sealed record UpdateStockTransferInput(
 
 /// <summary>What leaves for one existing line: 0 &lt;= <paramref name="Quantity"/> &lt;= requested, in any active unit of the product.
 /// Every line of the transfer must appear exactly once; the unshipped remainder is closed (no backorder).</summary>
+/// <summary>Approved quantity for one request line, in the line's requested unit: 0 ≤ Quantity ≤ requested. Lines left out are approved as requested.</summary>
+public sealed record ApproveStockTransferLineInput(Guid LineId, decimal Quantity);
+
+/// <summary>Approve, optionally approving less than requested on some lines; Reason is required when any line is reduced.</summary>
+public sealed record ApproveStockTransferInput(IReadOnlyList<ApproveStockTransferLineInput>? Lines = null, string? Reason = null);
+
 public sealed record DispatchStockTransferLineInput(Guid LineId, Guid ProductUnitId, decimal Quantity);
 
 public sealed record DispatchStockTransferInput(

@@ -71,6 +71,7 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
             CreatedByUserId = userId,
             SubmittedAt = input.Submit ? now : null,
             SubmittedByUserId = input.Submit ? userId : null,
+            RequireApprovalSeparation = input.Submit && await ApprovalSeparationPolicyAsync(ct),
             Lines = lines,
         };
         db.StockTransfers.Add(transfer);
@@ -132,21 +133,85 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
 
     public Task<StockTransfer?> SubmitAsync(Guid id, Guid userId, string? correlationId = null, CancellationToken ct = default) =>
         TransitionAsync(id, userId, correlationId, StockTransferStatus.Requested, [StockTransferStatus.Draft], "StockTransfers.Create", Fit.Either, AuditActions.StockTransferSubmitted, null,
-            (t, now) =>
+            async (t, now) =>
             {
                 t.Status = StockTransferStatus.Requested;
                 t.SubmittedAt = now;
                 t.SubmittedByUserId = userId;
+                // Maker-checker policy is snapshotted here: later setting changes never alter a pending request.
+                t.RequireApprovalSeparation = await ApprovalSeparationPolicyAsync(ct);
             }, ct);
 
     public Task<StockTransfer?> ApproveAsync(Guid id, Guid userId, string? correlationId = null, CancellationToken ct = default) =>
-        TransitionAsync(id, userId, correlationId, StockTransferStatus.Approved, [StockTransferStatus.Requested], "StockTransfers.Approve", Fit.Source, AuditActions.StockTransferApproved, null,
+        ApproveAsync(id, new ApproveStockTransferInput(), userId, correlationId, ct);
+
+    public async Task<StockTransfer?> ApproveAsync(Guid id, ApproveStockTransferInput input, Guid userId, string? correlationId = null, CancellationToken ct = default)
+    {
+        var lines = input.Lines ?? [];
+        var duplicate = lines.GroupBy(l => l.LineId).FirstOrDefault(g => g.Count() > 1);
+        if (duplicate is not null) throw new DomainValidationException("lines", "Each line can be listed only once.");
+        var reason = Text(input.Reason, "reason", required: false, MaxCloseReason);
+
+        // Units for the entered-decimals check are loaded before the header lock (read-only, immutable once referenced by history).
+        var transferLines = await db.StockTransferLines.AsNoTracking().Where(l => l.TransferId == id)
+            .Select(l => new { l.Id, l.ProductId, l.ProductUnitId }).ToListAsync(ct);
+        var (products, units) = await LoadProductsAndUnitsAsync(transferLines.Select(l => l.ProductId), transferLines.Select(l => l.ProductUnitId), ct);
+
+        return await TransitionAsync(id, userId, correlationId, StockTransferStatus.Approved, [StockTransferStatus.Requested], "StockTransfers.Approve", Fit.Source,
+            AuditActions.StockTransferApproved, reason,
             (t, now) =>
             {
+                if (t.RequireApprovalSeparation && (t.CreatedByUserId == userId || t.SubmittedByUserId == userId))
+                {
+                    throw new DomainValidationException("status",
+                        "Separation of duties: the person who created or submitted this request cannot approve it. Ask another approver of the source branch.");
+                }
+
+                var approved = new Dictionary<Guid, (decimal Qty, decimal Base)>();
+                for (var i = 0; i < lines.Count; i++)
+                {
+                    var field = $"lines[{i}].quantity";
+                    var line = t.Lines.SingleOrDefault(l => l.Id == lines[i].LineId)
+                        ?? throw new DomainValidationException($"lines[{i}].lineId", "This line is not part of the transfer.");
+                    var qty = lines[i].Quantity;
+                    if (qty < 0) throw new DomainValidationException(field, "The approved quantity cannot be negative.");
+                    if (qty > line.RequestedQty) throw new DomainValidationException(field, $"The approved quantity cannot exceed the requested {line.RequestedQty:0.###} {line.UnitCode}.");
+                    // As requested = the line's own snapshot (never re-validated against a unit changed since); 0 needs no conversion.
+                    var baseQty = qty == line.RequestedQty ? line.RequestedBaseQty
+                        : qty == 0 ? 0m : ConvertEntered(units[line.ProductUnitId], products[line.ProductId], qty, field);
+                    approved[line.Id] = (qty, baseQty);
+                }
+
+                var reduced = t.Lines.Any(l => approved.TryGetValue(l.Id, out var a) && a.Base < l.RequestedBaseQty);
+                if (reduced && reason is null) throw new DomainValidationException("reason", "Give a reason for approving less than requested.");
+                if (t.Lines.All(l => approved.TryGetValue(l.Id, out var a) && a.Base == 0m))
+                {
+                    throw new DomainValidationException("lines", "Every line is approved at 0; reject the request instead.");
+                }
+
+                foreach (var line in t.Lines)
+                {
+                    var (qty, baseQty) = approved.TryGetValue(line.Id, out var a) ? a : (line.RequestedQty, line.RequestedBaseQty);
+                    line.ApprovedQty = qty;
+                    line.ApprovedBaseQty = baseQty;
+                    // Nothing is allocated, dispatched or closed on a Requested transfer, so the cut is the whole closed quantity.
+                    line.ClosedBaseQty = line.RequestedBaseQty - baseQty;
+                }
+                t.ApprovalAdjustmentReason = reduced ? reason : null;
                 t.Status = StockTransferStatus.Approved;
                 t.ApprovedAt = now;
                 t.ApprovedByUserId = userId;
+                return Task.CompletedTask;
             }, ct);
+    }
+
+    // FI maker-checker: no settings row = off, as for the receipt policy (FI-D39); every real company has a row (default on).
+    private async Task<bool> ApprovalSeparationPolicyAsync(CancellationToken ct)
+    {
+        var companyId = db.CompanyContext.RequireCompanyId();
+        return await db.BusinessSettings.AsNoTracking().Where(s => s.CompanyId == companyId)
+            .Select(s => (bool?)s.TransferApprovalSeparationOfDuties).SingleOrDefaultAsync(ct) ?? false;
+    }
 
     public Task<StockTransfer?> RejectAsync(Guid id, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default)
     {
@@ -208,10 +273,16 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
             }, ct);
     }
 
+    private Task<StockTransfer?> TransitionAsync(
+        Guid id, Guid userId, string? correlationId, StockTransferStatus target, StockTransferStatus[] allowedFrom, string permissionCode, Fit fit,
+        string auditAction, string? reason, Action<StockTransfer, DateTimeOffset> apply, CancellationToken ct) =>
+        TransitionAsync(id, userId, correlationId, target, allowedFrom, permissionCode, fit, auditAction, reason,
+            (t, now) => { apply(t, now); return Task.CompletedTask; }, ct);
+
     // Header lock → reload → transition + fit check → stamp. No stock is touched, so no stock locks.
     private async Task<StockTransfer?> TransitionAsync(
         Guid id, Guid userId, string? correlationId, StockTransferStatus target, StockTransferStatus[] allowedFrom, string permissionCode, Fit fit,
-        string auditAction, string? reason, Action<StockTransfer, DateTimeOffset> apply, CancellationToken ct)
+        string auditAction, string? reason, Func<StockTransfer, DateTimeOffset, Task> apply, CancellationToken ct)
     {
         await using var transaction = await StockLocks.BeginAsync(db, ct);
 
@@ -223,15 +294,54 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
         if (!alreadyDone) EnsureStatus(transfer, allowedFrom);
 
         var (source, destination) = await LoadEndpointsAsync(transfer, ct);
-        await EnsureFitAsync(permissionCode, fit, source, destination, ct);
+        if (permissionCode == "StockTransfers.Approve" && fit == Fit.Source)
+        {
+            try
+            {
+                await EnsureFitAsync(permissionCode, fit, source, destination, ct);
+            }
+            catch (DomainValidationException)
+            {
+                throw new DomainValidationException(LocationField, await NotTheApproverMessageAsync(transfer, ct));
+            }
+        }
+        else
+        {
+            await EnsureFitAsync(permissionCode, fit, source, destination, ct);
+        }
         if (alreadyDone) return Finish(transfer);
 
         var before = transfer.Status;
-        apply(transfer, DateTimeOffset.UtcNow);
+        await apply(transfer, DateTimeOffset.UtcNow);
         Audit(userId, correlationId, auditAction, transfer, before, Snapshot(transfer), reason);
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
         return Finish(transfer);
+    }
+
+    // The caller can read the transfer (it loaded through the branch filter), so naming its source branch reveals nothing new.
+    private async Task<string> NotTheApproverMessageAsync(StockTransfer transfer, CancellationToken ct)
+    {
+        var name = transfer.SourceBranchId is { } b
+            ? await db.Branches.AsNoTracking().Where(x => x.Id == b).Select(x => x.Name).SingleOrDefaultAsync(ct)
+            : null;
+        return name is null
+            ? "Only an approver with company-level access can approve, reject or close this request: its stock leaves a company-level location."
+            : $"Only the source branch ({name}) can approve, reject or close this request. Switch to {name}, or ask its approver.";
+    }
+
+    public async Task<bool> FitsApproverAsync(StockTransfer transfer, CancellationToken ct = default)
+    {
+        var (source, destination) = await LoadEndpointsAsync(transfer, ct);
+        try
+        {
+            await EnsureFitAsync("StockTransfers.Approve", Fit.Source, source, destination, ct);
+            return true;
+        }
+        catch (DomainValidationException)
+        {
+            return false;
+        }
     }
 
     // ------------------------------------------------------------------ dispatch

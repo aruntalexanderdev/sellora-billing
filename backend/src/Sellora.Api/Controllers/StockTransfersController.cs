@@ -247,8 +247,14 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
 
     [HttpPost("{id:guid}/approve")]
     [Authorize(Policy = "StockTransfers.Approve")]
-    public Task<ActionResult<StockTransferDto>> Approve(Guid id, CancellationToken ct) =>
-        RunAsync(async () => await RespondAsync(await transfers.ApproveAsync(id, UserId(), HttpContext.TraceIdentifier, ct), ct));
+    public async Task<ActionResult<StockTransferDto>> Approve(
+        Guid id, [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] ApproveStockTransferRequest? request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+        var input = new ApproveStockTransferInput(
+            request?.Lines?.Select(l => new ApproveStockTransferLineInput(l.LineId!.Value, l.Quantity!.Value)).ToList(), request?.Reason);
+        return await RunAsync(async () => await RespondAsync(await transfers.ApproveAsync(id, input, UserId(), HttpContext.TraceIdentifier, ct), ct));
+    }
 
     [HttpPost("{id:guid}/reject")]
     [Authorize(Policy = "StockTransfers.Approve")]
@@ -427,7 +433,7 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
                 l.ReceivedBaseQty, l.DamagedBaseQty, l.WrittenOffBaseQty, l.ReturnedBaseQty, l.AcceptedCorrectionBaseQty,
                 l.DispatchedBaseQty - l.ReceivedBaseQty - l.DamagedBaseQty - l.WrittenOffBaseQty - l.ReturnedBaseQty - l.AcceptedCorrectionBaseQty,
                 l.AllocatedBaseQty, l.ClosedBaseQty, l.RequestedBaseQty - l.ClosedBaseQty - l.DispatchedBaseQty,
-                batches);
+                batches, l.ApprovedQty, l.ApprovedBaseQty);
         }).ToList();
 
         var receipts = t.Receipts.OrderBy(r => r.Sequence).Select(r => new StockTransferReceiptDto(
@@ -447,7 +453,10 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
             Actor(t.DispatchedByUserId, t.DispatchedAt), Actor(t.CompletedByUserId, t.CompletedAt),
             Actor(t.CancelledByUserId, t.CancelledAt), t.CancellationReason,
             t.ClosedAt, UserName(t.ClosedByUserId), t.ClosureReason,
-            lines, receipts);
+            lines, receipts,
+            await transfers.FitsApproverAsync(t, ct),
+            t.Status == StockTransferStatus.Requested && t.RequireApprovalSeparation && (t.CreatedByUserId == UserId() || t.SubmittedByUserId == UserId()),
+            t.ApprovalAdjustmentReason);
     }
 
     /// <summary>Per-request id → code/name/type of the company's stock locations (a document the caller can read always names its own

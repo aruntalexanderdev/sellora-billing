@@ -10,7 +10,7 @@ import { SettingsPage } from './settings-page';
 
 const settings = (over: Partial<BusinessSettings> = {}): BusinessSettings => ({
   id: 's', businessName: 'Acme', addressLine: null, city: null, state: null, gstin: null, phone: null, email: null, invoicePrefix: 'INV',
-  baseCurrencyId: 'cur', baseCurrencyCode: 'INR', baseCurrencySymbol: '₹', companyId: 'co', receiptPostingMode: 'Direct', receiptSeparationOfDuties: false,
+  baseCurrencyId: 'cur', baseCurrencyCode: 'INR', baseCurrencySymbol: '₹', companyId: 'co', receiptPostingMode: 'Direct', receiptSeparationOfDuties: false, transferApprovalSeparationOfDuties: true,
   sellingPricesIncludeTax: true, maxBillDiscountPercent: null, countryId: null, countryName: null, stateId: null, stateName: null, ...over,
 });
 

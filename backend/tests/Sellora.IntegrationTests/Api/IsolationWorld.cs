@@ -120,7 +120,7 @@ public sealed class IsolationWorld
         target.FinancialAccounts.AddRange((await source.FinancialAccounts.AsNoTracking().ToListAsync()).Select(a => new FinancialAccount
             { Id = Guid.NewGuid(), Name = a.Name, Kind = a.Kind, Reference = a.Reference, IsActive = a.IsActive, CreatedByUserId = userId }));
         var settings = await source.BusinessSettings.AsNoTracking().SingleAsync();
-        target.BusinessSettings.Add(new BusinessSettings { Id = Guid.NewGuid(), BusinessName = settings.BusinessName, InvoicePrefix = settings.InvoicePrefix, BaseCurrencyId = settings.BaseCurrencyId, CountryId = settings.CountryId, StateId = settings.StateId, SellingPricesIncludeTax = settings.SellingPricesIncludeTax });
+        target.BusinessSettings.Add(new BusinessSettings { Id = Guid.NewGuid(), BusinessName = settings.BusinessName, InvoicePrefix = settings.InvoicePrefix, BaseCurrencyId = settings.BaseCurrencyId, CountryId = settings.CountryId, StateId = settings.StateId, SellingPricesIncludeTax = settings.SellingPricesIncludeTax, TransferApprovalSeparationOfDuties = false });
         foreach (var rate in await source.ExchangeRates.AsNoTracking().ToListAsync())
         {
             target.ExchangeRates.Add(new ExchangeRate { Id = Guid.NewGuid(), CurrencyId = rate.CurrencyId, RateToBase = rate.RateToBase, EffectiveDate = rate.EffectiveDate, CreatedByUserId = userId });

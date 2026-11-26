@@ -73,6 +73,8 @@ describe('ShipmentsService', () => {
     expect(http.expectOne((r) => r.method === 'PUT' && r.url.endsWith('/shipments/s1')).request.headers.has('Idempotency-Key')).toBe(false);
     service.addVehicle('s1', { vehicleId: 'v', externalVehicleNumber: null, externalDescription: null, driverName: null, driverPhone: null }).subscribe();
     http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/shipments/s1/vehicles'));
+    service.eligibleVehicles('s1').subscribe();
+    http.expectOne((r) => r.method === 'GET' && r.url.endsWith('/shipments/s1/eligible-vehicles'));
     service.removeVehicle('s1', 'sv').subscribe();
     http.expectOne((r) => r.method === 'DELETE' && r.url.endsWith('/shipments/s1/vehicles/sv'));
     service.removeAllocation('s1', 'cl1').subscribe();

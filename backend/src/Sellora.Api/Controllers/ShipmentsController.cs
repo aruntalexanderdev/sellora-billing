@@ -87,6 +87,33 @@ public class ShipmentsController(IShipmentService shipments, SelloraDbContext db
         return dto is null ? NotFound() : Ok(dto);
     }
 
+    /// <summary>
+    /// Own-fleet picker for a shipment's vehicles. Branch planners hold Shipments.Plan but not the company-only Company.Vehicles.View, so the
+    /// vehicle master is not readable for them; this returns exactly what <see cref="IShipmentService.AddVehicleAsync"/> accepts: active
+    /// vehicles that are central (unassigned) or assigned to the shipment's branch, minus those already on it. Hidden shipment = 404.
+    /// </summary>
+    [HttpGet("{id:guid}/eligible-vehicles")]
+    [Authorize(Policy = "Shipments.Plan")]
+    public async Task<ActionResult<IReadOnlyList<ShipmentEligibleVehicleDto>>> EligibleVehicles(Guid id, CancellationToken ct)
+    {
+        var shipment = await db.Shipments.AsNoTracking().Where(s => s.Id == id)
+            .Select(s => new { s.BranchId, s.SourceLocationId, s.TransportVia, Taken = s.Vehicles.Where(v => v.VehicleId != null).Select(v => v.VehicleId!.Value).ToList() })
+            .SingleOrDefaultAsync(ct);
+        if (shipment is null) return NotFound();
+        var visibility = await StockVisibility.LoadAsync(db, effectivePermissions, "Shipments.Plan", ct);
+        if (!visibility.IsShipmentSourceVisible(shipment.SourceLocationId)) return NotFound();
+        if (shipment.TransportVia != TransportVia.OwnFleet) return Ok(Array.Empty<ShipmentEligibleVehicleDto>());
+
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var branchId = shipment.BranchId;
+        var vehicles = await db.Vehicles.AsNoTracking()
+            .Where(v => v.CompanyId == companyId && v.IsActive && (v.AssignedBranchId == null || v.AssignedBranchId == branchId) && !shipment.Taken.Contains(v.Id))
+            .OrderBy(v => v.VehicleNumber)
+            .Select(v => new ShipmentEligibleVehicleDto(v.Id, v.VehicleNumber, v.VehicleName, v.VehicleType.ToString(), v.AssignedBranchId, v.IsActive))
+            .ToListAsync(ct);
+        return Ok(vehicles);
+    }
+
     [HttpPost]
     [Authorize(Policy = "Shipments.Plan")]
     public async Task<ActionResult<ShipmentDto>> Create(CreateShipmentRequest request, CancellationToken ct)

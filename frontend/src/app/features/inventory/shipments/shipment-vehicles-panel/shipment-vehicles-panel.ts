@@ -4,10 +4,8 @@ import { AuthService } from '../../../../core/auth/auth.service';
 import { applyProblem, toProblem } from '../../../../core/http/api-errors';
 import { problemText } from '../../../../shared/scope/problem-text';
 import { UiButton } from '../../../../shared/ui/button/button';
-import { VehiclesService } from '../../../company/vehicles/vehicles.service';
-import type { Vehicle } from '../../../company/vehicles/vehicles.models';
 import { eligibleVehicles, vehicleLabel } from '../shipment-rules';
-import type { AddShipmentVehicleRequest, Shipment } from '../shipments.models';
+import type { AddShipmentVehicleRequest, Shipment, ShipmentEligibleVehicle } from '../shipments.models';
 import { ShipmentsService } from '../shipments.service';
 
 /** Vehicles (legs) of a shipment: own fleet from the vehicle master, or external number/description; driver optional. */
@@ -21,7 +19,6 @@ import { ShipmentsService } from '../shipments.service';
 export class ShipmentVehiclesPanel {
   private readonly fb = inject(FormBuilder);
   private readonly service = inject(ShipmentsService);
-  private readonly vehicles = inject(VehiclesService);
   private readonly auth = inject(AuthService);
 
   readonly shipment = input.required<Shipment>();
@@ -29,7 +26,7 @@ export class ShipmentVehiclesPanel {
   readonly editable = input(false);
   readonly updated = output<Shipment>();
 
-  readonly master = signal<Vehicle[]>([]);
+  readonly master = signal<ShipmentEligibleVehicle[]>([]);
   readonly masterError = signal<string | null>(null);
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
@@ -50,11 +47,14 @@ export class ShipmentVehiclesPanel {
 
   constructor() {
     effect(() => {
-      // Only own-fleet shipments pick from the master; the list needs the vehicles view permission.
-      if (this.shipment().transportVia !== 'OwnFleet' || !this.editable()) return;
-      this.vehicles.list().subscribe({
+      // Only own-fleet shipments pick from the master. The shipment-scoped list needs Shipments.Plan only, so branch planners see the
+      // central vehicles and their branch's vehicles; it reloads whenever the shipment changes (a removed vehicle becomes eligible again).
+      const shipment = this.shipment();
+      if (shipment.transportVia !== 'OwnFleet' || !this.editable()) return;
+      this.masterError.set(null);
+      this.service.eligibleVehicles(shipment.id).subscribe({
         next: (all) => this.master.set(all),
-        error: (err) => this.masterError.set(problemText(err, 'Could not load the vehicle master.')),
+        error: (err) => this.masterError.set(problemText(err, 'Could not load the vehicles.')),
       });
     });
   }

@@ -45,6 +45,7 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
     sellingPricesIncludeTax: [true],
     maxBillDiscountPercent: [null as number | null, [Validators.min(0), Validators.max(100)]],
     hsnRequiredFrom: [''],
+    transferApprovalSeparationOfDuties: [true],
   });
 
   /** Products without HSN (read-only, from the server); null = unknown. */
@@ -96,6 +97,7 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
           sellingPricesIncludeTax: s.sellingPricesIncludeTax ?? true,
           maxBillDiscountPercent: s.maxBillDiscountPercent ?? null,
           hsnRequiredFrom: s.hsnRequiredFrom ?? '',
+          transferApprovalSeparationOfDuties: s.transferApprovalSeparationOfDuties ?? true,
         });
         this.hsnDate.set(s.hsnRequiredFrom ?? '');
         this.productsWithoutHsnCount.set(s.productsWithoutHsnCount ?? null);

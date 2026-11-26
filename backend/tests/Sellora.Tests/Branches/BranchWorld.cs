@@ -54,7 +54,8 @@ public sealed class BranchWorld
         var inr = new Currency { Id = Guid.NewGuid(), Code = "INR", Name = "Indian Rupee", Symbol = "R" };
         var supplier = new Supplier { Id = Guid.NewGuid(), Name = "Supplier", CurrencyId = inr.Id };
         var customer = new Customer { Id = Guid.NewGuid(), Name = "Walk-in", IsWalkIn = true };
-        var settings = new BusinessSettings { Id = Guid.NewGuid(), BusinessName = "Sellora Mart", InvoicePrefix = companyPrefix, BaseCurrencyId = inr.Id, Gstin = "29AAAAA0000A1Z5" };
+        // One test user plays every role in these worlds, so transfer approval maker-checker is off; TransferApprovalControlsTests turns it on.
+        var settings = new BusinessSettings { Id = Guid.NewGuid(), BusinessName = "Sellora Mart", InvoicePrefix = companyPrefix, BaseCurrencyId = inr.Id, Gstin = "29AAAAA0000A1Z5", TransferApprovalSeparationOfDuties = false };
         var category = new ExpenseCategory { Id = Guid.NewGuid(), Name = "Rent" };
         var product = new Product { Id = Guid.NewGuid(), Sku = "RICE", Name = "Rice", BaseUnitId = kg.Id, BaseUnit = kg, TaxId = tax.Id, Tax = tax };
         var unit = TestProductUnits.Base(product, "Loose kg");

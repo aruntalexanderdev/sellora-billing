@@ -30,6 +30,12 @@ public record UpdateStockTransferRequest(
 /// <summary>Reject / cancel.</summary>
 public record StockTransferReasonRequest([Required, MaxLength(300)] string Reason);
 
+/// <summary>Approved quantity of one line in its requested unit (0 ≤ quantity ≤ requested). Lines left out are approved as requested.</summary>
+public record ApproveStockTransferLineRequest([Required] Guid? LineId, [Required] decimal? Quantity);
+
+/// <summary>Optional body of POST approve: approve some lines at less than requested; Reason (≤500) is required when any line is reduced.</summary>
+public record ApproveStockTransferRequest(IReadOnlyList<ApproveStockTransferLineRequest>? Lines = null, [MaxLength(500)] string? Reason = null);
+
 /// <summary>Close the remainder of an approved request (FI-D26).</summary>
 public record CloseStockTransferRequest([Required, MaxLength(500)] string Reason);
 
@@ -92,7 +98,8 @@ public record StockTransferLineDto(
     decimal ReceivedBaseQty, decimal DamagedBaseQty, decimal WrittenOffBaseQty, decimal ReturnedBaseQty, decimal AcceptedCorrectionBaseQty,
     decimal OutstandingBaseQty,
     decimal AllocatedBaseQty, decimal ClosedBaseQty, decimal RemainingBaseQty,
-    IReadOnlyList<StockTransferLineBatchDto> Batches);
+    IReadOnlyList<StockTransferLineBatchDto> Batches,
+    decimal? ApprovedQty = null, decimal? ApprovedBaseQty = null); // null until approved
 
 public record StockTransferReceiptLineDto(
     Guid TransferLineId, Guid ProductId, Guid ProductUnitId, string UnitCode, decimal ConversionFactorToBase,
@@ -116,7 +123,13 @@ public record StockTransferDto(
     StockTransferActorDto? Cancelled, string? CancellationReason,
     DateTimeOffset? ClosedAt, string? ClosedByName, string? ClosureReason,
     IReadOnlyList<StockTransferLineDto> Lines,
-    IReadOnlyList<StockTransferReceiptDto> Receipts);
+    IReadOnlyList<StockTransferReceiptDto> Receipts,
+    // True when the caller's active branch fits the source for approve / reject / close (the source branch decides, FI-D26).
+    // The UI still checks the permission and status; the server re-checks everything on the action itself.
+    bool CanApprove = false,
+    // Maker-checker: the request was submitted under approval separation and the caller created or submitted it, so Approve is not theirs.
+    bool ApprovalBlockedForYou = false,
+    string? ApprovalAdjustmentReason = null);
 
 /// <summary>Ready-for-shipment queue row (FI-D28): an Approved / PartiallyFulfilled request with quantity still to ship.</summary>
 public record ReadyForShipmentItemDto(
