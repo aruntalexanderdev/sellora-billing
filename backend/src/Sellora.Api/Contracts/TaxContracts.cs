@@ -111,3 +111,47 @@ public record TaxResolutionDto(
 public record ClearRedundantOverridesRequest([Required] Guid? CountryId);
 
 public record ClearRedundantOverridesResultDto(int Cleared);
+
+// ---- document preview (TP-2): POST /api/v1/tax/preview
+
+/// <summary><see cref="Discount"/> and <see cref="OtherCharges"/> are money in the document currency; <see cref="OtherCharges"/> counts on purchases only. A zero quantity previews zero rows.</summary>
+public record TaxPreviewLineRequest(
+    [Required] Guid? ProductId,
+    [Required] Guid? ProductUnitId,
+    [Required] decimal? Qty,
+    [Required] decimal? UnitPrice,
+    decimal Discount = 0m,
+    decimal? OtherCharges = null);
+
+/// <summary>The branch is the working branch (X-Branch-Id), as on save. <see cref="PartyId"/> is the customer (null = walk-in) or, for purchases, the supplier (required).
+/// <see cref="RatesIncludeTax"/> applies to purchases (default false); sales follow the product, then the company price basis. At most one of the bill discount percent and amount.</summary>
+public record TaxDocumentPreviewRequest(
+    [Required] TaxDirection? Direction,
+    Guid? PartyId,
+    [Required] DateOnly? Date,
+    bool? RatesIncludeTax,
+    decimal? BillDiscountPercent,
+    decimal? BillDiscountAmount,
+    decimal? BillCharges,
+    [Required, MinLength(1)] TaxPreviewLineRequest[] Lines);
+
+/// <summary>For a per-base-unit row <see cref="BaseAmount"/> is the base quantity, not money.</summary>
+public record TaxRowDto(
+    Guid? ComponentId, string Code, TaxComponentKind Kind, TaxCalculationMethod Method, decimal? RatePercent, decimal? AmountPerBaseUnit,
+    decimal BaseAmount, decimal TaxAmount);
+
+/// <summary><see cref="Gross"/> is tax-inclusive when <see cref="PriceIncludesTax"/>. <see cref="Taxable"/> includes the bill charge share and other charges. <see cref="HsnSource"/>: None, Product or Subcategory.</summary>
+public record TaxPreviewLineDto(
+    int Index, Guid ProductId, string ProductName, Guid ProductUnitId, string UnitCode, decimal BaseQty,
+    Guid ProfileId, string ProfileCode, string ProfileName, Guid VersionId, DateOnly VersionEffectiveFrom, TaxScope Source, string SourceName,
+    string? HsnCode, string HsnSource, bool PriceIncludesTax,
+    decimal Gross, decimal LineDiscount, decimal BillDiscountShare, decimal BillChargeShare, decimal OtherCharges, decimal Taxable,
+    decimal TaxRatePercent, decimal TaxTotal, decimal LineTotal, IReadOnlyList<TaxRowDto> Rows);
+
+public record TaxPreviewWarningDto(string Field, string Message);
+
+public record TaxDocumentPreviewDto(
+    TaxDirection Direction, PlaceOfSupply PlaceOfSupply, TaxRegime Regime, Guid CountryId, string CurrencyCode, int Precision,
+    decimal Subtotal, decimal DiscountTotal, decimal ChargesTotal, decimal TaxableTotal, decimal TaxTotal, decimal GrandTotal,
+    decimal BillDiscountAmount, decimal EffectiveBillDiscountPercent,
+    IReadOnlyList<TaxPreviewLineDto> Lines, IReadOnlyList<TaxPreviewWarningDto> Warnings);

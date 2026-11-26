@@ -44,6 +44,7 @@ public static class DependencyInjection
         services.AddScoped<ITaxProfileService, TaxProfileService>();
         services.AddScoped<ITaxAssignmentService, TaxAssignmentService>();
         services.AddScoped<ITaxResolver, TaxResolver>();
+        services.AddScoped<ITaxDocumentPreviewService, TaxDocumentPreviewService>();
         services.AddScoped<IUnitService, UnitService>();
         services.AddScoped<ICurrencyService, CurrencyService>();
         services.AddScoped<ICountryService, CountryService>();

@@ -75,6 +75,122 @@ public class TaxResolver(SelloraDbContext db) : ITaxResolver
         return new TaxVersionResolution(profile, version);
     }
 
+    public async Task<PlaceOfSupplyResolution> ResolvePlaceOfSupplyAsync(TaxDirection direction, Guid? branchId, Guid? partyId, CancellationToken ct = default)
+    {
+        var countryId = await ResolveDocumentCountryAsync(branchId, "branchId", ct);
+        var countryCode = await db.Countries.AsNoTracking().Where(c => c.Id == countryId).Select(c => c.Code).SingleAsync(ct);
+        var regime = TaxRules.RegimeFor(countryCode);
+        if (regime == TaxRegime.Vat) return new PlaceOfSupplyResolution(PlaceOfSupply.NotApplicable, regime, countryId, countryCode, []);
+
+        // Own state: the branch's, else the company's (T14).
+        Guid? ownState = null;
+        if (branchId is { } id) ownState = await db.Branches.AsNoTracking().Where(b => b.Id == id).Select(b => b.StateId).SingleOrDefaultAsync(ct);
+        ownState ??= await db.BusinessSettings.AsNoTracking().Select(s => s.StateId).FirstOrDefaultAsync(ct);
+        if (ownState is null)
+        {
+            throw new DomainValidationException("branchId", "Set the state of the branch (or of the company in the business settings) before billing GST documents.");
+        }
+
+        var warnings = new List<string>();
+        (Guid? Country, Guid? State)? party = null;
+        if (partyId is { } pid)
+        {
+            var found = direction == TaxDirection.Sale
+                ? await db.Customers.AsNoTracking().Where(c => c.Id == pid).Select(c => new { c.CountryId, c.StateId }).SingleOrDefaultAsync(ct)
+                : await db.Suppliers.AsNoTracking().Where(x => x.Id == pid).Select(x => new { x.CountryId, x.StateId }).SingleOrDefaultAsync(ct);
+            party = found is null ? null : (found.CountryId, found.StateId);
+            if (party is null) throw new DomainValidationException("partyId", direction == TaxDirection.Sale ? "Select a valid customer." : "Select a valid supplier.");
+        }
+
+        PlaceOfSupply place;
+        if (party is not { } p) place = PlaceOfSupply.IntraState; // walk-in
+        else if (p.Country is { } partyCountry && partyCountry != countryId) place = PlaceOfSupply.InterState; // DQ-TP2-7
+        else if (p.State is null)
+        {
+            place = PlaceOfSupply.IntraState;
+            if (direction == TaxDirection.Purchase) warnings.Add("The supplier has no state, so the purchase is treated as intra-state. Set the supplier's state.");
+        }
+        else place = p.State == ownState ? PlaceOfSupply.IntraState : PlaceOfSupply.InterState;
+        return new PlaceOfSupplyResolution(place, regime, countryId, countryCode, warnings);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, ResolvedLineRates>> ResolveRateSetsAsync(
+        TaxDirection direction, Guid countryId, DateOnly date, IReadOnlyList<Guid> productIds, string field = "lines", CancellationToken ct = default)
+    {
+        var errors = new List<FieldError>();
+        string Key(int i) => $"{field}[{i}].productId";
+        var ids = productIds.Distinct().ToArray();
+        var products = await db.Products.AsNoTracking().Where(p => ids.Contains(p.Id))
+            .Select(p => new Facts(p.Id, p.Name, p.CategoryId, p.SubcategoryId, p.HsnCode, null, null, true)).ToListAsync(ct);
+        var known = products.Select(p => p.ProductId!.Value).ToHashSet();
+        for (var i = 0; i < productIds.Count; i++)
+        {
+            if (!known.Contains(productIds[i])) errors.Add(new FieldError(Key(i), "Select a valid product."));
+        }
+
+        var resolved = await ResolveCoreAsync(products, countryId, ct);
+        var country = errors.Count == 0 && resolved.Any(r => r is null)
+            ? await db.Countries.AsNoTracking().Where(c => c.Id == countryId).Select(c => c.Name).FirstOrDefaultAsync(ct) ?? "the document's country"
+            : "the document's country";
+
+        var picked = new Dictionary<Guid, (TaxResolution Resolution, ResolvedTaxProfile Profile)>();
+        foreach (var (facts, resolution) in products.Zip(resolved))
+        {
+            var productId = facts.ProductId!.Value;
+            if (resolution is null)
+            {
+                for (var i = 0; i < productIds.Count; i++)
+                {
+                    if (productIds[i] == productId) errors.Add(new FieldError(Key(i), $"{facts.Name} has no tax profile for {country}. Assign a profile to the product, its subcategory or category, or set a company default for {country}."));
+                }
+                continue;
+            }
+            picked[productId] = (resolution, direction == TaxDirection.Sale ? resolution.SalesProfile : resolution.PurchaseProfile);
+        }
+
+        var profileIds = picked.Values.Select(v => v.Profile.Id).Distinct().ToArray();
+        var versions = await db.TaxProfileVersions.AsNoTracking().Include(v => v.Components).ThenInclude(c => c.TaxComponent)
+            .Where(v => profileIds.Contains(v.TaxProfileId) && v.EffectiveFrom <= date && (v.EffectiveTo == null || v.EffectiveTo >= date))
+            .ToListAsync(ct);
+        var versionByProfile = versions.GroupBy(v => v.TaxProfileId).ToDictionary(g => g.Key, g => g.OrderByDescending(v => v.EffectiveFrom).First());
+
+        var result = new Dictionary<Guid, ResolvedLineRates>();
+        foreach (var (productId, (resolution, profile)) in picked)
+        {
+            string? problem = null;
+            if (!profile.IsActive) problem = $"{profile.Name} is inactive and cannot be used on new documents.";
+            else if (!versionByProfile.TryGetValue(profile.Id, out _)) problem = $"{profile.Name} has no version valid on {date:yyyy-MM-dd}.";
+            if (problem is not null)
+            {
+                for (var i = 0; i < productIds.Count; i++)
+                {
+                    if (productIds[i] == productId) errors.Add(new FieldError(Key(i), problem));
+                }
+                continue;
+            }
+
+            var version = versionByProfile[profile.Id];
+            var rates = new TaxRateSet(
+                profile.Id, version.Id, profile.Regime, profile.Treatment,
+                version.Components.OrderBy(c => c.SortOrder)
+                    .Select(c => new TaxRateComponent(c.TaxComponentId, c.TaxComponent.Code, c.TaxComponent.Kind, c.Method, c.Applicability, c.RatePercent, c.AmountPerBaseUnit, c.SortOrder))
+                    .ToList());
+            result[productId] = new ResolvedLineRates(
+                productId, rates, profile.Code, profile.Name, version.EffectiveFrom, resolution.Source, resolution.SourceName,
+                resolution.HsnCode, resolution.HsnSource, resolution.HsnWarning, resolution.HsnWarningMessage);
+        }
+
+        if (errors.Count > 0) throw new DomainValidationException(errors.OrderBy(e => LineIndex(e.Field)).ToList());
+        return result;
+    }
+
+    private static int LineIndex(string key)
+    {
+        var open = key.IndexOf('[');
+        var close = key.IndexOf(']');
+        return open >= 0 && close > open && int.TryParse(key.AsSpan(open + 1, close - open - 1), out var i) ? i : int.MaxValue;
+    }
+
     private async Task<List<TaxResolution?>> ResolveCoreAsync(IReadOnlyList<Facts> items, Guid countryId, CancellationToken ct)
     {
         var index = await TaxAssignmentIndex.LoadAsync(db, countryId, ct);
