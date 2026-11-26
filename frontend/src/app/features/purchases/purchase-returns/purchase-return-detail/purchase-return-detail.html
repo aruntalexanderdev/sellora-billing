@@ -39,9 +39,21 @@
               <td>{{ l.unitLabel }} <span class="muted">({{ l.unitCode }} × {{ l.conversionFactorToBase }} = {{ formatQuantity(l.baseQty, l.baseUnitDecimalPlaces) }} {{ l.baseUnitLabel }})</span></td>
               <td class="num">{{ formatQuantity(l.qty, 0) }} {{ l.unitCode }}</td>
               <td class="num">{{ base(l.taxableValue) }}</td>
-              <td class="num">{{ base(l.taxAmount) }}</td>
+              <td class="num">
+                {{ base(l.taxAmount) }}
+                @if (l.taxes?.length) {
+                  <div><a class="link row-toggle" (click)="toggle(l.id)">{{ expanded().has(l.id) ? 'Hide rows' : 'Tax rows' }}</a></div>
+                }
+              </td>
               <td class="num strong">{{ base(l.lineTotal) }}</td>
             </tr>
+            @if (expanded().has(l.id)) {
+              <tr class="tax-row-detail" data-testid="return-tax-rows">
+                <td colspan="6">
+                  <app-line-tax-breakdown [rows]="l.taxes" [symbol]="r.baseCurrencySymbol" [precision]="r.baseCurrencyDecimalPrecision" [baseUnitLabel]="l.baseUnitLabel" />
+                </td>
+              </tr>
+            }
           }
         </tbody>
       </table>
@@ -50,6 +62,11 @@
     <div class="summary-and-payment">
       <div class="summary-card">
         <div class="totals-row"><span>Value of goods</span><span>{{ base(r.taxableTotal) }}</span></div>
+        @if (taxByCode().length > 1 || (taxByCode().length === 1 && !taxByCode()[0].isLegacy)) {
+          @for (c of taxByCode(); track c.code) {
+            <div class="totals-row sub-row" data-testid="tax-component"><span>{{ c.code }}</span><span>{{ base(c.taxAmount) }}</span></div>
+          }
+        }
         <div class="totals-row"><span>Tax</span><span>{{ base(r.taxTotal) }}</span></div>
         <div class="totals-row totals-grand"><span>Credit from supplier</span><span>{{ base(r.total) }}</span></div>
       </div>

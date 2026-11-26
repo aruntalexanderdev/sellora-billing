@@ -35,6 +35,31 @@
 
   <app-document-scope [items]="scopeItems()" />
 
+  @if (createWarnings().length > 0) {
+    <div class="tax-warning no-print" role="status" data-testid="create-warnings">
+      @for (w of createWarnings(); track w) {
+        <div>{{ w }}</div>
+      }
+    </div>
+  }
+
+  @if (placeLabel() || p.ratesIncludeTax || p.supplierStateName) {
+    <div class="tax-context" data-testid="tax-context">
+      @if (placeLabel(); as place) {
+        <ui-badge [text]="place" [tone]="place === 'Other state' ? 'warn' : 'info'" />
+      }
+      @if (p.supplierStateName) {
+        <span>Supplier state: <strong>{{ p.supplierStateName }}</strong></span>
+      }
+      @if (p.placeOfSupplyStateName) {
+        <span>Place of supply: <strong>{{ p.placeOfSupplyStateName }}</strong></span>
+      }
+      @if (p.ratesIncludeTax) {
+        <span>Rates include tax</span>
+      }
+    </div>
+  }
+
   @if (p.status === 'Completed') {
     <div class="status-row no-print" data-testid="return-location">
       <span class="muted">Returnable quantity measured at</span>
@@ -215,10 +240,16 @@
         <thead>
           <tr>
             <th>Product</th>
+            @if (hasHsn()) {
+              <th>HSN</th>
+            }
             <th>Unit</th>
             <th class="num">Qty</th>
             <th class="num">Rate</th>
-            <th class="num">Tax</th>
+            <th class="num">Taxable</th>
+            @for (code of taxCols(); track code) {
+              <th class="num" data-testid="tax-col">{{ code }}</th>
+            }
             <th>Batch</th>
             <th>Stock held at</th>
             <th class="num">Line total</th>
@@ -228,10 +259,22 @@
           @for (line of p.lines; track line.id) {
             <tr>
               <td class="strong">{{ line.productName }}</td>
+              @if (hasHsn()) {
+                <td data-testid="hsn">{{ line.hsnCode || '—' }}</td>
+              }
               <td>{{ line.unitLabel }} <span class="muted">({{ line.unitCode }} × {{ line.conversionFactorToBase }} = {{ formatQuantity(line.baseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }})</span></td>
               <td class="num">{{ formatQuantity(line.qty, line.unitDecimalPlaces) }} {{ line.unitCode }}{{ line.returnedBaseQty > 0 ? ' (' + formatQuantity(line.returnedBaseQty, line.baseUnitDecimalPlaces) + ' ' + line.baseUnitLabel + ' returned)' : '' }}</td>
               <td class="num">{{ base(line.rate) }}</td>
-              <td class="num">{{ line.taxRatePercent }}%</td>
+              <td class="num">{{ base(line.taxableValue) }}</td>
+              @for (code of taxCols(); track code) {
+                <td class="num" data-testid="tax-cell">
+                  @if (cell(line, code); as c) {
+                    {{ base(c.taxAmount) }}@if (c.ratePercent !== null) { <span class="muted"> ({{ c.ratePercent }}%)</span> }
+                  } @else {
+                    <span class="muted">—</span>
+                  }
+                </td>
+              }
               <td>
                 @if (line.internalBatchNo) {
                   <span class="strong">{{ line.internalBatchNo }}</span>
@@ -246,8 +289,21 @@
                 }
                 <div class="muted">Returnable: {{ formatQuantity(line.returnableBaseQty, line.baseUnitDecimalPlaces) }} {{ line.baseUnitLabel }}</div>
               </td>
-              <td class="num strong">{{ base(line.lineTotal) }}</td>
+              <td class="num strong">
+                {{ base(line.lineTotal) }}
+                <div class="no-print"><a class="link row-toggle" (click)="toggleLine(line.id)">{{ expandedLines().has(line.id) ? 'Hide tax' : 'Tax rows' }}</a></div>
+              </td>
             </tr>
+            @if (expandedLines().has(line.id)) {
+              <tr class="no-print tax-row-detail">
+                <td [attr.colspan]="8 + taxCols().length + (hasHsn() ? 1 : 0)">
+                  <app-line-tax-breakdown [rows]="rowsOf(line)" [symbol]="p.baseCurrencySymbol" [precision]="p.baseCurrencyDecimalPrecision" [baseUnitLabel]="line.baseUnitLabel" />
+                  @if (line.taxProfileName) {
+                    <div class="muted">{{ line.taxProfileName }}{{ line.priceIncludesTax ? ' · rate includes tax' : '' }}</div>
+                  }
+                </td>
+              </tr>
+            }
           }
         </tbody>
       </table>
@@ -257,7 +313,19 @@
       <div class="summary-card">
         <div class="totals-row"><span>Subtotal</span><span>{{ base(p.subtotal) }}</span></div>
         <div class="totals-row"><span>Other charges</span><span>{{ base(p.otherChargesTotal) }}</span></div>
+        @if ((p.billCharges ?? 0) > 0) {
+          <div class="totals-row sub-row" data-testid="bill-charges"><span>of which bill charges</span><span>{{ base(p.billCharges!) }}</span></div>
+        }
         <div class="totals-row"><span>Discount</span><span>−{{ base(p.discountTotal) }}</span></div>
+        @if ((p.billDiscountAmount ?? 0) > 0) {
+          <div class="totals-row sub-row" data-testid="bill-discount"><span>of which bill discount{{ p.billDiscountPercent != null ? ' (' + p.billDiscountPercent + '%)' : '' }}</span><span>−{{ base(p.billDiscountAmount!) }}</span></div>
+        }
+        <div class="totals-row" data-testid="taxable-total"><span>Taxable value</span><span>{{ base(taxable()) }}</span></div>
+        @if (taxByCode().length > 1 || (taxByCode().length === 1 && !taxByCode()[0].isLegacy)) {
+          @for (c of taxByCode(); track c.code) {
+            <div class="totals-row sub-row" data-testid="tax-component"><span>{{ c.code }}</span><span>{{ base(c.taxAmount) }}</span></div>
+          }
+        }
         <div class="totals-row"><span>Tax</span><span>{{ base(p.taxTotal) }}</span></div>
         <div class="totals-row totals-grand"><span>Grand total</span><span>{{ base(p.grandTotal) }}</span></div>
         @if (p.returnedAmount > 0) {

@@ -74,7 +74,10 @@ public class GeoAddressLinkTests
             db.PurchaseOrderLines.RemoveRange(await db.PurchaseOrderLines.IgnoreQueryFilters().ToListAsync());
             db.PurchaseOrders.RemoveRange(await db.PurchaseOrders.IgnoreQueryFilters().ToListAsync());
             db.ProductUnits.RemoveRange(await db.ProductUnits.ToListAsync());
+            db.TaxAssignments.RemoveRange(await db.TaxAssignments.ToListAsync()); // the world's purchase fixture (TP-3) assigned a profile per product
             db.Products.RemoveRange(await db.Products.ToListAsync());
+            var settings = await db.BusinessSettings.SingleAsync();
+            (settings.CountryId, settings.StateId) = (null, null); // ... and gave the company its country and state
             await db.SaveChangesAsync();
             return Guid.Empty;
         }

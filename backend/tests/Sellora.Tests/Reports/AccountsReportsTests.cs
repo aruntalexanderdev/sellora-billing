@@ -53,6 +53,7 @@ public class AccountsReportsTests
         await db.SaveChangesAsync();
 
         var rates = new ExchangeRateService(db);
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         return new Fixture(db, new AccountsReportsController(db, new Sellora.Tests.TestData.FakeEffectivePermissions("Reports.Accounts")), new PurchaseService(db, rates), ListPricedSales.For(db),
             new FinancialAccountService(db), new ExpenseService(db, rates), inr, usd, inrSupplier, usdSupplier, walkIn, regular,
             product, kg, rent, power, user.Id);

@@ -23,8 +23,15 @@ public sealed record CreatePurchaseInput(
     IReadOnlyList<PurchaseLineInput> Lines,
     Guid? AccountId = null,
     string? IdempotencyKey = null,
-    Guid? StockLocationId = null
+    Guid? StockLocationId = null,
+    bool RatesIncludeTax = false,
+    decimal? BillDiscountPercent = null,
+    decimal? BillDiscountAmount = null,
+    decimal BillCharges = 0m
 );
+
+/// <summary>A soft finding of a purchase save (TP-3): a supplier with no state (<c>supplierId</c>) or a GST line without HSN (<c>lines[i].hsnCode</c>).</summary>
+public sealed record PurchaseWarning(string Field, string Message);
 
 /// <summary>Editable header fields of a saved purchase. Payments are not editable here.</summary>
 public sealed record UpdatePurchaseHeaderInput(

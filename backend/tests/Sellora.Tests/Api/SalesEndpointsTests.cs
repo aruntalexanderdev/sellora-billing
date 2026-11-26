@@ -61,6 +61,7 @@ public class SalesEndpointsTests
         await pricing.SetPriceAsync(rows["pc"].Id, 12m, user.Id);
         await pricing.SetPriceAsync(rows["box"].Id, 100m, user.Id);
         // Half Carton and Full Carton stay unpriced.
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         var purchases = new PurchaseService(db, new ExchangeRateService(db));
         await purchases.CreatePurchaseAsync(new CreatePurchaseInput(supplier.Id, D, null, null, PaymentMethod.Cash, 0,
             [new PurchaseLineInput(pen.Id, rows["fctn"].Id, 1m, 1000m, 0, 0)]), user.Id); // 100 pc

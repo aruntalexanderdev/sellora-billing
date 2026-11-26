@@ -70,6 +70,7 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
             .Include(x => x.CreatedByUser)
             .Include(x => x.Lines).ThenInclude(l => l.Product).ThenInclude(p => p.BaseUnit)
             .Include(x => x.Lines).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
+            .Include(x => x.Lines).ThenInclude(l => l.Taxes)
             .AsSplitQuery()
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         if (r is null) return NotFound();
@@ -90,7 +91,8 @@ public class PurchaseReturnsController(SelloraDbContext db, IPurchaseService pur
             r.Lines.Select(l => new PurchaseReturnLineDto(
                 l.Id, l.Product.Name, l.ProductUnitId, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name, l.UnitCode, l.ConversionFactorToBase,
                 l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Product.BaseUnit.DecimalPlaces,
-                l.TaxableValue, l.TaxAmount, l.LineTotal)).ToList(),
+                l.TaxableValue, l.TaxAmount, l.LineTotal,
+                PurchasesController.ToTaxDtos(l.Taxes), l.TaxProfileId, l.TaxProfileVersionId, l.PlaceOfSupply, l.OriginalTaxableValue, l.OriginalTaxAmount)).ToList(),
             refunds.Select(p => PurchasesController.ToPaymentDto(p, new HashSet<Guid>())).ToList(),
             r.BranchId, labels.Code(r.BranchId), labels.Name(r.BranchId),
             r.StockLocationId, locLabels.Code(r.StockLocationId), locLabels.Name(r.StockLocationId)));

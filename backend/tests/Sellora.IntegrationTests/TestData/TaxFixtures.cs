@@ -55,7 +55,7 @@ public static class TaxFixtures
     public static async Task<TaxProfile> UseAsProfileAsync(SelloraDbContext db, Tax tax, bool companyDefault, string? code = null)
     {
         var country = await EnsureCountryAsync(db);
-        await EnsureSettingsCountryAsync(db, country);
+        await EnsureCompanyStateAsync(db, country);   // TP-3: purchases also need the company's own state
         if (await db.Taxes.FindAsync(tax.Id) is null) { db.Taxes.Add(tax); await db.SaveChangesAsync(); }
         // already mapped (a second scenario seeding the same tax): reuse; a company default is added only if missing
         var existing = await db.TaxProfiles.FirstOrDefaultAsync(p => p.LegacyTaxId == tax.Id);
@@ -110,4 +110,44 @@ public static class TaxFixtures
     {
         Id = Guid.NewGuid(), TaxProfileVersionId = v.Id, TaxComponentId = c.Id, Method = c.Method, Applicability = applicability, RatePercent = rate, SortOrder = sort,
     };
+
+    /// <summary>TP-3: a purchase needs the company's own state (branch or business settings). Gives the settings Karnataka (GST code 29) when neither is set. Idempotent.</summary>
+    public static async Task EnsureCompanyStateAsync(SelloraDbContext db, Country country)
+    {
+        var settings = await EnsureSettingsCountryAsync(db, country);
+        if (settings.StateId is not null) return;
+        var state = await db.States.FirstOrDefaultAsync(x => x.CountryId == country.Id && x.Code == "KA");
+        if (state is null)
+        {
+            state = new State { Id = Guid.NewGuid(), CountryId = country.Id, Code = "KA", Name = "Karnataka", Kind = StateKind.State, GstStateCode = "29", IsSystem = true };
+            db.States.Add(state);
+        }
+        settings.StateId = state.Id;
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Makes the products of a fixture purchasable once purchases run on the tax calculator (TP-3: a purchase needs a company country, an own state and a
+    /// purchase profile per product). Idempotent. The company gets India and a state (Karnataka, GST code 29) when it has none, and every product without a
+    /// product-level assignment gets a GST profile whose mirror is its own <c>Tax</c> (version from 2000-01-01, CGST/SGST halves, IGST) so the old rate
+    /// assertions of the fixture stay valid. Call it after the fixture's products are saved (and again after a test adds more).
+    /// </summary>
+    public static async Task EnablePurchasesAsync(SelloraDbContext db)
+    {
+        var country = await EnsureCountryAsync(db);
+        await EnsureCompanyStateAsync(db, country);
+
+        var assigned = (await db.TaxAssignments.Where(a => a.Scope == TaxScope.Product).Select(a => a.ProductId).ToListAsync()).ToHashSet();
+        foreach (var product in await db.Products.Include(p => p.Tax).ToListAsync())
+        {
+            if (assigned.Contains(product.Id)) continue;
+            var profile = await db.TaxProfiles.FirstOrDefaultAsync(p => p.LegacyTaxId == product.TaxId && p.CountryId == country.Id)
+                ?? await UseAsProfileAsync(db, product.Tax, companyDefault: false);
+            db.TaxAssignments.Add(new TaxAssignment
+            {
+                Id = Guid.NewGuid(), Scope = TaxScope.Product, ProductId = product.Id, CountryId = country.Id, SalesTaxProfileId = profile.Id, CreatedAt = DateTime.UtcNow,
+            });
+        }
+        await db.SaveChangesAsync();
+    }
 }

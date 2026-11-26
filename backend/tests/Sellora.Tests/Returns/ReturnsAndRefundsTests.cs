@@ -46,6 +46,7 @@ public class ReturnsAndRefundsTests
         await db.SaveChangesAsync();
 
         var rates = new ExchangeRateService(db);
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         return new Fixture(db, new PurchaseService(db, rates), ListPricedSales.For(db), new FinancialAccountService(db),
             inr, usd, inrSupplier, usdSupplier, customer, product, kg, user.Id);
     }

@@ -46,6 +46,7 @@ public class PurchaseServiceTests
         db.AddRange(role, user, unit, tax, inr, settings, supplier, product);
         await db.SaveChangesAsync();
 
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         return new Fixture(db, new PurchaseService(db, new ExchangeRateService(db)), supplier, product, bag, looseKg, user.Id);
     }
 
@@ -308,7 +309,7 @@ public class PurchaseServiceTests
             [new PurchaseLineInput(f.Product.Id, otherUnit.Id, 1, 100, 0, 0)]);
 
         var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreatePurchaseAsync(input, f.UserId));
-        Assert.Equal(("Lines", "The selected unit does not belong to this product."), (ex.Field, ex.Message));
+        Assert.Equal(("lines[0].productUnitId", "The selected unit does not belong to this product."), (ex.Field, ex.Message));
         Assert.False(await f.Db.PurchaseOrders.AnyAsync());
     }
 
@@ -321,7 +322,7 @@ public class PurchaseServiceTests
 
         var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreatePurchaseAsync(BuildInput(f, 1, 580), f.UserId));
 
-        Assert.Equal(("Lines", "10 kg bag is no longer active."), (ex.Field, ex.Message));
+        Assert.Equal(("lines[0].productUnitId", "10 kg bag is no longer active."), (ex.Field, ex.Message));
         Assert.False(await f.Db.PurchaseOrders.AnyAsync());
         Assert.False(await f.Db.PurchaseBatches.AnyAsync());
     }
@@ -335,7 +336,7 @@ public class PurchaseServiceTests
 
         var ex = await Assert.ThrowsAsync<DomainValidationException>(() => f.Service.CreatePurchaseAsync(BuildInput(f, 1, 580), f.UserId));
 
-        Assert.Equal(("Lines", "10 kg bag cannot be purchased for Ponni Rice."), (ex.Field, ex.Message));
+        Assert.Equal(("lines[0].productUnitId", "10 kg bag cannot be purchased for Ponni Rice."), (ex.Field, ex.Message));
     }
 
     [Fact]

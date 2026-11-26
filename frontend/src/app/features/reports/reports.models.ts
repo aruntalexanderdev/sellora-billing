@@ -1,4 +1,5 @@
 import type { BranchFields, LocationFields } from '../../shared/scope/scope.models';
+import type { TaxComponentKind } from '../inventory/tax-setup/tax-setup.models';
 export type StockStatus = 'Normal' | 'Low' | 'OutOfStock';
 import type { BreakdownUnit } from '../../shared/units/unit.models';
 import type { StockMovementType, StockReasonCode } from '../../shared/units/stock-movement';
@@ -62,6 +63,16 @@ export interface PurchaseReportRow extends BranchFields {
   status: PurchaseStatus;
   currencyCode: string;
   originalGrandTotal: number;
+  /** TP-3: always present on current servers (history falls back to subtotal + other - discount). */
+  taxableTotal?: number;
+  /** Tax per component kind; rows saved before the calculator are under `Other`. */
+  taxByKind?: PurchaseReportTax[] | null;
+}
+
+/** Mirrors `PurchaseReportTaxDto`. */
+export interface PurchaseReportTax {
+  kind: TaxComponentKind;
+  taxAmount: number;
 }
 
 export interface SalesReportRow extends BranchFields {

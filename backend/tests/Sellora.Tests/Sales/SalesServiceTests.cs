@@ -50,6 +50,7 @@ public class SalesServiceTests
         db.AddRange(role, user, unit, tax, inr, supplier, customer, settings, product);
         await db.SaveChangesAsync();
 
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         return new Fixture(db, ListPricedSales.For(db), new PurchaseService(db, new ExchangeRateService(db)), supplier, customer, product, bag, looseKg, user.Id);
     }
 

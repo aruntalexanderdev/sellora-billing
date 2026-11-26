@@ -92,6 +92,70 @@ public static class TaxFixtures
         return profile;
     }
 
+    /// <summary>
+    /// Makes the products of a fixture purchasable once purchases run on the tax calculator (TP-3: a purchase needs a company country, an own state and a
+    /// purchase profile per product). Idempotent. The company gets India and a state (Karnataka, GST code 29) when it has none, and every product without a
+    /// product-level assignment gets a GST profile whose mirror is its own <c>Tax</c> (version from 2000-01-01, CGST/SGST halves, IGST) so the old rate
+    /// assertions of the fixture stay valid. Call it after the fixture's products are saved (and again after a test adds more).
+    /// </summary>
+    public static async Task EnablePurchasesAsync(SelloraDbContext db)
+    {
+        var country = await EnsureCountryAsync(db);
+        var settings = await EnsureSettingsCountryAsync(db, country);
+        if (settings.StateId is null)
+        {
+            var state = await db.States.FirstOrDefaultAsync(x => x.CountryId == country.Id && x.Code == "KA");
+            if (state is null)
+            {
+                state = new State { Id = Guid.NewGuid(), CountryId = country.Id, Code = "KA", Name = "Karnataka", Kind = StateKind.State, GstStateCode = "29", IsSystem = true };
+                db.States.Add(state);
+            }
+            settings.StateId = state.Id;
+            await db.SaveChangesAsync();
+        }
+
+        var assigned = (await db.TaxAssignments.Where(a => a.Scope == TaxScope.Product).Select(a => a.ProductId).ToListAsync()).ToHashSet();
+        foreach (var product in await db.Products.Include(p => p.Tax).ToListAsync())
+        {
+            if (assigned.Contains(product.Id)) continue;
+            var profile = await db.TaxProfiles.FirstOrDefaultAsync(p => p.LegacyTaxId == product.TaxId && p.CountryId == country.Id)
+                ?? await UseAsProfileAsync(db, product.Tax, companyDefault: false);
+            db.TaxAssignments.Add(new TaxAssignment
+            {
+                Id = Guid.NewGuid(), Scope = TaxScope.Product, ProductId = product.Id, CountryId = country.Id, SalesTaxProfileId = profile.Id, CreatedAt = DateTime.UtcNow,
+            });
+        }
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Rewrites a purchase into the shape history has (written before TP-3): no profile/version/place, no document-currency twins, no header taxable total,
+    /// one legacy tax row per line (the id and values of <c>AddTaxProfiles.legacy-rows.sql</c>). Amounts of the lines are untouched, so a return against
+    /// it exercises the pre-TP-3 proportional rule.
+    /// </summary>
+    public static async Task MakeLegacyPurchaseAsync(SelloraDbContext db, Guid purchaseId)
+    {
+        var purchase = await db.PurchaseOrders.Include(p => p.Lines).ThenInclude(l => l.Taxes).Include(p => p.Lines).ThenInclude(l => l.Tax).SingleAsync(p => p.Id == purchaseId);
+        purchase.TaxableTotal = null;
+        purchase.PlaceOfSupply = null;
+        purchase.PlaceOfSupplyStateId = null;
+        purchase.SupplierStateId = null;
+        foreach (var line in purchase.Lines)
+        {
+            db.PurchaseOrderLineTaxes.RemoveRange(line.Taxes);
+            (line.TaxProfileId, line.TaxProfileVersionId, line.PlaceOfSupply, line.HsnCode) = (null, null, null, null);
+            (line.OriginalRate, line.OriginalDiscount, line.OriginalOtherCharges, line.OriginalBillDiscountShare, line.OriginalBillChargeShare) = (null, null, null, null, null);
+            (line.OriginalTaxableValue, line.OriginalTaxAmount, line.OriginalLineTotal) = (null, null, null);
+            db.PurchaseOrderLineTaxes.Add(new PurchaseOrderLineTax
+            {
+                Id = Sellora.Infrastructure.Data.TaxSeedData.LegacyLineTaxId(line.Id), PurchaseOrderLineId = line.Id, TaxComponentId = null,
+                ComponentCode = line.Tax.Name, Kind = TaxComponentKind.Other, Method = TaxCalculationMethod.Percent, RatePercent = line.TaxRatePercent,
+                BaseAmount = line.TaxableValue, TaxAmount = line.TaxAmount,
+            });
+        }
+        await db.SaveChangesAsync();
+    }
+
     /// <summary>The usual fixture call: <paramref name="tax"/> becomes the company default.</summary>
     public static Task<TaxProfile> UseAsCompanyDefaultAsync(SelloraDbContext db, Tax tax) => UseAsProfileAsync(db, tax, companyDefault: true);
 

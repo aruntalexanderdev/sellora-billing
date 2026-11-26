@@ -4,6 +4,27 @@ using Sellora.Domain.Entities;
 
 namespace Sellora.Infrastructure.Data.Configurations;
 
+/// <summary>Shared constants and mapping of the TP-3 purchase tax snapshot columns (docs/features/tax-profiles.md, TP-3 design).</summary>
+internal static class PurchaseTaxValues
+{
+    public const string PlaceOfSupplyOrNull = "\"PlaceOfSupply\" IS NULL OR \"PlaceOfSupply\" IN ('IntraState','InterState','NotApplicable')";
+
+    /// <summary>Profile and version are written together (both NULL on history).</summary>
+    public const string ProfilePair = "(\"TaxProfileId\" IS NULL) = (\"TaxProfileVersionId\" IS NULL)";
+
+    /// <summary>Navigation-less FKs from a line to the profile and the version it was calculated with. The lines have no CompanyId, so these are simple FKs; "the version
+    /// belongs to the profile and the company" is checked by V__tax-purchase-snapshot.sql. The migrations add them NOT VALID and validate in the next migration.</summary>
+    public static void MapProfileLink<T>(Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<T> builder, string table) where T : class
+    {
+        builder.HasOne<TaxProfile>().WithMany().HasForeignKey("TaxProfileId").IsRequired(false).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName($"FK_{table}_TaxProfiles_TaxProfileId");
+        builder.HasOne<TaxProfileVersion>().WithMany().HasForeignKey("TaxProfileVersionId").IsRequired(false).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName($"FK_{table}_TaxProfileVersions_TaxProfileVersionId");
+        builder.HasIndex("TaxProfileId").HasDatabaseName($"IX_{table}_TaxProfileId");
+        builder.HasIndex("TaxProfileVersionId").HasDatabaseName($"IX_{table}_TaxProfileVersionId");
+    }
+}
+
 public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder>
 {
     public void Configure(EntityTypeBuilder<PurchaseOrder> builder)
@@ -24,6 +45,33 @@ public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder
         builder.Property(p => p.OriginalGrandTotal).HasColumnType("numeric(18,4)");
         builder.Property(p => p.OriginalPaidAmount).HasColumnType("numeric(18,4)");
         builder.Property(p => p.OriginalReturnedAmount).HasColumnType("numeric(18,4)");
+
+        // TP-3 tax snapshot: new header money columns are numeric(18,4) (TP3-Q2). DB defaults keep the previous build able to insert (constant defaults, no rewrite).
+        builder.Property(p => p.RatesIncludeTax).HasDefaultValue(false);
+        builder.Property(p => p.BillDiscountPercent).HasColumnType("numeric(9,4)");
+        foreach (var money in new[] { nameof(PurchaseOrder.BillDiscountAmount), nameof(PurchaseOrder.BillCharges), nameof(PurchaseOrder.OriginalBillDiscountAmount), nameof(PurchaseOrder.OriginalBillCharges) })
+        {
+            builder.Property(money).HasColumnType("numeric(18,4)").HasDefaultValue(0m);
+        }
+        builder.Property(p => p.TaxableTotal).HasColumnType("numeric(18,4)");
+        builder.Property(p => p.PlaceOfSupply).HasConversion<string>().HasMaxLength(20);
+        builder.Property(p => p.PartyTaxStatus).HasConversion<string>().HasMaxLength(20).HasDefaultValue(PartyTaxStatus.Unspecified);
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_PurchaseOrders_PlaceOfSupply", PurchaseTaxValues.PlaceOfSupplyOrNull);
+            t.HasCheckConstraint("CK_PurchaseOrders_PartyTaxStatus", "\"PartyTaxStatus\" IN ('Unspecified')");
+            t.HasCheckConstraint("CK_PurchaseOrders_BillDiscountPercent_Range", "\"BillDiscountPercent\" IS NULL OR (\"BillDiscountPercent\" >= 0 AND \"BillDiscountPercent\" <= 100)");
+            t.HasCheckConstraint("CK_PurchaseOrders_BillAmounts_NonNegative",
+                "\"BillDiscountAmount\" >= 0 AND \"BillCharges\" >= 0 AND \"OriginalBillDiscountAmount\" >= 0 AND \"OriginalBillCharges\" >= 0");
+        });
+        // States are global masters: simple FKs (the supplier's state and the state the supply was placed in). The migrations add them NOT VALID, then validate.
+        builder.HasOne<State>().WithMany().HasForeignKey(p => p.PlaceOfSupplyStateId).IsRequired(false).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_PurchaseOrders_States_PlaceOfSupplyStateId");
+        builder.HasOne<State>().WithMany().HasForeignKey(p => p.SupplierStateId).IsRequired(false).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_PurchaseOrders_States_SupplierStateId");
+        builder.HasIndex(p => p.PlaceOfSupplyStateId, "IX_PurchaseOrders_PlaceOfSupplyStateId");
+        builder.HasIndex(p => p.SupplierStateId, "IX_PurchaseOrders_SupplierStateId");
+
         builder.Ignore(p => p.NetTotal);
         builder.Ignore(p => p.OriginalNetTotal);
         builder.Ignore(p => p.OriginalRefundableAmount);
@@ -135,8 +183,15 @@ public class PurchaseReturnLineConfiguration : IEntityTypeConfiguration<Purchase
             builder.Property(money).HasColumnType("numeric(18,4)");
         }
 
+        builder.Property(l => l.PlaceOfSupply).HasConversion<string>().HasMaxLength(20);
+        builder.Property(l => l.OriginalTaxableValue).HasColumnType("numeric(18,4)");
+        builder.Property(l => l.OriginalTaxAmount).HasColumnType("numeric(18,4)");
+        PurchaseTaxValues.MapProfileLink<PurchaseReturnLine>(builder, "PurchaseReturnLines");
+
         builder.ToTable(t =>
         {
+            t.HasCheckConstraint("CK_PurchaseReturnLines_PlaceOfSupply", PurchaseTaxValues.PlaceOfSupplyOrNull);
+            t.HasCheckConstraint("CK_PurchaseReturnLines_TaxProfile_Pair", PurchaseTaxValues.ProfilePair);
             t.HasCheckConstraint("CK_PurchaseReturnLines_Qty_Positive", "\"Qty\" > 0");
             t.HasCheckConstraint("CK_PurchaseReturnLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
             t.HasCheckConstraint("CK_PurchaseReturnLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
@@ -177,8 +232,26 @@ public class PurchaseOrderLineConfiguration : IEntityTypeConfiguration<PurchaseO
         // Landed cost per BASE unit (M7: 6 dp).
         builder.Property(l => l.UnitCost).HasColumnType("numeric(18,6)");
 
+        // TP-3 tax snapshot. DB defaults (false / 0) keep the previous build able to insert.
+        builder.Property(l => l.PlaceOfSupply).HasConversion<string>().HasMaxLength(20);
+        builder.Property(l => l.HsnCode).HasMaxLength(8);
+        builder.Property(l => l.PriceIncludesTax).HasDefaultValue(false);
+        builder.Property(l => l.BillDiscountShare).HasColumnType("numeric(18,4)").HasDefaultValue(0m);
+        builder.Property(l => l.BillChargeShare).HasColumnType("numeric(18,4)").HasDefaultValue(0m);
+        foreach (var original in new[] { nameof(PurchaseOrderLine.OriginalRate), nameof(PurchaseOrderLine.OriginalDiscount), nameof(PurchaseOrderLine.OriginalOtherCharges),
+                     nameof(PurchaseOrderLine.OriginalBillDiscountShare), nameof(PurchaseOrderLine.OriginalBillChargeShare), nameof(PurchaseOrderLine.OriginalTaxableValue),
+                     nameof(PurchaseOrderLine.OriginalTaxAmount), nameof(PurchaseOrderLine.OriginalLineTotal) })
+        {
+            builder.Property(original).HasColumnType("numeric(18,4)");
+        }
+        PurchaseTaxValues.MapProfileLink<PurchaseOrderLine>(builder, "PurchaseOrderLines");
+
         builder.ToTable(t =>
         {
+            t.HasCheckConstraint("CK_PurchaseOrderLines_PlaceOfSupply", PurchaseTaxValues.PlaceOfSupplyOrNull);
+            t.HasCheckConstraint("CK_PurchaseOrderLines_TaxProfile_Pair", PurchaseTaxValues.ProfilePair);
+            t.HasCheckConstraint("CK_PurchaseOrderLines_HsnCode_Format", TaxValues.HsnFormat);
+            t.HasCheckConstraint("CK_PurchaseOrderLines_BillShares_NonNegative", "\"BillDiscountShare\" >= 0 AND \"BillChargeShare\" >= 0");
             t.HasCheckConstraint("CK_PurchaseOrderLines_Qty_Positive", "\"Qty\" > 0");
             t.HasCheckConstraint("CK_PurchaseOrderLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
             t.HasCheckConstraint("CK_PurchaseOrderLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
