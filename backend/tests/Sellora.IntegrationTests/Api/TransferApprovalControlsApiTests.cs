@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Sellora.Api.Contracts;
+using Sellora.Domain.Entities;
 using Sellora.IntegrationTests.Infrastructure;
 using Sellora.IntegrationTests.TestData;
 using static Sellora.IntegrationTests.TestData.ShipmentHttp;
@@ -17,8 +18,30 @@ namespace Sellora.IntegrationTests.Api;
 public class TransferApprovalControlsApiTests(PostgresFixture postgres) : IAsyncLifetime
 {
     private BranchApiWorld _w = null!;
+    private RestrictedUserWorld _r = null!;
 
-    public async Task InitializeAsync() => _w = await BranchApiWorld.CreateDedicatedAsync(postgres);
+    public async Task InitializeAsync()
+    {
+        _w = await BranchApiWorld.CreateDedicatedAsync(postgres);
+        _r = await RestrictedUserWorld.CreateDedicatedAsync(_w);
+    }
+
+    private async Task<Guid> RoleAsync(string name, string[] codes, RoleScope? scope = null, Guid? branch = null)
+    {
+        var response = await _w.SendAsync(HttpMethod.Post, "/api/v1/roles", new CreateRoleRequest("TAC " + name + Guid.NewGuid().ToString("N")[..6], null, codes, scope, branch));
+        Assert.True(response.IsSuccessStatusCode, $"create role {name}: {(int)response.StatusCode}");
+        return IdOf(await BranchApiWorld.JsonAsync(response));
+    }
+
+    /// <summary>A second approver: a user of <paramref name="branch"/> holding the approve codes through a role scoped to that branch (as ShipmentsApiTests).</summary>
+    private async Task<HttpClient> BranchApproverAsync(Guid branch)
+    {
+        var user = await _r.CreateAsync("ap", await RoleAsync("harmless", ["Sales.View"]), CompanyAccessScope.AssignedBranches, [branch], branch);
+        var assigned = await _w.SendAsync(HttpMethod.Post, $"/api/v1/users/{user.Id}/roles",
+            new AssignRoleRequest(await RoleAsync("approver", ["StockTransfers.View", "StockTransfers.Approve"], RoleScope.Branch, branch), null));
+        Assert.Equal(HttpStatusCode.Created, assigned.StatusCode);
+        return user.Client;
+    }
 
     public async Task DisposeAsync() => await _w.Host.DisposeAsync();
 
@@ -51,7 +74,7 @@ public class TransferApprovalControlsApiTests(PostgresFixture postgres) : IAsync
         Assert.Contains("Separation of duties", await refused.Content.ReadAsStringAsync());
 
         // Another approver: a reduction without a reason is a 400; with one it approves 1 of 4 pieces.
-        using var checker = await _w.Host.LimitedClientAsync(_w.Admin, "StockTransfers.View", "StockTransfers.Approve");
+        var checker = await BranchApproverAsync(s.Src);
         var noReason = await SendAsync(checker, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/approve",
             new ApproveStockTransferRequest([new ApproveStockTransferLineRequest(lineId, 1m)]), s.Src);
         Assert.Equal(HttpStatusCode.BadRequest, noReason.StatusCode);
