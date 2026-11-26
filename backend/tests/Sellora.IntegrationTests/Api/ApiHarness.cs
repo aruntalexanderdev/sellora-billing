@@ -86,6 +86,9 @@ public sealed class ApiHost : IAsyncDisposable
         var database = await postgres.CreateDatabaseAsync(); // copy of the migrated template (CI speed-up)
         var factory = new SelloraApiFactory(database.ConnectionString, settings);
         using var warmup = factory.CreateClient(); // builds the host: startup migration (nothing pending) + seed
+        // The seeded admin plays every role in most API tests, so transfer approval maker-checker (on by default) is switched off for the seeded
+        // company; TransferApprovalControlsApiTests switches it back on through the settings API.
+        await Sellora.IntegrationTests.TestData.CompanyMigrations.ExecuteAsync(database, """UPDATE "BusinessSettings" SET "TransferApprovalSeparationOfDuties" = false""");
         return new ApiHost(database, factory);
     }
 

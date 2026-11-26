@@ -40,6 +40,12 @@ public class StockTransfer : ICompanyOwned
     public DateTimeOffset? ApprovedAt { get; set; }
     public Guid? ApprovedByUserId { get; set; }
 
+    /// <summary>Snapshot of BusinessSettings.TransferApprovalSeparationOfDuties taken at submit; later setting changes never alter it.</summary>
+    public bool RequireApprovalSeparation { get; set; }
+
+    /// <summary>Reason the approver gave for approving less than requested on one or more lines (null when approved as requested).</summary>
+    public string? ApprovalAdjustmentReason { get; set; }
+
     public DateTimeOffset? RejectedAt { get; set; }
     public Guid? RejectedByUserId { get; set; }
     public string? RejectionReason { get; set; }

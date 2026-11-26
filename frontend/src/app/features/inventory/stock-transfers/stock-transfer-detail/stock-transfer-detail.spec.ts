@@ -116,40 +116,83 @@ describe('StockTransferDetail content', () => {
 });
 
 describe('StockTransferDetail actions', () => {
-  it('approve posts once per click with a key that is stable across retries and fresh after success', () => {
+  // Approve opens the approve dialog (per-line quantities); its confirm posts. Keys follow the same IdempotentSubmission rules.
+  const confirmApprove = (el: HTMLElement, fixture: { detectChanges(): void }) => {
+    (el.querySelector('[data-testid="approve-confirm"] button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+  };
+  const approveError = (el: HTMLElement) => el.querySelector('[data-testid="approve-error"]')?.textContent ?? null;
+
+  it('approve opens the dialog, and its confirm posts every line as requested with a key stable across retries', () => {
     const calls: string[] = [];
+    const bodies: unknown[] = [];
     let fail: HttpErrorResponse | null = new HttpErrorResponse({ status: 0 });
     const t = transfer('Requested');
-    const approve = vi.fn((_id: string, key: string) => {
+    const approve = vi.fn((_id: string, key: string, body: unknown) => {
       calls.push(key);
+      bodies.push(body);
       if (fail) return throwError(() => fail);
       return of({ ...t, status: 'Approved' as const });
     });
-    const { click, fixture } = setup(t, ALL, { approve });
+    const { click, fixture, el } = setup(t, ALL, { approve });
 
     click('approve');
-    expect(fixture.componentInstance.actionError()).toBeTruthy();
-    click('approve');
+    expect(approve).not.toHaveBeenCalled();
+    confirmApprove(el, fixture);
+    expect(approveError(el)).toBeTruthy();
+    confirmApprove(el, fixture);
     expect(calls[1]).toBe(calls[0]);
+    expect(bodies[0]).toEqual({ lines: t.lines.map((l) => ({ lineId: l.id, quantity: l.requestedQty })), reason: null });
 
     fail = null;
-    click('approve');
+    confirmApprove(el, fixture);
     expect(calls[2]).toBe(calls[0]);
     expect(fixture.componentInstance.transfer()!.status).toBe('Approved');
   });
 
-  it('rotates the key after a definitive 400 rejection', () => {
+  it('rotates the key after a definitive 400 rejection and shows the server message in the dialog', () => {
     const keys: string[] = [];
     const t = transfer('Requested');
     const approve = vi.fn((_id: string, key: string) => {
       keys.push(key);
       return throwError(() => new HttpErrorResponse({ status: 400, error: { errors: { status: ['Not requested.'] } } }));
     });
-    const { click, fixture } = setup(t, ALL, { approve });
+    const { click, fixture, el } = setup(t, ALL, { approve });
     click('approve');
-    click('approve');
+    confirmApprove(el, fixture);
+    confirmApprove(el, fixture);
     expect(keys[1]).not.toBe(keys[0]);
-    expect(fixture.componentInstance.actionError()).toContain('Not requested.');
+    expect(approveError(el)).toContain('Not requested.');
+  });
+
+  it('a reduced approval needs a reason, then posts the reduced quantity with it', () => {
+    const t = transfer('Requested');
+    const approve = vi.fn(() => of({ ...t, status: 'Approved' as const }));
+    const { click, fixture, el } = setup(t, ALL, { approve });
+    click('approve');
+    const qty = el.querySelector('[data-testid="approve-qty-0"]') as HTMLInputElement;
+    const reduced = t.lines[0].requestedQty - 1;
+    expect(reduced).toBeGreaterThan(0);
+    qty.value = String(reduced);
+    qty.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    confirmApprove(el, fixture);
+    expect(approve).not.toHaveBeenCalled();
+    expect(approveError(el)).toContain('reason');
+
+    const reason = el.querySelector('[data-testid="approve-reason"]') as HTMLTextAreaElement;
+    reason.value = 'No stock to spare';
+    reason.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    confirmApprove(el, fixture);
+    expect(approve).toHaveBeenCalledWith(t.id, expect.any(String), { lines: [{ lineId: t.lines[0].id, quantity: reduced }], reason: 'No stock to spare' });
+  });
+
+  it('the maker under approval separation gets no Approve, only who decides', () => {
+    const t = { ...transfer('Requested'), approvalBlockedForYou: true };
+    const { buttons, el } = setup(t);
+    expect(buttons()).not.toContain('approve');
+    expect(el.querySelector('[data-testid="awaiting-approval"]')!.textContent).toContain('you created or submitted it');
   });
 
   it('reject asks for a reason and posts it', () => {

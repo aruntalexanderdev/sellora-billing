@@ -288,6 +288,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid?>("StateId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("TransferApprovalSeparationOfDuties")
+                        .HasColumnType("boolean");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BaseCurrencyId");
@@ -4210,6 +4213,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ApprovalAdjustmentReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<DateTimeOffset?>("ApprovedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -4279,6 +4286,11 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<string>("RejectionReason")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
+
+                    b.Property<bool>("RequireApprovalSeparation")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<Guid?>("SourceBranchId")
                         .HasColumnType("uuid");
@@ -4388,6 +4400,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(18,3)")
                         .HasDefaultValue(0m);
 
+                    b.Property<decimal?>("ApprovedBaseQty")
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<decimal?>("ApprovedQty")
+                        .HasColumnType("numeric(18,3)");
+
                     b.Property<decimal>("ClosedBaseQty")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("numeric(18,3)")
@@ -4475,6 +4493,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("StockTransferLines", t =>
                         {
                             t.HasCheckConstraint("CK_StockTransferLines_Allocation_Valid", "\"AllocatedBaseQty\" >= 0 AND \"ClosedBaseQty\" >= 0 AND \"AllocatedBaseQty\" + \"ClosedBaseQty\" <= \"RequestedBaseQty\"");
+
+                            t.HasCheckConstraint("CK_StockTransferLines_Approved_Valid", "(\"ApprovedQty\" IS NULL AND \"ApprovedBaseQty\" IS NULL) OR (\"ApprovedQty\" >= 0 AND \"ApprovedBaseQty\" >= 0 AND \"ApprovedBaseQty\" <= \"RequestedBaseQty\" AND \"ApprovedQty\" * \"ConversionFactorToBase\" = \"ApprovedBaseQty\")");
 
                             t.HasCheckConstraint("CK_StockTransferLines_Counters_Max", "\"ReceivedBaseQty\" + \"DamagedBaseQty\" + \"WrittenOffBaseQty\" + \"ReturnedBaseQty\" + \"AcceptedCorrectionBaseQty\" <= \"DispatchedBaseQty\"");
 

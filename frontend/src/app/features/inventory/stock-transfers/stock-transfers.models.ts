@@ -167,6 +167,9 @@ export interface StockTransferLine {
   closedBaseQty: number;
   remainingBaseQty: number;
   batches: StockTransferLineBatch[];
+  /** Approved quantity in the requested unit (and base); null until approved or for requests approved before approval controls. */
+  approvedQty?: number | null;
+  approvedBaseQty?: number | null;
 }
 
 export interface StockTransferReceiptLine {
@@ -221,6 +224,10 @@ export interface StockTransfer {
   receipts: StockTransferReceipt[];
   /** Server-computed: the active branch fits the source for approve / reject / close (the source branch decides). */
   canApprove: boolean;
+  /** Maker-checker: the caller created or submitted this request, which was submitted under approval separation. */
+  approvalBlockedForYou?: boolean;
+  /** Why the approver approved less than requested (null when approved as requested). */
+  approvalAdjustmentReason?: string | null;
 }
 
 export interface StockTransferReceiptResult {
@@ -268,5 +275,11 @@ export interface StockTransferHistoryEntry {
   fromStatus: StockTransferStatus | null;
   toStatus: StockTransferStatus | null;
   actorName: string | null;
+  reason: string | null;
+}
+
+/** Optional body of POST approve: every line with its approved quantity in the requested unit; reason required when any line is reduced. */
+export interface ApproveStockTransferRequest {
+  lines: { lineId: string; quantity: number }[];
   reason: string | null;
 }

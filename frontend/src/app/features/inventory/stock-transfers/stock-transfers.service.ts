@@ -17,8 +17,7 @@ import type {
   StockTransferListItem,
   StockTransferListQuery,
   StockTransferReceiptResult,
-  UpdateStockTransferRequest,
-} from './stock-transfers.models';
+  UpdateStockTransferRequest, ApproveStockTransferRequest } from './stock-transfers.models';
 
 const BASE_URL = `${environment.apiBaseUrl}/stock-transfers`;
 
@@ -69,8 +68,8 @@ export class StockTransfersService {
     return this.http.post<StockTransfer>(`${BASE_URL}/${id}/submit`, {}, { headers: idempotencyHeaders(idempotencyKey) });
   }
 
-  approve(id: string, idempotencyKey?: string): Observable<StockTransfer> {
-    return this.http.post<StockTransfer>(`${BASE_URL}/${id}/approve`, {}, { headers: idempotencyHeaders(idempotencyKey) });
+  approve(id: string, idempotencyKey?: string, body: ApproveStockTransferRequest | Record<string, never> = {}): Observable<StockTransfer> {
+    return this.http.post<StockTransfer>(`${BASE_URL}/${id}/approve`, body, { headers: idempotencyHeaders(idempotencyKey) });
   }
 
   reject(id: string, reason: string, idempotencyKey?: string): Observable<StockTransfer> {

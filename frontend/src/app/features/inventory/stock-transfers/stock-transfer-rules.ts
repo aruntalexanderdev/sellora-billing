@@ -8,8 +8,7 @@ import type {
   ResolveStockTransferRequest,
   StockTransferLine,
   StockTransferResolution,
-  StockTransferStatus,
-} from './stock-transfers.models';
+  StockTransferStatus, ApproveStockTransferRequest } from './stock-transfers.models';
 
 /** Phase 9 D2 state machine + D8 permissions, as the UI needs them (the server stays authoritative). */
 export type TransferAction = 'edit' | 'submit' | 'approve' | 'reject' | 'cancel' | 'receive' | 'resolve' | 'close';
@@ -50,13 +49,15 @@ const SOURCE_DECISIONS: readonly TransferAction[] = ['approve', 'reject', 'close
  * need `canApprove` from the server (absent = not yet known, treated as allowed so older payloads keep working; the server re-checks).
  */
 export function availableActions(
-  transfer: { status: StockTransferStatus; canApprove?: boolean; lines: readonly Pick<StockTransferLine, 'outstandingBaseQty' | 'dispatchedBaseQty'>[] },
+  transfer: { status: StockTransferStatus; canApprove?: boolean; approvalBlockedForYou?: boolean; lines: readonly Pick<StockTransferLine, 'outstandingBaseQty' | 'dispatchedBaseQty'>[] },
   hasPermission: (code: string) => boolean,
 ): TransferAction[] {
   return ACTION_ORDER.filter((a) => {
     if (!ACTION_STATUSES[a].includes(transfer.status)) return false;
     if (!hasPermission(ACTION_PERMISSION[a])) return false;
     if (SOURCE_DECISIONS.includes(a) && transfer.canApprove === false) return false;
+    // Maker-checker: the creator / submitter of a request under approval separation cannot approve it (reject stays possible).
+    if (a === 'approve' && transfer.approvalBlockedForYou === true) return false;
     if ((a === 'receive' || a === 'resolve') && !hasOutstanding(transfer.lines)) return false;
     // Close remaining: PartiallyFulfilled, or Approved with something already dispatched (the server checks allocations).
     if (a === 'close' && transfer.status === 'Approved' && !transfer.lines.some((l) => l.dispatchedBaseQty > 0)) return false;
@@ -228,6 +229,53 @@ export function validateResolve(rows: readonly ResolveRow[], reason: string | nu
 
 export function buildResolveRequest(rows: readonly ResolveRow[], reason: string): ResolveStockTransferRequest {
   return { reason: reason.trim(), lines: rows.map((r) => ({ lineId: r.lineId, action: r.action! })) };
+}
+
+// ---- Approve (optionally less than requested) ----
+
+export interface ApproveRow {
+  lineId: string;
+  requestedQty: number;
+  /** Raw input in the requested unit; '' or invalid is a row error. */
+  quantity: string;
+}
+
+export const APPROVE_REASON_MAX = 500;
+
+const parseQty = (raw: string): number | null => {
+  const text = raw.trim();
+  if (text === '' || !/^\d+(\.\d+)?$/.test(text)) return null;
+  return Number(text);
+};
+
+export const isReduced = (rows: readonly ApproveRow[]): boolean =>
+  rows.some((r) => {
+    const q = parseQty(r.quantity);
+    return q !== null && q < r.requestedQty;
+  });
+
+/** Row: a number 0..requested. Form: not every line at 0 (reject instead); a reason when any line is reduced. Unit decimals are checked by the server. */
+export function validateApprove(rows: readonly ApproveRow[], reason: string | null | undefined): RowErrors {
+  const errors: RowErrors = { rows: {}, form: null };
+  rows.forEach((r, i) => {
+    const q = parseQty(r.quantity);
+    if (q === null) errors.rows[i] = 'Enter a quantity of 0 or more.';
+    else if (q > r.requestedQty) errors.rows[i] = `At most the requested ${r.requestedQty}.`;
+  });
+  if (Object.keys(errors.rows).length > 0) return errors;
+  const text = (reason ?? '').trim();
+  if (rows.every((r) => parseQty(r.quantity) === 0)) errors.form = 'Every line is at 0 — reject the request instead.';
+  else if (isReduced(rows) && !text) errors.form = 'Give a reason for approving less than requested.';
+  else if (text.length > APPROVE_REASON_MAX) errors.form = `Reason can be at most ${APPROVE_REASON_MAX} characters.`;
+  return errors;
+}
+
+/** Every line is sent (row i = lines[i], so server errors map back to rows); the reason only when something is reduced. */
+export function buildApproveRequest(rows: readonly ApproveRow[], reason: string | null | undefined): ApproveStockTransferRequest {
+  return {
+    lines: rows.map((r) => ({ lineId: r.lineId, quantity: Number(r.quantity.trim()) })),
+    reason: isReduced(rows) ? (reason ?? '').trim() : null,
+  };
 }
 
 // ---- Server problem -> row errors ----

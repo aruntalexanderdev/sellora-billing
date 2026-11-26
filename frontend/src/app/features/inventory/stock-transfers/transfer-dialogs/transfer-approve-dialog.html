@@ -1,0 +1,36 @@
+<div class="panel" role="group" aria-label="Approve transfer">
+  <h3>Approve {{ transfer().transferNo }}</h3>
+  <p class="hint">Approve as requested, or lower a line (down to 0) if the source cannot spare it. The difference is closed; approval never moves stock.</p>
+  @if (shown().form; as msg) {
+    <div class="server-error" data-testid="approve-error">{{ msg }}</div>
+  }
+  <table>
+    <thead>
+      <tr><th>Product</th><th class="num">Requested</th><th>Approve</th></tr>
+    </thead>
+    <tbody>
+      @for (r of rows(); track r.lineId; let i = $index) {
+        <tr>
+          <td>{{ r.line.productName }}<div class="sub">{{ r.line.sku }}</div></td>
+          <td class="num">{{ r.line.requestedQty }} {{ r.line.unitCode }}</td>
+          <td>
+            <input class="field-input" type="text" inputmode="decimal" [attr.data-testid]="'approve-qty-' + i" [value]="r.quantity"
+              (input)="setQuantity(i, $any($event.target).value)" />
+            <span class="sub"> {{ r.line.unitCode }}</span>
+            @if (shown().rows[i]; as msg) {
+              <div class="field-error" [attr.data-testid]="'approve-row-error-' + i">{{ msg }}</div>
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+  @if (reduced()) {
+    <label class="field-label" for="approve-reason">Reason for approving less</label>
+    <textarea id="approve-reason" class="field-input" rows="2" [maxLength]="reasonMax" data-testid="approve-reason" [value]="reason()" (input)="setReason($any($event.target).value)"></textarea>
+  }
+  <div class="actions">
+    <ui-button variant="primary" data-testid="approve-confirm" [disabled]="busy()" (onClick)="submit()">{{ busy() ? 'Approving…' : (reduced() ? 'Approve reduced' : 'Approve') }}</ui-button>
+    <ui-button (onClick)="cancelled.emit()">Cancel</ui-button>
+  </div>
+</div>

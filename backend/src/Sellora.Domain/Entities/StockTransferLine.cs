@@ -35,6 +35,13 @@ public class StockTransferLine : ICompanyOwned
     /// <summary>Base quantity dispatched (0 until dispatch).</summary>
     public decimal DispatchedBaseQty { get; set; }
 
+    /// <summary>
+    /// Quantity approved, in the requested unit (and its base equivalent); null until approval. Approving less closes the difference:
+    /// ClosedBaseQty = RequestedBaseQty - ApprovedBaseQty at approval, so Remaining keeps its single formula.
+    /// </summary>
+    public decimal? ApprovedQty { get; set; }
+    public decimal? ApprovedBaseQty { get; set; }
+
     /// <summary>FI-D27: base quantity allocated to shipments (maintained by Phase 04). Default 0.</summary>
     public decimal AllocatedBaseQty { get; set; }
 
