@@ -898,7 +898,7 @@ valid version, cannot sell at all — P1 and P2 must be clean before release.
 
 ## TP-5 design (tax reports and clean-up)
 
-Status: **approved by the owner** (TP5-Q1..Q11 as recommended, T32). TP-5a in progress on `feature/tax-reports`; TP-5b needs
+Status: **TP-5a implemented and reviewed** (TP5-Q1..Q11 as recommended, T32; T33–T35) on `feature/tax-reports`; TP-5b needs
 a separate owner sign-off.
 
 ### Findings that shape the design
