@@ -1,4 +1,4 @@
--- Tax profiles TP-5a (PrepareTaxHistoryBackfill + ValidateTaxHistoryBackfill + data script tax-history-profile-backfill): RELEASE-NOTES REPORT and RUNBOOK. Read-only.
+-- Tax profiles TP-5a (AddTaxReportSettings + PrepareTaxHistoryBackfill + ValidateTaxHistoryBackfill + data script tax-history-profile-backfill): RELEASE-NOTES REPORT and RUNBOOK. Read-only.
 -- INFORMATIVE rows for the owner, not zero-row checks. Never a V__ file (the checks are backend/db/validation/V__tax-history-profile.sql (warn) and the TP-3/TP-4 snapshot files).
 -- Run with psql per environment and attach the output to the release notes:
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/tax-reports-release-notes.sql
@@ -8,8 +8,11 @@
 -- RUNBOOK (order matters; docs/features/tax-profiles.md, "TP-5 design"):
 --   1. BEFORE: run P1. Products that are GST + Taxable and have no HSN (on the product or on its subcategory) cannot be sold or bought once a company sets
 --      BusinessSettings.HsnRequiredFrom. The date stays NULL for every existing company (warning only), so the release itself blocks nobody. Fix the HSN codes first, THEN set the date per company.
---   2. Back up. Apply the EF migrations PrepareTaxHistoryBackfill, then ValidateTaxHistoryBackfill (Database releases page, never at startup, D10). PrepareTaxHistoryBackfill holds ONE short ACCESS
---      EXCLUSIVE lock on the four line tables (catalog-only changes, lock_timeout 5 s): on 55P03 simply re-run it. ValidateTaxHistoryBackfill takes only SHARE UPDATE EXCLUSIVE (writes continue).
+--   2. Back up. Apply the three EF migrations IN THIS ORDER (they sort by name; Database releases page, never at startup, D10):
+--        a) AddTaxReportSettings: Reports.Tax permission and grants, Units.Uqc with its seed, BusinessSettings.HsnRequiredFrom. Short locks on Units and BusinessSettings only, released at its commit.
+--        b) PrepareTaxHistoryBackfill: the ONLY migration that locks the four line tables (one LOCK TABLE, catalog-only changes, lock_timeout 5 s). It holds nothing else while it waits, so it
+--           cannot deadlock with a sale that reads Units; on 55P03 it fails fast and changes nothing: re-run it.
+--        c) ValidateTaxHistoryBackfill: SHARE UPDATE EXCLUSIVE only (writes continue).
 --   3. The data script backend/db/scripts/2026.11.25.001__tax-history-profile-backfill.sql runs in the same release right after the migrations (transaction: none, a commit per 5,000 rows).
 --      It is RESUMABLE and idempotent and can run WHILE SALES CONTINUE. If it is cancelled or times out, run it again (retry on the Database releases page, or psql -f): finished batches stay.
 --      Watch the progress from a second session with P2 / R1. It scans every line table once per run: on a very large tenant raise the "-- sellora:timeout" header BEFORE merging
