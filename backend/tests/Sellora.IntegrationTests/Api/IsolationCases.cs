@@ -140,6 +140,11 @@ public static class IsolationCases
             ($"/api/v1/products/{other.ProductId}", new UpsertProductRequest("STN-PEN", "Hijacked", null, null, own.BaseUnitId, 0m, [EachUnit(own)]))),
         new("ProductsController.SetActive", "other company's product", Post, (own, other) =>
             ($"/api/v1/products/{other.ProductId}/status", new SetActiveRequest(false))),
+        // TP-2: a read-only POST; naming the other company's product or supplier must be refused like any other cross-company id
+        new("TaxPreviewController.Preview", "other company's product and unit", Post, (own, other) =>
+            ("/api/v1/tax/preview", new TaxDocumentPreviewRequest(TaxDirection.Sale, null, Today, null, null, null, null, [new TaxPreviewLineRequest(other.ProductId, other.ProductUnitId, 1m, 10m)]))),
+        new("TaxPreviewController.Preview", "other company's supplier", Post, (own, other) =>
+            ("/api/v1/tax/preview", new TaxDocumentPreviewRequest(TaxDirection.Purchase, other.SupplierId, Today, null, null, null, null, [new TaxPreviewLineRequest(own.ProductId, own.ProductUnitId, 1m, 10m)]))),
         new("ProductsController.Delete", "other company's product", Delete, (own, other) =>
             ($"/api/v1/products/{other.ProductId}", null)),
         new("ProductsController.PreviewUnits", "other company's product", Post, (own, other) =>
