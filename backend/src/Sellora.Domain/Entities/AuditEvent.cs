@@ -62,6 +62,7 @@ public static class AuditActions
     public const string StockTransferUpdated = "stock_transfer.updated";
     public const string StockTransferSubmitted = "stock_transfer.submitted";
     public const string StockTransferApproved = "stock_transfer.approved";
+    public const string StockTransferRequesterApproved = "stock_transfer.requester_approved"; // FI-D48 level 1
     public const string StockTransferRejected = "stock_transfer.rejected";
     public const string StockTransferCancelled = "stock_transfer.cancelled";
     public const string StockTransferDispatched = "stock_transfer.dispatched";

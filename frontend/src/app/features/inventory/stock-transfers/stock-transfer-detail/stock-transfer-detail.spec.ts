@@ -188,6 +188,25 @@ describe('StockTransferDetail actions', () => {
     expect(approve).toHaveBeenCalledWith(t.id, expect.any(String), { lines: [{ lineId: t.lines[0].id, quantity: reduced }], reason: 'No stock to spare' });
   });
 
+  it('level 1: the requesting branch approver gets Approve request, which posts requester-approve', () => {
+    const t = { ...transfer('AwaitingRequesterApproval'), canRequesterApprove: true, destinationBranch: { id: 'b2', code: 'B2', name: 'Branch 2' } };
+    const requesterApprove = vi.fn(() => of({ ...t, status: 'Requested' as const }));
+    const { buttons, click, fixture } = setup(t, [...ALL, 'StockTransfers.ApproveRequest'], { requesterApprove });
+    expect(buttons()).toEqual(expect.arrayContaining(['requesterApprove', 'requesterReject']));
+    expect(buttons()).not.toContain('approve');
+    click('requesterApprove');
+    expect(requesterApprove).toHaveBeenCalledWith(t.id, expect.any(String));
+    expect(fixture.componentInstance.transfer()!.status).toBe('Requested');
+  });
+
+  it('level 1 seen from elsewhere: no decision, and the hint names the requesting branch', () => {
+    const t = { ...transfer('AwaitingRequesterApproval'), canRequesterApprove: false, destinationBranch: { id: 'b2', code: 'B2', name: 'Branch 2' } };
+    const { buttons, el } = setup(t, [...ALL, 'StockTransfers.ApproveRequest']);
+    expect(buttons()).not.toContain('requesterApprove');
+    expect(el.querySelector('[data-testid="awaiting-approval"]')!.textContent).toContain('Branch 2');
+    expect(el.querySelector('[data-testid="awaiting-approval"]')!.textContent).toContain('requested the stock');
+  });
+
   it('the maker under approval separation gets no Approve, only who decides', () => {
     const t = { ...transfer('Requested'), approvalBlockedForYou: true };
     const { buttons, el } = setup(t);

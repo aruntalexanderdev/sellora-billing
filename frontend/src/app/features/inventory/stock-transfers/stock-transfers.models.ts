@@ -1,6 +1,7 @@
 /** Mirrors Domain/Entities/StockTransferStatus.cs (string enum). */
 export type StockTransferStatus =
   | 'Draft'
+  | 'AwaitingRequesterApproval'
   | 'Requested'
   | 'Approved'
   | 'PartiallyFulfilled'
@@ -13,12 +14,13 @@ export type StockTransferStatus =
   | 'Cancelled';
 
 export const STOCK_TRANSFER_STATUSES: StockTransferStatus[] = [
-  'Draft', 'Requested', 'Approved', 'PartiallyFulfilled', 'Fulfilled', 'Closed', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled',
+  'Draft', 'AwaitingRequesterApproval', 'Requested', 'Approved', 'PartiallyFulfilled', 'Fulfilled', 'Closed', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled',
 ];
 
 /** Display labels (FI-D26); legacy statuses keep their names. */
 export const STOCK_TRANSFER_STATUS_LABELS: Record<StockTransferStatus, string> = {
   Draft: 'Draft',
+  AwaitingRequesterApproval: 'Awaiting requesting branch', // FI-D48 level 1
   Requested: 'Requested',
   Approved: 'Ready for shipment',
   PartiallyFulfilled: 'Partially fulfilled',
@@ -228,6 +230,13 @@ export interface StockTransfer {
   approvalBlockedForYou?: boolean;
   /** Why the approver approved less than requested (null when approved as requested). */
   approvalAdjustmentReason?: string | null;
+  /** FI-D49: estimated value at submit (base currency); null when the reader may not see the source's costs or for older requests. */
+  estimatedValue?: number | null;
+  /** FI-D48: the request needed the requesting branch's approval (level 1) first. */
+  requiresRequesterApproval?: boolean;
+  requesterApproved?: StockTransferActor | null;
+  /** Server-computed: awaiting level 1 and the active branch fits the destination for StockTransfers.ApproveRequest. */
+  canRequesterApprove?: boolean;
 }
 
 export interface StockTransferReceiptResult {

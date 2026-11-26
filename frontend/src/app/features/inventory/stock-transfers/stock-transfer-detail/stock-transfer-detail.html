@@ -15,6 +15,9 @@
   <div class="status-row">
     <ui-badge [text]="statusText(t.status)" [tone]="tone(t.status)" />
     <span class="muted">{{ t.sourceBranch.code || t.sourceBranch.name || 'Company' }} → {{ t.destinationBranch.code || t.destinationBranch.name || 'Company' }}</span>
+    @if (t.estimatedValue != null) {
+      <span class="muted" data-testid="estimated-value">· Estimated value {{ t.estimatedValue | number: '1.2-2' }}{{ t.requiresRequesterApproval ? ' (two-level approval)' : '' }}</span>
+    }
   </div>
 
   @if (actionError(); as e) {
@@ -22,7 +25,7 @@
   }
 
   @if (awaitingApprovalBy(); as by) {
-    <p class="muted" data-testid="awaiting-approval">Waiting for approval by {{ by }} — the branch that supplies the stock decides.</p>
+    <p class="muted" data-testid="awaiting-approval">Waiting for approval by {{ by }}</p>
   }
 
   <div class="action-bar" data-testid="actions">
@@ -31,6 +34,12 @@
     }
     @if (can('submit')) {
       <ui-button variant="primary" data-testid="act-submit" [disabled]="busy()" (onClick)="submit()">Submit</ui-button>
+    }
+    @if (can('requesterApprove')) {
+      <ui-button variant="primary" data-testid="act-requesterApprove" [disabled]="busy()" (onClick)="requesterApprove()">Approve request</ui-button>
+    }
+    @if (can('requesterReject')) {
+      <ui-button variant="destructive" data-testid="act-requesterReject" (onClick)="open('requesterReject')">Reject request</ui-button>
     }
     @if (can('approve')) {
       <ui-button variant="primary" data-testid="act-approve" [disabled]="busy()" (onClick)="approve()">Approve</ui-button>
@@ -62,6 +71,9 @@
   @switch (panel()) {
     @case ('approve') {
       <app-transfer-approve-dialog [transfer]="t" [submission]="submissionFor('approve')" (done)="onUpdated($event, 'Transfer approved.')" (cancelled)="close()" />
+    }
+    @case ('requesterReject') {
+      <app-reason-prompt title="Reject this request (requesting branch)" confirmLabel="Reject" [destructive]="true" [busy]="busy()" [error]="actionError()" (confirmed)="confirmRequesterReject($event)" (cancelled)="close()" />
     }
     @case ('reject') {
       <app-reason-prompt title="Reject this transfer" confirmLabel="Reject" [destructive]="true" [busy]="busy()" [error]="actionError()" (confirmed)="confirmReason('reject', $event)" (cancelled)="close()" />

@@ -18,7 +18,7 @@ public static class PermissionCatalog
         "Sales.View", "Sales.Create", "Sales.PriceOverride", "Sales.BillDiscount", "Sales.Edit", "Sales.Receive", "Sales.Return", "Sales.Refund", "Sales.Cancel",
         "Purchase.View", "Purchase.Create", "Purchase.Edit", "Purchase.Pay", "Purchase.Return", "Purchase.Refund", "Purchase.Cancel",
         "Inventory.Adjust", "StockLocations.View", "Inventory.View",
-        "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.ApproveReceipt", "StockTransfers.Cancel",
+        "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.ApproveRequest", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.ApproveReceipt", "StockTransfers.Cancel",
         "Shipments.View", "Shipments.Plan", "Shipments.Load", // FI-D31 (Reservations.Release stays company-only)
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
         "Customers.View", // Phase 11 D15: branch cashiers pick named customers at POS (customers stay company master data)
@@ -123,6 +123,7 @@ public static class PermissionCatalog
         new("StockTransfers.View", "Inventory", "View transfers", "View stock transfers."),
         new("StockTransfers.Create", "Inventory", "Create transfers", "Create, edit and submit stock transfer requests."),
         new("StockTransfers.Approve", "Inventory", "Approve transfers", "Approve or reject stock transfer requests."),
+        new("StockTransfers.ApproveRequest", "Inventory", "Approve requests (requesting branch)", "Approve or reject high-value transfer requests of the requesting branch before the source branch decides."),
         new("StockTransfers.Dispatch", "Inventory", "Dispatch transfers", "Dispatch approved stock transfers from the source location."),
         new("StockTransfers.Receive", "Inventory", "Receive transfers", "Receive dispatched stock transfers at the destination location."),
         new("StockTransfers.ApproveReceipt", "Inventory", "Approve receipts", "Approve or reject recorded consignment receipts at the destination when the company requires supervisor approval."),

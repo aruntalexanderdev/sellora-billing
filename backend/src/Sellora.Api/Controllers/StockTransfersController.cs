@@ -256,6 +256,21 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
         return await RunAsync(async () => await RespondAsync(await transfers.ApproveAsync(id, input, UserId(), HttpContext.TraceIdentifier, ct), ct));
     }
 
+    // FI-D48 level 1: the requesting (destination) branch confirms or rejects a request that reached the value threshold.
+    [HttpPost("{id:guid}/requester-approve")]
+    [Authorize(Policy = "StockTransfers.ApproveRequest")]
+    public Task<ActionResult<StockTransferDto>> RequesterApprove(Guid id, CancellationToken ct) =>
+        RunAsync(async () => await RespondAsync(await transfers.RequesterApproveAsync(id, UserId(), HttpContext.TraceIdentifier, ct), ct));
+
+    [HttpPost("{id:guid}/requester-reject")]
+    [Authorize(Policy = "StockTransfers.ApproveRequest")]
+    public async Task<ActionResult<StockTransferDto>> RequesterReject(Guid id, StockTransferReasonRequest request, CancellationToken ct)
+    {
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+        return await RunAsync(async () =>
+            await RespondAsync(await transfers.RequesterRejectAsync(id, request.Reason.Trim(), UserId(), HttpContext.TraceIdentifier, ct), ct));
+    }
+
     [HttpPost("{id:guid}/reject")]
     [Authorize(Policy = "StockTransfers.Approve")]
     public async Task<ActionResult<StockTransferDto>> Reject(Guid id, StockTransferReasonRequest request, CancellationToken ct)
@@ -455,8 +470,24 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
             t.ClosedAt, UserName(t.ClosedByUserId), t.ClosureReason,
             lines, receipts,
             await transfers.FitsApproverAsync(t, ct),
-            t.Status == StockTransferStatus.Requested && t.RequireApprovalSeparation && (t.CreatedByUserId == UserId() || t.SubmittedByUserId == UserId()),
-            t.ApprovalAdjustmentReason);
+            ApprovalBlockedFor(t, UserId),
+            t.ApprovalAdjustmentReason,
+            // FI-D49: the estimate is built from the source's costs, so it follows the batch-cost visibility rule above (FI-D28).
+            showCost ? t.EstimatedValue : null,
+            t.RequiresRequesterApproval,
+            Actor(t.RequesterApprovedByUserId, t.RequesterApprovedAt),
+            t.Status == StockTransferStatus.AwaitingRequesterApproval && await transfers.FitsRequesterApproverAsync(t, ct));
+    }
+
+    // The decision waiting on this request is not the caller's to take: FI-D46 (creator / submitter) at either level, or FI-D51 (the level-1
+    // approver cannot also approve for the source).
+    // The caller is read only when a decision is pending (reads without one need no signed-in user).
+    private static bool ApprovalBlockedFor(StockTransfer t, Func<Guid> caller)
+    {
+        if (t.Status is not (StockTransferStatus.AwaitingRequesterApproval or StockTransferStatus.Requested)) return false;
+        var me = caller();
+        var maker = t.RequireApprovalSeparation && (t.CreatedByUserId == me || t.SubmittedByUserId == me);
+        return maker || (t.Status == StockTransferStatus.Requested && t.RequiresRequesterApproval && t.RequesterApprovedByUserId == me);
     }
 
     /// <summary>Per-request id → code/name/type of the company's stock locations (a document the caller can read always names its own

@@ -333,6 +333,7 @@ public static class IsolationCases
         "StockTransfersController.List", "StockTransfersController.Get", "StockTransfersController.Create", "StockTransfersController.Update", "StockTransfersController.Submit",
         "StockTransfersController.Approve", "StockTransfersController.Reject", "StockTransfersController.Cancel", "StockTransfersController.Dispatch",
         "StockTransfersController.Receive", "StockTransfersController.Resolve",
+        "StockTransfersController.RequesterApprove", "StockTransfersController.RequesterReject", // FI-D48: same test, both a 404 for the other company
         // Functional improvements Phase 03: TransferRequestFulfilmentApiTests.OtherCompanysTransfer_IsA404ForCloseAndHistory_AndNeverInTheReadyQueue (same IsolationWorld).
         "StockTransfersController.Close", "StockTransfersController.History", "StockTransfersController.ReadyForShipment",
         // Functional improvements Phase 04: ShipmentsApiTests.OtherCompanysShipmentConsignmentAndReservation_Are404_ForReadsAndEveryWrite_AndNothingChanges (same IsolationWorld):

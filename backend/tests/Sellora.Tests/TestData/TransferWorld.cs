@@ -19,7 +19,7 @@ public sealed class TransferWorld
 {
     public static readonly string[] AllCodes =
     [
-        "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch",
+        "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.ApproveRequest", "StockTransfers.Dispatch",
         "StockTransfers.Receive", "StockTransfers.Cancel", "StockTransfers.Resolve",
     ];
 

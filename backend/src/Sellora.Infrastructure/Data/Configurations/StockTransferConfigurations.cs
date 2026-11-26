@@ -16,13 +16,15 @@ public class StockTransferConfiguration : IEntityTypeConfiguration<StockTransfer
         builder.HasKey(t => t.Id);
         builder.HasAlternateKey(t => new { t.CompanyId, t.Id });
         builder.Property(t => t.TransferNo).HasMaxLength(30).IsRequired();
-        builder.Property(t => t.Status).HasConversion<string>().HasMaxLength(20);
+        builder.Property(t => t.Status).HasConversion<string>().HasMaxLength(30); // FI-D48: widened for AwaitingRequesterApproval (25)
         builder.Property(t => t.Notes).HasMaxLength(300);
         builder.Property(t => t.RejectionReason).HasMaxLength(300);
         builder.Property(t => t.CancellationReason).HasMaxLength(300);
         builder.Property(t => t.ClosureReason).HasMaxLength(500);
         builder.Property(t => t.ApprovalAdjustmentReason).HasMaxLength(500);
         builder.Property(t => t.RequireApprovalSeparation).HasDefaultValue(false);
+        builder.Property(t => t.RequiresRequesterApproval).HasDefaultValue(false);
+        builder.Property(t => t.EstimatedValue).HasColumnType("numeric(18,2)");
 
         builder.HasIndex(t => new { t.CompanyId, t.TransferNo }, "IX_StockTransfers_CompanyId_TransferNo").IsUnique();
         builder.HasIndex(t => new { t.CompanyId, t.Status }, "IX_StockTransfers_CompanyId_Status");
@@ -70,12 +72,12 @@ public class StockTransferConfiguration : IEntityTypeConfiguration<StockTransfer
             t.HasCheckConstraint("CK_StockTransfers_Endpoints_Differ", "\"SourceLocationId\" <> \"DestinationLocationId\"");
             t.HasCheckConstraint("CK_StockTransfers_Endpoints_NotTransit", "\"SourceLocationId\" <> \"TransitLocationId\" AND \"DestinationLocationId\" <> \"TransitLocationId\"");
             t.HasCheckConstraint("CK_StockTransfers_Status_Valid",
-                "\"Status\" IN ('Draft', 'Requested', 'Approved', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled', 'PartiallyFulfilled', 'Fulfilled', 'Closed')");
+                "\"Status\" IN ('Draft', 'Requested', 'Approved', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled', 'PartiallyFulfilled', 'Fulfilled', 'Closed', 'AwaitingRequesterApproval')");
             // Each actor/time pair is all-or-none.
             t.HasCheckConstraint("CK_StockTransfers_Actors_Paired",
                 "(\"SubmittedAt\" IS NULL) = (\"SubmittedByUserId\" IS NULL) AND (\"ApprovedAt\" IS NULL) = (\"ApprovedByUserId\" IS NULL) AND (\"RejectedAt\" IS NULL) = (\"RejectedByUserId\" IS NULL)"
                 + " AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL) AND (\"CompletedAt\" IS NULL) = (\"CompletedByUserId\" IS NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL)"
-                + " AND (\"ClosedAt\" IS NULL) = (\"ClosedByUserId\" IS NULL)");
+                + " AND (\"ClosedAt\" IS NULL) = (\"ClosedByUserId\" IS NULL) AND (\"RequesterApprovedAt\" IS NULL) = (\"RequesterApprovedByUserId\" IS NULL)");
             // Status-consistent actor columns (D1): a status needs its own stamps; a stamp needs its status. Draft may be cancelled without ever being submitted.
             t.HasCheckConstraint("CK_StockTransfers_Status_Stamps",
                 "(\"Status\" = 'Draft') = (\"SubmittedAt\" IS NULL) OR \"Status\" = 'Cancelled'");
@@ -90,6 +92,10 @@ public class StockTransferConfiguration : IEntityTypeConfiguration<StockTransfer
             // FI-D26: Closed <=> ClosedAt (actor paired above), with a mandatory reason; the reason exists only on a closed transfer.
             t.HasCheckConstraint("CK_StockTransfers_Status_Closure",
                 "(\"Status\" = 'Closed') = (\"ClosedAt\" IS NOT NULL) AND (\"Status\" <> 'Closed' OR COALESCE(char_length(\"ClosureReason\"), 0) > 0) AND (\"Status\" = 'Closed' OR \"ClosureReason\" IS NULL)");
+            // FI-D48: only a request that needs it waits for level 1; a request that skipped level 1 never carries its stamp.
+            t.HasCheckConstraint("CK_StockTransfers_RequesterApproval",
+                "(\"Status\" <> 'AwaitingRequesterApproval' OR (\"RequiresRequesterApproval\" AND \"RequesterApprovedAt\" IS NULL))"
+                + " AND (\"RequiresRequesterApproval\" OR \"RequesterApprovedAt\" IS NULL)");
             t.HasCheckConstraint("CK_StockTransfers_Status_Cancellation",
                 "(\"Status\" = 'Cancelled') = (\"CancelledAt\" IS NOT NULL) AND (\"Status\" <> 'Cancelled' OR char_length(\"CancellationReason\") > 0)");
         });

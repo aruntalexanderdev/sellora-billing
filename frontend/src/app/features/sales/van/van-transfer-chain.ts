@@ -115,7 +115,7 @@ export async function runVanChain(
 
   // ---- before any write: when this run will reach the shipment step, the van's vehicle must be readable and exist ----
   let vehicleId: string | null = null;
-  const reachesShipment = has(PERM.plan) && (has(actionPermission('approve')) || (!!t && t.status !== 'Draft' && t.status !== 'Requested'));
+  const reachesShipment = has(PERM.plan) && (has(actionPermission('approve')) || (!!t && t.status !== 'Draft' && t.status !== 'Requested' && t.status !== 'AwaitingRequesterApproval'));
   if (reachesShipment) {
     const blockedUpFront = needs(t ? 'shipment' : 'create', PERM.vehicles);
     if (blockedUpFront) return blockedUpFront;
@@ -157,7 +157,8 @@ export async function runVanChain(
   }
   if (!t) return stop(null, completed, step, 'status');
   if (t.status === 'Completed' && !keys.shipmentId) return { transfer: t, completed, stoppedAt: null, reason: null, missingPermission: null, error: null };
-  if (t.status === 'Rejected' || t.status === 'Cancelled' || t.status === 'Draft' || t.status === 'Requested') return stop(t, completed, step, 'status');
+  // FI-D48: a high-value request waits for the requesting branch (level 1); the chain stops there like a request awaiting the source.
+  if (t.status === 'Rejected' || t.status === 'Cancelled' || t.status === 'Draft' || t.status === 'Requested' || t.status === 'AwaitingRequesterApproval') return stop(t, completed, step, 'status');
   const transfer: StockTransfer = t;
   keys.scope = transfer.id;
   const refreshTransfer = async () => {

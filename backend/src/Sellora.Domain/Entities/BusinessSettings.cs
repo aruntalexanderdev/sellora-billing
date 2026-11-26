@@ -30,6 +30,12 @@ public class BusinessSettings : ICompanyOwned
     /// </summary>
     public bool TransferApprovalSeparationOfDuties { get; set; } = true;
 
+    /// <summary>
+    /// FI-D48: requests whose estimated value (FI-D49) reaches this amount (base currency) need a level-1 approval by the requesting
+    /// (destination) branch before the source branch decides. Null = off (single-level approval, as before).
+    /// </summary>
+    public decimal? TransferRequesterApprovalThreshold { get; set; }
+
     public Guid BaseCurrencyId { get; set; }
     public Currency BaseCurrency { get; set; } = null!;
 

@@ -22,22 +22,27 @@ public class StockTransferLifecycleTests
     public static IEnumerable<object[]> Matrix()
     {
         var all = Enum.GetValues<StockTransferStatus>();
-        var allowed = new Dictionary<string, (StockTransferStatus[] Ok, StockTransferStatus? Same)>
+        var allowed = new Dictionary<string, (StockTransferStatus[] Ok, StockTransferStatus[] Same)>
         {
-            ["submit"] = ([StockTransferStatus.Draft], StockTransferStatus.Requested),
-            ["approve"] = ([StockTransferStatus.Requested], StockTransferStatus.Approved),
-            ["reject"] = ([StockTransferStatus.Requested], StockTransferStatus.Rejected),
-            ["close"] = ([StockTransferStatus.PartiallyFulfilled], StockTransferStatus.Closed),
-            ["cancel"] = ([StockTransferStatus.Draft, StockTransferStatus.Requested, StockTransferStatus.Approved], StockTransferStatus.Cancelled),
-            ["dispatch"] = ([], null), // FI-D3 (Phase 05): dispatch happens through a shipment; the legacy operation is refused from every status
-            ["receive"] = ([StockTransferStatus.Dispatched, StockTransferStatus.PartiallyReceived], null),
-            ["resolve"] = ([StockTransferStatus.Dispatched, StockTransferStatus.PartiallyReceived], null),
+            // FI-D48: submit has two outcomes (Requested, or AwaitingRequesterApproval above the threshold); a repeat from either is a no-op.
+            ["submit"] = ([StockTransferStatus.Draft], [StockTransferStatus.Requested, StockTransferStatus.AwaitingRequesterApproval]),
+            // FI-D48: the matrix's Requested / Rejected never went through level 1, so level-1 operations are refused there (not replays);
+            // real level-1 replays are covered in TransferRequesterApprovalTests.
+            ["requesterApprove"] = ([StockTransferStatus.AwaitingRequesterApproval], []),
+            ["requesterReject"] = ([StockTransferStatus.AwaitingRequesterApproval], []),
+            ["approve"] = ([StockTransferStatus.Requested], [StockTransferStatus.Approved]),
+            ["reject"] = ([StockTransferStatus.Requested], [StockTransferStatus.Rejected]),
+            ["close"] = ([StockTransferStatus.PartiallyFulfilled], [StockTransferStatus.Closed]),
+            ["cancel"] = ([StockTransferStatus.Draft, StockTransferStatus.AwaitingRequesterApproval, StockTransferStatus.Requested, StockTransferStatus.Approved], [StockTransferStatus.Cancelled]),
+            ["dispatch"] = ([], []), // FI-D3 (Phase 05): dispatch happens through a shipment; the legacy operation is refused from every status
+            ["receive"] = ([StockTransferStatus.Dispatched, StockTransferStatus.PartiallyReceived], []),
+            ["resolve"] = ([StockTransferStatus.Dispatched, StockTransferStatus.PartiallyReceived], []),
         };
         foreach (var (op, rule) in allowed)
         {
             foreach (var status in all)
             {
-                yield return [op, status, rule.Ok.Contains(status) ? Ok : rule.Same == status ? Same : Refused];
+                yield return [op, status, rule.Ok.Contains(status) ? Ok : rule.Same.Contains(status) ? Same : Refused];
             }
         }
     }
@@ -53,6 +58,17 @@ public class StockTransferLifecycleTests
         {
             await using var db = w.Db();
             return (w, (await new StockTransferService(db, TransferWorld.Everything()).CancelAsync(t.Id, "no", w.W.UserId))!);
+        }
+        if (status == StockTransferStatus.AwaitingRequesterApproval)
+        {
+            // FI-D48: a threshold of 0 sends every submitted request to the requesting branch first.
+            await using (var db = w.Db())
+            {
+                (await db.BusinessSettings.SingleAsync()).TransferRequesterApprovalThreshold = 0m;
+                await db.SaveChangesAsync();
+            }
+            await using (var db = w.Db()) await new StockTransferService(db, TransferWorld.Everything()).SubmitAsync(t.Id, w.W.UserId);
+            return (w, await w.ReloadAsync(t.Id));
         }
         await using (var db = w.Db()) await new StockTransferService(db, TransferWorld.Everything()).SubmitAsync(t.Id, w.W.UserId);
         if (status == StockTransferStatus.Requested) return (w, await w.ReloadAsync(t.Id));
@@ -98,6 +114,8 @@ public class StockTransferLifecycleTests
         switch (op)
         {
             case "submit": return await service.SubmitAsync(t.Id, w.W.UserId);
+            case "requesterApprove": return await service.RequesterApproveAsync(t.Id, w.W.UserId);
+            case "requesterReject": return await service.RequesterRejectAsync(t.Id, "not needed", w.W.UserId);
             case "approve": return await service.ApproveAsync(t.Id, w.W.UserId);
             case "reject": return await service.RejectAsync(t.Id, "no", w.W.UserId);
             case "close": return await service.CloseAsync(t.Id, "no more stock coming", w.W.UserId);

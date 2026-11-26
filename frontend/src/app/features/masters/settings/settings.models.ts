@@ -19,6 +19,8 @@ export interface BusinessSettings {
   receiptSeparationOfDuties: boolean;
   /** Maker-checker for stock transfer requests: the creator / submitter cannot approve. Applies to requests submitted afterwards. */
   transferApprovalSeparationOfDuties: boolean;
+  /** FI-D48: requests at or above this estimated value (base currency) need the requesting branch's approval first; null = off. */
+  transferRequesterApprovalThreshold?: number | null;
   /** `state` above is the read-only legacy hint, shown only while stateId is null (D6). */
   countryId: string | null;
   countryName: string | null;
@@ -48,6 +50,9 @@ export interface UpdateBusinessSettingsRequest {
   receiptSeparationOfDuties?: boolean;
   /** Omitted = unchanged. Applies only to transfer requests submitted afterwards. */
   transferApprovalSeparationOfDuties?: boolean;
+  /** FI-D48: omitted = unchanged; clearing needs clearTransferRequesterApprovalThreshold. */
+  transferRequesterApprovalThreshold?: number | null;
+  clearTransferRequesterApprovalThreshold?: boolean;
   /** Always post the current values: null clears the link (D17/D22). */
   countryId: string | null;
   stateId: string | null;

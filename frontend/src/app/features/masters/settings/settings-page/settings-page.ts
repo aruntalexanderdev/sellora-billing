@@ -46,6 +46,7 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
     maxBillDiscountPercent: [null as number | null, [Validators.min(0), Validators.max(100)]],
     hsnRequiredFrom: [''],
     transferApprovalSeparationOfDuties: [true],
+    transferRequesterApprovalThreshold: [null as number | null, [Validators.min(0)]],
   });
 
   /** Products without HSN (read-only, from the server); null = unknown. */
@@ -98,6 +99,7 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
           maxBillDiscountPercent: s.maxBillDiscountPercent ?? null,
           hsnRequiredFrom: s.hsnRequiredFrom ?? '',
           transferApprovalSeparationOfDuties: s.transferApprovalSeparationOfDuties ?? true,
+          transferRequesterApprovalThreshold: s.transferRequesterApprovalThreshold ?? null,
         });
         this.hsnDate.set(s.hsnRequiredFrom ?? '');
         this.productsWithoutHsnCount.set(s.productsWithoutHsnCount ?? null);
@@ -114,11 +116,14 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
   buildRequest() {
     const v = this.form.getRawValue();
     // maxBillDiscountPercent is always posted: empty clears the cap (T15).
-    const { hsnRequiredFrom, ...rest } = v;
+    const { hsnRequiredFrom, transferRequesterApprovalThreshold, ...rest } = v;
     const request: UpdateBusinessSettingsRequest = { ...rest, countryId: v.countryId || null, stateId: v.countryId ? v.stateId || null : null, maxBillDiscountPercent: v.maxBillDiscountPercent ?? null };
     // T34: omitted = unchanged; a cleared date is sent as clearHsnRequiredFrom.
     if (hsnRequiredFrom) request.hsnRequiredFrom = hsnRequiredFrom;
     else if (this.hsnCleared()) request.clearHsnRequiredFrom = true;
+    // FI-D48: omitted = unchanged; an emptied threshold turns two-level approval off.
+    if (transferRequesterApprovalThreshold != null && `${transferRequesterApprovalThreshold}` !== '') request.transferRequesterApprovalThreshold = Number(transferRequesterApprovalThreshold);
+    else request.clearTransferRequesterApprovalThreshold = true;
     return request;
   }
 

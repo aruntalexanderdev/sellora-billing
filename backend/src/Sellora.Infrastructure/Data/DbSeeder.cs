@@ -143,6 +143,8 @@ public static class DbSeeder
         await GrantNewPermissionToExistingHoldersAsync(db, "Shipments.Load", "StockTransfers.Dispatch", ct);
         // Phase 06 (FI-D39): approving receipts goes to existing approvers (supervisors); the default policy is Direct, so nothing changes until a company opts in.
         await GrantNewPermissionToExistingHoldersAsync(db, "StockTransfers.ApproveReceipt", "StockTransfers.Approve", ct);
+        // FI-D50: level-1 (requesting branch) approval goes to existing approvers; it only matters once a company sets a threshold.
+        await GrantNewPermissionToExistingHoldersAsync(db, "StockTransfers.ApproveRequest", "StockTransfers.Approve", ct);
         // Tax profiles (TP-1): taxes sat under Masters.View/Edit; the migration grants the same way for existing databases.
         await GrantNewPermissionToExistingHoldersAsync(db, "Tax.View", ["Masters.View", "Inventory.Create", "Inventory.Edit"], ct);
         await GrantNewPermissionToExistingHoldersAsync(db, "Tax.Manage", "Masters.Edit", ct);

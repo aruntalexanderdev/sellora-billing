@@ -11,11 +11,13 @@ import type {
   StockTransferStatus, ApproveStockTransferRequest } from './stock-transfers.models';
 
 /** Phase 9 D2 state machine + D8 permissions, as the UI needs them (the server stays authoritative). */
-export type TransferAction = 'edit' | 'submit' | 'approve' | 'reject' | 'cancel' | 'receive' | 'resolve' | 'close';
+export type TransferAction = 'edit' | 'submit' | 'requesterApprove' | 'requesterReject' | 'approve' | 'reject' | 'cancel' | 'receive' | 'resolve' | 'close';
 
 const ACTION_PERMISSION: Record<TransferAction, string> = {
   edit: 'StockTransfers.Create',
   submit: 'StockTransfers.Create',
+  requesterApprove: 'StockTransfers.ApproveRequest',
+  requesterReject: 'StockTransfers.ApproveRequest',
   approve: 'StockTransfers.Approve',
   reject: 'StockTransfers.Approve',
   cancel: 'StockTransfers.Cancel',
@@ -27,15 +29,17 @@ const ACTION_PERMISSION: Record<TransferAction, string> = {
 const ACTION_STATUSES: Record<TransferAction, readonly StockTransferStatus[]> = {
   edit: ['Draft'],
   submit: ['Draft'],
+  requesterApprove: ['AwaitingRequesterApproval'],
+  requesterReject: ['AwaitingRequesterApproval'],
   approve: ['Requested'],
   reject: ['Requested'],
-  cancel: ['Draft', 'Requested', 'Approved'],
+  cancel: ['Draft', 'AwaitingRequesterApproval', 'Requested', 'Approved'],
   receive: ['Dispatched', 'PartiallyReceived'],
   resolve: ['Dispatched', 'PartiallyReceived'],
   close: ['Approved', 'PartiallyFulfilled'],
 };
 
-export const ACTION_ORDER: readonly TransferAction[] = ['edit', 'submit', 'approve', 'reject', 'receive', 'resolve', 'close', 'cancel'];
+export const ACTION_ORDER: readonly TransferAction[] = ['edit', 'submit', 'requesterApprove', 'requesterReject', 'approve', 'reject', 'receive', 'resolve', 'close', 'cancel'];
 
 export function hasOutstanding(lines: readonly Pick<StockTransferLine, 'outstandingBaseQty'>[]): boolean {
   return lines.some((l) => l.outstandingBaseQty > 0);
@@ -49,7 +53,7 @@ const SOURCE_DECISIONS: readonly TransferAction[] = ['approve', 'reject', 'close
  * need `canApprove` from the server (absent = not yet known, treated as allowed so older payloads keep working; the server re-checks).
  */
 export function availableActions(
-  transfer: { status: StockTransferStatus; canApprove?: boolean; approvalBlockedForYou?: boolean; lines: readonly Pick<StockTransferLine, 'outstandingBaseQty' | 'dispatchedBaseQty'>[] },
+  transfer: { status: StockTransferStatus; canApprove?: boolean; canRequesterApprove?: boolean; approvalBlockedForYou?: boolean; lines: readonly Pick<StockTransferLine, 'outstandingBaseQty' | 'dispatchedBaseQty'>[] },
   hasPermission: (code: string) => boolean,
 ): TransferAction[] {
   return ACTION_ORDER.filter((a) => {
@@ -58,6 +62,9 @@ export function availableActions(
     if (SOURCE_DECISIONS.includes(a) && transfer.canApprove === false) return false;
     // Maker-checker: the creator / submitter of a request under approval separation cannot approve it (reject stays possible).
     if (a === 'approve' && transfer.approvalBlockedForYou === true) return false;
+    // FI-D48 level 1: only where the server says the active branch fits the requesting (destination) branch; maker-checker as above.
+    if ((a === 'requesterApprove' || a === 'requesterReject') && transfer.canRequesterApprove !== true) return false;
+    if (a === 'requesterApprove' && transfer.approvalBlockedForYou === true) return false;
     if ((a === 'receive' || a === 'resolve') && !hasOutstanding(transfer.lines)) return false;
     // Close remaining: PartiallyFulfilled, or Approved with something already dispatched (the server checks allocations).
     if (a === 'close' && transfer.status === 'Approved' && !transfer.lines.some((l) => l.dispatchedBaseQty > 0)) return false;
@@ -108,6 +115,7 @@ export function statusTone(status: StockTransferStatus): 'good' | 'warn' | 'bad'
     case 'PartiallyFulfilled':
     case 'Closed':
       return 'warn';
+    case 'AwaitingRequesterApproval':
     case 'Requested':
     case 'Approved':
       return 'info';
