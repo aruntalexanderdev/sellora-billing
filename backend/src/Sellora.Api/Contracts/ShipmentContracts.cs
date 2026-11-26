@@ -193,3 +193,6 @@ public record ConsignmentDispositionLineDto(
 public record ConsignmentDispositionDto(
     Guid Id, Guid ConsignmentId, string ConsignmentNo, ConsignmentStatus ConsignmentStatus, ShipmentStatus ShipmentStatus,
     int Sequence, string Reason, StockTransferActorDto By, IReadOnlyList<ConsignmentDispositionLineDto> Lines);
+
+/// <summary>Own-fleet vehicle a shipment planner may add (GET /shipments/{id}/eligible-vehicles); AssignedBranchId null = central vehicle.</summary>
+public record ShipmentEligibleVehicleDto(Guid Id, string VehicleNumber, string VehicleName, string VehicleType, Guid? AssignedBranchId, bool IsActive);

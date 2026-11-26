@@ -21,6 +21,10 @@
     <div class="server-error" role="alert" data-testid="action-error">{{ e }}</div>
   }
 
+  @if (awaitingApprovalBy(); as by) {
+    <p class="muted" data-testid="awaiting-approval">Waiting for approval by {{ by }} — the branch that supplies the stock decides.</p>
+  }
+
   <div class="action-bar" data-testid="actions">
     @if (can('edit')) {
       <ui-button data-testid="act-edit" (onClick)="edit()">Edit draft</ui-button>

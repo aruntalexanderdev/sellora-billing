@@ -219,6 +219,8 @@ export interface StockTransfer {
   closureReason: string | null;
   lines: StockTransferLine[];
   receipts: StockTransferReceipt[];
+  /** Server-computed: the active branch fits the source for approve / reject / close (the source branch decides). */
+  canApprove: boolean;
 }
 
 export interface StockTransferReceiptResult {

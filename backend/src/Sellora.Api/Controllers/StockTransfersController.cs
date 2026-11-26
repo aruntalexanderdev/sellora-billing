@@ -447,7 +447,8 @@ public class StockTransfersController(IStockTransferService transfers, SelloraDb
             Actor(t.DispatchedByUserId, t.DispatchedAt), Actor(t.CompletedByUserId, t.CompletedAt),
             Actor(t.CancelledByUserId, t.CancelledAt), t.CancellationReason,
             t.ClosedAt, UserName(t.ClosedByUserId), t.ClosureReason,
-            lines, receipts);
+            lines, receipts,
+            await transfers.FitsApproverAsync(t, ct));
     }
 
     /// <summary>Per-request id → code/name/type of the company's stock locations (a document the caller can read always names its own

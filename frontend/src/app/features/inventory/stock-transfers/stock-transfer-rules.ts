@@ -42,14 +42,21 @@ export function hasOutstanding(lines: readonly Pick<StockTransferLine, 'outstand
   return lines.some((l) => l.outstandingBaseQty > 0);
 }
 
-/** Actions to offer: permission AND status (receive / resolve additionally need goods still in transit). */
+/** Decisions taken by the source branch (FI-D26): offered only where the server says the active branch fits the source. */
+const SOURCE_DECISIONS: readonly TransferAction[] = ['approve', 'reject', 'close'];
+
+/**
+ * Actions to offer: permission AND status (receive / resolve additionally need goods still in transit); approve / reject / close also
+ * need `canApprove` from the server (absent = not yet known, treated as allowed so older payloads keep working; the server re-checks).
+ */
 export function availableActions(
-  transfer: { status: StockTransferStatus; lines: readonly Pick<StockTransferLine, 'outstandingBaseQty' | 'dispatchedBaseQty'>[] },
+  transfer: { status: StockTransferStatus; canApprove?: boolean; lines: readonly Pick<StockTransferLine, 'outstandingBaseQty' | 'dispatchedBaseQty'>[] },
   hasPermission: (code: string) => boolean,
 ): TransferAction[] {
   return ACTION_ORDER.filter((a) => {
     if (!ACTION_STATUSES[a].includes(transfer.status)) return false;
     if (!hasPermission(ACTION_PERMISSION[a])) return false;
+    if (SOURCE_DECISIONS.includes(a) && transfer.canApprove === false) return false;
     if ((a === 'receive' || a === 'resolve') && !hasOutstanding(transfer.lines)) return false;
     // Close remaining: PartiallyFulfilled, or Approved with something already dispatched (the server checks allocations).
     if (a === 'close' && transfer.status === 'Approved' && !transfer.lines.some((l) => l.dispatchedBaseQty > 0)) return false;

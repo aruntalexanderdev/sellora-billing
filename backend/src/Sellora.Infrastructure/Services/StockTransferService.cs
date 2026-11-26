@@ -223,7 +223,21 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
         if (!alreadyDone) EnsureStatus(transfer, allowedFrom);
 
         var (source, destination) = await LoadEndpointsAsync(transfer, ct);
-        await EnsureFitAsync(permissionCode, fit, source, destination, ct);
+        if (permissionCode == "StockTransfers.Approve" && fit == Fit.Source)
+        {
+            try
+            {
+                await EnsureFitAsync(permissionCode, fit, source, destination, ct);
+            }
+            catch (DomainValidationException)
+            {
+                throw new DomainValidationException(LocationField, await NotTheApproverMessageAsync(transfer, ct));
+            }
+        }
+        else
+        {
+            await EnsureFitAsync(permissionCode, fit, source, destination, ct);
+        }
         if (alreadyDone) return Finish(transfer);
 
         var before = transfer.Status;
@@ -232,6 +246,31 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
         await db.SaveChangesAsync(ct);
         if (transaction is not null) await transaction.CommitAsync(ct);
         return Finish(transfer);
+    }
+
+    // The caller can read the transfer (it loaded through the branch filter), so naming its source branch reveals nothing new.
+    private async Task<string> NotTheApproverMessageAsync(StockTransfer transfer, CancellationToken ct)
+    {
+        var name = transfer.SourceBranchId is { } b
+            ? await db.Branches.AsNoTracking().Where(x => x.Id == b).Select(x => x.Name).SingleOrDefaultAsync(ct)
+            : null;
+        return name is null
+            ? "Only an approver with company-level access can approve, reject or close this request: its stock leaves a company-level location."
+            : $"Only the source branch ({name}) can approve, reject or close this request. Switch to {name}, or ask its approver.";
+    }
+
+    public async Task<bool> FitsApproverAsync(StockTransfer transfer, CancellationToken ct = default)
+    {
+        var (source, destination) = await LoadEndpointsAsync(transfer, ct);
+        try
+        {
+            await EnsureFitAsync("StockTransfers.Approve", Fit.Source, source, destination, ct);
+            return true;
+        }
+        catch (DomainValidationException)
+        {
+            return false;
+        }
     }
 
     // ------------------------------------------------------------------ dispatch

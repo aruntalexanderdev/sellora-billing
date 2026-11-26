@@ -455,3 +455,13 @@ export interface TransitQuery {
   page?: number;
   pageSize?: number;
 }
+
+/** Own-fleet vehicle a planner may add to a shipment (GET /shipments/{id}/eligible-vehicles); assignedBranchId null = central. */
+export interface ShipmentEligibleVehicle {
+  id: string;
+  vehicleNumber: string;
+  vehicleName: string;
+  vehicleType: string;
+  assignedBranchId: string | null;
+  isActive: boolean;
+}

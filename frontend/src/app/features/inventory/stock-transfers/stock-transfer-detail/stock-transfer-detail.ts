@@ -54,6 +54,12 @@ export class StockTransferDetail implements OnInit {
     const s = this.transfer()?.status;
     return s === 'Approved' || s === 'PartiallyFulfilled';
   });
+  /** Pending approval that this user cannot decide here: say who decides instead of showing nothing. */
+  readonly awaitingApprovalBy = computed<string | null>(() => {
+    const t = this.transfer();
+    if (!t || t.status !== 'Requested' || this.can('approve')) return null;
+    return t.sourceBranch.name || t.sourceBranch.code || 'a company-level approver';
+  });
   readonly busy = signal(false);
   readonly actionError = signal<string | null>(null);
 

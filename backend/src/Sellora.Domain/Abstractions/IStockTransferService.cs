@@ -39,4 +39,10 @@ public interface IStockTransferService
 
     /// <summary>Dispatched / PartiallyReceived, company-level StockTransfers.Resolve: closes all outstanding quantity (write-off or return to source) and completes the transfer.</summary>
     Task<StockTransferReceiptResult?> ResolveAsync(Guid id, ResolveStockTransferInput input, Guid userId, string? correlationId = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// True when the caller's active branch (or company-level grant) fits the transfer's source for StockTransfers.Approve — the same check
+    /// approve / reject / close run. Does not check that the permission is held (the policy does that) nor the status. Read-only.
+    /// </summary>
+    Task<bool> FitsApproverAsync(StockTransfer transfer, CancellationToken ct = default);
 }

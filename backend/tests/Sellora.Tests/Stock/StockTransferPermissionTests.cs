@@ -128,6 +128,34 @@ public class StockTransferPermissionTests
         Assert.Equal(StockTransferStatus.Approved, approved!.Status);
     }
 
+    [Fact]
+    public async Task FitsApprover_MatchesTheApproveRule_AndTheRefusalNamesTheSourceBranch()
+    {
+        var w = await TransferWorld.CreateAsync();
+        var requested = await w.CreateTransferAsync(w.L.MainStore, w.L.BlrStore, [w.Pen(w.Box, 1m)], submit: true);
+        var central = await w.CreateTransferAsync(w.L.CompanyWarehouse, w.L.MainStore, [w.Pen(w.Box, 1m)], submit: true);
+
+        async Task<bool> Fits(Guid transferId, Guid branch, IEffectivePermissionService p)
+        {
+            await using var db = w.Db(branch);
+            return await new StockTransferService(db, p).FitsApproverAsync(await w.ReloadAsync(transferId), default);
+        }
+
+        Assert.True(await Fits(requested.Id, w.Main, None));                                  // source branch decides
+        Assert.False(await Fits(requested.Id, w.Blr, None));                                 // destination branch does not
+        Assert.False(await Fits(central.Id, w.Main, FakeScopedPermissions.AtBranch(w.Main, "StockTransfers.Approve")));
+        Assert.True(await Fits(central.Id, w.Main, Only("StockTransfers.Approve")));          // company-level source: company-level holder
+
+        await using var blrDb = w.Db(w.Blr);
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(() => new StockTransferService(blrDb, None).ApproveAsync(requested.Id, w.W.UserId));
+        Assert.Equal("stockLocationId", ex.Field);
+        Assert.StartsWith("Only the source branch (", ex.Message);
+
+        await using var mainDb = w.Db(w.Main);
+        var central2 = await Assert.ThrowsAsync<DomainValidationException>(() => new StockTransferService(mainDb, None).ApproveAsync(central.Id, w.W.UserId));
+        Assert.Contains("company-level access", central2.Message);
+    }
+
     // ---- receive: the destination ---------------------------------------------------------------------------------------------------
 
     [Fact]
