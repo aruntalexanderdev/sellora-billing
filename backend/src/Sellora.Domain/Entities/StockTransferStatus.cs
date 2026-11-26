@@ -15,4 +15,6 @@ public enum StockTransferStatus
     PartiallyFulfilled,
     Fulfilled,
     Closed,
+    // FI-D48: level-1 (requester / destination branch) approval of a high-value request, before the source branch decides (Requested).
+    AwaitingRequesterApproval,
 }

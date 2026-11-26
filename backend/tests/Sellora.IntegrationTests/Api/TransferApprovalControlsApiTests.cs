@@ -34,23 +34,23 @@ public class TransferApprovalControlsApiTests(PostgresFixture postgres) : IAsync
     }
 
     /// <summary>A second approver: a user of <paramref name="branch"/> holding the approve codes through a role scoped to that branch (as ShipmentsApiTests).</summary>
-    private async Task<HttpClient> BranchApproverAsync(Guid branch)
+    private async Task<HttpClient> BranchApproverAsync(Guid branch, params string[] codes)
     {
         var user = await _r.CreateAsync("ap", await RoleAsync("harmless", ["Sales.View"]), CompanyAccessScope.AssignedBranches, [branch], branch);
         var assigned = await _w.SendAsync(HttpMethod.Post, $"/api/v1/users/{user.Id}/roles",
-            new AssignRoleRequest(await RoleAsync("approver", ["StockTransfers.View", "StockTransfers.Approve"], RoleScope.Branch, branch), null));
+            new AssignRoleRequest(await RoleAsync("approver", codes.Length > 0 ? codes : ["StockTransfers.View", "StockTransfers.Approve"], RoleScope.Branch, branch), null));
         Assert.Equal(HttpStatusCode.Created, assigned.StatusCode);
         return user.Client;
     }
 
     public async Task DisposeAsync() => await _w.Host.DisposeAsync();
 
-    private async Task SetSeparationAsync(bool on)
+    private async Task SetSeparationAsync(bool on, decimal? threshold = null, bool clearThreshold = false)
     {
         var current = (await _w.Admin.GetFromJsonAsync<BusinessSettingsDto>("/api/v1/settings", ApiHost.Json))!;
         var put = await _w.Admin.PutAsJsonAsync("/api/v1/settings", new UpdateBusinessSettingsRequest(current.BusinessName, current.AddressLine, current.City, current.State,
             current.Gstin, current.Phone, current.Email, current.InvoicePrefix, current.BaseCurrencyId, CountryId: current.CountryId, StateId: current.StateId,
-            TransferApprovalSeparationOfDuties: on), ApiHost.Json);
+            TransferApprovalSeparationOfDuties: on, TransferRequesterApprovalThreshold: threshold, ClearTransferRequesterApprovalThreshold: clearThreshold ? true : null), ApiHost.Json);
         Assert.Equal(HttpStatusCode.OK, put.StatusCode);
         var after = (await _w.Admin.GetFromJsonAsync<BusinessSettingsDto>("/api/v1/settings", ApiHost.Json))!;
         Assert.Equal(on, after.TransferApprovalSeparationOfDuties);
@@ -99,5 +99,41 @@ public class TransferApprovalControlsApiTests(PostgresFixture postgres) : IAsync
         Assert.Equal("Approved", approved.GetProperty("status").GetString());
         Assert.Equal(2m, approved.GetProperty("lines")[0].GetProperty("approvedQty").GetDecimal());
         Assert.False(approved.GetProperty("approvalBlockedForYou").GetBoolean());
+    }
+
+    [Fact]
+    public async Task TwoLevel_AboveTheThreshold_TheRequestingBranchApprovesFirst_ThenAnotherPersonForTheSource()
+    {
+        var s = await NewSceneAsync(postgres, 10m, _w);
+        await SetSeparationAsync(false, threshold: 0m); // every request needs the requesting branch first
+        try
+        {
+            var requested = await RequestAsync(s, s.AStore, 2m, approve: false);
+            var id = IdOf(requested);
+            Assert.Equal("AwaitingRequesterApproval", requested.GetProperty("status").GetString());
+            Assert.True(requested.GetProperty("requiresRequesterApproval").GetBoolean());
+            Assert.Equal(JsonValueKind.Number, requested.GetProperty("estimatedValue").ValueKind); // the admin may see source costs
+
+            // The source cannot skip level 1.
+            var early = await SendAsync(_w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/approve", null, s.Src);
+            Assert.Equal(HttpStatusCode.BadRequest, early.StatusCode);
+
+            // Level 1 by an approver of the requesting branch (A): it now waits for the source.
+            var requester = await BranchApproverAsync(s.A, "StockTransfers.View", "StockTransfers.ApproveRequest");
+            var asRequester = await OkAsync(await SendAsync(requester, HttpMethod.Get, $"/api/v1/stock-transfers/{id}", null, s.A));
+            Assert.True(asRequester.GetProperty("canRequesterApprove").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, asRequester.GetProperty("estimatedValue").ValueKind); // the source's costs are not the requester's (FI-D28)
+            var level1 = await OkAsync(await SendAsync(requester, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/requester-approve", null, s.A));
+            Assert.Equal("Requested", level1.GetProperty("status").GetString());
+            Assert.NotEqual(JsonValueKind.Null, level1.GetProperty("requesterApproved").ValueKind);
+
+            // Level 2 by the source (the admin did not approve level 1).
+            var approved = await OkAsync(await SendAsync(_w.Admin, HttpMethod.Post, $"/api/v1/stock-transfers/{id}/approve", null, s.Src));
+            Assert.Equal("Approved", approved.GetProperty("status").GetString());
+        }
+        finally
+        {
+            await SetSeparationAsync(false, clearThreshold: true);
+        }
     }
 }

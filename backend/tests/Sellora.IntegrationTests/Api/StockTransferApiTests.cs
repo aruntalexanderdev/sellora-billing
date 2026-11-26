@@ -306,6 +306,8 @@ public class StockTransferApiTests(PostgresFixture postgres)
         ["POST", "/api/v1/stock-transfers/{id}/submit", "StockTransfers.Create", "none"],
         ["POST", "/api/v1/stock-transfers/{id}/approve", "StockTransfers.Approve", "none"],
         ["POST", "/api/v1/stock-transfers/{id}/reject", "StockTransfers.Approve", "reason"],
+        ["POST", "/api/v1/stock-transfers/{id}/requester-approve", "StockTransfers.ApproveRequest", "none"],
+        ["POST", "/api/v1/stock-transfers/{id}/requester-reject", "StockTransfers.ApproveRequest", "reason"],
         ["POST", "/api/v1/stock-transfers/{id}/cancel", "StockTransfers.Cancel", "reason"],
         ["POST", "/api/v1/stock-transfers/{id}/dispatch", "StockTransfers.Dispatch", "dispatch"],
         ["POST", "/api/v1/stock-transfers/{id}/receipts", "StockTransfers.Receive", "receive"],
@@ -516,6 +518,7 @@ public class StockTransferApiTests(PostgresFixture postgres)
             (HttpMethod.Put, $"/api/v1/stock-transfers/{id}", new UpdateStockTransferRequest(iso.B.LocationId, bWarehouse, null, [new StockTransferLineRequest(iso.B.ProductId, iso.B.ProductUnitId, 1m)])),
             (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/submit", null), (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/approve", null),
             (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/reject", new StockTransferReasonRequest("x")), (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/cancel", new StockTransferReasonRequest("x")),
+            (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/requester-approve", null), (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/requester-reject", new StockTransferReasonRequest("x")),
             (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/receipts", new ReceiveStockTransferRequest(null, [new ReceiveStockTransferLineRequest(line, iso.B.ProductUnitId, 1m, 0m)])),
             (HttpMethod.Post, $"/api/v1/stock-transfers/{id}/resolve", new ResolveStockTransferRequest("x", [new ResolveStockTransferLineRequest(line, Sellora.Domain.Stock.StockTransferResolution.WriteOff)])),
         })

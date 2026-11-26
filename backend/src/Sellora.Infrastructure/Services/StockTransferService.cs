@@ -65,15 +65,13 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
             TransitLocationId = transit.Id,
             SourceBranchId = sourceBranch,
             DestinationBranchId = destinationBranch,
-            Status = input.Submit ? StockTransferStatus.Requested : StockTransferStatus.Draft,
+            Status = StockTransferStatus.Draft,
             Notes = notes,
             CreatedAt = now,
             CreatedByUserId = userId,
-            SubmittedAt = input.Submit ? now : null,
-            SubmittedByUserId = input.Submit ? userId : null,
-            RequireApprovalSeparation = input.Submit && await ApprovalSeparationPolicyAsync(ct),
             Lines = lines,
         };
+        if (input.Submit) await StampSubmitAsync(transfer, userId, now, ct);
         db.StockTransfers.Add(transfer);
 
         Audit(userId, correlationId, AuditActions.StockTransferCreated, transfer, null, Snapshot(transfer, StockTransferStatus.Draft));
@@ -133,14 +131,72 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
 
     public Task<StockTransfer?> SubmitAsync(Guid id, Guid userId, string? correlationId = null, CancellationToken ct = default) =>
         TransitionAsync(id, userId, correlationId, StockTransferStatus.Requested, [StockTransferStatus.Draft], "StockTransfers.Create", Fit.Either, AuditActions.StockTransferSubmitted, null,
-            async (t, now) =>
+            (t, now) => StampSubmitAsync(t, userId, now, ct), ct, alsoDone: StockTransferStatus.AwaitingRequesterApproval);
+
+    // Submit stamps + the policy snapshots (FI-D46 separation, FI-D48/D49 value routing): later setting or cost changes never re-route a pending request.
+    private async Task StampSubmitAsync(StockTransfer t, Guid userId, DateTimeOffset now, CancellationToken ct)
+    {
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var policy = await db.BusinessSettings.AsNoTracking().Where(s => s.CompanyId == companyId)
+            .Select(s => new { s.TransferApprovalSeparationOfDuties, s.TransferRequesterApprovalThreshold }).SingleOrDefaultAsync(ct);
+        t.SubmittedAt = now;
+        t.SubmittedByUserId = userId;
+        // No settings row = both off (as FI-D39); every real company has a row.
+        t.RequireApprovalSeparation = policy?.TransferApprovalSeparationOfDuties ?? false;
+        t.EstimatedValue = await EstimateValueAsync(t.SourceLocationId, t.Lines, ct);
+        t.RequiresRequesterApproval = policy?.TransferRequesterApprovalThreshold is { } threshold && t.EstimatedValue >= threshold;
+        t.Status = t.RequiresRequesterApproval ? StockTransferStatus.AwaitingRequesterApproval : StockTransferStatus.Requested;
+    }
+
+    // FI-D49: sum of requested base qty x the source location's moving average cost (0 when the source holds no stock row), base currency, 2 dp.
+    private async Task<decimal> EstimateValueAsync(Guid sourceLocationId, IEnumerable<StockTransferLine> lines, CancellationToken ct)
+    {
+        var list = lines.ToList();
+        var productIds = list.Select(l => l.ProductId).Distinct().ToList();
+        var costs = await db.StockItems.AsNoTracking().Where(i => i.StockLocationId == sourceLocationId && productIds.Contains(i.ProductId))
+            .Select(i => new { i.ProductId, i.AverageCost }).ToDictionaryAsync(i => i.ProductId, i => i.AverageCost, ct);
+        var value = list.Sum(l => l.RequestedBaseQty * (costs.TryGetValue(l.ProductId, out var c) ? c : 0m));
+        return Math.Round(value, 2, MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>FI-D48 level 1: an approver of the requesting (destination) branch confirms the need; the request then waits for the source.</summary>
+    public Task<StockTransfer?> RequesterApproveAsync(Guid id, Guid userId, string? correlationId = null, CancellationToken ct = default) =>
+        TransitionAsync(id, userId, correlationId, StockTransferStatus.Requested, [StockTransferStatus.AwaitingRequesterApproval], "StockTransfers.ApproveRequest", Fit.Destination,
+            AuditActions.StockTransferRequesterApproved, null,
+            (t, now) =>
             {
+                EnsureNotMaker(t, userId);
                 t.Status = StockTransferStatus.Requested;
-                t.SubmittedAt = now;
-                t.SubmittedByUserId = userId;
-                // Maker-checker policy is snapshotted here: later setting changes never alter a pending request.
-                t.RequireApprovalSeparation = await ApprovalSeparationPolicyAsync(ct);
-            }, ct);
+                t.RequesterApprovedAt = now;
+                t.RequesterApprovedByUserId = userId;
+                return Task.CompletedTask;
+            }, ct, isReplay: t => t.Status == StockTransferStatus.Requested && t.RequesterApprovedAt is not null);
+
+    /// <summary>FI-D48 level 1 rejection: ends the request (reason required), like a source-branch rejection.</summary>
+    public Task<StockTransfer?> RequesterRejectAsync(Guid id, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default)
+    {
+        var text = Text(reason, "reason", required: true)!;
+        return TransitionAsync(id, userId, correlationId, StockTransferStatus.Rejected, [StockTransferStatus.AwaitingRequesterApproval], "StockTransfers.ApproveRequest", Fit.Destination,
+            AuditActions.StockTransferRejected, text,
+            (t, now) =>
+            {
+                t.Status = StockTransferStatus.Rejected;
+                t.RejectedAt = now;
+                t.RejectedByUserId = userId;
+                t.RejectionReason = text;
+                return Task.CompletedTask;
+            }, ct, isReplay: t => t.Status == StockTransferStatus.Rejected && t.RequiresRequesterApproval && t.RequesterApprovedAt is null && t.ApprovedAt is null);
+    }
+
+    // FI-D46 maker-checker, for either approval level.
+    private static void EnsureNotMaker(StockTransfer t, Guid userId)
+    {
+        if (t.RequireApprovalSeparation && (t.CreatedByUserId == userId || t.SubmittedByUserId == userId))
+        {
+            throw new DomainValidationException("status",
+                "Separation of duties: the person who created or submitted this request cannot approve it. Ask another approver.");
+        }
+    }
 
     public Task<StockTransfer?> ApproveAsync(Guid id, Guid userId, string? correlationId = null, CancellationToken ct = default) =>
         ApproveAsync(id, new ApproveStockTransferInput(), userId, correlationId, ct);
@@ -161,10 +217,12 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
             AuditActions.StockTransferApproved, reason,
             (t, now) =>
             {
-                if (t.RequireApprovalSeparation && (t.CreatedByUserId == userId || t.SubmittedByUserId == userId))
+                EnsureNotMaker(t, userId);
+                // FI-D51: the two levels are two different people, whatever the separation setting says.
+                if (t.RequiresRequesterApproval && t.RequesterApprovedByUserId == userId)
                 {
                     throw new DomainValidationException("status",
-                        "Separation of duties: the person who created or submitted this request cannot approve it. Ask another approver of the source branch.");
+                        "Two-level approval: you approved this request for the requesting branch; another approver must approve it for the source branch.");
                 }
 
                 var approved = new Dictionary<Guid, (decimal Qty, decimal Base)>();
@@ -205,14 +263,6 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
             }, ct);
     }
 
-    // FI maker-checker: no settings row = off, as for the receipt policy (FI-D39); every real company has a row (default on).
-    private async Task<bool> ApprovalSeparationPolicyAsync(CancellationToken ct)
-    {
-        var companyId = db.CompanyContext.RequireCompanyId();
-        return await db.BusinessSettings.AsNoTracking().Where(s => s.CompanyId == companyId)
-            .Select(s => (bool?)s.TransferApprovalSeparationOfDuties).SingleOrDefaultAsync(ct) ?? false;
-    }
-
     public Task<StockTransfer?> RejectAsync(Guid id, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default)
     {
         var text = Text(reason, "reason", required: true)!;
@@ -229,7 +279,7 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
     public Task<StockTransfer?> CancelAsync(Guid id, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default)
     {
         var text = Text(reason, "reason", required: true)!;
-        return TransitionAsync(id, userId, correlationId, StockTransferStatus.Cancelled, [StockTransferStatus.Draft, StockTransferStatus.Requested, StockTransferStatus.Approved],
+        return TransitionAsync(id, userId, correlationId, StockTransferStatus.Cancelled, [StockTransferStatus.Draft, StockTransferStatus.AwaitingRequesterApproval, StockTransferStatus.Requested, StockTransferStatus.Approved],
             "StockTransfers.Cancel", Fit.Either, AuditActions.StockTransferCancelled, text,
             (t, now) =>
             {
@@ -277,12 +327,13 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
         Guid id, Guid userId, string? correlationId, StockTransferStatus target, StockTransferStatus[] allowedFrom, string permissionCode, Fit fit,
         string auditAction, string? reason, Action<StockTransfer, DateTimeOffset> apply, CancellationToken ct) =>
         TransitionAsync(id, userId, correlationId, target, allowedFrom, permissionCode, fit, auditAction, reason,
-            (t, now) => { apply(t, now); return Task.CompletedTask; }, ct);
+            (t, now) => { apply(t, now); return Task.CompletedTask; }, ct, alsoDone: null);
 
     // Header lock → reload → transition + fit check → stamp. No stock is touched, so no stock locks.
     private async Task<StockTransfer?> TransitionAsync(
         Guid id, Guid userId, string? correlationId, StockTransferStatus target, StockTransferStatus[] allowedFrom, string permissionCode, Fit fit,
-        string auditAction, string? reason, Func<StockTransfer, DateTimeOffset, Task> apply, CancellationToken ct)
+        string auditAction, string? reason, Func<StockTransfer, DateTimeOffset, Task> apply, CancellationToken ct, StockTransferStatus? alsoDone = null,
+        Func<StockTransfer, bool>? isReplay = null)
     {
         await using var transaction = await StockLocks.BeginAsync(db, ct);
 
@@ -290,11 +341,14 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
         if (transfer is null) return null;
         // Idempotent by state (D6): repeating the call on a transfer already in the target state changes nothing and
         // returns it as is (after the same fit check, so the answer reveals nothing to a caller who may not act).
-        var alreadyDone = transfer.Status == target;
+        // alsoDone: a transition with two possible outcomes (submit -> Requested or AwaitingRequesterApproval) replays from either.
+        // isReplay: when the target status alone does not prove that this operation happened (FI-D48 level 1: a plain Requested or a source rejection is not a replay).
+        var alreadyDone = isReplay?.Invoke(transfer) ?? (transfer.Status == target || (alsoDone is { } other && transfer.Status == other));
         if (!alreadyDone) EnsureStatus(transfer, allowedFrom);
 
         var (source, destination) = await LoadEndpointsAsync(transfer, ct);
-        if (permissionCode == "StockTransfers.Approve" && fit == Fit.Source)
+        var decision = (permissionCode == "StockTransfers.Approve" && fit == Fit.Source) || (permissionCode == "StockTransfers.ApproveRequest" && fit == Fit.Destination);
+        if (decision)
         {
             try
             {
@@ -302,7 +356,9 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
             }
             catch (DomainValidationException)
             {
-                throw new DomainValidationException(LocationField, await NotTheApproverMessageAsync(transfer, ct));
+                throw new DomainValidationException(LocationField, fit == Fit.Source
+                    ? await NotTheApproverMessageAsync(transfer, ct)
+                    : await NotTheRequesterMessageAsync(transfer, ct));
             }
         }
         else
@@ -328,6 +384,30 @@ public class StockTransferService(SelloraDbContext db, IEffectivePermissionServi
         return name is null
             ? "Only an approver with company-level access can approve, reject or close this request: its stock leaves a company-level location."
             : $"Only the source branch ({name}) can approve, reject or close this request. Switch to {name}, or ask its approver.";
+    }
+
+    private async Task<string> NotTheRequesterMessageAsync(StockTransfer transfer, CancellationToken ct)
+    {
+        var name = transfer.DestinationBranchId is { } b
+            ? await db.Branches.AsNoTracking().Where(x => x.Id == b).Select(x => x.Name).SingleOrDefaultAsync(ct)
+            : null;
+        return name is null
+            ? "Only an approver with company-level access can approve or reject this request for the requesting side: it goes to a company-level location."
+            : $"Only the requesting branch ({name}) can approve or reject this request at this stage. Switch to {name}, or ask its approver.";
+    }
+
+    public async Task<bool> FitsRequesterApproverAsync(StockTransfer transfer, CancellationToken ct = default)
+    {
+        var (source, destination) = await LoadEndpointsAsync(transfer, ct);
+        try
+        {
+            await EnsureFitAsync("StockTransfers.ApproveRequest", Fit.Destination, source, destination, ct);
+            return true;
+        }
+        catch (DomainValidationException)
+        {
+            return false;
+        }
     }
 
     public async Task<bool> FitsApproverAsync(StockTransfer transfer, CancellationToken ct = default)

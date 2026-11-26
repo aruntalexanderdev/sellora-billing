@@ -113,6 +113,18 @@
         <div class="field-hint">Applies to requests submitted afterwards; pending requests keep the rule they were submitted under.</div>
       </div>
 
+      <div>
+        <label class="field-label" for="transferRequesterApprovalThreshold">Two-level approval from (estimated value)</label>
+        <input id="transferRequesterApprovalThreshold" type="number" min="0" step="any" formControlName="transferRequesterApprovalThreshold" class="field-input" placeholder="Off" data-testid="requester-approval-threshold" />
+        <div class="field-hint">Transfer requests worth at least this much (requested quantity × source average cost) are approved by the requesting branch first, then by the supplying branch. Leave empty for single-level approval.</div>
+        @if (form.get('transferRequesterApprovalThreshold')?.errors?.['min']) {
+          <div class="field-error">Enter 0 or more.</div>
+        }
+        @if (form.get('transferRequesterApprovalThreshold')?.errors?.['server']) {
+          <div class="field-error">{{ form.get('transferRequesterApprovalThreshold')?.errors?.['server'] }}</div>
+        }
+      </div>
+
       <h2 class="section-title" style="margin-top: 24px">Tax and discounts</h2>
       <div class="grid-2">
         <div>

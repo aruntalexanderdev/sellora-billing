@@ -134,6 +134,16 @@ describe('runVanChain', () => {
     expect(f.consignments.recordReceipt.mock.calls[1][2]).not.toBe(f.consignments.recordReceipt.mock.calls[0][2]);
   });
 
+  it('stops with a status stop when a high-value request waits for the requesting branch (FI-D48)', async () => {
+    const f = fake();
+    f.transfers.create.mockReturnValueOnce(of(transfer('AwaitingRequesterApproval', [line()])));
+    const res = await runVanChain(f.svc, request, null, has(ALL), new ChainKeys(), options);
+    expect(res).toMatchObject({ stoppedAt: 'create', reason: 'status', completed: ['create'] });
+    expect(res.transfer!.status).toBe('AwaitingRequesterApproval');
+    expect(f.transfers.approve).not.toHaveBeenCalled();
+    expect(f.shipments.create).not.toHaveBeenCalled();
+  });
+
   it('stops at the first missing permission and reports it (user can only create)', async () => {
     const f = fake();
     const res = await runVanChain(f.svc, request, null, has(['StockTransfers.Create']), new ChainKeys(), options);

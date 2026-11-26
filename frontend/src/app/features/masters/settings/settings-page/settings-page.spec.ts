@@ -62,6 +62,19 @@ describe('SettingsPage receipt approval (FI-D39)', () => {
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ transferApprovalSeparationOfDuties: false }));
   });
 
+  it('sends the two-level approval threshold, and an emptied field as a clear', () => {
+    const { fixture, update } = render(settings({ transferRequesterApprovalThreshold: 50000 }));
+    expect(fixture.componentInstance.form.getRawValue().transferRequesterApprovalThreshold).toBe(50000);
+    fixture.componentInstance.form.patchValue({ transferRequesterApprovalThreshold: 25000 });
+    expect(fixture.componentInstance.buildRequest()).toMatchObject({ transferRequesterApprovalThreshold: 25000 });
+    expect(fixture.componentInstance.buildRequest().clearTransferRequesterApprovalThreshold).toBeUndefined();
+    fixture.componentInstance.form.patchValue({ transferRequesterApprovalThreshold: null });
+    const cleared = fixture.componentInstance.buildRequest();
+    expect(cleared.clearTransferRequesterApprovalThreshold).toBe(true);
+    expect(cleared.transferRequesterApprovalThreshold).toBeUndefined();
+    void update;
+  });
+
   it('maps a server error on receiptPostingMode onto the control', () => {
     const err = new HttpErrorResponse({ status: 400, error: { title: 'x', errors: { ReceiptPostingMode: ['Choose Direct or SupervisorApproval.'] } } });
     const { fixture, el } = render(settings(), vi.fn(() => throwError(() => err)));

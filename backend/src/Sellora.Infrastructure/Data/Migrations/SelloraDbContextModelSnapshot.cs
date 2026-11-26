@@ -291,6 +291,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<bool>("TransferApprovalSeparationOfDuties")
                         .HasColumnType("boolean");
 
+                    b.Property<decimal?>("TransferRequesterApprovalThreshold")
+                        .HasColumnType("numeric(18,2)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BaseCurrencyId");
@@ -4273,6 +4276,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid?>("DispatchedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal?>("EstimatedValue")
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
@@ -4287,7 +4293,18 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
 
+                    b.Property<DateTimeOffset?>("RequesterApprovedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RequesterApprovedByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<bool>("RequireApprovalSeparation")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("RequiresRequesterApproval")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
@@ -4300,8 +4317,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
 
                     b.Property<DateTimeOffset?>("SubmittedAt")
                         .HasColumnType("timestamp with time zone");
@@ -4360,11 +4377,13 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.ToTable("StockTransfers", t =>
                         {
-                            t.HasCheckConstraint("CK_StockTransfers_Actors_Paired", "(\"SubmittedAt\" IS NULL) = (\"SubmittedByUserId\" IS NULL) AND (\"ApprovedAt\" IS NULL) = (\"ApprovedByUserId\" IS NULL) AND (\"RejectedAt\" IS NULL) = (\"RejectedByUserId\" IS NULL) AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL) AND (\"CompletedAt\" IS NULL) = (\"CompletedByUserId\" IS NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL) AND (\"ClosedAt\" IS NULL) = (\"ClosedByUserId\" IS NULL)");
+                            t.HasCheckConstraint("CK_StockTransfers_Actors_Paired", "(\"SubmittedAt\" IS NULL) = (\"SubmittedByUserId\" IS NULL) AND (\"ApprovedAt\" IS NULL) = (\"ApprovedByUserId\" IS NULL) AND (\"RejectedAt\" IS NULL) = (\"RejectedByUserId\" IS NULL) AND (\"DispatchedAt\" IS NULL) = (\"DispatchedByUserId\" IS NULL) AND (\"CompletedAt\" IS NULL) = (\"CompletedByUserId\" IS NULL) AND (\"CancelledAt\" IS NULL) = (\"CancelledByUserId\" IS NULL) AND (\"ClosedAt\" IS NULL) = (\"ClosedByUserId\" IS NULL) AND (\"RequesterApprovedAt\" IS NULL) = (\"RequesterApprovedByUserId\" IS NULL)");
 
                             t.HasCheckConstraint("CK_StockTransfers_Endpoints_Differ", "\"SourceLocationId\" <> \"DestinationLocationId\"");
 
                             t.HasCheckConstraint("CK_StockTransfers_Endpoints_NotTransit", "\"SourceLocationId\" <> \"TransitLocationId\" AND \"DestinationLocationId\" <> \"TransitLocationId\"");
+
+                            t.HasCheckConstraint("CK_StockTransfers_RequesterApproval", "(\"Status\" <> 'AwaitingRequesterApproval' OR (\"RequiresRequesterApproval\" AND \"RequesterApprovedAt\" IS NULL)) AND (\"RequiresRequesterApproval\" OR \"RequesterApprovedAt\" IS NULL)");
 
                             t.HasCheckConstraint("CK_StockTransfers_Status_Approval", "(\"Status\" NOT IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed', 'PartiallyFulfilled', 'Fulfilled', 'Closed') OR \"ApprovedAt\" IS NOT NULL) AND (\"Status\" IN ('Approved', 'Dispatched', 'PartiallyReceived', 'Completed', 'PartiallyFulfilled', 'Fulfilled', 'Closed', 'Cancelled') OR \"ApprovedAt\" IS NULL)");
 
@@ -4380,7 +4399,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_StockTransfers_Status_Stamps", "(\"Status\" = 'Draft') = (\"SubmittedAt\" IS NULL) OR \"Status\" = 'Cancelled'");
 
-                            t.HasCheckConstraint("CK_StockTransfers_Status_Valid", "\"Status\" IN ('Draft', 'Requested', 'Approved', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled', 'PartiallyFulfilled', 'Fulfilled', 'Closed')");
+                            t.HasCheckConstraint("CK_StockTransfers_Status_Valid", "\"Status\" IN ('Draft', 'Requested', 'Approved', 'Rejected', 'Dispatched', 'PartiallyReceived', 'Completed', 'Cancelled', 'PartiallyFulfilled', 'Fulfilled', 'Closed', 'AwaitingRequesterApproval')");
                         });
                 });
 

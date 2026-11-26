@@ -52,4 +52,16 @@ public interface IStockTransferService
     /// approve / reject / close run. Does not check that the permission is held (the policy does that) nor the status. Read-only.
     /// </summary>
     Task<bool> FitsApproverAsync(StockTransfer transfer, CancellationToken ct = default);
+
+    /// <summary>FI-D48: as <see cref="FitsApproverAsync"/> for the level-1 decision (StockTransfers.ApproveRequest at the destination).</summary>
+    Task<bool> FitsRequesterApproverAsync(StockTransfer transfer, CancellationToken ct = default);
+
+    /// <summary>
+    /// FI-D48 level 1: AwaitingRequesterApproval -> Requested by an approver of the requesting (destination) branch
+    /// (StockTransfers.ApproveRequest). Maker-checker (FI-D46) applies; quantities cannot change at this level.
+    /// </summary>
+    Task<StockTransfer?> RequesterApproveAsync(Guid id, Guid userId, string? correlationId = null, CancellationToken ct = default);
+
+    /// <summary>FI-D48 level 1: AwaitingRequesterApproval -> Rejected (reason required, at most 300 characters).</summary>
+    Task<StockTransfer?> RequesterRejectAsync(Guid id, string reason, Guid userId, string? correlationId = null, CancellationToken ct = default);
 }

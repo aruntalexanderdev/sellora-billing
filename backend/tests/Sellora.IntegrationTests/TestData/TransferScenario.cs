@@ -19,7 +19,7 @@ namespace Sellora.IntegrationTests.TestData;
 public sealed record TransferScenario(LocationScenario L, Guid PenId, Guid Pc, Guid Box, Guid Half, Guid Full)
 {
     public static readonly string[] TransferCodes =
-        ["StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.Cancel", "StockTransfers.Resolve"];
+        ["StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.ApproveRequest", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.Cancel", "StockTransfers.Resolve"];
 
     /// <summary>Every transfer code company-wide (+ the posting codes the fixture services need).</summary>
     public static readonly IEffectivePermissionService All = new FakePermissions([.. TransferCodes, "Purchase.Create", "Sales.Create", "Inventory.Adjust"]);

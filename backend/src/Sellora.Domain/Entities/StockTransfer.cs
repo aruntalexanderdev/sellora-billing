@@ -40,6 +40,15 @@ public class StockTransfer : ICompanyOwned
     public DateTimeOffset? ApprovedAt { get; set; }
     public Guid? ApprovedByUserId { get; set; }
 
+    /// <summary>FI-D49: estimated value at submit = sum of requested base qty x the source location's average cost (base currency, 2 dp).</summary>
+    public decimal? EstimatedValue { get; set; }
+
+    /// <summary>FI-D48: snapshot at submit — the estimated value reached the company's requester approval threshold.</summary>
+    public bool RequiresRequesterApproval { get; set; }
+
+    public DateTimeOffset? RequesterApprovedAt { get; set; }
+    public Guid? RequesterApprovedByUserId { get; set; }
+
     /// <summary>Snapshot of BusinessSettings.TransferApprovalSeparationOfDuties taken at submit; later setting changes never alter it.</summary>
     public bool RequireApprovalSeparation { get; set; }
 

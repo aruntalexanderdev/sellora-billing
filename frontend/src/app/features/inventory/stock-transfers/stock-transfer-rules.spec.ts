@@ -16,6 +16,7 @@ describe('availableActions (status x permission)', () => {
   const lines = [dispatchedLine()];
   const expected: Record<string, string[]> = {
     Draft: ['edit', 'submit', 'cancel'],
+    AwaitingRequesterApproval: ['cancel'], // level-1 actions also need canRequesterApprove from the server
     Requested: ['approve', 'reject', 'cancel'],
     Approved: ['cancel', 'close'],
     PartiallyFulfilled: ['close'],
@@ -237,5 +238,25 @@ describe('approve controls', () => {
     expect(buildApproveRequest([row('1'), row('2', 2, 'l2')], '  only one  ')).toEqual({
       lines: [{ lineId: 'l1', quantity: 1 }, { lineId: 'l2', quantity: 2 }], reason: 'only one',
     });
+  });
+});
+
+describe('two-level approval (FI-D48)', () => {
+  const has = (codes: string[]) => (c: string) => codes.includes(c);
+  const lines = [{ outstandingBaseQty: 0, dispatchedBaseQty: 0 }];
+  const requester = has(['StockTransfers.ApproveRequest']);
+
+  it('offers level-1 approve / reject only where the server says the active branch is the requesting branch', () => {
+    expect(availableActions({ status: 'AwaitingRequesterApproval', canRequesterApprove: true, lines }, requester)).toEqual(['requesterApprove', 'requesterReject']);
+    expect(availableActions({ status: 'AwaitingRequesterApproval', canRequesterApprove: false, lines }, requester)).toEqual([]);
+    expect(availableActions({ status: 'AwaitingRequesterApproval', canRequesterApprove: true, lines }, has(['StockTransfers.Approve']))).toEqual([]);
+  });
+
+  it('hides level-1 approve (not reject) from the maker', () => {
+    expect(availableActions({ status: 'AwaitingRequesterApproval', canRequesterApprove: true, approvalBlockedForYou: true, lines }, requester)).toEqual(['requesterReject']);
+  });
+
+  it('never offers the source decision before level 1 is done', () => {
+    expect(availableActions({ status: 'AwaitingRequesterApproval', canApprove: true, lines }, has(['StockTransfers.Approve']))).toEqual([]);
   });
 });

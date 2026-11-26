@@ -72,6 +72,15 @@ export class StockTransfersService {
     return this.http.post<StockTransfer>(`${BASE_URL}/${id}/approve`, body, { headers: idempotencyHeaders(idempotencyKey) });
   }
 
+  /** FI-D48 level 1: the requesting (destination) branch confirms a high-value request. */
+  requesterApprove(id: string, idempotencyKey?: string): Observable<StockTransfer> {
+    return this.http.post<StockTransfer>(`${BASE_URL}/${id}/requester-approve`, {}, { headers: idempotencyHeaders(idempotencyKey) });
+  }
+
+  requesterReject(id: string, reason: string, idempotencyKey?: string): Observable<StockTransfer> {
+    return this.http.post<StockTransfer>(`${BASE_URL}/${id}/requester-reject`, { reason }, { headers: idempotencyHeaders(idempotencyKey) });
+  }
+
   reject(id: string, reason: string, idempotencyKey?: string): Observable<StockTransfer> {
     return this.http.post<StockTransfer>(`${BASE_URL}/${id}/reject`, { reason }, { headers: idempotencyHeaders(idempotencyKey) });
   }

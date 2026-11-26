@@ -34,7 +34,8 @@ public record BusinessSettingsDto(
     // TP-5a (T11): documents dated on/after this date are refused for GST-taxable products without an HSN/SAC (null = warning only), and product saves are refused once it is set.
     // ProductsWithoutHsnCount is read-only: active products under a GST-taxable profile with no HSN of their own or their subcategory's (null when the company has no country).
     DateOnly? HsnRequiredFrom = null, int? ProductsWithoutHsnCount = null,
-    bool TransferApprovalSeparationOfDuties = true
+    bool TransferApprovalSeparationOfDuties = true,
+    decimal? TransferRequesterApprovalThreshold = null // FI-D48: null = two-level approval off
 );
 
 /// <summary>The settings PUT is a full replace for the nullable fields marked below: an omitted <c>maxBillDiscountPercent</c> clears the cap and an omitted
@@ -59,7 +60,10 @@ public record UpdateBusinessSettingsRequest(
     [Range(typeof(decimal), "0", "100", ParseLimitsInInvariantCulture = true, ConvertValueInInvariantCulture = true)] decimal? MaxBillDiscountPercent = null, // TP-1 (T15): null clears the cap (no limit); like CountryId, the form always posts the current value
     DateOnly? HsnRequiredFrom = null, // TP-5a (T11): omitted/null = unchanged (an old client that does not post it must not lift the control)
     bool? ClearHsnRequiredFrom = null, // TP-5a: true removes the date (warning only again); wins over HsnRequiredFrom
-    bool? TransferApprovalSeparationOfDuties = null // omitted = unchanged; pending requests keep their submit-time snapshot
+    bool? TransferApprovalSeparationOfDuties = null, // omitted = unchanged; pending requests keep their submit-time snapshot
+    // FI-D48: omitted/null = unchanged (an old client must not switch the control off); ClearTransferRequesterApprovalThreshold = true turns it off.
+    [Range(typeof(decimal), "0", "9999999999999999.99", ParseLimitsInInvariantCulture = true, ConvertValueInInvariantCulture = true)] decimal? TransferRequesterApprovalThreshold = null,
+    bool? ClearTransferRequesterApprovalThreshold = null
 );
 
 public record SetActiveRequest(bool IsActive);

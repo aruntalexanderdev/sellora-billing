@@ -1,4 +1,4 @@
-import { DatePipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../../../core/auth/auth.service';
@@ -16,7 +16,7 @@ import { IdempotentSubmission, availableActions, baseToUnitQty, closeProblemMess
 import { StockTransfersService } from '../stock-transfers.service';
 import type { StockTransfer, StockTransferActor, StockTransferHistoryEntry, StockTransferLine } from '../stock-transfers.models';
 
-type Panel = 'approve' | 'reject' | 'cancel' | 'close' | 'receive' | 'resolve';
+type Panel = 'approve' | 'reject' | 'requesterReject' | 'cancel' | 'close' | 'receive' | 'resolve';
 
 /** Converted display of a base quantity in the line's request unit; '' when not exactly representable. */
 function lineUnitDisplay(l: StockTransferLine, baseQty: number): string {
@@ -34,7 +34,7 @@ interface TimelineEntry {
 @Component({
   selector: 'app-stock-transfer-detail',
   standalone: true,
-  imports: [RouterLink, DatePipe, UiBadge, UiButton, ReasonPrompt, TransferReceiveDialog, TransferResolveDialog, TransferApproveDialog],
+  imports: [RouterLink, DatePipe, DecimalPipe, UiBadge, UiButton, ReasonPrompt, TransferReceiveDialog, TransferResolveDialog, TransferApproveDialog],
   templateUrl: './stock-transfer-detail.html',
   styleUrl: './stock-transfer-detail.scss',
 })
@@ -55,13 +55,20 @@ export class StockTransferDetail implements OnInit {
     const s = this.transfer()?.status;
     return s === 'Approved' || s === 'PartiallyFulfilled';
   });
-  /** Pending approval that this user cannot decide here: say who decides instead of showing nothing. */
+  /** Pending approval that this user cannot decide here: say who decides (and why not you) instead of showing nothing. */
   readonly awaitingApprovalBy = computed<string | null>(() => {
     const t = this.transfer();
-    if (!t || t.status !== 'Requested' || this.can('approve')) return null;
-    const by = t.sourceBranch.name || t.sourceBranch.code || 'a company-level approver';
-    // Maker-checker: say why the approver cannot be you, rather than only who decides.
-    return t.approvalBlockedForYou ? `another approver of ${by} (you created or submitted it)` : by;
+    if (!t) return null;
+    // FI-D48 level 1: the requesting (destination) branch confirms a high-value request first.
+    const level1 = t.status === 'AwaitingRequesterApproval';
+    if (!level1 && t.status !== 'Requested') return null;
+    if (level1 ? this.can('requesterApprove') : this.can('approve')) return null;
+    const branch = level1 ? t.destinationBranch : t.sourceBranch;
+    const by = branch.name || branch.code || 'a company-level approver';
+    const who = t.approvalBlockedForYou
+      ? `another approver of ${by} (${level1 || !t.requesterApproved ? 'you created or submitted it' : 'you created, submitted or approved it for the requesting branch'})`
+      : by;
+    return level1 ? `${who} — the branch that requested the stock confirms high-value requests first.` : `${who} — the branch that supplies the stock decides.`;
   });
   readonly busy = signal(false);
   readonly actionError = signal<string | null>(null);
@@ -78,6 +85,7 @@ export class StockTransferDetail implements OnInit {
     const entries: (TimelineEntry | null)[] = [
       { label: 'Created', actor: t.created },
       t.submitted ? { label: 'Submitted', actor: t.submitted } : null,
+      t.requesterApproved ? { label: 'Approved by the requesting branch', actor: t.requesterApproved } : null,
       t.approved ? { label: 'Approved', actor: t.approved, note: t.approvalAdjustmentReason ?? null } : null,
       t.rejected ? { label: 'Rejected', actor: t.rejected, note: t.rejectionReason } : null,
       t.dispatched ? { label: 'Dispatched', actor: t.dispatched } : null,
@@ -177,6 +185,15 @@ export class StockTransferDetail implements OnInit {
 
   approve(): void {
     this.open('approve');
+  }
+
+  requesterApprove(): void {
+    this.run('requesterApprove', (id, key) => this.service.requesterApprove(id, key), 'Request approved for the requesting branch.');
+  }
+
+  confirmRequesterReject(reason: string | null): void {
+    if (!reason) return;
+    this.run('requesterReject', (id, key) => this.service.requesterReject(id, reason, key), 'Request rejected.');
   }
 
   confirmReason(kind: 'reject' | 'cancel', reason: string | null): void {

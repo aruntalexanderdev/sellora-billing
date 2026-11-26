@@ -129,7 +129,13 @@ public record StockTransferDto(
     bool CanApprove = false,
     // Maker-checker: the request was submitted under approval separation and the caller created or submitted it, so Approve is not theirs.
     bool ApprovalBlockedForYou = false,
-    string? ApprovalAdjustmentReason = null);
+    string? ApprovalAdjustmentReason = null,
+    // FI-D48/D49: two-level approval. EstimatedValue is null for readers who may not see the source's costs (FI-D28).
+    decimal? EstimatedValue = null,
+    bool RequiresRequesterApproval = false,
+    StockTransferActorDto? RequesterApproved = null,
+    // AwaitingRequesterApproval and the caller's active branch fits the destination for StockTransfers.ApproveRequest (the UI still checks the permission).
+    bool CanRequesterApprove = false);
 
 /// <summary>Ready-for-shipment queue row (FI-D28): an Approved / PartiallyFulfilled request with quantity still to ship.</summary>
 public record ReadyForShipmentItemDto(
