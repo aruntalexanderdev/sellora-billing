@@ -424,7 +424,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
         await StockLocationRules.ResolveReturnSourceAsync(db, locationId, purchase.StockLocationId, purchase.BranchId, companyLevel, ct);
         // Lock the stock rows before reading the batches, so the remaining quantities checked below are current.
         var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, purchaseLineProductIds.Select(id => (locationId, id)), ct);
-        var lines = await db.PurchaseOrderLines.Include(l => l.Product).ThenInclude(p => p.BaseUnit).Include(l => l.Batch)
+        var lines = await db.PurchaseOrderLines.Include(l => l.Product).ThenInclude(p => p.BaseUnit).Include(l => l.Batch).Include(l => l.Tax)
             .Where(l => l.PurchaseOrderId == purchase.Id).ToListAsync(ct);
         var priorReturns = await db.PurchaseReturnLines
             .Where(r => r.PurchaseOrderLine.PurchaseOrderId == purchase.Id).ToListAsync(ct);
@@ -509,6 +509,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
                 LineTotal = taxable + tax,
                 CostRemoved = StockCost.Money(baseQty * batch.UnitCost),
             };
+            returnLine.Taxes.Add(LegacyLineTax.ForPurchaseReturn(returnLine, line));
             purchaseReturn.Lines.Add(returnLine);
             priorReturns.Add(returnLine);
             purchaseReturn.TaxableTotal += taxable;
@@ -748,6 +749,7 @@ public class PurchaseService(SelloraDbContext db, IExchangeRateService exchangeR
             LineTotal = lineTotal,
             UnitCost = unitCost,
         };
+        line.Taxes.Add(LegacyLineTax.ForPurchase(line, tax.Name)); // TP-1 D2: one legacy tax row per line until the calculator (TP-3)
 
         return (line, subtotal, originalLineTotal);
     }

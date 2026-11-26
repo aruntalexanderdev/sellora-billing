@@ -166,6 +166,14 @@ public class DataResetService(SelloraDbContext db, IOptions<PlatformOptions> opt
             throw new DataResetRefusedException(result ?? "The reset script returned no result. Nothing was changed.");
         }
 
+        var seedNote = string.Empty;
+        if (apply)
+        {
+            // T23: taxes not kept: the standard profiles and company default are back before the transaction ends; kept: a missing company default is restored (T21).
+            // Same connection and transaction, one context per company (a context's company is fixed once set).
+            seedNote = await RestoreTaxSetupAsync(connection, dbTransaction, resetOptions, ct);
+        }
+
         if (apply)
         {
             // The result sheet is a session temp table: do not leave it on the pooled connection.
@@ -181,8 +189,54 @@ public class DataResetService(SelloraDbContext db, IOptions<PlatformOptions> opt
         }
 
         return new DataResetReport(database, apply,
-            apply ? "Reset done: business data removed and document numbers reset." : "Preview only: nothing was changed.",
+            (apply ? "Reset done: business data removed and document numbers reset." : "Preview only: nothing was changed.") + seedNote,
             resetOptions.KeptMasters, tables);
+    }
+
+    /// <summary>Re-seeds (taxes not kept) or restores the company default of (taxes kept) every company that has a country. Returns the sentence for the report
+    /// message. Companies without a country, and countries without a standard seed, are named in the sentence.</summary>
+    private async Task<string> RestoreTaxSetupAsync(DbConnection connection, DbTransaction dbTransaction, DataResetOptions resetOptions, CancellationToken ct)
+    {
+        var companies = new List<(Guid CompanyId, Guid? CountryId, string? Code)>();
+        await using (var command = NewCommand(connection, dbTransaction,
+            "SELECT b.\"CompanyId\", b.\"CountryId\", c.\"Code\" FROM \"BusinessSettings\" b LEFT JOIN \"Countries\" c ON c.\"Id\" = b.\"CountryId\" ORDER BY b.\"CompanyId\""))
+        await using (var reader = await command.ExecuteReaderAsync(ct))
+        {
+            while (await reader.ReadAsync(ct))
+            {
+                companies.Add((reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetGuid(1), reader.IsDBNull(2) ? null : reader.GetString(2)));
+            }
+        }
+
+        var options = new DbContextOptionsBuilder<SelloraDbContext>().UseNpgsql(connection).Options;
+        int added = 0, companiesSeeded = 0, defaultsRestored = 0;
+        var noSeed = new List<string>();
+        var noCountry = 0;
+        foreach (var (companyId, countryId, code) in companies)
+        {
+            if (countryId is not { } country) { noCountry++; continue; }
+            await using var scoped = new SelloraDbContext(options, CompanyContext.For(companyId), BranchContext.Unrestricted());
+            await scoped.Database.UseTransactionAsync(dbTransaction, ct);
+            if (resetOptions.KeepTaxes)
+            {
+                if (await TaxSeeder.RestoreCompanyDefaultAsync(scoped, companyId, country, null, ct)) defaultsRestored++;
+            }
+            else
+            {
+                var result = await TaxSeeder.SeedCompanyAsync(scoped, companyId, country, null, ct);
+                if (!result.CountrySupported) noSeed.Add(code ?? "?");
+                else { added += result.ProfilesAdded; companiesSeeded++; }
+            }
+            await scoped.SaveChangesAsync(ct);
+        }
+
+        var parts = new List<string>();
+        if (resetOptions.KeepTaxes) parts.Add(defaultsRestored == 0 ? "tax profiles kept, no company default had to be restored" : $"tax profiles kept, company default restored for {defaultsRestored} compan{(defaultsRestored == 1 ? "y" : "ies")}");
+        else parts.Add($"standard tax profiles re-seeded for {companiesSeeded} compan{(companiesSeeded == 1 ? "y" : "ies")} ({added} profiles)");
+        if (noSeed.Count > 0) parts.Add($"no standard tax seed exists for {string.Join(", ", noSeed.Distinct())}: those companies have no tax profiles until they create them");
+        if (noCountry > 0) parts.Add($"{noCountry} compan{(noCountry == 1 ? "y has" : "ies have")} no country and no tax profiles");
+        var text = string.Join("; ", parts);
+        return " Tax setup: " + text + ".";
     }
 
     private static DbCommand NewCommand(DbConnection connection, DbTransaction transaction, string sql)

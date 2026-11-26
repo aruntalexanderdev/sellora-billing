@@ -1,4 +1,5 @@
 import type { MeasurementCategory } from '../../masters/units/units.models';
+import type { FieldWarning, TaxProfileRef, TaxScope } from '../tax-setup/tax-setup.models';
 
 /** Mirrors backend `ProductUnitDto.LockReason` (string). */
 export type ProductUnitLockReason = 'Transactions' | 'Prices' | 'ContainedInLockedUnit';
@@ -92,6 +93,24 @@ export interface ProductDetail {
   isBaseUnitLocked: boolean;
   /** Ordered by `sortOrder` (base first). */
   units: ProductUnit[];
+  // Tax profiles (TP-1): what the product resolves to for the company country. All null when none applies.
+  /** Own HSN/SAC code. */
+  hsnCode: string | null;
+  /** Own code or the subcategory's. */
+  effectiveHsnCode: string | null;
+  /** `Product` | `Subcategory` | `None`. */
+  hsnSource: string | null;
+  /** Null = follows the company setting. */
+  priceIncludesTax: boolean | null;
+  salesTaxProfile: TaxProfileRef | null;
+  purchaseTaxProfile: TaxProfileRef | null;
+  taxSource: TaxScope | null;
+  taxSourceName: string | null;
+  /** Own overrides (null = inherited). */
+  salesOverrideProfileId: string | null;
+  purchaseOverrideProfileId: string | null;
+  /** Field `hsnCode` (T11). */
+  warnings: FieldWarning[] | null;
 }
 
 /** Mirrors backend `UpsertProductRequest`. */
@@ -101,9 +120,16 @@ export interface UpsertProductRequest {
   categoryId: string | null;
   subcategoryId: string | null;
   baseUnitId: string;
-  taxId: string;
   reorderLevel: number;
   units: ProductUnitInput[];
+  /** 4/6/8 digits; null = inherit from the subcategory. */
+  hsnCode: string | null;
+  /** Null = follow the company setting. */
+  priceIncludesTax: boolean | null;
+  /** Always sent: omitting (null) removes a stored override. */
+  salesTaxProfileId: string | null;
+  /** Needs a sales override; null = same as sales. */
+  purchaseTaxProfileId: string | null;
 }
 
 /** Mirrors backend `UnitPreviewRequest` (`POST products/unit-preview`). */

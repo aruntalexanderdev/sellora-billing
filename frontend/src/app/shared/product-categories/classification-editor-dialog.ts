@@ -3,6 +3,7 @@ import { Component, OnInit, computed, inject, input, output, signal } from '@ang
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { map, type Observable } from 'rxjs';
 import type { ApiProblem } from '../../core/auth/auth.models';
+import { HSN_MESSAGE, hsnOrNull, hsnValidator } from '../tax/hsn';
 import { UiButton } from '../ui/button/button';
 import { UiModal } from '../ui/modal/modal';
 import { ToastService } from '../ui/toast/toast.service';
@@ -24,7 +25,7 @@ export interface ClassificationEditorTarget {
   kind: 'category' | 'subcategory';
   categoryId: string | null;
   id: string | null;
-  existing?: { code: string; name: string; sortOrder: number };
+  existing?: { code: string; name: string; sortOrder: number; hsnCode?: string | null };
 }
 
 export type ClassificationSaved =
@@ -72,6 +73,14 @@ export type ClassificationSaved =
             @if (fieldError('sortOrder'); as msg) { <div class="field-error">{{ msg }}</div> }
           </div>
         </div>
+        @if (target().kind === 'subcategory') {
+          <div class="row">
+            <label class="field-label" for="ce-hsn">HSN / SAC code (optional)</label>
+            <input id="ce-hsn" type="text" inputmode="numeric" formControlName="hsnCode" class="field-input" maxlength="8" placeholder="e.g. 2202" />
+            @if (fieldError('hsnCode'); as msg) { <div class="field-error">{{ msg }}</div> }
+            <div class="field-hint">4, 6 or 8 digits. Products in this subcategory use it unless they have their own.</div>
+          </div>
+        }
         @if (serverError()) { <div class="field-error">{{ serverError() }}</div> }
         <div modal-footer>
           <ui-button variant="secondary" (onClick)="closed.emit()">Cancel</ui-button>
@@ -120,6 +129,7 @@ export class ClassificationEditorDialog implements OnInit {
     code: ['', [Validators.required, Validators.maxLength(CODE_MAX_LENGTH), Validators.pattern(CODE_PATTERN)]],
     name: ['', [Validators.required, Validators.maxLength(60)]],
     sortOrder: [0, [Validators.required, Validators.min(0)]],
+    hsnCode: ['', hsnValidator],
   });
 
   readonly showCategoryPicker = computed(() => this.target().kind === 'subcategory' && !this.target().categoryId);
@@ -138,6 +148,7 @@ export class ClassificationEditorDialog implements OnInit {
       code: t.existing?.code ?? '',
       name: t.existing?.name ?? '',
       sortOrder: t.existing?.sortOrder ?? 0,
+      hsnCode: t.existing?.hsnCode ?? '',
     });
     if (this.showCategoryPicker()) this.form.controls.categoryId.setValidators(Validators.required);
   }
@@ -163,6 +174,9 @@ export class ClassificationEditorDialog implements OnInit {
     const t = this.target();
     const v = this.form.getRawValue();
     const request: UpsertClassificationRequest = { code: v.code.trim().toUpperCase(), name: v.name.trim(), sortOrder: Number(v.sortOrder) };
+    // Subcategories only; an empty value clears the code.
+    // Creating without a code omits it; editing always sends it so an emptied field clears the stored code.
+    if (t.kind === 'subcategory' && (t.id || hsnOrNull(v.hsnCode))) request.hsnCode = hsnOrNull(v.hsnCode);
     const created = !t.id;
     let call$: Observable<ClassificationSaved>;
     if (t.kind === 'category') {
@@ -207,11 +221,12 @@ export class ClassificationEditorDialog implements OnInit {
     }
   }
 
-  fieldError(name: 'categoryId' | 'code' | 'name' | 'sortOrder'): string | null {
+  fieldError(name: 'categoryId' | 'code' | 'name' | 'sortOrder' | 'hsnCode'): string | null {
     const c = this.form.controls[name];
     if (!c.touched || !c.errors) return null;
     if (c.errors['server']) return String(c.errors['server']);
     if (name === 'categoryId') return 'Select a category.';
+    if (name === 'hsnCode') return HSN_MESSAGE;
     if (name === 'code') return 'Use A-Z, 0-9 and "-", starting with a letter or digit (max 20).';
     if (name === 'name') return 'Name is required (max 60 characters).';
     return 'Enter a sort order of 0 or more.';

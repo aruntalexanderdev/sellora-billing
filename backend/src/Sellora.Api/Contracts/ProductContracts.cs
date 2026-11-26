@@ -41,12 +41,20 @@ public record ProductListItemDto(
 );
 
 /// <summary><see cref="IsBaseUnitLocked"/> is true when the product has stock history or any unit row is locked.
-/// <see cref="Units"/> is ordered by SortOrder (base first).</summary>
+/// <see cref="Units"/> is ordered by SortOrder (base first).
+/// Tax (TP-1): <see cref="TaxId"/>/<see cref="TaxLabel"/>/<see cref="TaxRatePercent"/> are the mirror tax row (D3, kept for one release). The rest is what the
+/// product resolves to for the company country: <see cref="SalesTaxProfile"/>/<see cref="PurchaseTaxProfile"/> with <see cref="TaxSource"/> ("Product",
+/// "Subcategory", "Category", "Company") and <see cref="TaxSourceName"/>, the own override ids (null = inherited), <see cref="HsnCode"/> (own) and
+/// <see cref="EffectiveHsnCode"/> (own or the subcategory's, <see cref="HsnSource"/> "Product"/"Subcategory"/"None"), and <see cref="Warnings"/>
+/// (field <c>hsnCode</c>, T11). All null/empty when the company has no country or no profile applies.</summary>
 public record ProductDetailDto(
     Guid Id, string Sku, string Name, string? Category,
     Guid? CategoryId, string? CategoryName, Guid? SubcategoryId, string? SubcategoryName,
     Guid BaseUnitId, string BaseUnitLabel, Guid TaxId, string TaxLabel, decimal TaxRatePercent,
-    decimal ReorderLevel, bool IsActive, bool IsBaseUnitLocked, IReadOnlyList<ProductUnitDto> Units
+    decimal ReorderLevel, bool IsActive, bool IsBaseUnitLocked, IReadOnlyList<ProductUnitDto> Units,
+    string? HsnCode = null, string? EffectiveHsnCode = null, string? HsnSource = null, bool? PriceIncludesTax = null,
+    TaxProfileRefDto? SalesTaxProfile = null, TaxProfileRefDto? PurchaseTaxProfile = null, TaxScope? TaxSource = null, string? TaxSourceName = null,
+    Guid? SalesOverrideProfileId = null, Guid? PurchaseOverrideProfileId = null, IReadOnlyList<FieldErrorDto>? Warnings = null
 );
 
 public record UpsertProductRequest(
@@ -55,9 +63,15 @@ public record UpsertProductRequest(
     Guid? CategoryId,
     Guid? SubcategoryId,
     [Required] Guid? BaseUnitId,
-    [Required] Guid? TaxId,
     [Range(0, double.MaxValue)] decimal ReorderLevel,
-    [MinLength(1), MaxLength(ProductUnitConfigurationValidator.MaxUnits)] UpsertProductUnitRequest[] Units
+    [MinLength(1), MaxLength(ProductUnitConfigurationValidator.MaxUnits)] UpsertProductUnitRequest[] Units,
+    // Tax (TP-1). HsnCode: 4, 6 or 8 digits, empty = inherit from the subcategory. PriceIncludesTax: null = follow the company setting.
+    // SalesTaxProfileId: product-level override for the company country (omitted = none, a stored override is removed);
+    // PurchaseTaxProfileId: needs a sales override, omitted = same as sales. The mirror taxId is no longer sent.
+    [MaxLength(8)] string? HsnCode = null,
+    bool? PriceIncludesTax = null,
+    Guid? SalesTaxProfileId = null,
+    Guid? PurchaseTaxProfileId = null
 );
 
 /// <summary><c>POST api/v1/products/unit-preview</c>. With <see cref="ProductId"/>, the stored rows and their lock

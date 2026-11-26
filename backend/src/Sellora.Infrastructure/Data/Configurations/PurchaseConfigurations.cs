@@ -232,3 +232,25 @@ public class PurchaseBatchConfiguration : IEntityTypeConfiguration<PurchaseBatch
         builder.HasIndex(b => b.SupplierBatchNumber);
     }
 }
+
+public class PurchaseOrderLineTaxConfiguration : IEntityTypeConfiguration<PurchaseOrderLineTax>
+{
+    public void Configure(EntityTypeBuilder<PurchaseOrderLineTax> builder)
+    {
+        LineTaxMapping.Apply(builder, "PurchaseOrderLineTaxes", "PurchaseOrderLineId");
+        LineTaxMapping.ApplyPurchase(builder);
+        builder.HasOne(r => r.Line).WithMany(l => l.Taxes).HasForeignKey(r => r.PurchaseOrderLineId).OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_PurchaseOrderLineTaxes_PurchaseOrderLines");
+    }
+}
+
+public class PurchaseReturnLineTaxConfiguration : IEntityTypeConfiguration<PurchaseReturnLineTax>
+{
+    public void Configure(EntityTypeBuilder<PurchaseReturnLineTax> builder)
+    {
+        LineTaxMapping.Apply(builder, "PurchaseReturnLineTaxes", "PurchaseReturnLineId");
+        LineTaxMapping.ApplyPurchase(builder);
+        builder.HasOne(r => r.Line).WithMany(l => l.Taxes).HasForeignKey(r => r.PurchaseReturnLineId).OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_PurchaseReturnLineTaxes_PurchaseReturnLines");
+    }
+}

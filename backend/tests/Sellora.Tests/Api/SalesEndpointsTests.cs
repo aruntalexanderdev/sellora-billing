@@ -50,8 +50,9 @@ public class SalesEndpointsTests
         var (pc, box, hctn, fctn) = (TestUnits.Piece(), TestUnits.Box(), TestUnits.HalfCarton(), TestUnits.FullCarton());
         db.AddRange(user.Role, user, tax, inr, settings, supplier, customer, pc, box, hctn, fctn);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);
 
-        var pen = await new ProductService(db).CreateProductAsync(new UpsertProductInput("STN-PEN", "Ball Pen", null, null, pc.Id, tax.Id, 0m,
+        var pen = await new ProductService(db).CreateProductAsync(new UpsertProductInput("STN-PEN", "Ball Pen", null, null, pc.Id, 0m,
         [
             Item(pc.Id, null, null, PcCode), Item(box.Id, pc.Id, 10m, BoxCode), Item(hctn.Id, box.Id, 5m), Item(fctn.Id, hctn.Id, 2m),
         ]));

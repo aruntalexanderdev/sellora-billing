@@ -238,7 +238,64 @@ INSERT INTO "SalesInvoices" ("Id", "InvoiceNo", "CustomerId", "InvoiceDate", "Pa
         await ExecuteAsync(database, sql);
     }
 
+    /// <summary>The migration that introduces tax profiles; its preflight refuses a company with taxes and no country.</summary>
+    public const string TaxProfilesMigration = "20261124120429_AddTaxProfiles";
+    private const string BeforeTaxProfiles = "20261119103652_AddCountryStateMasters";
+
+    /// <summary>
+    /// Migrates like a release does. A legacy fixture of the older migration tests holds taxes but never had a country in its business settings, which the
+    /// AddTaxProfiles preflight (rightly) refuses; so before that one migration runs, the fixture companies get India as their country (a settings row is
+    /// added where there is none). Use <see cref="MigrateExactlyAsync"/> where the preflight itself is under test.
+    /// </summary>
     public static async Task MigrateToAsync(TestDatabase database, string? target = null)
+    {
+        await using var db = database.CreateDbContext();
+        if (target is null) await db.MigrateToHeadAsync();
+        else
+        {
+            if (string.CompareOrdinal(target, TaxProfilesMigration) >= 0) await PrepareForTaxProfilesAsync(db);
+            await db.GetService<IMigrator>().MigrateAsync(target);
+        }
+    }
+
+    /// <summary><c>Database.MigrateAsync()</c> for a legacy fixture database: see <see cref="MigrateToAsync"/>.</summary>
+    public static async Task MigrateToHeadAsync(this DbContext db)
+    {
+        await PrepareForTaxProfilesAsync(db);
+        await db.Database.MigrateAsync();
+    }
+
+    /// <summary>Applies the idempotent script <paramref name="from"/> to the head the way a release does, in two parts around the one point where the AddTaxProfiles
+    /// preflight needs a country (see <see cref="MigrateToAsync"/>). Safe to call twice (the second run is the no-op the tests assert).</summary>
+    public static async Task ApplyIdempotentScriptToHeadAsync(TestDatabase database, string from)
+    {
+        await using var db = database.CreateDbContext();
+        var head = db.Database.GetMigrations().Last();
+        await ExecuteAsync(database, await ScriptAsync(database, from, BeforeTaxProfiles));
+        await PrepareForTaxProfilesAsync(db);
+        await ExecuteAsync(database, await ScriptAsync(database, BeforeTaxProfiles, head));
+    }
+
+    private static async Task PrepareForTaxProfilesAsync(DbContext db)
+    {
+        var applied = new HashSet<string>(await db.Database.GetAppliedMigrationsAsync(), StringComparer.Ordinal);
+        if (applied.Contains(TaxProfilesMigration)) return;
+        if (!applied.Contains(BeforeTaxProfiles)) await db.GetService<IMigrator>().MigrateAsync(BeforeTaxProfiles);
+        await using var connection = new NpgsqlConnection(db.Database.GetConnectionString());
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO "BusinessSettings" ("Id", "CompanyId", "BusinessName", "InvoicePrefix", "BaseCurrencyId", "CountryId")
+            SELECT gen_random_uuid(), t."CompanyId", 'Legacy fixture', 'INV', (SELECT "Id" FROM "Currencies" ORDER BY "Code" LIMIT 1), (SELECT "Id" FROM "Countries" WHERE "Code" = 'IN')
+            FROM (SELECT DISTINCT "CompanyId" FROM "Taxes") t
+            WHERE NOT EXISTS (SELECT 1 FROM "BusinessSettings" b WHERE b."CompanyId" = t."CompanyId");
+            UPDATE "BusinessSettings" b SET "CountryId" = (SELECT "Id" FROM "Countries" WHERE "Code" = 'IN')
+            WHERE b."CountryId" IS NULL AND EXISTS (SELECT 1 FROM "Taxes" t WHERE t."CompanyId" = b."CompanyId");
+            """;
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public static async Task MigrateExactlyAsync(TestDatabase database, string? target = null)
     {
         await using var db = database.CreateDbContext();
         if (target is null) await db.Database.MigrateAsync();

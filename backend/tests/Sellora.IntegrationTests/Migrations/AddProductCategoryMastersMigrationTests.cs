@@ -65,7 +65,7 @@ public class AddProductCategoryMastersMigrationTests(PostgresFixture postgres)
         var counts = await RowCountsAsync(database, CountedTables);
         Assert.DoesNotContain(await AppliedAsync(database), m => m.EndsWith("_AddProductCategoryMasters"));
 
-        await MigrateToAsync(database);
+        await MigrateToAsync(database, "20261112114131_AddProductCategoryMasters");   // this migration only: the row counts below must not see the later tax profiles migration (it adds mirror taxes and a settings row)
 
         Assert.Contains(await AppliedAsync(database), m => m.EndsWith("_AddProductCategoryMasters"));
         Assert.Equal(before, await QueryAsync(database, Snapshot, r => r.GetString(0))); // legacy string untouched, nothing else changed
@@ -176,10 +176,9 @@ public class AddProductCategoryMastersMigrationTests(PostgresFixture postgres)
     public async Task IdempotentScript_OnTheLegacyDataset_AppliesAndBackfills()
     {
         await using var database = await CreateLegacyAsync();
-        var script = await ScriptAsync(database, B10, (await ScriptTargetAsync(database)));
-        await ExecuteAsync(database, script);
+        await ApplyIdempotentScriptToHeadAsync(database, B10);   // the script of every migration after B10, in two parts around the tax profiles country preflight
         await AssertValidationCleanAsync(database);
-        await ExecuteAsync(database, script); // second run changes nothing
+        await ApplyIdempotentScriptToHeadAsync(database, B10); // second run changes nothing
         Assert.Equal(6L, await ScalarAsync<long>(database, $"""SELECT COUNT(*) FROM "ProductCategories" WHERE "CompanyId" = '{DefaultCompany}'"""));
     }
 

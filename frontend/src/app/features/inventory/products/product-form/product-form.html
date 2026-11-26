@@ -85,29 +85,21 @@
         }
       </div>
       <div>
-        <label class="field-label">Tax</label>
-        <select formControlName="taxId" class="field-input">
-          <option value="" disabled>Select a tax…</option>
-          @for (t of taxes(); track t.id) {
-            <option [value]="t.id">{{ t.name }}</option>
-          }
-        </select>
-        @if (form.get('taxId')?.touched && form.get('taxId')?.invalid) {
-          <div class="field-error">Select a tax.</div>
-        }
-      </div>
-    </div>
-
-    <div class="grid-2">
-      <div>
         <label class="field-label">Reorder level</label>
         <input type="number" step="0.001" formControlName="reorderLevel" class="field-input" />
         @if (form.get('reorderLevel')?.touched && form.get('reorderLevel')?.invalid) {
           <div class="field-error">Enter a reorder level of 0 or more.</div>
         }
       </div>
-      <div></div>
     </div>
+
+    <app-product-tax-section
+      [group]="form.controls.tax"
+      [categoryId]="selectedCategoryId()"
+      [subcategoryId]="selectedSubcategoryId()"
+      [isEdit]="isEdit()"
+      [initialBasis]="initialPriceBasis()"
+    />
 
     <app-product-units-editor [units]="unitRows" [allUnits]="allUnits()" [productId]="isEdit() ? productId : null" />
 

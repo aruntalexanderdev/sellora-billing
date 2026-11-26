@@ -83,4 +83,6 @@ public class PurchaseReturnLine
 
     /// <summary>The landed cost of the stock taken out.</summary>
     public decimal CostRemoved { get; set; }
+
+    public ICollection<PurchaseReturnLineTax> Taxes { get; set; } = new List<PurchaseReturnLineTax>();
 }

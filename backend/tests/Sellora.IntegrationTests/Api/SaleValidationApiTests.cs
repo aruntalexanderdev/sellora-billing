@@ -1,3 +1,4 @@
+using Sellora.IntegrationTests.TestData;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -47,11 +48,10 @@ public class SaleValidationApiTests(PostgresFixture postgres)
         await using (var db = w.Host.Database.CreateDbContext(w.CompanyId))
         {
             var tax = new Tax { Id = Guid.NewGuid(), Name = "GST 18% " + Guid.NewGuid().ToString("N")[..6], RatePercent = 18m };
-            db.Taxes.Add(tax);
-            await db.SaveChangesAsync();
+            var profile = await TaxFixtures.UseAsProfileAsync(db, tax, companyDefault: false);   // product-level override: the 18% mirror tax
             var baseUnit = await db.Units.SingleAsync(u => u.Id == db.ProductUnits.Single(p => p.ProductId == w.ProductId && p.IsBaseUnit).UnitId);
-            var created = await new ProductService(db).CreateProductAsync(new UpsertProductInput("RND-" + Guid.NewGuid().ToString("N")[..6], "Rounding Pen", null, null, baseUnit.Id, tax.Id, 0m,
-                [new ProductUnitInputItem(null, baseUnit.Id, null, 1m, null, null, true, true, false, false, true)]));
+            var created = await new ProductService(db).CreateProductAsync(new UpsertProductInput("RND-" + Guid.NewGuid().ToString("N")[..6], "Rounding Pen", null, null, baseUnit.Id, 0m,
+                [new ProductUnitInputItem(null, baseUnit.Id, null, 1m, null, null, true, true, false, false, true)], SalesTaxProfileId: profile.Id));
             productId = created.Id;
             unitId = await db.ProductUnits.Where(p => p.ProductId == productId && p.IsBaseUnit).Select(p => p.Id).SingleAsync();
         }

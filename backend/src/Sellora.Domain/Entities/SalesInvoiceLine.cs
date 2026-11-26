@@ -54,5 +54,7 @@ public class SalesInvoiceLine
     /// <summary>Actual FIFO-consumed landed cost for this line — the real COGS basis (docx §12.5, §17).</summary>
     public decimal CostOfGoodsSold { get; set; }
 
+    public ICollection<SalesInvoiceLineTax> Taxes { get; set; } = new List<SalesInvoiceLineTax>();
+
     public ICollection<SalesInvoiceLineBatchConsumption> BatchConsumptions { get; set; } = new List<SalesInvoiceLineBatchConsumption>();
 }

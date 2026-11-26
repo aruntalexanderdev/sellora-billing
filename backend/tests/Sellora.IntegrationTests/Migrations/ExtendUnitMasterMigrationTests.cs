@@ -71,7 +71,7 @@ public class ExtendUnitMasterMigrationTests(PostgresFixture postgres)
         var countBefore = await ScalarAsync<long>(database, """SELECT COUNT(*) FROM "Units" """);
 
         await using var db = database.CreateDbContext();
-        await db.Database.MigrateAsync();
+        await db.MigrateToHeadAsync();
 
         var units = await db.Units.AsNoTracking().ToDictionaryAsync(u => u.ShortCode);
         AssertUnit(units["kg"], MeasurementCategory.Weight, 3, 1m);
@@ -96,7 +96,7 @@ public class ExtendUnitMasterMigrationTests(PostgresFixture postgres)
         await using var database = await CreateLegacyDatabaseAsync(postgres, "pc", "kg");
 
         await using var db = database.CreateDbContext();
-        await db.Database.MigrateAsync();
+        await db.MigrateToHeadAsync();
 
         var units = await db.Units.AsNoTracking().ToDictionaryAsync(u => u.ShortCode);
         AssertUnit(units["box"], MeasurementCategory.Packaging, 0, null);
@@ -113,7 +113,7 @@ public class ExtendUnitMasterMigrationTests(PostgresFixture postgres)
         await ExecuteAsync(database, """DELETE FROM "Units" """);
 
         await using var db = database.CreateDbContext();
-        await db.Database.MigrateAsync();
+        await db.MigrateToHeadAsync();
 
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
         Assert.False(db.Database.HasPendingModelChanges());
@@ -125,7 +125,7 @@ public class ExtendUnitMasterMigrationTests(PostgresFixture postgres)
         await using var database = await CreateLegacyDatabaseAsync(postgres, "box", "bndl");
         await using (var db = database.CreateDbContext())
         {
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
         }
 
         await using (var db = database.CreateDbContext())
@@ -160,13 +160,13 @@ public class ExtendUnitMasterMigrationTests(PostgresFixture postgres)
         await using var database = await CreateLegacyDatabaseAsync(postgres, "box", "bndl");
         await using (var db = database.CreateDbContext())
         {
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
             await db.GetService<IMigrator>().MigrateAsync(PreviousMigration);
         }
 
         await using (var db = database.CreateDbContext())
         {
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
 
             var units = await db.Units.AsNoTracking().ToDictionaryAsync(u => u.ShortCode);
             AssertUnit(units["tray"], MeasurementCategory.Packaging, 0, null);
@@ -181,7 +181,7 @@ public class ExtendUnitMasterMigrationTests(PostgresFixture postgres)
         await using var database = await CreateLegacyDatabaseAsync(postgres, "gm");
 
         await using var db = database.CreateDbContext();
-        await db.Database.MigrateAsync();
+        await db.MigrateToHeadAsync();
 
         var units = await db.Units.AsNoTracking().ToDictionaryAsync(u => u.ShortCode);
         AssertUnit(units["gm"], MeasurementCategory.Weight, 3, 0.001m);      // base unit of a product: keeps 3 dp
@@ -203,7 +203,7 @@ public class ExtendUnitMasterMigrationTests(PostgresFixture postgres)
         await using var database = await CreateLegacyDatabaseAsync(postgres, "box");
 
         await using var db = database.CreateDbContext();
-        await db.Database.MigrateAsync();
+        await db.MigrateToHeadAsync();
 
         var units = await db.Units.AsNoTracking().ToDictionaryAsync(u => u.ShortCode);
         var review = await StockInvariants.QueryIdsAsync(db, UnitMasterValidation.V4ReviewListSql);

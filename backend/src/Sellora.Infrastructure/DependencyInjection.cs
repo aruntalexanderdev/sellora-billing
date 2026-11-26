@@ -40,6 +40,10 @@ public static class DependencyInjection
         services.AddScoped<ISalesService, SalesService>();
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductCategoryService, ProductCategoryService>();
+        services.AddScoped<ITaxComponentService, TaxComponentService>();
+        services.AddScoped<ITaxProfileService, TaxProfileService>();
+        services.AddScoped<ITaxAssignmentService, TaxAssignmentService>();
+        services.AddScoped<ITaxResolver, TaxResolver>();
         services.AddScoped<IUnitService, UnitService>();
         services.AddScoped<ICurrencyService, CurrencyService>();
         services.AddScoped<ICountryService, CountryService>();

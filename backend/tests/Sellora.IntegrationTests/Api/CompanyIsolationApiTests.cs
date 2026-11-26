@@ -1,3 +1,4 @@
+using Sellora.Domain.Entities;
 using System.Net;
 using System.Net.Http.Json;
 using System.Reflection;
@@ -127,29 +128,31 @@ public class CompanyIsolationApiTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task Create_SameNameInBothCompanies_SucceedsButDuplicateWithinACompanyIsRefused()
+    public async Task Create_SameNameTaxProfileInBothCompanies_SucceedsButDuplicateWithinACompanyIsRefused()
     {
         var w = await WorldAsync();
         using var a = w.Host.NewClient(Own(w.A));
         using var b = w.Host.NewClient(Own(w.B));
-        var taxName = "Scoped " + Guid.NewGuid().ToString("N")[..6];
+        var name = "Scoped " + Guid.NewGuid().ToString("N")[..6];
+        var code = "SC-" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+        CreateTaxProfileRequest Profile(Ids ids, string c, string n) => new(ids.CountryId, c, n, TaxRegime.Gst, TaxTreatment.Exempt, new AddTaxVersionRequest(new DateOnly(2020, 1, 1), []));
 
-        var createA = await a.PostAsJsonAsync("/api/v1/taxes", new UpsertTaxRequest(taxName, 7m), ApiHost.Json);
-        var createB = await b.PostAsJsonAsync("/api/v1/taxes", new UpsertTaxRequest(taxName, 9m), ApiHost.Json);
-        var duplicateA = await a.PostAsJsonAsync("/api/v1/taxes", new UpsertTaxRequest(taxName, 11m), ApiHost.Json);
-        var categoryA = await a.PostAsJsonAsync("/api/v1/expense-categories", new UpsertExpenseCategoryRequest(taxName), ApiHost.Json);
-        var categoryB = await b.PostAsJsonAsync("/api/v1/expense-categories", new UpsertExpenseCategoryRequest(taxName), ApiHost.Json);
+        var createA = await a.PostAsJsonAsync("/api/v1/tax-profiles", Profile(w.A, code, name), ApiHost.Json);
+        var createB = await b.PostAsJsonAsync("/api/v1/tax-profiles", Profile(w.B, code, name), ApiHost.Json);
+        var duplicateA = await a.PostAsJsonAsync("/api/v1/tax-profiles", Profile(w.A, code + "X", name.ToUpperInvariant()), ApiHost.Json);
+        var categoryA = await a.PostAsJsonAsync("/api/v1/expense-categories", new UpsertExpenseCategoryRequest(name), ApiHost.Json);
+        var categoryB = await b.PostAsJsonAsync("/api/v1/expense-categories", new UpsertExpenseCategoryRequest(name), ApiHost.Json);
 
         Assert.True(createA.IsSuccessStatusCode, await createA.Content.ReadAsStringAsync());
         Assert.True(createB.IsSuccessStatusCode, await createB.Content.ReadAsStringAsync());
         Assert.True(categoryA.IsSuccessStatusCode && categoryB.IsSuccessStatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, duplicateA.StatusCode);
-        Assert.Equal(1L, await ScalarAsync<long>(w.Host.Database, $"""SELECT COUNT(*) FROM "Taxes" WHERE "Name" = '{taxName}' AND "CompanyId" = '{w.A.Company}' AND "RatePercent" = 7"""));
-        Assert.Equal(1L, await ScalarAsync<long>(w.Host.Database, $"""SELECT COUNT(*) FROM "Taxes" WHERE "Name" = '{taxName}' AND "CompanyId" = '{w.B.Company}' AND "RatePercent" = 9"""));
+        Assert.Equal(1L, await ScalarAsync<long>(w.Host.Database, $"""SELECT COUNT(*) FROM "TaxProfiles" WHERE "Name" = '{name}' AND "CompanyId" = '{w.A.Company}'"""));
+        Assert.Equal(1L, await ScalarAsync<long>(w.Host.Database, $"""SELECT COUNT(*) FROM "TaxProfiles" WHERE "Name" = '{name}' AND "CompanyId" = '{w.B.Company}'"""));
         // The new rows are stamped with the caller's company, never the other one.
-        var names = await b.GetStringAsync("/api/v1/taxes");
-        Assert.Contains("\"ratePercent\":9", names.Replace(" ", ""));
-        Assert.DoesNotContain("\"ratePercent\":7", names.Replace(" ", ""));
+        var listB = await b.GetStringAsync("/api/v1/tax-profiles?includeInactive=true");
+        Assert.Contains(code, listB);
+        Assert.Equal(1, listB.Split(code).Length - 1);
     }
 
     [Fact]

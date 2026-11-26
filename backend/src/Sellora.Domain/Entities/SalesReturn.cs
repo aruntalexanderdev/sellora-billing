@@ -78,4 +78,6 @@ public class SalesReturnLine
 
     /// <summary>The landed cost of the batches the goods went back into — what comes off cost of goods sold.</summary>
     public decimal CostRestored { get; set; }
+
+    public ICollection<SalesReturnLineTax> Taxes { get; set; } = new List<SalesReturnLineTax>();
 }

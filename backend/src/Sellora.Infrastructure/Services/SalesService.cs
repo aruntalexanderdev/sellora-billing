@@ -347,7 +347,7 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         var locationId = await StockLocationRules.ResolveRestockAsync(db, invoice, false, ct);
         var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, lineProductIds.Select(id => (locationId, id)), ct);
         var lines = await db.SalesInvoiceLines
-            .Include(l => l.Product).ThenInclude(p => p.BaseUnit)
+            .Include(l => l.Product).ThenInclude(p => p.BaseUnit).Include(l => l.Tax)
             .Include(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch)
             .Where(l => l.SalesInvoiceId == invoice.Id).ToListAsync(ct);
         var priorReturns = await db.SalesReturnLines
@@ -451,6 +451,7 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
                 LineTotal = taxable + tax,
                 CostRestored = StockCost.Money(costRestored),
             };
+            returnLine.Taxes.Add(LegacyLineTax.ForSalesReturn(returnLine, line));
             salesReturn.Lines.Add(returnLine);
             priorReturns.Add(returnLine);
             salesReturn.TaxableTotal += taxable;
@@ -638,7 +639,7 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         var taxAmount = amounts.Tax;
         var lineTotal = amounts.LineTotal;
 
-        return new SalesInvoiceLine
+        var line = new SalesInvoiceLine
         {
             Id = Guid.NewGuid(),
             SalesInvoiceId = invoice.Id,
@@ -659,6 +660,8 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
             TaxAmount = taxAmount,
             LineTotal = lineTotal,
         };
+        line.Taxes.Add(LegacyLineTax.ForSale(line, tax.Name)); // TP-1 D2: one legacy tax row per line until the calculator (TP-4)
+        return line;
     }
 
     private async Task ApplySaleLineToStockAsync(SalesInvoiceLine line, StockItem stockItem, string invoiceNo, Guid userId, CancellationToken ct)

@@ -4,6 +4,7 @@ using Sellora.Domain.Companies;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Inventory;
 using Sellora.Domain.Permissions;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Infrastructure.Data;
 
@@ -53,7 +54,7 @@ public static class DbSeeder
         if (seedDemoData)
         {
             var units = await SeedUnitsAsync(db, ct);
-            var taxes = await SeedTaxesAsync(db, ct);
+            var taxes = await SeedTaxesAsync(db, settings, ct);
             await SeedSuppliersAsync(db, currencies, geo, ct);
             var categories = await SeedProductCategoriesAsync(db, ct);
             await SeedProductsAsync(db, units, taxes, categories, ct);
@@ -142,6 +143,10 @@ public static class DbSeeder
         await GrantNewPermissionToExistingHoldersAsync(db, "Shipments.Load", "StockTransfers.Dispatch", ct);
         // Phase 06 (FI-D39): approving receipts goes to existing approvers (supervisors); the default policy is Direct, so nothing changes until a company opts in.
         await GrantNewPermissionToExistingHoldersAsync(db, "StockTransfers.ApproveReceipt", "StockTransfers.Approve", ct);
+        // Tax profiles (TP-1): taxes sat under Masters.View/Edit; the migration grants the same way for existing databases.
+        await GrantNewPermissionToExistingHoldersAsync(db, "Tax.View", ["Masters.View", "Inventory.Create", "Inventory.Edit"], ct);
+        await GrantNewPermissionToExistingHoldersAsync(db, "Tax.Manage", "Masters.Edit", ct);
+        await GrantNewPermissionToExistingHoldersAsync(db, "Sales.BillDiscount", "Sales.PriceOverride", ct);
     }
 
     // Recording payments used to be covered by an edit permission, so every role holding that permission keeps
@@ -431,25 +436,29 @@ public static class DbSeeder
         return bySeedCode;
     }
 
-    private static readonly (string Name, decimal Rate)[] TaxSeed =
-    [
-        ("GST 5%", 5m),
-        ("GST 12%", 12m),
-        ("GST 18%", 18m),
-    ];
+    /// <summary>A demo product's tax: the standard profile of that rate and its mirror tax. <see cref="IsCompanyDefault"/>: the product inherits it, otherwise it gets a product-level assignment.</summary>
+    private sealed record DemoTax(Guid ProfileId, Guid CountryId, Guid TaxId, bool IsCompanyDefault);
 
-    private static async Task<Dictionary<decimal, Tax>> SeedTaxesAsync(SelloraDbContext db, CancellationToken ct)
+    private static readonly decimal[] DemoTaxRates = [5m, 18m];
+
+    /// <summary>TP-1: the standard tax profiles of the company's country (<see cref="TaxSeeder"/>; nothing without a country), then the demo rates mapped to
+    /// their GST profiles and mirror taxes. Idempotent.</summary>
+    private static async Task<Dictionary<decimal, DemoTax>> SeedTaxesAsync(SelloraDbContext db, BusinessSettings settings, CancellationToken ct)
     {
-        var existing = await db.Taxes.ToListAsync(ct);
-        foreach (var (name, rate) in TaxSeed)
-        {
-            if (existing.Any(t => t.RatePercent == rate)) continue;
-            var tax = new Tax { Id = Guid.NewGuid(), Name = name, RatePercent = rate };
-            db.Taxes.Add(tax);
-            existing.Add(tax);
-        }
+        var result = new Dictionary<decimal, DemoTax>();
+        if (settings.CountryId is not { } countryId) return result;
+
+        await TaxSeeder.SeedCompanyAsync(db, settings.CompanyId, countryId, null, ct);
         await db.SaveChangesAsync(ct);
-        return existing.ToDictionary(t => t.RatePercent);
+
+        var companyDefault = await db.TaxAssignments.Where(a => a.Scope == TaxScope.Company && a.CountryId == countryId).Select(a => a.SalesTaxProfileId).FirstOrDefaultAsync(ct);
+        foreach (var rate in DemoTaxRates)
+        {
+            var code = "GST-" + rate.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+            var profile = await db.TaxProfiles.Where(p => p.CountryId == countryId && p.Code == code).Select(p => new { p.Id, p.LegacyTaxId }).FirstOrDefaultAsync(ct);
+            if (profile is not null) result[rate] = new DemoTax(profile.Id, countryId, profile.LegacyTaxId, profile.Id == companyDefault);
+        }
+        return result;
     }
 
     private static readonly (string Name, string City, string? Gstin, string Terms, string CurrencyCode)[] SupplierSeed =
@@ -495,8 +504,8 @@ public static class DbSeeder
         // Gram only defines the 200 g box; it is not bought or sold on its own.
         new("SPC-TUR", "Turmeric Powder", "Spices", 5m, 10m,
             [new("kg", null, 1m, "Loose kg"), new("g", "kg", 0.001m, Sellable: false, Purchasable: false), new("box", "g", 200m, "200 g box")]),
-        new("SNK-MIX", "Namkeen Mixture", "Snacks", 12m, 25m, [new("pc", null, 1m)]),
-        new("STN-PEN", "Ball Pen", "Stationery", 12m, 200m,
+        new("SNK-MIX", "Namkeen Mixture", "Snacks", 5m, 25m, [new("pc", null, 1m)]),
+        new("STN-PEN", "Ball Pen", "Stationery", 18m, 200m,
             [new("pc", null, 1m), new("box", "pc", 10m), new("hctn", "box", 5m), new("fctn", "hctn", 2m)]),
     ];
 
@@ -529,13 +538,13 @@ public static class DbSeeder
         return byName;
     }
 
-    private static async Task SeedProductsAsync(SelloraDbContext db, Dictionary<string, Unit> units, Dictionary<decimal, Tax> taxes,
+    private static async Task SeedProductsAsync(SelloraDbContext db, Dictionary<string, Unit> units, Dictionary<decimal, DemoTax> taxes,
         Dictionary<string, ProductCategory> categories, CancellationToken ct)
     {
         var existingSkus = await db.Products.Select(p => p.Sku).ToListAsync(ct);
         foreach (var seed in ProductSeedData)
         {
-            if (existingSkus.Contains(seed.Sku)) continue;
+            if (existingSkus.Contains(seed.Sku) || !taxes.TryGetValue(seed.TaxRate, out var demoTax)) continue;
 
             // Never attach a seeded product to an unsuitable unit (base Packaging, any unit inactive or missing), e.g.
             // when an existing database already had a unit with the seed's code or name.
@@ -551,7 +560,7 @@ public static class DbSeeder
                 Category = categories[seed.Category].Name,
                 CategoryId = categories[seed.Category].Id,
                 BaseUnitId = units[baseSeed.UnitCode].Id,
-                TaxId = taxes[seed.TaxRate].Id,
+                TaxId = demoTax.TaxId,
                 ReorderLevel = seed.ReorderLevel,
             };
 
@@ -598,6 +607,15 @@ public static class DbSeeder
                 });
             }
             db.Products.Add(product);
+            if (!demoTax.IsCompanyDefault)
+            {
+                // A rate other than the company default (GST 18%) is a product-level assignment, as the migration gives migrated products.
+                db.TaxAssignments.Add(new TaxAssignment
+                {
+                    Id = Guid.NewGuid(), Scope = TaxScope.Product, CountryId = demoTax.CountryId, ProductId = product.Id,
+                    SalesTaxProfileId = demoTax.ProfileId, PurchaseTaxProfileId = null, CreatedAt = DateTime.UtcNow,
+                });
+            }
         }
         await db.SaveChangesAsync(ct);
     }

@@ -22,6 +22,10 @@ export interface BusinessSettings {
   countryName: string | null;
   stateId: string | null;
   stateName: string | null;
+  /** Whether stored selling prices include tax (T2/T18). */
+  sellingPricesIncludeTax: boolean;
+  /** Cap of a whole-bill discount in percent; null = no cap (T15). */
+  maxBillDiscountPercent: number | null;
 }
 
 export interface UpdateBusinessSettingsRequest {
@@ -39,4 +43,7 @@ export interface UpdateBusinessSettingsRequest {
   /** Always post the current values: null clears the link (D17/D22). */
   countryId: string | null;
   stateId: string | null;
+  sellingPricesIncludeTax: boolean;
+  /** 0-100; always post the current value, null clears the cap. */
+  maxBillDiscountPercent: number | null;
 }

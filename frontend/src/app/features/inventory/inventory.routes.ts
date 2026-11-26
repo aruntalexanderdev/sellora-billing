@@ -61,6 +61,12 @@ export const INVENTORY_ROUTES: Routes = [
     data: { group: 'Inventory', page: 'Product Categories' },
   },
   {
+    path: 'tax-setup',
+    loadComponent: () => import('./tax-setup/tax-setup').then((m) => m.TaxSetup),
+    canActivate: [permissionGuard('Tax.View')],
+    data: { group: 'Inventory', page: 'Tax setup' },
+  },
+  {
     path: 'pricing',
     loadComponent: () => import('./pricing/pricing-page/pricing-page').then((m) => m.PricingPage),
     canActivate: [permissionGuard('Inventory.Price')],

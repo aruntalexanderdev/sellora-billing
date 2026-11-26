@@ -43,7 +43,7 @@
           @if (isExpanded(c.id)) {
             @for (s of visibleSubcategories(c); track s.id) {
               <tr class="sub-row">
-                <td class="indent"><span class="strong">{{ s.name }}</span><span class="muted code">{{ s.code }}</span></td>
+                <td class="indent"><span class="strong">{{ s.name }}</span><span class="muted code">{{ s.code }}</span>@if (s.hsnCode) { <span class="muted code" data-testid="sub-hsn">HSN {{ s.hsnCode }}</span> }</td>
                 <td class="muted">{{ s.productCount }} product{{ s.productCount === 1 ? '' : 's' }}</td>
                 <td><ui-badge [text]="s.isActive ? 'Active' : 'Inactive'" [tone]="s.isActive ? 'good' : 'mute'" /></td>
                 <td class="row-actions">

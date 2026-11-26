@@ -33,7 +33,12 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
             .HasConstraintName("FK_Products_ProductSubcategories_CompanyId_CategoryId_SubcategoryId");
         builder.HasIndex(p => new { p.CompanyId, p.CategoryId }, "IX_Products_CompanyId_CategoryId");
         builder.HasIndex(p => new { p.CompanyId, p.SubcategoryId }, "IX_Products_CompanyId_SubcategoryId");
-        builder.ToTable(t => t.HasCheckConstraint("CK_Products_Subcategory_Requires_Category", "\"SubcategoryId\" IS NULL OR \"CategoryId\" IS NOT NULL"));
+        builder.Property(p => p.HsnCode).HasMaxLength(8);
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_Products_Subcategory_Requires_Category", "\"SubcategoryId\" IS NULL OR \"CategoryId\" IS NOT NULL");
+            t.HasCheckConstraint("CK_Products_HsnCode_Format", TaxValues.HsnFormat);
+        });
     }
 }
 

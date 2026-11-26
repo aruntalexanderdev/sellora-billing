@@ -76,7 +76,7 @@ public class ProductCategoriesApiTests(PostgresFixture postgres)
     private async Task<object> ProductBodyAsync(BranchApiWorld w, string sku, string name, Guid? categoryId, Guid? subcategoryId)
     {
         var (baseUnit, tax) = await PenMastersAsync(w);
-        return new UpsertProductRequest(sku, name, categoryId, subcategoryId, baseUnit, tax, 0m, [new UpsertProductUnitRequest(null, baseUnit, null, null, null, null)]);
+        return new UpsertProductRequest(sku, name, categoryId, subcategoryId, baseUnit, 0m, [new UpsertProductUnitRequest(null, baseUnit, null, null, null, null)]);
     }
 
     private async Task<HttpResponseMessage> CreateProductAsync(BranchApiWorld w, Guid? categoryId, Guid? subcategoryId, string? name = null, HttpClient? client = null) =>
@@ -94,7 +94,7 @@ public class ProductCategoriesApiTests(PostgresFixture postgres)
         var detail = await OkAsync(await w.SendAsync(HttpMethod.Get, $"/api/v1/products/{id}"));
         var (baseUnit, tax) = await PenMastersAsync(w);
         return await w.SendAsync(HttpMethod.Put, $"/api/v1/products/{id}", new UpsertProductRequest(detail.GetProperty("sku").GetString()!, detail.GetProperty("name").GetString()!,
-            categoryId, subcategoryId, baseUnit, tax, 0m, [new UpsertProductUnitRequest(detail.GetProperty("units")[0].GetProperty("id").GetGuid(), baseUnit, null, null, null, null)]));
+            categoryId, subcategoryId, baseUnit, 0m, [new UpsertProductUnitRequest(detail.GetProperty("units")[0].GetProperty("id").GetGuid(), baseUnit, null, null, null, null)]));
     }
 
     private async Task<Guid> OtherCompanyCategoryAsync(BranchApiWorld w, bool withSubcategory = false)

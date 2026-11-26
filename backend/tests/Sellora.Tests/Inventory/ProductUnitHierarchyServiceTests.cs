@@ -38,6 +38,7 @@ public class ProductUnitHierarchyServiceTests
             TestUnits.Kilogram(), TestUnits.Gram(), TestUnits.Bag());
         db.AddRange(role, user, tax, inr, supplier, customer, pc, box, hctn, fctn, kg, g, bag);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);
         return new Fixture(db, new ProductService(db), tax, user, supplier, customer, pc, box, hctn, fctn, kg, g, bag);
     }
 
@@ -46,7 +47,7 @@ public class ProductUnitHierarchyServiceTests
         new(id, unitId, innerUnitId, qty, label, barcode, purchasable, sellable, defaultPurchase, defaultSales, active);
 
     private static UpsertProductInput Input(Fixture f, string sku, Guid baseUnitId, params ProductUnitInputItem[] units) =>
-        new(sku, "Ball Pen", null, null, baseUnitId, f.Tax.Id, 200m, units);
+        new(sku, "Ball Pen", null, null, baseUnitId, 200m, units);
 
     private static ProductUnitInputItem[] PenRows(Fixture f) =>
     [

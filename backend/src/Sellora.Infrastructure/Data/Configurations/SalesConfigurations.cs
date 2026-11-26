@@ -205,3 +205,23 @@ public class SalesInvoiceLineBatchConsumptionConfiguration : IEntityTypeConfigur
         builder.HasIndex(c => c.PurchaseBatchId);
     }
 }
+
+public class SalesInvoiceLineTaxConfiguration : IEntityTypeConfiguration<SalesInvoiceLineTax>
+{
+    public void Configure(EntityTypeBuilder<SalesInvoiceLineTax> builder)
+    {
+        LineTaxMapping.Apply(builder, "SalesInvoiceLineTaxes", "SalesInvoiceLineId");
+        builder.HasOne(r => r.Line).WithMany(l => l.Taxes).HasForeignKey(r => r.SalesInvoiceLineId).OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_SalesInvoiceLineTaxes_SalesInvoiceLines");
+    }
+}
+
+public class SalesReturnLineTaxConfiguration : IEntityTypeConfiguration<SalesReturnLineTax>
+{
+    public void Configure(EntityTypeBuilder<SalesReturnLineTax> builder)
+    {
+        LineTaxMapping.Apply(builder, "SalesReturnLineTaxes", "SalesReturnLineId");
+        builder.HasOne(r => r.Line).WithMany(l => l.Taxes).HasForeignKey(r => r.SalesReturnLineId).OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_SalesReturnLineTaxes_SalesReturnLines");
+    }
+}
