@@ -10,7 +10,7 @@ import { SettingsService } from '../settings.service';
 import { CurrenciesService } from '../../../administration/currencies/currencies.service';
 import type { CurrencyItem } from '../../../administration/currencies/currencies.models';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
-import type { ReceiptPostingMode } from '../settings.models';
+import type { ReceiptPostingMode, UpdateBusinessSettingsRequest } from '../settings.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 
 @Component({
@@ -42,8 +42,19 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
     baseCurrencyId: ['', Validators.required],
     receiptPostingMode: ['Direct' as ReceiptPostingMode],
     receiptSeparationOfDuties: [false],
+    sellingPricesIncludeTax: [true],
+    maxBillDiscountPercent: [null as number | null, [Validators.min(0), Validators.max(100)]],
+    hsnRequiredFrom: [''],
     transferApprovalSeparationOfDuties: [true],
   });
+
+  /** Products without HSN (read-only, from the server); null = unknown. */
+  readonly productsWithoutHsnCount = signal<number | null>(null);
+  /** The saved date was cleared in this session and not yet saved. */
+  readonly hsnCleared = signal(false);
+  /** Warn when a date is set (or being set) and products still lack an HSN. */
+  readonly showHsnWarning = computed(() => (this.productsWithoutHsnCount() ?? 0) > 0 && (!!this.hsnDate() && !this.hsnCleared()));
+  private readonly hsnDate = signal('');
 
   readonly postingModes: { value: ReceiptPostingMode; label: string }[] = [
     { value: 'Direct', label: 'Direct (the receiver posts)' },
@@ -83,8 +94,13 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
           baseCurrencyId: s.baseCurrencyId,
           receiptPostingMode: s.receiptPostingMode ?? 'Direct',
           receiptSeparationOfDuties: s.receiptSeparationOfDuties ?? false,
+          sellingPricesIncludeTax: s.sellingPricesIncludeTax ?? true,
+          maxBillDiscountPercent: s.maxBillDiscountPercent ?? null,
+          hsnRequiredFrom: s.hsnRequiredFrom ?? '',
           transferApprovalSeparationOfDuties: s.transferApprovalSeparationOfDuties ?? true,
         });
+        this.hsnDate.set(s.hsnRequiredFrom ?? '');
+        this.productsWithoutHsnCount.set(s.productsWithoutHsnCount ?? null);
         this.storedCountry.set(s.countryId ? { id: s.countryId, name: s.countryName ?? '' } : null);
         this.storedState.set(s.stateId ? { id: s.stateId, name: s.stateName ?? '' } : null);
         this.legacyState.set(s.stateId ? null : s.state);
@@ -94,10 +110,28 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
     });
   }
 
-  /** Always posts the current links (null clears, D22); the legacy free-text state is never written (D6). */
+  /** Always posts the current links (null clears, D22) and the discount cap; the legacy free-text state is never written (D6). */
   buildRequest() {
     const v = this.form.getRawValue();
-    return { ...v, countryId: v.countryId || null, stateId: v.countryId ? v.stateId || null : null };
+    // maxBillDiscountPercent is always posted: empty clears the cap (T15).
+    const { hsnRequiredFrom, ...rest } = v;
+    const request: UpdateBusinessSettingsRequest = { ...rest, countryId: v.countryId || null, stateId: v.countryId ? v.stateId || null : null, maxBillDiscountPercent: v.maxBillDiscountPercent ?? null };
+    // T34: omitted = unchanged; a cleared date is sent as clearHsnRequiredFrom.
+    if (hsnRequiredFrom) request.hsnRequiredFrom = hsnRequiredFrom;
+    else if (this.hsnCleared()) request.clearHsnRequiredFrom = true;
+    return request;
+  }
+
+  onHsnDateInput(): void {
+    this.hsnCleared.set(false);
+    this.hsnDate.set(this.form.controls.hsnRequiredFrom.value);
+  }
+
+  clearHsnDate(): void {
+    this.form.controls.hsnRequiredFrom.setValue('');
+    this.form.controls.hsnRequiredFrom.markAsDirty();
+    this.hsnCleared.set(true);
+    this.hsnDate.set('');
   }
 
   submit(): void {
@@ -109,9 +143,14 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
 
     this.saving.set(true);
     this.settingsService.update(this.buildRequest()).subscribe({
-      next: () => {
+      next: (saved) => {
         this.saving.set(false);
         this.saved = true;
+        this.hsnCleared.set(false);
+        if (saved) {
+          this.productsWithoutHsnCount.set(saved.productsWithoutHsnCount ?? this.productsWithoutHsnCount());
+          if ('hsnRequiredFrom' in saved) this.form.controls.hsnRequiredFrom.setValue(saved.hsnRequiredFrom ?? '');
+        }
         this.form.markAsPristine();
         this.toast.show('Business settings saved.');
       },

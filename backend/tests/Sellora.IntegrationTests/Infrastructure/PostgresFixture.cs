@@ -20,14 +20,31 @@ public sealed class PostgresFixture : IAsyncLifetime
 {
     public const string Image = "postgres:17-alpine";
 
+    /// <summary>Opt-in: when set to an admin connection string, an external PostgreSQL server is used instead of a Testcontainers container (for machines without Docker).
+    /// Unset = no behaviour change. Tests that need psql inside the container (<see cref="RunPsqlScriptAsync"/>) cannot run in this mode.</summary>
+    public const string ExternalServerVariable = "SELLORA_TEST_POSTGRES";
+
     private PostgreSqlContainer? _container;
+    private string? _externalConnectionString;
+    private readonly System.Collections.Concurrent.ConcurrentBag<string> _created = [];
+
+    /// <summary>Registers a database created outside <see cref="CreateDatabaseAsync"/> so that an external server is left clean at the end of the run.</summary>
+    public void Track(string databaseName) => _created.Add(databaseName);
 
     /// <summary>Connection string to the container's default (maintenance) database.</summary>
-    public string ConnectionString => (_container ?? throw new InvalidOperationException("The PostgreSQL container has not been started."))
+    public string ConnectionString => _externalConnectionString ?? (_container ?? throw new InvalidOperationException("The PostgreSQL container has not been started."))
         .GetConnectionString();
 
     public async Task InitializeAsync()
     {
+        var external = Environment.GetEnvironmentVariable(ExternalServerVariable);
+        if (!string.IsNullOrWhiteSpace(external))
+        {
+            _externalConnectionString = external;
+            await RemoveExternalTemplateAsync();   // a previous run may have left it behind
+            await CreateTemplateAsync();
+            return;
+        }
         try
         {
             // Build() is inside the try as well: Testcontainers resolves the Docker endpoint there and throws if none is found.
@@ -92,6 +109,19 @@ public sealed class PostgresFixture : IAsyncLifetime
     public async Task DisposeAsync()
     {
         if (_container is not null) await _container.DisposeAsync();
+        if (_externalConnectionString is not null)
+        {
+            // an external server outlives the run: remove what this run created (databases that tests keep for the whole run, such as shared worlds, included)
+            foreach (var name in _created) await ExecuteAdminAsync($"DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)");
+            await RemoveExternalTemplateAsync();
+        }
+    }
+
+    /// <summary>External server only: the template is flagged IS_TEMPLATE and refuses connections, so unflag it before removing it.</summary>
+    private async Task RemoveExternalTemplateAsync()
+    {
+        await ExecuteAdminAsync($"DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_database WHERE datname = '{TemplateName}') THEN EXECUTE 'ALTER DATABASE \"{TemplateName}\" WITH IS_TEMPLATE false ALLOW_CONNECTIONS true'; END IF; END $$");
+        await ExecuteAdminAsync($"DROP DATABASE IF EXISTS \"{TemplateName}\" WITH (FORCE)");
     }
 
     /// <summary>Builds a context the same way <c>Sellora.Infrastructure.DependencyInjection.AddInfrastructure</c>
@@ -113,7 +143,7 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// exactly as an operator would (<c>psql -v ON_ERROR_STOP=1 -v name=value -f script</c>); the host needs no psql client.</summary>
     public async Task<PsqlResult> RunPsqlScriptAsync(string databaseName, string scriptText, IReadOnlyDictionary<string, string>? variables = null)
     {
-        var container = _container ?? throw new InvalidOperationException("The PostgreSQL container has not been started.");
+        var container = _container ?? throw new InvalidOperationException("psql runs inside the Testcontainers container, which is not available (external server via " + ExternalServerVariable + ", or not started).");
         var path = $"/tmp/{Guid.NewGuid():N}.sql";
         await container.CopyAsync(System.Text.Encoding.UTF8.GetBytes(scriptText), path);
         var command = new List<string> { "psql", "-U", "postgres", "-d", databaseName, "-v", "ON_ERROR_STOP=1" };
@@ -144,6 +174,7 @@ public sealed class PostgresFixture : IAsyncLifetime
     public async Task<TestDatabase> CreateDatabaseAsync(bool migrate = true)
     {
         var name = "sellora_test_" + Guid.NewGuid().ToString("N");
+        Track(name);
         await ExecuteAdminAsync(migrate ? $"CREATE DATABASE \"{name}\" TEMPLATE \"{TemplateName}\"" : $"CREATE DATABASE \"{name}\"");
         return new TestDatabase(name, ConnectionStringFor(ConnectionString, name), ConnectionString);
     }

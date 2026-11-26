@@ -172,7 +172,7 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
 
         await using (var db = database.CreateDbContext())
         {
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
             Assert.Empty(await db.Database.GetPendingMigrationsAsync());
         }
 
@@ -201,7 +201,7 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
     public async Task AddStockAdjustmentUnitSnapshots_AfterMigration_NewPackAdjustmentPostsAndInvariantsHold()
     {
         await using var database = await CreateLegacyDatabaseAsync(postgres);
-        await using (var db = database.CreateDbContext()) await db.Database.MigrateAsync();
+        await using (var db = database.CreateDbContext()) await db.MigrateToHeadAsync();
 
         await using (var db = database.CreateDbContext())
         {
@@ -224,7 +224,7 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
 
         await using (var db = database.CreateDbContext())
         {
-            var ex = await Assert.ThrowsAsync<PostgresException>(() => db.Database.MigrateAsync());
+            var ex = await Assert.ThrowsAsync<PostgresException>(() => db.MigrateToHeadAsync());
             Assert.Contains("adjustment product without base ProductUnit", ex.MessageText);
         }
 
@@ -241,7 +241,7 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
 
         await using (var db = database.CreateDbContext())
         {
-            var ex = await Assert.ThrowsAsync<PostgresException>(() => db.Database.MigrateAsync());
+            var ex = await Assert.ThrowsAsync<PostgresException>(() => db.MigrateToHeadAsync());
             Assert.Contains("non-positive adjustment quantity", ex.MessageText);
         }
 
@@ -300,7 +300,7 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
     public async Task AddStockAdjustmentUnitSnapshots_DownThenUpAgain_ReBackfillsAsBaseUnitEntries()
     {
         await using var database = await CreateLegacyDatabaseAsync(postgres);
-        await using (var db = database.CreateDbContext()) await db.Database.MigrateAsync();
+        await using (var db = database.CreateDbContext()) await db.MigrateToHeadAsync();
         await using (var db = database.CreateDbContext())
         {
             await new StockAdjustmentService(db).CreateAdjustmentAsync(
@@ -313,7 +313,7 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
         await using (var db = database.CreateDbContext())
         {
             await db.GetService<IMigrator>().MigrateAsync(IntroduceProductUnits);
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
         }
 
         await AssertVBlockEmptyAsync(database, v1);
@@ -348,7 +348,7 @@ public class AddStockAdjustmentUnitSnapshotsMigrationTests(PostgresFixture postg
             Assert.False(db.Database.HasPendingModelChanges());
             // Multi-company: the head model's CompanyId filters read columns added by later migrations, so bring the schema to head
             // before the EF-model assertions below (the data assertions themselves are unchanged).
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
         }
         await AssertBackfilledAsync(database);
         await AssertVBlockEmptyAsync(database, v1);

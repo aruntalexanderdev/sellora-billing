@@ -18,8 +18,10 @@ namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/sales")]
-public class SalesController(SelloraDbContext db, ISalesService salesService, IEffectivePermissionService effectivePermissions) : ControllerBase
+public class SalesController(SelloraDbContext db, ISalesService salesService, IEffectivePermissionService effectivePermissions, ITaxResolver? taxResolver = null) : ControllerBase
 {
+    private readonly ITaxResolver resolver = taxResolver ?? new TaxResolver(db);
+
     /// <summary>Product/price/stock lookup for the POS cart — kept under the Sales module so a Sales-only
     /// user can bill without needing Inventory permissions.</summary>
     [HttpGet("catalog")]
@@ -74,7 +76,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
 
     private IQueryable<Product> CatalogQuery() =>
         db.Products.AsNoTracking().Where(p => p.IsActive)
-            .Include(p => p.BaseUnit).Include(p => p.Tax).Include(p => p.Units.Where(u => u.IsActive && u.IsSellable).OrderBy(u => u.SortOrder)).ThenInclude(u => u.Unit);
+            .Include(p => p.BaseUnit).Include(p => p.Units.Where(u => u.IsActive && u.IsSellable).OrderBy(u => u.SortOrder)).ThenInclude(u => u.Unit);
 
     private async Task<List<SaleCatalogProductDto>> BuildCatalogItemsAsync(IQueryable<Product> query, Guid? locationId, CancellationToken ct)
     {
@@ -94,19 +96,43 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             .ToDictionaryAsync(p => p.ProductUnitId, p => p.Price, ct);
 
         var subIds = products.Where(p => p.SubcategoryId != null).Select(p => p.SubcategoryId!.Value).Distinct().ToList();
-        var subNames = subIds.Count == 0 ? new Dictionary<Guid, string>()
-            : await db.ProductSubcategories.Where(s => subIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Name, ct);
+        var subs = subIds.Count == 0 ? new Dictionary<Guid, (string Name, string? Hsn)>()
+            : (await db.ProductSubcategories.Where(s => subIds.Contains(s.Id)).Select(s => new { s.Id, s.Name, s.HsnCode }).ToListAsync(ct))
+                .ToDictionary(s => s.Id, s => (Name: s.Name, Hsn: s.HsnCode));
+
+        // T31a/F7: the rate shown is the sales profile's version valid today (resolver, document country), batched. With no country, profile or version it is 0 with a warning (the mirror tax is no longer read).
+        var percents = await CurrentPercentsAsync(productIds, ct);
+
+        // TP-4: the price basis the unit prices are in (product, else company: the rule of the preview and the save) and the effective HSN/SAC (product, else subcategory).
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var settings = await db.BusinessSettings.AsNoTracking().Where(s => s.CompanyId == companyId).SingleAsync(ct);
 
         return products.Select(p => new SaleCatalogProductDto(
             p.Id, p.Sku, p.Name, p.Category, p.BaseUnit.ShortCode,
-            qtyByProduct.GetValueOrDefault(p.Id, 0m), p.Tax.RatePercent,
+            qtyByProduct.GetValueOrDefault(p.Id, 0m), percents.GetValueOrDefault(p.Id, 0m),
             p.Units.OrderBy(u => u.SortOrder).Select(u => new SaleCatalogUnitDto(
                 u.Id, u.UnitId, u.Unit.ShortCode, u.Label ?? u.Unit.Name,
                 u.ConversionFactorToBase, u.Unit.DecimalPlaces, u.IsBaseUnit, u.IsDefaultSalesUnit,
                 priceByUnit.TryGetValue(u.Id, out var price) ? price : null, u.Barcode)).ToList(),
             locationId,
-            p.CategoryId, p.SubcategoryId is { } sid && subNames.TryGetValue(sid, out var subName) ? subName : null
+            p.CategoryId, p.SubcategoryId is { } sid && subs.TryGetValue(sid, out var sub) ? sub.Name : null,
+            SalesTaxRules.PriceIncludesTax(p, settings),
+            !string.IsNullOrEmpty(p.HsnCode) ? p.HsnCode : p.SubcategoryId is { } hid && subs.TryGetValue(hid, out var hsnSub) ? hsnSub.Hsn : null,
+            percents.ContainsKey(p.Id) ? null : "No tax rate applies to this product today: it shows 0%. Assign a tax profile with a valid version."
         )).ToList();
+    }
+
+    private async Task<IReadOnlyDictionary<Guid, decimal>> CurrentPercentsAsync(IReadOnlyCollection<Guid> productIds, CancellationToken ct)
+    {
+        try
+        {
+            var countryId = await resolver.ResolveDocumentCountryAsync(db.BranchContext.ActiveBranchId, "branchId", ct);
+            return await resolver.ResolveCurrentSalesPercentsAsync(countryId, DateOnly.FromDateTime(DateTime.UtcNow), productIds, ct);
+        }
+        catch (DomainValidationException)
+        {
+            return new Dictionary<Guid, decimal>(); // no country configured: the mirror rate, as before
+        }
     }
 
     /// <summary>Selling location for catalog availability: the requested one (must be visible by branch access, else 403 branch_access_denied),
@@ -211,6 +237,7 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             .Include(i => i.Lines).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
             .Include(i => i.Lines).ThenInclude(l => l.Product).ThenInclude(pr => pr.Units).ThenInclude(u => u.Unit)
             .Include(i => i.Lines).ThenInclude(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch)
+            .Include(i => i.Lines).ThenInclude(l => l.Taxes)
             .Include(i => i.Payments).ThenInclude(pay => pay.CreatedByUser)
             .Include(i => i.Payments).ThenInclude(pay => pay.SalesReturn)
             .Include(i => i.Returns).ThenInclude(r => r.Lines)
@@ -240,7 +267,34 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             })
             .ToListAsync(ct))
             .ToDictionary(b => b.Id, b => new BatchSource(b.IsPurchase ? "Purchase" : "Adjustment", b.RefNo, b.PurchaseOrderId));
-        return Ok(ToDetail(invoice, batchSources) with { BranchCode = labels.Code(invoice.BranchId), BranchName = labels.Name(invoice.BranchId), StockLocationId = invoice.StockLocationId, StockLocationCode = locLabels.Code(invoice.StockLocationId), StockLocationName = locLabels.Name(invoice.StockLocationId), SellerGstin = sellerGstin });
+
+        // TP-4: names of the snapshotted profiles and states (the rows only carry ids).
+        var profileIds = invoice.Lines.Where(l => l.TaxProfileId != null).Select(l => l.TaxProfileId!.Value).Distinct().ToList();
+        var profileNames = await db.TaxProfiles.AsNoTracking().Where(t => profileIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Name, ct);
+        // T31b: the seller block, from the invoice's branch with the company settings as fallback (read here, not through the Masters endpoints, so any reader of the invoice gets it).
+        var branch = await db.Branches.AsNoTracking().Where(b => b.CompanyId == invoice.CompanyId && b.Id == invoice.BranchId)
+            .Select(b => new { b.AddressLine, b.City, b.State, b.StateId }).SingleOrDefaultAsync(ct);
+        var company = await db.BusinessSettings.AsNoTracking().Where(b => b.CompanyId == invoice.CompanyId)
+            .Select(b => new { b.BusinessName, b.AddressLine, b.City, b.State, b.StateId }).SingleAsync(ct);
+        var sellerStateId = invoice.SellerStateId ?? branch?.StateId ?? company.StateId;
+        var stateIds = new[] { invoice.PlaceOfSupplyStateId, sellerStateId }.Where(x => x != null).Select(x => x!.Value).Distinct().ToList();
+        var states = await db.States.AsNoTracking().Where(st => stateIds.Contains(st.Id)).ToDictionaryAsync(st => st.Id, st => (st.Name, Code: st.GstStateCode), ct);
+        var stateNames = states.ToDictionary(kv => kv.Key, kv => kv.Value.Name);
+        var hasBranchAddress = !string.IsNullOrWhiteSpace(branch?.AddressLine) || !string.IsNullOrWhiteSpace(branch?.City);
+        var sellerAddress = string.Join(", ", (hasBranchAddress ? new[] { branch!.AddressLine, branch.City } : [company.AddressLine, company.City]).Where(x => !string.IsNullOrWhiteSpace(x)));
+
+        return Ok(ToDetail(invoice, batchSources, profileNames) with
+        {
+            PlaceOfSupplyStateName = invoice.PlaceOfSupplyStateId is { } ps ? stateNames.GetValueOrDefault(ps) : null,
+            SellerStateName = sellerStateId is { } ss ? stateNames.GetValueOrDefault(ss) ?? (!string.IsNullOrWhiteSpace(branch?.State) ? branch!.State : company.State) : null,
+            SellerStateGstCode = sellerStateId is { } sc && states.TryGetValue(sc, out var sellerState) ? sellerState.Code : null,
+            PlaceOfSupplyStateGstCode = invoice.PlaceOfSupplyStateId is { } pc && states.TryGetValue(pc, out var posState) ? posState.Code : null,
+            SellerName = company.BusinessName,
+            SellerAddress = sellerAddress.Length == 0 ? null : sellerAddress,
+            SellerTaxIdLabel = invoice.PlaceOfSupply == PlaceOfSupply.NotApplicable ? "TRN" : "GSTIN",
+            Warnings = invoice.Warnings.Select(w => new SalesWarningDto(w.Field, w.Message)).ToList(),
+            BranchCode = labels.Code(invoice.BranchId), BranchName = labels.Name(invoice.BranchId), StockLocationId = invoice.StockLocationId, StockLocationCode = locLabels.Code(invoice.StockLocationId), StockLocationName = locLabels.Name(invoice.StockLocationId), SellerGstin = sellerGstin,
+        });
     }
 
     [HttpPost]
@@ -250,32 +304,40 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
         if (!IdempotencyHeader.TryRead(Request, out var key)) return IdempotencyHeader.Invalid(this);
 
+        // BR19a: a whole-bill discount needs Sales.BillDiscount at the working branch (the service checks it again).
+        if ((request.BillDiscountPercent is > 0 || request.BillDiscountAmount is > 0) && !await HasPermissionAsync("Sales.BillDiscount", ct))
+        {
+            return Problem(statusCode: StatusCodes.Status403Forbidden, title: "You are not allowed to give a whole-bill discount.");
+        }
+
         var input = new CreateSaleInput(
             request.CustomerId!.Value, request.InvoiceDate, request.PaymentMethod, request.PaidAmount,
             request.Lines.Select(l => new SaleLineInput(l.ProductId!.Value, l.ProductUnitId!.Value, l.Qty, l.UnitPrice, l.Discount, l.OverridePrice)).ToList(),
-            request.AccountId, key, await CanOverridePriceAsync(ct), request.StockLocationId);
+            request.AccountId, key, await HasPermissionAsync("Sales.PriceOverride", ct), request.StockLocationId,
+            request.BillDiscountPercent, request.BillDiscountAmount, request.BillCharges, request.ExpectedGrandTotal);
 
         try
         {
             var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
             var invoice = await salesService.CreateSaleAsync(input, userId, ct);
-            return await Get(invoice.Id, ct);
+            return await Get(invoice.Id, ct); // the same tracked instance, so the (unstored) warnings of this save are on it
         }
         catch (DomainValidationException ex)
         {
-            ModelState.AddModelError(ex.Field, ex.Message);
+            // Every field error, not only the first, so the POS can mark all rows at once.
+            foreach (var error in ex.Errors) ModelState.AddModelError(error.Field, error.Message);
             return ValidationProblem(ModelState);
         }
     }
 
-    /// <summary>Sales.PriceOverride evaluated server-side at the working branch (Phase 7); token claims are not used.</summary>
-    private async Task<bool> CanOverridePriceAsync(CancellationToken ct)
+    /// <summary>A permission evaluated server-side at the working branch (Phase 7), or held company-wide; token claims are not used.</summary>
+    private async Task<bool> HasPermissionAsync(string code, CancellationToken ct)
     {
         var set = await effectivePermissions.GetCurrentAsync(ct);
         var branchContext = HttpContext.RequestServices.GetRequiredService<BranchContext>();
         var working = branchContext.ActiveBranchId;
-        if (set.HasCompanyLevel("Sales.PriceOverride")) return true;
-        return working is { } id && set.HasAtBranch("Sales.PriceOverride", id);
+        if (set.HasCompanyLevel(code)) return true;
+        return working is { } id && set.HasAtBranch(code, id);
     }
 
     [HttpPost("{id:guid}/payments")]
@@ -365,14 +427,23 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
 
     private sealed record BatchSource(string SourceType, string RefNo, Guid? PurchaseOrderId);
 
-    private static SalesInvoiceDetailDto ToDetail(SalesInvoice i, IReadOnlyDictionary<Guid, BatchSource> batchSources)
+    private static SalesInvoiceDetailDto ToDetail(SalesInvoice i, IReadOnlyDictionary<Guid, BatchSource> batchSources, Dictionary<Guid, string> profileNames)
     {
         var returnedByLine = i.Returns.SelectMany(r => r.Lines).GroupBy(l => l.SalesInvoiceLineId).ToDictionary(g => g.Key, g => g.Sum(l => l.BaseQty));
         var reversed = i.Payments.Where(p => p.ReversesPaymentId != null).Select(p => p.ReversesPaymentId!.Value).ToHashSet();
-        return ToDetail(i, returnedByLine, reversed, batchSources);
+        return ToDetail(i, returnedByLine, reversed, batchSources, profileNames);
     }
 
-    private static SalesInvoiceDetailDto ToDetail(SalesInvoice i, Dictionary<Guid, decimal> returnedByLine, HashSet<Guid> reversed, IReadOnlyDictionary<Guid, BatchSource> batchSources) => new(
+    /// <summary>The tax rows of a sales or return line. <c>IsLegacy</c>: no component and no treatment (written before the calculator).</summary>
+    internal static List<SalesLineTaxDto> ToTaxDtos(IEnumerable<LineTaxBase> rows) => rows
+        .OrderBy(t => t.TaxComponentId == null ? 1 : 0).ThenBy(t => t.Kind).ThenBy(t => t.ComponentCode, StringComparer.Ordinal)
+        .Select(t => new SalesLineTaxDto(
+            t.TaxComponentId, t.ComponentCode, t.Kind, t.Method, t.RatePercent, t.AmountPerBaseUnit, t.BaseAmount, t.TaxAmount, t.Treatment,
+            t.TaxComponentId == null && t.Treatment == null)).ToList();
+
+    private static SalesInvoiceDetailDto ToDetail(
+        SalesInvoice i, Dictionary<Guid, decimal> returnedByLine, HashSet<Guid> reversed, IReadOnlyDictionary<Guid, BatchSource> batchSources,
+        Dictionary<Guid, string> profileNames) => new(
         i.Id, i.InvoiceNo, i.CustomerId, i.Customer.Name, i.InvoiceDate,
         i.PaymentMethod, i.PaidAmount, i.DueAmount, i.PaymentStatus,
         i.Subtotal, i.TaxTotal, i.DiscountTotal, i.GrandTotal,
@@ -389,7 +460,9 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
                 batchSources[c.PurchaseBatchId].SourceType,
                 batchSources[c.PurchaseBatchId].RefNo,
                 batchSources[c.PurchaseBatchId].PurchaseOrderId,
-                c.QtyBaseUnits, c.ReturnedQtyBaseUnits, c.UnitCost)).ToList()
+                c.QtyBaseUnits, c.ReturnedQtyBaseUnits, c.UnitCost)).ToList(),
+            ToTaxDtos(l.Taxes), l.TaxProfileId, l.TaxProfileId is { } pid ? profileNames.GetValueOrDefault(pid) : null, l.TaxProfileVersionId,
+            l.PlaceOfSupply, l.PriceIncludesTax, l.HsnCode, l.BillDiscountShare, l.BillChargeShare
         )).ToList(),
         i.Payments.OrderBy(pay => pay.CreatedAt).Select(pay => ToPaymentDto(pay, reversed)).ToList(),
         i.ReturnedAmount, i.NetTotal, i.RefundableAmount,
@@ -397,7 +470,12 @@ public class SalesController(SelloraDbContext db, ISalesService salesService, IE
             r.Id, r.ReturnNo, r.ReturnDate, r.Total,
             i.Payments.Where(p => p.SalesReturnId == r.Id && p.Kind == PaymentEntryKind.Refund).Sum(p => p.Amount)
         )).ToList(),
-        i.BranchId, null, null, null);
+        i.BranchId, null, null, null,
+        TaxableTotal: i.TaxableTotal ?? i.Subtotal - i.DiscountTotal, // NULL on history
+        BillDiscountPercent: i.BillDiscountPercent, BillDiscountAmount: i.BillDiscountAmount, BillCharges: i.BillCharges,
+        PlaceOfSupply: i.PlaceOfSupply,
+        Regime: i.PlaceOfSupply is { } place ? place == PlaceOfSupply.NotApplicable ? TaxRegime.Vat : TaxRegime.Gst : null,
+        PlaceOfSupplyStateId: i.PlaceOfSupplyStateId, SellerStateId: i.SellerStateId, PartyTaxStatus: i.PartyTaxStatus);
 
     private static decimal ReturnableBase(SalesInvoice i, SalesInvoiceLine l, Dictionary<Guid, decimal> returnedByLine) =>
         i.Status == SalesStatus.Cancelled ? 0 : Math.Max(0, l.BaseQty - returnedByLine.GetValueOrDefault(l.Id));

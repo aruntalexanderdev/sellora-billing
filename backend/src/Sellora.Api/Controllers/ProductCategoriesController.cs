@@ -28,7 +28,7 @@ public class ProductCategoriesController(SelloraDbContext db, IProductCategorySe
             .Where(s => includeInactive || s.IsActive)
             .OrderBy(s => s.SortOrder).ThenBy(s => s.Name)
             .Select(s => new ProductSubcategoryDto(s.Id, s.CategoryId, s.Code, s.Name, s.SortOrder, s.IsActive,
-                db.Products.Count(p => p.SubcategoryId == s.Id)))
+                db.Products.Count(p => p.SubcategoryId == s.Id), s.HsnCode))
             .ToListAsync(ct);
         var subsByCategory = subs.ToLookup(s => s.CategoryId);
 
@@ -102,7 +102,8 @@ public class ProductCategoriesController(SelloraDbContext db, IProductCategorySe
         try
         {
             var sub = await service.UpdateSubcategoryAsync(id, subId, ToInput(request), ct);
-            return sub is null ? NotFound() : Ok(await LoadSubcategoryAsync(id, subId, ct));
+            if (sub is null) return NotFound();
+            return Ok((await LoadSubcategoryAsync(id, subId, ct))! with { Warnings = await SalesTaxLookup.MissingHsnWarningsAsync(db, null, ct) });
         }
         catch (DomainValidationException ex)
         {
@@ -132,12 +133,12 @@ public class ProductCategoriesController(SelloraDbContext db, IProductCategorySe
     }
 
     private static UpsertProductClassificationInput ToInput(UpsertProductClassificationRequest r) =>
-        new(r.Code ?? string.Empty, r.Name ?? string.Empty, r.SortOrder);
+        new(r.Code ?? string.Empty, r.Name ?? string.Empty, r.SortOrder, r.HsnCode);
 
     private Task<ProductSubcategoryDto?> LoadSubcategoryAsync(Guid categoryId, Guid subId, CancellationToken ct) =>
         db.ProductSubcategories.AsNoTracking().Where(s => s.Id == subId && s.CategoryId == categoryId)
             .Select(s => new ProductSubcategoryDto(s.Id, s.CategoryId, s.Code, s.Name, s.SortOrder, s.IsActive,
-                db.Products.Count(p => p.SubcategoryId == s.Id)))
+                db.Products.Count(p => p.SubcategoryId == s.Id), s.HsnCode))
             .SingleOrDefaultAsync(ct);
 
     private async Task<ProductCategoryDto?> LoadCategoryAsync(Guid id, CancellationToken ct)
@@ -150,7 +151,7 @@ public class ProductCategoriesController(SelloraDbContext db, IProductCategorySe
         var subs = await db.ProductSubcategories.AsNoTracking().Where(s => s.CategoryId == id)
             .OrderBy(s => s.SortOrder).ThenBy(s => s.Name)
             .Select(s => new ProductSubcategoryDto(s.Id, s.CategoryId, s.Code, s.Name, s.SortOrder, s.IsActive,
-                db.Products.Count(p => p.SubcategoryId == s.Id)))
+                db.Products.Count(p => p.SubcategoryId == s.Id), s.HsnCode))
             .ToListAsync(ct);
         return new ProductCategoryDto(c.Id, c.Code, c.Name, c.SortOrder, c.IsActive, c.ProductCount, subs);
     }

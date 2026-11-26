@@ -37,6 +37,9 @@ The main session is the **Lead Architect / Delivery Lead**. It plans, delegates,
 | `devops-release-engineer` | Yes (CI/config only) | GitHub workflows, migration scripts, rollback, auto-migrate gating |
 | `code-reviewer` | No | Independent review against invariants before the lead reports done |
 | `business-analyst` | Docs only | Requirements + acceptance criteria in `docs/features/<slug>.md` for work outside the restructuring programme |
+| `owner-proxy` | No | Owner-away mode only: answers gate questions as the owner would (DECIDE / DEFER / ESCALATE) |
+
+**Owner-away mode:** when the owner says they are offline, follow `.claude/rules/owner-away.md`. Gate questions go to `owner-proxy` instead of `AskUserQuestion`, and every verdict is logged in `docs/decisions/owner-proxy-log.md` for the owner to review. Phase starts, deploys, destructive changes and overrides of owner decisions are never delegated.
 
 Entry points:
 

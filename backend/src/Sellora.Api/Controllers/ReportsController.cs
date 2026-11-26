@@ -205,11 +205,25 @@ public class ReportsController(SelloraDbContext db, IEffectivePermissionService 
             .Select(p => new PurchaseReportRowDto(
                 p.Id, p.PurchaseNo, p.PurchaseDate, p.Supplier.Name,
                 p.Subtotal, p.TaxTotal, p.OtherChargesTotal, p.GrandTotal, p.PaidAmount, p.DueAmount, p.Status,
-                p.Currency.Code, p.OriginalGrandTotal, p.BranchId, null, null))
+                p.Currency.Code, p.OriginalGrandTotal, p.BranchId, null, null,
+                p.TaxableTotal ?? p.Subtotal + p.OtherChargesTotal - p.DiscountTotal)) // NULL on history (TP3-Q1)
             .ToListAsync(ct);
 
+        // Tax by component kind: one grouped query for the page. A row with no component (legacy) counts as Other; zero rows (non-taxable) add nothing.
+        var pageIds = items.Select(i => i.Id).ToList();
+        var byKind = (await db.PurchaseOrderLineTaxes.Where(t => pageIds.Contains(t.Line.PurchaseOrderId) && t.TaxAmount != 0m)
+                .GroupBy(t => new { t.Line.PurchaseOrderId, Kind = t.TaxComponentId == null ? TaxComponentKind.Other : t.Kind })
+                .Select(g => new { g.Key.PurchaseOrderId, g.Key.Kind, Amount = g.Sum(t => t.TaxAmount) })
+                .ToListAsync(ct))
+            .GroupBy(x => x.PurchaseOrderId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<PurchaseReportTaxDto>)g.OrderBy(x => x.Kind).Select(x => new PurchaseReportTaxDto(x.Kind, x.Amount)).ToList());
+
         var labels = await BranchLabels.LoadAsync(db, ct);
-        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
+        items = items.Select(i => i with
+        {
+            BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId),
+            TaxByKind = byKind.GetValueOrDefault(i.Id) ?? [],
+        }).ToList();
 
         return Ok(new PagedResult<PurchaseReportRowDto>(items, total, page, pageSize));
     }
@@ -244,11 +258,25 @@ public class ReportsController(SelloraDbContext db, IEffectivePermissionService 
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(i => new SalesReportRowDto(
                 i.Id, i.InvoiceNo, i.InvoiceDate, i.Customer.Name,
-                i.Subtotal, i.TaxTotal, i.DiscountTotal, i.GrandTotal, i.PaidAmount, i.DueAmount, i.Status, i.BranchId, null, null))
+                i.Subtotal, i.TaxTotal, i.DiscountTotal, i.GrandTotal, i.PaidAmount, i.DueAmount, i.Status, i.BranchId, null, null,
+                i.TaxableTotal ?? i.Subtotal - i.DiscountTotal)) // NULL on history (TP-4)
             .ToListAsync(ct);
 
+        // Tax by component kind: one grouped query for the page. A row with no component (legacy) counts as Other; zero rows (non-taxable) add nothing.
+        var pageIds = items.Select(i => i.Id).ToList();
+        var byKind = (await db.SalesInvoiceLineTaxes.Where(t => pageIds.Contains(t.Line.SalesInvoiceId) && t.TaxAmount != 0m)
+                .GroupBy(t => new { t.Line.SalesInvoiceId, Kind = t.TaxComponentId == null ? TaxComponentKind.Other : t.Kind })
+                .Select(g => new { g.Key.SalesInvoiceId, g.Key.Kind, Amount = g.Sum(t => t.TaxAmount) })
+                .ToListAsync(ct))
+            .GroupBy(x => x.SalesInvoiceId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<SalesReportTaxDto>)g.OrderBy(x => x.Kind).Select(x => new SalesReportTaxDto(x.Kind, x.Amount)).ToList());
+
         var labels = await BranchLabels.LoadAsync(db, ct);
-        items = items.Select(i => i with { BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId) }).ToList();
+        items = items.Select(i => i with
+        {
+            BranchCode = labels.Code(i.BranchId), BranchName = labels.Name(i.BranchId),
+            TaxByKind = byKind.GetValueOrDefault(i.Id) ?? [],
+        }).ToList();
 
         return Ok(new PagedResult<SalesReportRowDto>(items, total, page, pageSize));
     }

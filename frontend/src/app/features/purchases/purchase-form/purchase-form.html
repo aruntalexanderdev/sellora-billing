@@ -42,6 +42,30 @@
         }
       </div>
 
+      <div class="tax-options" data-testid="tax-options">
+        <label class="check-inline">
+          <input type="checkbox" formControlName="ratesIncludeTax" data-testid="rates-include-tax" />
+          <span>Rates include tax</span>
+        </label>
+        @if (placeLabel(); as place) {
+          <ui-badge [text]="place" [tone]="place === 'Other state' ? 'warn' : 'info'" data-testid="place-of-supply" />
+        }
+        @if (previewPending() && previewPlan()) {
+          <span class="preview-status" data-testid="preview-pending">Updating tax…</span>
+        }
+      </div>
+
+      @if (previewError(); as e) {
+        <div class="preview-note preview-error" role="alert" data-testid="preview-error">{{ e }} Totals below are estimates without tax.</div>
+      }
+      @if (previewWarnings().length > 0) {
+        <div class="preview-note preview-warning" data-testid="preview-warnings">
+          @for (w of previewWarnings(); track w) {
+            <div>{{ w }}</div>
+          }
+        </div>
+      }
+
       <div class="line-items">
         <div class="line-header-row">
           <span class="field-label" style="margin: 0">Items</span>
@@ -62,13 +86,19 @@
 
           @for (row of lines.controls; track row; let i = $index) {
             <div class="lines-grid-row" [formGroup]="row">
+              <div>
               <select formControlName="productId" class="field-input" (change)="onProductChange(row, row.controls.productId.value)">
                 <option value="" disabled>Select…</option>
                 @for (p of products(); track p.id) {
                   <option [value]="p.id">{{ p.name }}</option>
                 }
               </select>
+              @if (row.controls.productId.errors?.['server']; as e) {
+                <div class="field-error">{{ e }}</div>
+              }
+              </div>
 
+              <div>
               <select formControlName="productUnitId" class="field-input">
                 @if (!productDetail(row.controls.productId.value)) {
                   <option value="">—</option>
@@ -79,6 +109,10 @@
                   <option [value]="u.id">{{ u.displayName }}</option>
                 }
               </select>
+              @if (row.controls.productUnitId.errors?.['server']; as e) {
+                <div class="field-error">{{ e }}</div>
+              }
+              </div>
 
               <div>
                 <input type="number" [step]="quantityStep(unitDecimals(row))" formControlName="qty" class="field-input" />
@@ -92,13 +126,36 @@
                 @if (previews()[i]?.baseDecimalsError; as msg) {
                   <div class="field-error">{{ msg }}</div>
                 }
+                @if (row.controls.qty.errors?.['server']; as e) {
+                  <div class="field-error">{{ e }}</div>
+                }
               </div>
-              <input type="number" step="0.01" formControlName="rate" class="field-input" />
-              <input type="number" step="0.01" formControlName="otherCharges" class="field-input" />
-              <input type="number" step="0.01" formControlName="discount" class="field-input" />
+              <div>
+                <input type="number" step="0.01" formControlName="rate" class="field-input" />
+                @if (row.controls.rate.errors?.['server']; as e) {
+                  <div class="field-error" data-testid="rate-error">{{ e }}</div>
+                }
+              </div>
+              <div>
+                <input type="number" step="0.01" formControlName="otherCharges" class="field-input" />
+                @if (row.controls.otherCharges.errors?.['server']; as e) {
+                  <div class="field-error">{{ e }}</div>
+                }
+              </div>
+              <div>
+                <input type="number" step="0.01" formControlName="discount" class="field-input" />
+                @if (row.controls.discount.errors?.['server']; as e) {
+                  <div class="field-error">{{ e }}</div>
+                }
+              </div>
 
               <div class="line-total-cell">
-                {{ currencySymbol() + (previews()[i]?.lineTotal ?? 0).toFixed(2) }}
+                {{ money(lineViews()[i]?.lineTotal ?? 0) }}
+                @if (lineViews()[i]?.rows?.length) {
+                  <button type="button" class="tax-toggle" (click)="toggleTax(row)" [attr.aria-expanded]="isExpanded(row)" data-testid="tax-toggle">
+                    Tax {{ money(lineViews()[i].tax) }} {{ isExpanded(row) ? '▴' : '▾' }}
+                  </button>
+                }
                 <div class="line-total-sub">{{ previews()[i]?.valid ? '= ' + formatQuantity(previews()[i].baseQty, previews()[i].baseUnitDecimalPlaces) + ' ' + previews()[i].baseUnitLabel : '' }}</div>
               </div>
 
@@ -111,14 +168,29 @@
                 </label>
                 <div class="batch-facts">
                   <span>Received: <strong>{{ formatQuantity(previews()[i]?.baseQty ?? 0, previews()[i]?.baseUnitDecimalPlaces ?? 3) }} {{ previews()[i]?.baseUnitLabel }}</strong></span>
-                  <span>Unit cost: <strong>{{ currencySymbol() + (previews()[i]?.unitCost ?? 0).toFixed(4) }}{{ previews()[i]?.baseUnitLabel ? ' / ' + previews()[i]?.baseUnitLabel : '' }}</strong></span>
+                  <span>Unit cost: <strong>{{ currencySymbol() + (lineViews()[i]?.unitCost ?? 0).toFixed(4) }}{{ previews()[i]?.baseUnitLabel ? ' / ' + previews()[i]?.baseUnitLabel : '' }}</strong></span>
+                  @if (lineViews()[i]?.hsnCode; as hsn) {
+                    <span>HSN: <strong>{{ hsn }}</strong></span>
+                  }
                   <span>Received on: <strong>{{ form.controls.purchaseDate.value }}</strong></span>
                   <span class="batch-note">Batch number is assigned automatically on save.</span>
                 </div>
-                @if (row.controls.supplierBatchNumber.invalid) {
+                @if (row.controls.supplierBatchNumber.errors?.['server']; as e) {
+                  <div class="field-error">{{ e }}</div>
+                }
+                @if (row.controls.supplierBatchNumber.errors?.['maxlength']) {
                   <div class="field-error">Supplier batch number can be at most 60 characters.</div>
                 }
               </div>
+
+              @if (isExpanded(row) && lineViews()[i]; as view) {
+                <div class="tax-detail" data-testid="line-tax-detail">
+                  <div class="tax-detail-head">
+                    {{ view.profileName ?? 'Tax' }}{{ view.priceIncludesTax ? ' · rate includes tax' : '' }}
+                  </div>
+                  <app-line-tax-breakdown [rows]="view.rows" [symbol]="currencySymbol()" [precision]="precision()" [baseUnitLabel]="previews()[i]?.baseUnitLabel ?? ''" />
+                </div>
+              }
             </div>
           }
         </div>
@@ -126,11 +198,45 @@
 
       <div class="totals-and-payment">
         <div class="totals-card">
-          <div class="totals-row"><span>Subtotal</span><span>{{ currencySymbol() }}{{ totals().subtotal.toFixed(2) }}</span></div>
-          <div class="totals-row"><span>Other charges</span><span>{{ currencySymbol() }}{{ totals().otherCharges.toFixed(2) }}</span></div>
-          <div class="totals-row"><span>Discount</span><span>−{{ currencySymbol() }}{{ totals().discount.toFixed(2) }}</span></div>
-          <div class="totals-row"><span>Tax</span><span>{{ currencySymbol() }}{{ totals().tax.toFixed(2) }}</span></div>
-          <div class="totals-row totals-grand"><span>Grand total{{ isForeign() ? ' (' + selectedSupplier()?.currencyCode + ')' : '' }}</span><span>{{ currencySymbol() }}{{ totals().grandTotal.toFixed(2) }}</span></div>
+          <div class="bill-adjust" data-testid="bill-adjust">
+            <div>
+              <div class="bill-discount-head">
+                <span class="field-label" style="margin: 0">Bill discount</span>
+                <span class="seg" role="group" aria-label="Bill discount type">
+                  <button type="button" class="seg-btn" [class.active]="billDiscountMode() === 'percent'" (click)="setBillDiscountMode('percent')" data-testid="mode-percent">%</button>
+                  <button type="button" class="seg-btn" [class.active]="billDiscountMode() === 'amount'" (click)="setBillDiscountMode('amount')" data-testid="mode-amount">{{ currencySymbol() }}</button>
+                </span>
+              </div>
+              @if (billDiscountMode() === 'percent') {
+                <input type="number" step="0.01" min="0" max="100" formControlName="billDiscountPercent" class="field-input" placeholder="0" aria-label="Bill discount percent" data-testid="bill-discount-percent" />
+                @if (form.controls.billDiscountPercent.errors; as e) {
+                  <div class="field-error">{{ e['server'] ?? 'Enter a percent between 0 and 100.' }}</div>
+                }
+              } @else {
+                <input type="number" [step]="1 / 10 ** precision()" min="0" formControlName="billDiscountAmount" class="field-input" placeholder="0" aria-label="Bill discount amount" data-testid="bill-discount-amount" />
+                @if (form.controls.billDiscountAmount.errors; as e) {
+                  <div class="field-error">{{ e['server'] ?? 'Enter an amount of zero or more.' }}</div>
+                }
+              }
+            </div>
+            <div>
+              <label class="field-label">Bill charges</label>
+              <input type="number" [step]="1 / 10 ** precision()" min="0" formControlName="billCharges" class="field-input" aria-label="Bill charges" data-testid="bill-charges" />
+              @if (form.controls.billCharges.errors; as e) {
+                <div class="field-error">{{ e['server'] ?? 'Enter an amount of zero or more.' }}</div>
+              }
+            </div>
+          </div>
+
+          <div class="totals-row"><span>Subtotal{{ preview()?.lines?.some(l => l.priceIncludesTax) ? ' (incl. tax)' : '' }}</span><span>{{ money(totals().subtotal) }}</span></div>
+          <div class="totals-row"><span>Other charges</span><span>{{ money(totals().otherCharges) }}</span></div>
+          <div class="totals-row"><span>Discount{{ totals().billDiscount > 0 ? ' (incl. bill ' + money(totals().billDiscount) + ')' : '' }}</span><span>−{{ money(totals().discount) }}</span></div>
+          <div class="totals-row" data-testid="taxable-total"><span>Taxable value</span><span>{{ money(totals().taxable) }}</span></div>
+          @for (c of totals().byComponent; track c.code) {
+            <div class="totals-row sub-row" data-testid="tax-component"><span>{{ c.code }}</span><span>{{ money(c.taxAmount) }}</span></div>
+          }
+          <div class="totals-row"><span>Tax{{ totals().estimated ? ' (calculated once items are complete)' : '' }}</span><span>{{ money(totals().tax) }}</span></div>
+          <div class="totals-row totals-grand"><span>Grand total{{ isForeign() ? ' (' + selectedSupplier()?.currencyCode + ')' : '' }}</span><span>{{ money(totals().grandTotal) }}</span></div>
           @if (isForeign() && resolvedRate(); as rate) {
             <div class="totals-row fx-row">
               <span>≈ {{ rate.baseCurrencyCode }} at 1 {{ selectedSupplier()?.currencyCode }} = {{ rate.baseCurrencySymbol }}{{ rate.rateToBase }}</span>
@@ -161,7 +267,7 @@
 
           <label class="field-label" style="margin-top: 12px">Paid amount ({{ paymentCode() }})</label>
           <input type="number" step="0.01" formControlName="paidAmount" class="field-input" />
-          <div class="due-line">Due ({{ paymentCode() }}): {{ currencySymbol() }}{{ dueInPaymentCurrency().toFixed(2) }}</div>
+          <div class="due-line">Due ({{ paymentCode() }}): {{ money(dueInPaymentCurrency()) }}</div>
           <div class="due-line">Due ({{ baseCode() }}): {{ baseSymbol() }}{{ dueInBaseCurrency().toFixed(2) }}</div>
 
           <label class="field-label" style="margin-top: 12px">Notes</label>

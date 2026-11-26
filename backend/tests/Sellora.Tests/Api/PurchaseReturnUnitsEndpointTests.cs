@@ -34,15 +34,17 @@ public class PurchaseReturnUnitsEndpointTests
         var (pc, box, hctn, fctn, kg, g) = (TestUnits.Piece(), TestUnits.Box(), TestUnits.HalfCarton(), TestUnits.FullCarton(), TestUnits.Kilogram(), TestUnits.Gram());
         db.AddRange(user.Role, user, tax, inr, settings, supplier, pc, box, hctn, fctn, kg, g);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);
 
         static ProductUnitInputItem Row(Guid unitId, Guid? inner, decimal? qty) => new(null, unitId, inner, qty, null, null, true, true, false, false, true);
-        var pen = await new ProductService(db).CreateProductAsync(new UpsertProductInput("STN-PEN", "Ball Pen", null, null, pc.Id, tax.Id, 0m,
+        var pen = await new ProductService(db).CreateProductAsync(new UpsertProductInput("STN-PEN", "Ball Pen", null, null, pc.Id, 0m,
             [Row(pc.Id, null, null), Row(box.Id, pc.Id, 10m), Row(hctn.Id, box.Id, 5m), Row(fctn.Id, hctn.Id, 2m)]));
         var rows = await db.ProductUnits.Include(u => u.Unit).Where(u => u.ProductId == pen.Id).ToDictionaryAsync(u => u.Unit.ShortCode);
 
         var service = new PurchaseService(db, new ExchangeRateService(db));
         var http = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())], "test")) };
         var ctx = new ControllerContext { HttpContext = http };
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         return new Fixture(db, service, new PurchasesController(db, service, new FakeEffectivePermissions("Purchase.View")) { ControllerContext = ctx },
             new PurchaseReturnsController(db, service) { ControllerContext = ctx }, user.Id, supplier, rows, pen, g, kg);
     }

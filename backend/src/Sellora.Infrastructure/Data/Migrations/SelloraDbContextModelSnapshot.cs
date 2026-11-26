@@ -251,10 +251,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<DateOnly?>("HsnRequiredFrom")
+                        .HasColumnType("date");
+
                     b.Property<string>("InvoicePrefix")
                         .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
+
+                    b.Property<decimal?>("MaxBillDiscountPercent")
+                        .HasColumnType("numeric(5,2)");
 
                     b.Property<string>("Phone")
                         .HasMaxLength(30)
@@ -271,6 +277,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
+
+                    b.Property<bool>("SellingPricesIncludeTax")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("State")
                         .HasMaxLength(80)
@@ -294,6 +303,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.ToTable("BusinessSettings", t =>
                         {
+                            t.HasCheckConstraint("CK_BusinessSettings_MaxBillDiscountPercent_Range", "\"MaxBillDiscountPercent\" IS NULL OR (\"MaxBillDiscountPercent\" >= 0 AND \"MaxBillDiscountPercent\" <= 100)");
+
                             t.HasCheckConstraint("CK_BusinessSettings_ReceiptPostingMode_Valid", "\"ReceiptPostingMode\" IN ('Direct', 'SupervisorApproval')");
 
                             t.HasCheckConstraint("CK_BusinessSettings_State_Requires_Country", "\"StateId\" IS NULL OR \"CountryId\" IS NOT NULL");
@@ -1744,6 +1755,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("HsnCode")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -1751,6 +1766,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)");
+
+                    b.Property<bool?>("PriceIncludesTax")
+                        .HasColumnType("boolean");
 
                     b.Property<decimal>("ReorderLevel")
                         .HasColumnType("numeric(18,3)");
@@ -1785,6 +1803,8 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.ToTable("Products", t =>
                         {
+                            t.HasCheckConstraint("CK_Products_HsnCode_Format", "\"HsnCode\" IS NULL OR \"HsnCode\" ~ '^[0-9]{4}([0-9]{2}){0,2}$'");
+
                             t.HasCheckConstraint("CK_Products_Subcategory_Requires_Category", "\"SubcategoryId\" IS NULL OR \"CategoryId\" IS NOT NULL");
                         });
                 });
@@ -1851,6 +1871,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("HsnCode")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -1873,6 +1897,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("ProductSubcategories", t =>
                         {
                             t.HasCheckConstraint("CK_ProductSubcategories_Code_Format", "\"Code\" ~ '^[A-Z0-9][A-Z0-9-]{0,19}$'");
+
+                            t.HasCheckConstraint("CK_ProductSubcategories_HsnCode_Format", "\"HsnCode\" IS NULL OR \"HsnCode\" ~ '^[0-9]{4}([0-9]{2}){0,2}$'");
                         });
                 });
 
@@ -2054,6 +2080,19 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<decimal>("BillCharges")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,4)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal>("BillDiscountAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,4)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal?>("BillDiscountPercent")
+                        .HasColumnType("numeric(9,4)");
+
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uuid");
 
@@ -2088,6 +2127,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<decimal>("OriginalBillCharges")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,4)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal>("OriginalBillDiscountAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,4)")
+                        .HasDefaultValue(0m);
+
                     b.Property<decimal>("OriginalGrandTotal")
                         .HasColumnType("numeric(18,4)");
 
@@ -2103,10 +2152,24 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("PaidAmount")
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<string>("PartyTaxStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Unspecified");
+
                     b.Property<string>("PaymentMethod")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<string>("PlaceOfSupply")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("PlaceOfSupplyStateId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateOnly>("PurchaseDate")
                         .HasColumnType("date");
@@ -2115,6 +2178,11 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
+
+                    b.Property<bool>("RatesIncludeTax")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<decimal>("ReturnedAmount")
                         .HasColumnType("numeric(18,2)");
@@ -2137,8 +2205,14 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
 
+                    b.Property<Guid?>("SupplierStateId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("TaxTotal")
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("TaxableTotal")
+                        .HasColumnType("numeric(18,4)");
 
                     b.HasKey("Id");
 
@@ -2159,7 +2233,20 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex(new[] { "CompanyId", "StockLocationId" }, "IX_PurchaseOrders_CompanyId_StockLocationId");
 
-                    b.ToTable("PurchaseOrders");
+                    b.HasIndex(new[] { "PlaceOfSupplyStateId" }, "IX_PurchaseOrders_PlaceOfSupplyStateId");
+
+                    b.HasIndex(new[] { "SupplierStateId" }, "IX_PurchaseOrders_SupplierStateId");
+
+                    b.ToTable("PurchaseOrders", t =>
+                        {
+                            t.HasCheckConstraint("CK_PurchaseOrders_BillAmounts_NonNegative", "\"BillDiscountAmount\" >= 0 AND \"BillCharges\" >= 0 AND \"OriginalBillDiscountAmount\" >= 0 AND \"OriginalBillCharges\" >= 0");
+
+                            t.HasCheckConstraint("CK_PurchaseOrders_BillDiscountPercent_Range", "\"BillDiscountPercent\" IS NULL OR (\"BillDiscountPercent\" >= 0 AND \"BillDiscountPercent\" <= 100)");
+
+                            t.HasCheckConstraint("CK_PurchaseOrders_PartyTaxStatus", "\"PartyTaxStatus\" IN ('Unspecified')");
+
+                            t.HasCheckConstraint("CK_PurchaseOrders_PlaceOfSupply", "\"PlaceOfSupply\" IS NULL OR \"PlaceOfSupply\" IN ('IntraState','InterState','NotApplicable')");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrderLine", b =>
@@ -2171,17 +2258,64 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("BaseQty")
                         .HasColumnType("numeric(18,3)");
 
+                    b.Property<decimal>("BillChargeShare")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,4)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal>("BillDiscountShare")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,4)")
+                        .HasDefaultValue(0m);
+
                     b.Property<decimal>("ConversionFactorToBase")
                         .HasColumnType("numeric(28,10)");
 
                     b.Property<decimal>("Discount")
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<string>("HsnCode")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
                     b.Property<decimal>("LineTotal")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OriginalBillChargeShare")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OriginalBillDiscountShare")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OriginalDiscount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OriginalLineTotal")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OriginalOtherCharges")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OriginalRate")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OriginalTaxAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OriginalTaxableValue")
                         .HasColumnType("numeric(18,4)");
 
                     b.Property<decimal>("OtherCharges")
                         .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("PlaceOfSupply")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("PriceIncludesTax")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
@@ -2202,6 +2336,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(18,4)");
 
                     b.Property<Guid>("TaxId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TaxProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TaxProfileVersionId")
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("TaxRatePercent")
@@ -2227,6 +2367,12 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("TaxId");
 
+                    b.HasIndex("TaxProfileId")
+                        .HasDatabaseName("IX_PurchaseOrderLines_TaxProfileId");
+
+                    b.HasIndex("TaxProfileVersionId")
+                        .HasDatabaseName("IX_PurchaseOrderLines_TaxProfileVersionId");
+
                     b.HasIndex("UnitId");
 
                     b.HasIndex("ProductId", "ProductUnitId");
@@ -2235,11 +2381,85 @@ namespace Sellora.Infrastructure.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_PurchaseOrderLines_BaseQty_Arithmetic", "\"Qty\" * \"ConversionFactorToBase\" = \"BaseQty\"");
 
+                            t.HasCheckConstraint("CK_PurchaseOrderLines_BillShares_NonNegative", "\"BillDiscountShare\" >= 0 AND \"BillChargeShare\" >= 0");
+
                             t.HasCheckConstraint("CK_PurchaseOrderLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
+
+                            t.HasCheckConstraint("CK_PurchaseOrderLines_HsnCode_Format", "\"HsnCode\" IS NULL OR \"HsnCode\" ~ '^[0-9]{4}([0-9]{2}){0,2}$'");
+
+                            t.HasCheckConstraint("CK_PurchaseOrderLines_PlaceOfSupply", "\"PlaceOfSupply\" IS NULL OR \"PlaceOfSupply\" IN ('IntraState','InterState','NotApplicable')");
 
                             t.HasCheckConstraint("CK_PurchaseOrderLines_Qty_Positive", "\"Qty\" > 0");
 
+                            t.HasCheckConstraint("CK_PurchaseOrderLines_TaxProfile_VersionNeedsProfile", "\"TaxProfileVersionId\" IS NULL OR \"TaxProfileId\" IS NOT NULL");
+
                             t.HasCheckConstraint("CK_PurchaseOrderLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrderLineTax", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("AmountPerBaseUnit")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<decimal>("BaseAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("ComponentCode")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal?>("OriginalBaseAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OriginalTaxAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("PurchaseOrderLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("RatePercent")
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid?>("TaxComponentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Treatment")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PurchaseOrderLineId")
+                        .HasDatabaseName("IX_PurchaseOrderLineTaxes_PurchaseOrderLineId");
+
+                    b.HasIndex(new[] { "TaxComponentId" }, "IX_PurchaseOrderLineTaxes_TaxComponentId");
+
+                    b.ToTable("PurchaseOrderLineTaxes", t =>
+                        {
+                            t.HasCheckConstraint("CK_PurchaseOrderLineTaxes_Kind", "\"Kind\" IN ('Cgst','Sgst','Utgst','Igst','Cess','Vat','Other')");
+
+                            t.HasCheckConstraint("CK_PurchaseOrderLineTaxes_MethodShape", "(\"Method\" = 'Percent' AND \"RatePercent\" IS NOT NULL AND \"AmountPerBaseUnit\" IS NULL AND \"RatePercent\" >= 0) OR (\"Method\" = 'AmountPerBaseUnit' AND \"AmountPerBaseUnit\" IS NOT NULL AND \"RatePercent\" IS NULL AND \"AmountPerBaseUnit\" >= 0)");
+
+                            t.HasCheckConstraint("CK_PurchaseOrderLineTaxes_Treatment", "\"Treatment\" IS NULL OR \"Treatment\" IN ('Taxable','NilRated','Exempt','ZeroRated','NonTaxable')");
                         });
                 });
 
@@ -2398,6 +2618,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("LineTotal")
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<decimal?>("OriginalTaxAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OriginalTaxableValue")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("PlaceOfSupply")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
@@ -2416,6 +2646,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("TaxAmount")
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<Guid?>("TaxProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TaxProfileVersionId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("TaxableValue")
                         .HasColumnType("numeric(18,4)");
 
@@ -2433,6 +2669,12 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("PurchaseReturnId");
 
+                    b.HasIndex("TaxProfileId")
+                        .HasDatabaseName("IX_PurchaseReturnLines_TaxProfileId");
+
+                    b.HasIndex("TaxProfileVersionId")
+                        .HasDatabaseName("IX_PurchaseReturnLines_TaxProfileVersionId");
+
                     b.HasIndex("UnitId");
 
                     b.HasIndex("ProductId", "ProductUnitId");
@@ -2443,9 +2685,79 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_PurchaseReturnLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
 
+                            t.HasCheckConstraint("CK_PurchaseReturnLines_PlaceOfSupply", "\"PlaceOfSupply\" IS NULL OR \"PlaceOfSupply\" IN ('IntraState','InterState','NotApplicable')");
+
                             t.HasCheckConstraint("CK_PurchaseReturnLines_Qty_Positive", "\"Qty\" > 0");
 
+                            t.HasCheckConstraint("CK_PurchaseReturnLines_TaxProfile_VersionNeedsProfile", "\"TaxProfileVersionId\" IS NULL OR \"TaxProfileId\" IS NOT NULL");
+
                             t.HasCheckConstraint("CK_PurchaseReturnLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PurchaseReturnLineTax", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("AmountPerBaseUnit")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<decimal>("BaseAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("ComponentCode")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal?>("OriginalBaseAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OriginalTaxAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("PurchaseReturnLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("RatePercent")
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid?>("TaxComponentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Treatment")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PurchaseReturnLineId")
+                        .HasDatabaseName("IX_PurchaseReturnLineTaxes_PurchaseReturnLineId");
+
+                    b.HasIndex(new[] { "TaxComponentId" }, "IX_PurchaseReturnLineTaxes_TaxComponentId");
+
+                    b.ToTable("PurchaseReturnLineTaxes", t =>
+                        {
+                            t.HasCheckConstraint("CK_PurchaseReturnLineTaxes_Kind", "\"Kind\" IN ('Cgst','Sgst','Utgst','Igst','Cess','Vat','Other')");
+
+                            t.HasCheckConstraint("CK_PurchaseReturnLineTaxes_MethodShape", "(\"Method\" = 'Percent' AND \"RatePercent\" IS NOT NULL AND \"AmountPerBaseUnit\" IS NULL AND \"RatePercent\" >= 0) OR (\"Method\" = 'AmountPerBaseUnit' AND \"AmountPerBaseUnit\" IS NOT NULL AND \"RatePercent\" IS NULL AND \"AmountPerBaseUnit\" >= 0)");
+
+                            t.HasCheckConstraint("CK_PurchaseReturnLineTaxes_Treatment", "\"Treatment\" IS NULL OR \"Treatment\" IN ('Taxable','NilRated','Exempt','ZeroRated','NonTaxable')");
                         });
                 });
 
@@ -2584,6 +2896,19 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<decimal>("BillCharges")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,4)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal>("BillDiscountAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,4)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal?>("BillDiscountPercent")
+                        .HasColumnType("numeric(9,4)");
+
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uuid");
 
@@ -2622,13 +2947,30 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("PaidAmount")
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<string>("PartyTaxStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Unspecified");
+
                     b.Property<string>("PaymentMethod")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("PlaceOfSupply")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("PlaceOfSupplyStateId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("ReturnedAmount")
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("SellerStateId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -2643,6 +2985,9 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.Property<decimal>("TaxTotal")
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("TaxableTotal")
+                        .HasColumnType("numeric(18,4)");
 
                     b.HasKey("Id");
 
@@ -2661,7 +3006,20 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex(new[] { "CompanyId", "StockLocationId" }, "IX_SalesInvoices_CompanyId_StockLocationId");
 
-                    b.ToTable("SalesInvoices");
+                    b.HasIndex(new[] { "PlaceOfSupplyStateId" }, "IX_SalesInvoices_PlaceOfSupplyStateId");
+
+                    b.HasIndex(new[] { "SellerStateId" }, "IX_SalesInvoices_SellerStateId");
+
+                    b.ToTable("SalesInvoices", t =>
+                        {
+                            t.HasCheckConstraint("CK_SalesInvoices_BillAmounts_NonNegative", "\"BillDiscountAmount\" >= 0 AND \"BillCharges\" >= 0");
+
+                            t.HasCheckConstraint("CK_SalesInvoices_BillDiscountPercent_Range", "\"BillDiscountPercent\" IS NULL OR (\"BillDiscountPercent\" >= 0 AND \"BillDiscountPercent\" <= 100)");
+
+                            t.HasCheckConstraint("CK_SalesInvoices_PartyTaxStatus", "\"PartyTaxStatus\" IN ('Unspecified')");
+
+                            t.HasCheckConstraint("CK_SalesInvoices_PlaceOfSupply", "\"PlaceOfSupply\" IS NULL OR \"PlaceOfSupply\" IN ('IntraState','InterState','NotApplicable')");
+                        });
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLine", b =>
@@ -2673,6 +3031,16 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("BaseQty")
                         .HasColumnType("numeric(18,3)");
 
+                    b.Property<decimal>("BillChargeShare")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,4)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<decimal>("BillDiscountShare")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(18,4)")
+                        .HasDefaultValue(0m);
+
                     b.Property<decimal>("ConversionFactorToBase")
                         .HasColumnType("numeric(28,10)");
 
@@ -2682,11 +3050,24 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("Discount")
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<string>("HsnCode")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
                     b.Property<decimal>("LineTotal")
                         .HasColumnType("numeric(18,4)");
 
                     b.Property<decimal?>("ListUnitPrice")
                         .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("PlaceOfSupply")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("PriceIncludesTax")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<bool>("PriceOverridden")
                         .ValueGeneratedOnAdd()
@@ -2709,6 +3090,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(18,4)");
 
                     b.Property<Guid>("TaxId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TaxProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TaxProfileVersionId")
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("TaxRatePercent")
@@ -2734,6 +3121,14 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("TaxId");
 
+                    b.HasIndex("TaxProfileId")
+                        .HasDatabaseName("IX_SalesInvoiceLines_TaxProfileId")
+                        .HasFilter("\"TaxProfileId\" IS NOT NULL");
+
+                    b.HasIndex("TaxProfileVersionId")
+                        .HasDatabaseName("IX_SalesInvoiceLines_TaxProfileVersionId")
+                        .HasFilter("\"TaxProfileVersionId\" IS NOT NULL");
+
                     b.HasIndex("UnitId");
 
                     b.HasIndex("ProductId", "ProductUnitId");
@@ -2742,15 +3137,23 @@ namespace Sellora.Infrastructure.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_SalesInvoiceLines_BaseQty_Arithmetic", "\"Qty\" * \"ConversionFactorToBase\" = \"BaseQty\"");
 
+                            t.HasCheckConstraint("CK_SalesInvoiceLines_BillShares_NonNegative", "\"BillDiscountShare\" >= 0 AND \"BillChargeShare\" >= 0");
+
                             t.HasCheckConstraint("CK_SalesInvoiceLines_Discount_WithinGross", "\"Discount\" >= 0 AND \"Discount\" <= \"Qty\" * \"UnitPrice\"");
 
                             t.HasCheckConstraint("CK_SalesInvoiceLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
 
+                            t.HasCheckConstraint("CK_SalesInvoiceLines_HsnCode_Format", "\"HsnCode\" IS NULL OR \"HsnCode\" ~ '^[0-9]{4}([0-9]{2}){0,2}$'");
+
                             t.HasCheckConstraint("CK_SalesInvoiceLines_Override_HasList", "NOT \"PriceOverridden\" OR \"ListUnitPrice\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_SalesInvoiceLines_PlaceOfSupply", "\"PlaceOfSupply\" IS NULL OR \"PlaceOfSupply\" IN ('IntraState','InterState','NotApplicable')");
 
                             t.HasCheckConstraint("CK_SalesInvoiceLines_Price_MatchesList", "\"PriceOverridden\" OR \"ListUnitPrice\" IS NULL OR \"UnitPrice\" = \"ListUnitPrice\"");
 
                             t.HasCheckConstraint("CK_SalesInvoiceLines_Qty_Positive", "\"Qty\" > 0");
+
+                            t.HasCheckConstraint("CK_SalesInvoiceLines_TaxProfile_VersionNeedsProfile", "\"TaxProfileVersionId\" IS NULL OR \"TaxProfileId\" IS NOT NULL");
 
                             t.HasCheckConstraint("CK_SalesInvoiceLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
                         });
@@ -2786,6 +3189,66 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("SalesInvoiceLineBatchConsumptions", t =>
                         {
                             t.HasCheckConstraint("CK_SalesConsumption_ReturnedWithinConsumed", "\"ReturnedQtyBaseUnits\" >= 0 AND \"ReturnedQtyBaseUnits\" <= \"QtyBaseUnits\"");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLineTax", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("AmountPerBaseUnit")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<decimal>("BaseAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("ComponentCode")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal?>("RatePercent")
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<Guid>("SalesInvoiceLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid?>("TaxComponentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Treatment")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SalesInvoiceLineId")
+                        .HasDatabaseName("IX_SalesInvoiceLineTaxes_SalesInvoiceLineId");
+
+                    b.HasIndex(new[] { "TaxComponentId" }, "IX_SalesInvoiceLineTaxes_TaxComponentId");
+
+                    b.ToTable("SalesInvoiceLineTaxes", t =>
+                        {
+                            t.HasCheckConstraint("CK_SalesInvoiceLineTaxes_Kind", "\"Kind\" IN ('Cgst','Sgst','Utgst','Igst','Cess','Vat','Other')");
+
+                            t.HasCheckConstraint("CK_SalesInvoiceLineTaxes_MethodShape", "(\"Method\" = 'Percent' AND \"RatePercent\" IS NOT NULL AND \"AmountPerBaseUnit\" IS NULL AND \"RatePercent\" >= 0) OR (\"Method\" = 'AmountPerBaseUnit' AND \"AmountPerBaseUnit\" IS NOT NULL AND \"RatePercent\" IS NULL AND \"AmountPerBaseUnit\" >= 0)");
+
+                            t.HasCheckConstraint("CK_SalesInvoiceLineTaxes_Treatment", "\"Treatment\" IS NULL OR \"Treatment\" IN ('Taxable','NilRated','Exempt','ZeroRated','NonTaxable')");
                         });
                 });
 
@@ -2941,6 +3404,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("LineTotal")
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<string>("PlaceOfSupply")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
@@ -2959,6 +3426,12 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal>("TaxAmount")
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<Guid?>("TaxProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TaxProfileVersionId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("TaxableValue")
                         .HasColumnType("numeric(18,4)");
 
@@ -2976,6 +3449,12 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                     b.HasIndex("SalesReturnId");
 
+                    b.HasIndex("TaxProfileId")
+                        .HasDatabaseName("IX_SalesReturnLines_TaxProfileId");
+
+                    b.HasIndex("TaxProfileVersionId")
+                        .HasDatabaseName("IX_SalesReturnLines_TaxProfileVersionId");
+
                     b.HasIndex("UnitId");
 
                     b.HasIndex("ProductId", "ProductUnitId");
@@ -2986,9 +3465,73 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_SalesReturnLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
 
+                            t.HasCheckConstraint("CK_SalesReturnLines_PlaceOfSupply", "\"PlaceOfSupply\" IS NULL OR \"PlaceOfSupply\" IN ('IntraState','InterState','NotApplicable')");
+
                             t.HasCheckConstraint("CK_SalesReturnLines_Qty_Positive", "\"Qty\" > 0");
 
+                            t.HasCheckConstraint("CK_SalesReturnLines_TaxProfile_VersionNeedsProfile", "\"TaxProfileVersionId\" IS NULL OR \"TaxProfileId\" IS NOT NULL");
+
                             t.HasCheckConstraint("CK_SalesReturnLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesReturnLineTax", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("AmountPerBaseUnit")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<decimal>("BaseAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("ComponentCode")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal?>("RatePercent")
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<Guid>("SalesReturnLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid?>("TaxComponentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Treatment")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SalesReturnLineId")
+                        .HasDatabaseName("IX_SalesReturnLineTaxes_SalesReturnLineId");
+
+                    b.HasIndex(new[] { "TaxComponentId" }, "IX_SalesReturnLineTaxes_TaxComponentId");
+
+                    b.ToTable("SalesReturnLineTaxes", t =>
+                        {
+                            t.HasCheckConstraint("CK_SalesReturnLineTaxes_Kind", "\"Kind\" IN ('Cgst','Sgst','Utgst','Igst','Cess','Vat','Other')");
+
+                            t.HasCheckConstraint("CK_SalesReturnLineTaxes_MethodShape", "(\"Method\" = 'Percent' AND \"RatePercent\" IS NOT NULL AND \"AmountPerBaseUnit\" IS NULL AND \"RatePercent\" >= 0) OR (\"Method\" = 'AmountPerBaseUnit' AND \"AmountPerBaseUnit\" IS NOT NULL AND \"RatePercent\" IS NULL AND \"AmountPerBaseUnit\" >= 0)");
+
+                            t.HasCheckConstraint("CK_SalesReturnLineTaxes_Treatment", "\"Treatment\" IS NULL OR \"Treatment\" IN ('Taxable','NilRated','Exempt','ZeroRated','NonTaxable')");
                         });
                 });
 
@@ -4249,6 +4792,305 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.ToTable("Taxes");
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.TaxAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CountryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PurchaseTaxProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SalesTaxProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("SubcategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CountryId");
+
+                    b.HasIndex(new[] { "CompanyId", "CategoryId", "SubcategoryId" }, "IX_TaxAssignments_Category_Subcategory");
+
+                    b.HasIndex(new[] { "CompanyId", "ProductId" }, "IX_TaxAssignments_CompanyId_ProductId");
+
+                    b.HasIndex(new[] { "CompanyId", "CountryId", "PurchaseTaxProfileId" }, "IX_TaxAssignments_PurchaseProfile");
+
+                    b.HasIndex(new[] { "CompanyId", "CountryId", "SalesTaxProfileId" }, "IX_TaxAssignments_SalesProfile");
+
+                    b.HasIndex(new[] { "CompanyId", "CountryId", "CategoryId" }, "IX_TaxAssignments_Scope_Category")
+                        .IsUnique()
+                        .HasFilter("\"Scope\" = 'Category'");
+
+                    b.HasIndex(new[] { "CompanyId", "CountryId" }, "IX_TaxAssignments_Scope_Company")
+                        .IsUnique()
+                        .HasFilter("\"Scope\" = 'Company'");
+
+                    b.HasIndex(new[] { "CompanyId", "CountryId", "ProductId" }, "IX_TaxAssignments_Scope_Product")
+                        .IsUnique()
+                        .HasFilter("\"Scope\" = 'Product'");
+
+                    b.HasIndex(new[] { "CompanyId", "CountryId", "SubcategoryId" }, "IX_TaxAssignments_Scope_Subcategory")
+                        .IsUnique()
+                        .HasFilter("\"Scope\" = 'Subcategory'");
+
+                    b.ToTable("TaxAssignments", t =>
+                        {
+                            t.HasCheckConstraint("CK_TaxAssignments_Scope", "\"Scope\" IN ('Company','Category','Subcategory','Product')");
+
+                            t.HasCheckConstraint("CK_TaxAssignments_Scope_Shape", "(\"Scope\" = 'Company' AND \"CategoryId\" IS NULL AND \"SubcategoryId\" IS NULL AND \"ProductId\" IS NULL) OR (\"Scope\" = 'Category' AND \"CategoryId\" IS NOT NULL AND \"SubcategoryId\" IS NULL AND \"ProductId\" IS NULL) OR (\"Scope\" = 'Subcategory' AND \"CategoryId\" IS NOT NULL AND \"SubcategoryId\" IS NOT NULL AND \"ProductId\" IS NULL) OR (\"Scope\" = 'Product' AND \"CategoryId\" IS NULL AND \"SubcategoryId\" IS NULL AND \"ProductId\" IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.TaxComponent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CountryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id", "Method")
+                        .HasName("AK_TaxComponents_CompanyId_Id_Method");
+
+                    b.HasIndex("CountryId");
+
+                    b.HasIndex(new[] { "CompanyId", "CountryId", "Code" }, "IX_TaxComponents_CompanyId_CountryId_Code")
+                        .IsUnique();
+
+                    b.ToTable("TaxComponents", t =>
+                        {
+                            t.HasCheckConstraint("CK_TaxComponents_Code_Format", "\"Code\" ~ '^[A-Z0-9][A-Z0-9-]{0,19}$'");
+
+                            t.HasCheckConstraint("CK_TaxComponents_Kind", "\"Kind\" IN ('Cgst','Sgst','Utgst','Igst','Cess','Vat','Other')");
+
+                            t.HasCheckConstraint("CK_TaxComponents_Method", "\"Method\" IN ('Percent','AmountPerBaseUnit')");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.TaxProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CountryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("LegacyTaxId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Regime")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Treatment")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id")
+                        .HasName("AK_TaxProfiles_CompanyId_Id");
+
+                    b.HasAlternateKey("CompanyId", "CountryId", "Id")
+                        .HasName("AK_TaxProfiles_CompanyId_CountryId_Id");
+
+                    b.HasIndex("CountryId");
+
+                    b.HasIndex(new[] { "CompanyId", "CountryId", "Code" }, "IX_TaxProfiles_CompanyId_CountryId_Code")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "CompanyId", "LegacyTaxId" }, "IX_TaxProfiles_CompanyId_LegacyTaxId")
+                        .IsUnique();
+
+                    b.ToTable("TaxProfiles", t =>
+                        {
+                            t.HasCheckConstraint("CK_TaxProfiles_Code_Format", "\"Code\" ~ '^[A-Z0-9][A-Z0-9-]{0,19}$'");
+
+                            t.HasCheckConstraint("CK_TaxProfiles_Regime", "\"Regime\" IN ('Gst','Vat')");
+
+                            t.HasCheckConstraint("CK_TaxProfiles_Treatment", "\"Treatment\" IN ('Taxable','NilRated','Exempt','ZeroRated','NonTaxable')");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.TaxProfileVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("EffectiveFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("EffectiveTo")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("TaxProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("TotalPercent")
+                        .HasColumnType("numeric(9,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id")
+                        .HasName("AK_TaxProfileVersions_CompanyId_Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex(new[] { "CompanyId", "TaxProfileId", "EffectiveFrom" }, "IX_TaxProfileVersions_CompanyId_TaxProfileId_EffectiveFrom")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "TaxProfileId" }, "IX_TaxProfileVersions_TaxProfileId_Open")
+                        .IsUnique()
+                        .HasFilter("\"EffectiveTo\" IS NULL");
+
+                    b.ToTable("TaxProfileVersions", t =>
+                        {
+                            t.HasCheckConstraint("CK_TaxProfileVersions_Dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
+
+                            t.HasCheckConstraint("CK_TaxProfileVersions_TotalPercent", "\"TotalPercent\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.TaxProfileVersionComponent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("AmountPerBaseUnit")
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<string>("Applicability")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal?>("RatePercent")
+                        .HasColumnType("numeric(9,4)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TaxComponentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TaxProfileVersionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "CompanyId", "TaxComponentId", "Method" }, "IX_TaxProfileVersionComponents_Component");
+
+                    b.HasIndex(new[] { "CompanyId", "TaxProfileVersionId", "TaxComponentId", "Applicability" }, "IX_TaxProfileVersionComponents_Version_Component_Applicability")
+                        .IsUnique();
+
+                    b.ToTable("TaxProfileVersionComponents", t =>
+                        {
+                            t.HasCheckConstraint("CK_TaxProfileVersionComponents_Applicability", "\"Applicability\" IN ('IntraState','InterState','Always')");
+
+                            t.HasCheckConstraint("CK_TaxProfileVersionComponents_Method", "\"Method\" IN ('Percent','AmountPerBaseUnit')");
+
+                            t.HasCheckConstraint("CK_TaxProfileVersionComponents_MethodShape", "(\"Method\" = 'Percent' AND \"RatePercent\" IS NOT NULL AND \"AmountPerBaseUnit\" IS NULL AND \"RatePercent\" >= 0) OR (\"Method\" = 'AmountPerBaseUnit' AND \"AmountPerBaseUnit\" IS NOT NULL AND \"RatePercent\" IS NULL AND \"AmountPerBaseUnit\" >= 0)");
+                        });
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.Unit", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4279,6 +5121,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal?>("StandardFactor")
                         .HasColumnType("numeric(28,10)");
 
+                    b.Property<string>("Uqc")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Name")
@@ -4296,6 +5142,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                             t.HasCheckConstraint("CK_Units_MeasurementCategory_Domain", "\"MeasurementCategory\" IN ('Count','Weight','Volume','Length','Packaging')");
 
                             t.HasCheckConstraint("CK_Units_StandardFactor_Category", "\"StandardFactor\" IS NULL OR (\"MeasurementCategory\" IN ('Weight','Volume','Length') AND \"StandardFactor\" > 0)");
+
+                            t.HasCheckConstraint("CK_Units_Uqc_Format", "\"Uqc\" IS NULL OR \"Uqc\" ~ '^[A-Z]{3}$'");
                         });
                 });
 
@@ -5611,11 +6459,23 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.State", null)
+                        .WithMany()
+                        .HasForeignKey("PlaceOfSupplyStateId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_PurchaseOrders_States_PlaceOfSupplyStateId");
+
                     b.HasOne("Sellora.Domain.Entities.Supplier", "Supplier")
                         .WithMany()
                         .HasForeignKey("SupplierId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.State", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierStateId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_PurchaseOrders_States_SupplierStateId");
 
                     b.HasOne("Sellora.Domain.Entities.Branch", null)
                         .WithMany()
@@ -5667,6 +6527,18 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.TaxProfile", null)
+                        .WithMany()
+                        .HasForeignKey("TaxProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_PurchaseOrderLines_TaxProfiles_TaxProfileId");
+
+                    b.HasOne("Sellora.Domain.Entities.TaxProfileVersion", null)
+                        .WithMany()
+                        .HasForeignKey("TaxProfileVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_PurchaseOrderLines_TaxProfileVersions_TaxProfileVersionId");
+
                     b.HasOne("Sellora.Domain.Entities.Unit", "Unit")
                         .WithMany()
                         .HasForeignKey("UnitId")
@@ -5689,6 +6561,24 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("Tax");
 
                     b.Navigation("Unit");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrderLineTax", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.PurchaseOrderLine", "Line")
+                        .WithMany("Taxes")
+                        .HasForeignKey("PurchaseOrderLineId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_PurchaseOrderLineTaxes_PurchaseOrderLines");
+
+                    b.HasOne("Sellora.Domain.Entities.TaxComponent", null)
+                        .WithMany()
+                        .HasForeignKey("TaxComponentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_PurchaseOrderLineTaxes_TaxComponents_TaxComponentId");
+
+                    b.Navigation("Line");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchasePayment", b =>
@@ -5792,6 +6682,18 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.TaxProfile", null)
+                        .WithMany()
+                        .HasForeignKey("TaxProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_PurchaseReturnLines_TaxProfiles_TaxProfileId");
+
+                    b.HasOne("Sellora.Domain.Entities.TaxProfileVersion", null)
+                        .WithMany()
+                        .HasForeignKey("TaxProfileVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_PurchaseReturnLines_TaxProfileVersions_TaxProfileVersionId");
+
                     b.HasOne("Sellora.Domain.Entities.Unit", "Unit")
                         .WithMany()
                         .HasForeignKey("UnitId")
@@ -5814,6 +6716,24 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("PurchaseReturn");
 
                     b.Navigation("Unit");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PurchaseReturnLineTax", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.PurchaseReturnLine", "Line")
+                        .WithMany("Taxes")
+                        .HasForeignKey("PurchaseReturnLineId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_PurchaseReturnLineTaxes_PurchaseReturnLines");
+
+                    b.HasOne("Sellora.Domain.Entities.TaxComponent", null)
+                        .WithMany()
+                        .HasForeignKey("TaxComponentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_PurchaseReturnLineTaxes_TaxComponents_TaxComponentId");
+
+                    b.Navigation("Line");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.RefreshToken", b =>
@@ -5902,6 +6822,18 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.State", null)
+                        .WithMany()
+                        .HasForeignKey("PlaceOfSupplyStateId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_SalesInvoices_States_PlaceOfSupplyStateId");
+
+                    b.HasOne("Sellora.Domain.Entities.State", null)
+                        .WithMany()
+                        .HasForeignKey("SellerStateId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_SalesInvoices_States_SellerStateId");
+
                     b.HasOne("Sellora.Domain.Entities.Branch", null)
                         .WithMany()
                         .HasForeignKey("CompanyId", "BranchId")
@@ -5950,6 +6882,18 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.TaxProfile", null)
+                        .WithMany()
+                        .HasForeignKey("TaxProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_SalesInvoiceLines_TaxProfiles_TaxProfileId");
+
+                    b.HasOne("Sellora.Domain.Entities.TaxProfileVersion", null)
+                        .WithMany()
+                        .HasForeignKey("TaxProfileVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_SalesInvoiceLines_TaxProfileVersions_TaxProfileVersionId");
+
                     b.HasOne("Sellora.Domain.Entities.Unit", "Unit")
                         .WithMany()
                         .HasForeignKey("UnitId")
@@ -5991,6 +6935,24 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("PurchaseBatch");
 
                     b.Navigation("SalesInvoiceLine");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLineTax", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.SalesInvoiceLine", "Line")
+                        .WithMany("Taxes")
+                        .HasForeignKey("SalesInvoiceLineId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_SalesInvoiceLineTaxes_SalesInvoiceLines");
+
+                    b.HasOne("Sellora.Domain.Entities.TaxComponent", null)
+                        .WithMany()
+                        .HasForeignKey("TaxComponentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_SalesInvoiceLineTaxes_TaxComponents_TaxComponentId");
+
+                    b.Navigation("Line");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.SalesPayment", b =>
@@ -6094,6 +7056,18 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Sellora.Domain.Entities.TaxProfile", null)
+                        .WithMany()
+                        .HasForeignKey("TaxProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_SalesReturnLines_TaxProfiles_TaxProfileId");
+
+                    b.HasOne("Sellora.Domain.Entities.TaxProfileVersion", null)
+                        .WithMany()
+                        .HasForeignKey("TaxProfileVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_SalesReturnLines_TaxProfileVersions_TaxProfileVersionId");
+
                     b.HasOne("Sellora.Domain.Entities.Unit", "Unit")
                         .WithMany()
                         .HasForeignKey("UnitId")
@@ -6116,6 +7090,24 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Navigation("SalesReturn");
 
                     b.Navigation("Unit");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesReturnLineTax", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.SalesReturnLine", "Line")
+                        .WithMany("Taxes")
+                        .HasForeignKey("SalesReturnLineId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_SalesReturnLineTaxes_SalesReturnLines");
+
+                    b.HasOne("Sellora.Domain.Entities.TaxComponent", null)
+                        .WithMany()
+                        .HasForeignKey("TaxComponentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_SalesReturnLineTaxes_TaxComponents_TaxComponentId");
+
+                    b.Navigation("Line");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.SellingPrice", b =>
@@ -6757,6 +7749,152 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Sellora.Domain.Entities.TaxAssignment", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Country", null)
+                        .WithMany()
+                        .HasForeignKey("CountryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_TaxAssignments_Countries_CountryId");
+
+                    b.HasOne("Sellora.Domain.Entities.ProductCategory", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CategoryId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_TaxAssignments_ProductCategories_CompanyId_CategoryId");
+
+                    b.HasOne("Sellora.Domain.Entities.Product", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ProductId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_TaxAssignments_Products_CompanyId_ProductId");
+
+                    b.HasOne("Sellora.Domain.Entities.ProductSubcategory", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CategoryId", "SubcategoryId")
+                        .HasPrincipalKey("CompanyId", "CategoryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_TaxAssignments_ProductSubcategories_Category_Subcategory");
+
+                    b.HasOne("Sellora.Domain.Entities.TaxProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CountryId", "PurchaseTaxProfileId")
+                        .HasPrincipalKey("CompanyId", "CountryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_TaxAssignments_TaxProfiles_Purchase");
+
+                    b.HasOne("Sellora.Domain.Entities.TaxProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CountryId", "SalesTaxProfileId")
+                        .HasPrincipalKey("CompanyId", "CountryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_TaxAssignments_TaxProfiles_Sales");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.TaxComponent", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Country", null)
+                        .WithMany()
+                        .HasForeignKey("CountryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_TaxComponents_Countries_CountryId");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.TaxProfile", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.Country", null)
+                        .WithMany()
+                        .HasForeignKey("CountryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_TaxProfiles_Countries_CountryId");
+
+                    b.HasOne("Sellora.Domain.Entities.Tax", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "LegacyTaxId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_TaxProfiles_Taxes_CompanyId_LegacyTaxId");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.TaxProfileVersion", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_TaxProfileVersions_Users_CreatedByUserId");
+
+                    b.HasOne("Sellora.Domain.Entities.TaxProfile", "TaxProfile")
+                        .WithMany("Versions")
+                        .HasForeignKey("CompanyId", "TaxProfileId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_TaxProfileVersions_TaxProfiles_CompanyId_TaxProfileId");
+
+                    b.Navigation("TaxProfile");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.TaxProfileVersionComponent", b =>
+                {
+                    b.HasOne("Sellora.Domain.Entities.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Sellora.Domain.Entities.TaxProfileVersion", "TaxProfileVersion")
+                        .WithMany("Components")
+                        .HasForeignKey("CompanyId", "TaxProfileVersionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_TaxProfileVersionComponents_TaxProfileVersions");
+
+                    b.HasOne("Sellora.Domain.Entities.TaxComponent", "TaxComponent")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "TaxComponentId", "Method")
+                        .HasPrincipalKey("CompanyId", "Id", "Method")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_TaxProfileVersionComponents_TaxComponents");
+
+                    b.Navigation("TaxComponent");
+
+                    b.Navigation("TaxProfileVersion");
+                });
+
             modelBuilder.Entity("Sellora.Domain.Entities.User", b =>
                 {
                     b.HasOne("Sellora.Domain.Entities.Role", "Role")
@@ -6987,11 +8125,18 @@ namespace Sellora.Infrastructure.Data.Migrations
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseOrderLine", b =>
                 {
                     b.Navigation("Batch");
+
+                    b.Navigation("Taxes");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.PurchaseReturn", b =>
                 {
                     b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.PurchaseReturnLine", b =>
+                {
+                    b.Navigation("Taxes");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Role", b =>
@@ -7013,11 +8158,18 @@ namespace Sellora.Infrastructure.Data.Migrations
             modelBuilder.Entity("Sellora.Domain.Entities.SalesInvoiceLine", b =>
                 {
                     b.Navigation("BatchConsumptions");
+
+                    b.Navigation("Taxes");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.SalesReturn", b =>
                 {
                     b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.SalesReturnLine", b =>
+                {
+                    b.Navigation("Taxes");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.Shipment", b =>
@@ -7047,6 +8199,16 @@ namespace Sellora.Infrastructure.Data.Migrations
             modelBuilder.Entity("Sellora.Domain.Entities.StockTransferReceipt", b =>
                 {
                     b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.TaxProfile", b =>
+                {
+                    b.Navigation("Versions");
+                });
+
+            modelBuilder.Entity("Sellora.Domain.Entities.TaxProfileVersion", b =>
+                {
+                    b.Navigation("Components");
                 });
 
             modelBuilder.Entity("Sellora.Domain.Entities.User", b =>

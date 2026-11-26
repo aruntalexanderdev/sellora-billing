@@ -35,6 +35,8 @@ const nonBase = (id: string, code: string, name: string, factor: number, extra: 
 const PEN: ProductDetail = {
   id: 'pen', sku: 'PEN-1', name: 'Pen', category: null, categoryId: null, categoryName: null, subcategoryId: null, subcategoryName: null, baseUnitId: 'pc', baseUnitLabel: 'pc',
   taxId: 't1', taxLabel: 'GST 5%', taxRatePercent: 5, reorderLevel: 0, isActive: true, isBaseUnitLocked: false,
+  hsnCode: null, effectiveHsnCode: null, hsnSource: 'None', priceIncludesTax: null, salesTaxProfile: null, purchaseTaxProfile: null,
+  taxSource: null, taxSourceName: null, salesOverrideProfileId: null, purchaseOverrideProfileId: null, warnings: null,
   units: [
     pu({}),
     nonBase('pu-box', 'box', 'Box', 10, { sortOrder: 1 }),

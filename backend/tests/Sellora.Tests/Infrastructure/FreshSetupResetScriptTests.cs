@@ -72,7 +72,7 @@ public partial class FreshSetupResetScriptTests
     {
         var listed = ResetList().Select(r => r.Table).ToList();
 
-        Assert.Equal(44, listed.Count);
+        Assert.Equal(53, listed.Count);
         Assert.Equal(listed.Count, listed.Distinct(StringComparer.Ordinal).Count());
         Assert.Empty(listed.Intersect(NeverEmptied, StringComparer.Ordinal));
         Assert.Equal(ModelTables(), listed.Concat(NeverEmptied).Order(StringComparer.Ordinal).ToList());
@@ -85,11 +85,17 @@ public partial class FreshSetupResetScriptTests
 
         Assert.Equal(
             ["Customers:customers", "ExpenseCategories:expense_categories", "FinancialAccounts:accounts", "ProductCategories:categories",
-             "ProductSubcategories:categories", "Suppliers:suppliers", "Taxes:taxes"],
+             "ProductSubcategories:categories", "Suppliers:suppliers", "TaxComponents:taxes", "TaxProfileVersionComponents:taxes", "TaxProfileVersions:taxes",
+             "TaxProfiles:taxes", "Taxes:taxes"],
             list.Where(r => r.KeepToken is not null).Select(r => r.Table + ":" + r.KeepToken).Order(StringComparer.Ordinal).ToList());
         // Customers is the only table that is not emptied outright: the walk-in customer must survive.
         Assert.Equal(["Customers"], list.Where(r => r.Via == "delete").Select(r => r.Table).ToList());
         Assert.Contains("DELETE FROM \"Customers\" WHERE NOT \"IsWalkIn\";", ScriptText());
+        // T23: TaxAssignments is emptied with Products (foreign key) but its surviving rows (company default; category and subcategory rows with the categories) are
+        // saved first and put back, and the list reports it as a partial action.
+        Assert.Contains("CREATE TEMP TABLE sellora_reset_kept_assignments ON COMMIT DROP AS", ScriptText());
+        Assert.Contains("INSERT INTO \"TaxAssignments\" SELECT * FROM pg_temp.sellora_reset_kept_assignments;", ScriptText());
+        Assert.Matches(@"'TaxAssignments',\s+NULL,\s+'truncate', 'partial'", ScriptText());
         // Customers and suppliers are the masters kept by default.
         Assert.Contains("ARRAY['customers', 'suppliers'] || v_k", ScriptText());
     }

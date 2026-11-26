@@ -27,7 +27,9 @@
           <div class="search-results">
             @for (p of searchResults(); track p.productId) {
               <button type="button" class="search-result-row" (click)="addToCart(p)">
-                <span class="sr-name">{{ p.name }} <span class="sr-sku">{{ p.sku }}</span></span>
+                <span class="sr-name">{{ p.name }} <span class="sr-sku">{{ p.sku }}</span>
+                  @if (p.taxWarning; as w) { <span class="sr-tax-warn" data-testid="tax-warning" [title]="w">No tax profile</span> }
+                </span>
                 <span class="sr-stock" [class.sr-stock-low]="p.quantityOnHand <= 0">
                   {{ formatQuantity(p.quantityOnHand, 0) }} {{ p.baseUnitLabel }} available
                 </span>
@@ -98,11 +100,30 @@
                   @if (isFree(row)) {
                     <ui-badge text="Free" tone="good" data-testid="free-badge" />
                   }
+                  @if (lineViews()[i]?.priceIncludesTax) {
+                    <div class="line-total-sub" data-testid="incl-tax">incl. tax</div>
+                  }
                   @if (canOverridePrice() && isOverride(row) && listPriceFor(row) !== null) {
                     <div class="line-total-sub" data-testid="line-list-price">List {{ '₹' + listPriceFor(row)!.toFixed(2) }}</div>
                   }
                 </div>
-                <span class="tax-cell">{{ previews()[i]?.taxRatePercent ?? 0 }}%</span>
+                <span class="tax-cell" data-testid="line-tax">
+                  @if (lineViews()[i]; as view) {
+                    @if (view.estimated) {
+                      <span class="line-total-sub">—</span>
+                    } @else {
+                      {{ money(view.tax) }}
+                      @if (view.ratePercent !== null) {
+                        <div class="line-total-sub">{{ view.ratePercent }}%</div>
+                      }
+                      @if (view.rows.length) {
+                        <button type="button" class="tax-toggle" (click)="toggleTax(row)" [attr.aria-expanded]="isExpanded(row)" data-testid="tax-toggle">
+                          {{ isExpanded(row) ? '▴' : '▾' }}
+                        </button>
+                      }
+                    }
+                  }
+                </span>
                 <div>
                   <input type="number" step="0.01" formControlName="discount" class="field-input" data-testid="line-discount" (input)="onDiscountAmountInput(row)" [readOnly]="!canOverridePrice()" [attr.aria-label]="'Discount on ' + productName(row.controls.productId.value)" />
                   @if (canOverridePrice()) {
@@ -111,10 +132,12 @@
                 </div>
 
                 <div class="line-total-cell">
-                  {{ '₹' + (previews()[i]?.lineTotal ?? 0).toFixed(2) }}
+                  <span data-testid="line-total">{{ money(lineViews()[i]?.lineTotal ?? 0) }}</span>
                   <div class="line-total-sub" [class.stock-warn]="previews()[i]?.exceedsStock">
                     @if (lineErrors()[i]; as lineError) {
                       <span class="stock-warn">{{ lineError }}</span>
+                    } @else if (rowServerError(row); as serverLineError) {
+                      <span class="stock-warn" data-testid="line-server-error">{{ serverLineError }}</span>
                     } @else if (previews()[i]?.exceedsStock) {
                       Only {{ previews()[i]?.availableOnHand }} {{ previews()[i]?.baseUnitLabel }} in stock
                     } @else {
@@ -123,19 +146,76 @@
                   </div>
                 </div>
 
-                <button type="button" class="remove-line-btn" (click)="removeLine(i)">✕</button>
+                <button type="button" class="remove-line-btn" (click)="removeLine(i)" [attr.aria-label]="'Remove ' + productName(row.controls.productId.value)">✕</button>
               </div>
+              @if (isExpanded(row) && lineViews()[i]; as view) {
+                @if (!view.estimated) {
+                  <div class="tax-detail" data-testid="line-tax-detail">
+                    <div class="tax-detail-head">
+                      {{ view.profileName ?? 'Tax' }}{{ view.hsnCode ? ' · HSN ' + view.hsnCode : '' }}{{ view.priceIncludesTax ? ' · price includes tax' : '' }}
+                    </div>
+                    @if (taxWarningOf(row.controls.productId.value); as w) { <div class="sr-tax-warn" data-testid="line-tax-warning">{{ w }}</div> }
+                    <app-line-tax-breakdown [rows]="view.rows" symbol="₹" [precision]="precision()" [baseUnitLabel]="previews()[i]?.baseUnitLabel ?? ''" />
+                  </div>
+                }
+              }
             }
           </div>
         }
       </div>
 
       <div class="totals-and-payment">
-        <div class="totals-card">
-          <div class="totals-row"><span>Subtotal</span><span>₹{{ totals().subtotal.toFixed(2) }}</span></div>
-          <div class="totals-row"><span>Discount</span><span>−₹{{ totals().discount.toFixed(2) }}</span></div>
-          <div class="totals-row"><span>Tax</span><span>₹{{ totals().tax.toFixed(2) }}</span></div>
-          <div class="totals-row totals-grand"><span>Grand total</span><span>₹{{ totals().grandTotal.toFixed(2) }}</span></div>
+        <div class="totals-card" [class.stale]="previewPending()">
+          <div class="bill-adjust" data-testid="bill-adjust">
+            @if (canBillDiscount()) {
+              <div data-testid="bill-discount">
+                <div class="bill-discount-head">
+                  <span class="field-label" style="margin: 0">Bill discount</span>
+                  <span class="seg" role="group" aria-label="Bill discount type">
+                    <button type="button" class="seg-btn" [class.active]="billDiscountMode() === 'percent'" (click)="setBillDiscountMode('percent')" data-testid="mode-percent">%</button>
+                    <button type="button" class="seg-btn" [class.active]="billDiscountMode() === 'amount'" (click)="setBillDiscountMode('amount')" data-testid="mode-amount">₹</button>
+                  </span>
+                </div>
+                @if (billDiscountMode() === 'percent') {
+                  <input type="number" step="0.01" min="0" max="100" formControlName="billDiscountPercent" class="field-input" placeholder="0" aria-label="Bill discount percent" data-testid="bill-discount-percent" />
+                } @else {
+                  <input type="number" [step]="1 / 10 ** precision()" min="0" formControlName="billDiscountAmount" class="field-input" placeholder="0" aria-label="Bill discount amount" data-testid="bill-discount-amount" />
+                }
+                @if (billDiscountError(); as e) {
+                  <div class="field-error" data-testid="bill-discount-error">{{ e }}</div>
+                }
+              </div>
+            }
+            <div>
+              <label class="field-label">Bill charges</label>
+              <input type="number" [step]="1 / 10 ** precision()" min="0" formControlName="billCharges" class="field-input" aria-label="Bill charges" data-testid="bill-charges" />
+              @if (form.controls.billCharges.errors; as e) {
+                <div class="field-error">{{ e['server'] ?? 'Enter an amount of zero or more.' }}</div>
+              }
+            </div>
+          </div>
+
+          @if (placeLabel(); as place) {
+            <ui-badge [text]="place" [tone]="place === 'Other state' ? 'warn' : 'info'" data-testid="place-of-supply" />
+          }
+          @if (previewError(); as e) {
+            <div class="field-error" data-testid="preview-error">{{ e }}</div>
+          }
+          @for (w of previewWarnings(); track w) {
+            <div class="field-hint" data-testid="preview-warning">{{ w }}</div>
+          }
+
+          <div class="totals-row"><span>Subtotal{{ anyInclusive() ? ' (incl. tax)' : '' }}</span><span data-testid="total-subtotal">{{ money(totals().subtotal) }}</span></div>
+          <div class="totals-row"><span>Discount{{ totals().billDiscount > 0 ? ' (incl. bill ' + money(totals().billDiscount) + ')' : '' }}</span><span>−{{ money(totals().discount) }}</span></div>
+          @if (totals().charges > 0) {
+            <div class="totals-row" data-testid="total-charges"><span>Bill charges</span><span>{{ money(totals().charges) }}</span></div>
+          }
+          <div class="totals-row" data-testid="taxable-total"><span>Taxable value</span><span>{{ money(totals().taxable) }}</span></div>
+          @for (c of totals().byComponent; track c.code) {
+            <div class="totals-row sub-row" data-testid="tax-component"><span>{{ c.code }}</span><span>{{ money(c.taxAmount) }}</span></div>
+          }
+          <div class="totals-row"><span>Tax{{ totals().estimated ? ' (calculated once items are complete)' : '' }}</span><span data-testid="total-tax">{{ money(totals().tax) }}</span></div>
+          <div class="totals-row totals-grand"><span>Grand total</span><span data-testid="grand-total">{{ money(totals().grandTotal) }}</span></div>
         </div>
 
         <div class="payment-card">
@@ -159,9 +239,9 @@
           <input type="number" step="0.01" formControlName="paidAmount" class="field-input" />
 
           @if (dueAmount() > 0) {
-            <div class="due-line">Due: ₹{{ dueAmount().toFixed(2) }}</div>
+            <div class="due-line" data-testid="due">Due: {{ money(dueAmount()) }}</div>
           } @else if (changeAmount() > 0) {
-            <div class="due-line change-line">Change: ₹{{ changeAmount().toFixed(2) }}</div>
+            <div class="due-line change-line" data-testid="change">Change: {{ money(changeAmount()) }}</div>
           } @else {
             <div class="due-line">Fully paid</div>
           }

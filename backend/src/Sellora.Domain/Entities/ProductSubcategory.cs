@@ -13,6 +13,9 @@ public class ProductSubcategory : ICompanyOwned
     public required string Code { get; set; }
     public required string Name { get; set; }
     public int SortOrder { get; set; }
+
+    /// <summary>HSN/SAC code (4, 6 or 8 digits) inherited by the subcategory's products (BR9).</summary>
+    public string? HsnCode { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

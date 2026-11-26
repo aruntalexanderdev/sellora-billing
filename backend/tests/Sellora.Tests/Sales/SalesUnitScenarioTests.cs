@@ -43,9 +43,11 @@ public class SalesUnitScenarioTests
         var pack = TestUnits.New("Pack", "pk", MeasurementCategory.Packaging, 3, null);
         db.AddRange(user.Role, user, tax, inr, settings, supplier, customer, pc, box, hctn, fctn, tray, kg, kg2, pack);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);
 
         var products = new ProductService(db);
         var pricing = new PricingService(db);
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile per product
         var f0 = new Fixture(db, new SalesService(db), new PurchaseService(db, new ExchangeRateService(db)), products, pricing,
             customer, tax, user.Id, pc, box, hctn, fctn, tray, kg, kg2, pack, null!, null!);
         var pen = await products.CreateProductAsync(Input(f0, "STN-PEN", pc.Id,
@@ -65,7 +67,7 @@ public class SalesUnitScenarioTests
         new(id, unitId, innerUnitId, qty, null, barcode, true, sellable, false, false, active);
 
     private static UpsertProductInput Input(Fixture f, string sku, Guid baseUnitId, params ProductUnitInputItem[] units) =>
-        new(sku, "Ball Pen", null, null, baseUnitId, f.Tax.Id, 0m, units);
+        new(sku, "Ball Pen", null, null, baseUnitId, 0m, units);
 
     private static async Task<Dictionary<Guid, ProductUnit>> RowsAsync(Fixture f, Guid productId) =>
         (await f.Db.ProductUnits.AsNoTracking().Where(u => u.ProductId == productId).ToListAsync()).ToDictionary(u => u.UnitId);
@@ -166,7 +168,7 @@ public class SalesUnitScenarioTests
         await BuyAsync(f, f.PenRows[f.FCtn.Id], 1m, 1000m);
 
         var sale = await SellAsync(f, SLine(f.PenRows[f.Pc.Id], 5m, 12m));
-        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Pc.Id], 2.5m, 12m)), "Lines", "Piece is counted in whole numbers.");
+        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Pc.Id], 2.5m, 12m)), "lines[0].qty", "Piece is counted in whole numbers.");
 
         Assert.Equal((5m, 1m, 5m, "pc"), (sale.Lines.Single().Qty, sale.Lines.Single().ConversionFactorToBase, sale.Lines.Single().BaseQty, sale.Lines.Single().UnitCode));
         Assert.Single(await f.Db.SalesInvoices.ToListAsync());
@@ -198,7 +200,7 @@ public class SalesUnitScenarioTests
         await PriceAsync(f, rows[f.Pc.Id], 12m);
         await BuyAsync(f, rows[f.Box.Id], 2m, 100m);
 
-        await RejectedAsync(() => SellAsync(f, SLine(rows[f.Pc.Id], 1m, 12m)), "Lines", "Piece cannot be sold for Ball Pen.");
+        await RejectedAsync(() => SellAsync(f, SLine(rows[f.Pc.Id], 1m, 12m)), "lines[0].productUnitId", "Piece cannot be sold for Ball Pen.");
     }
 
     [Fact]
@@ -207,7 +209,7 @@ public class SalesUnitScenarioTests
         var f = await SeedAsync();
         await BuyAsync(f, f.PenRows[f.FCtn.Id], 1m, 1000m); // 100 pc
 
-        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Box.Id], 9m, 100m), SLine(f.PenRows[f.Pc.Id], 11m, 12m)), "Lines",
+        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Box.Id], 9m, 100m), SLine(f.PenRows[f.Pc.Id], 11m, 12m)), "lines",
             "Only 100 pc of Ball Pen in stock — cannot sell 101 pc.");
         Assert.Empty(await f.Db.SalesInvoices.ToListAsync());
         Assert.Equal(100m, (await f.Db.StockItems.SingleAsync()).QuantityOnHand);
@@ -368,9 +370,9 @@ public class SalesUnitScenarioTests
         var f = await SeedAsync();
         await BuyAsync(f, f.PenRows[f.FCtn.Id], 1m, 1000m);
 
-        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Box.Id], 1m, 90m)), "Lines", "The price of Ball Pen (Box) is now 100.00. Refresh the item and try again.");
+        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Box.Id], 1m, 90m)), "lines[0].unitPrice", "The price of Ball Pen (Box) is now 100.00. Refresh the item and try again.");
         // even a user who may override gets the refresh message unless the override is explicit (a stale cart is not an override)
-        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 90m)), "Lines", "The price of Ball Pen (Box) is now 100.00. Refresh the item and try again.");
+        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 90m)), "lines[0].unitPrice", "The price of Ball Pen (Box) is now 100.00. Refresh the item and try again.");
 
         await AssertNothingSoldAsync(f, 100m);
     }
@@ -381,8 +383,8 @@ public class SalesUnitScenarioTests
         var f = await SeedAsync();
         await BuyAsync(f, f.PenRows[f.FCtn.Id], 1m, 1000m);
 
-        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Box.Id], 1m, 90m, overridePrice: true)), "Lines", "You are not allowed to change the price of Ball Pen.");
-        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Box.Id], 1m, 100m, overridePrice: true)), "Lines", "You are not allowed to change the price of Ball Pen.");
+        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Box.Id], 1m, 90m, overridePrice: true)), "lines[0].unitPrice", "You are not allowed to change the price of Ball Pen.");
+        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Box.Id], 1m, 100m, overridePrice: true)), "lines[0].unitPrice", "You are not allowed to change the price of Ball Pen.");
 
         await AssertNothingSoldAsync(f, 100m);
     }
@@ -393,7 +395,7 @@ public class SalesUnitScenarioTests
         var f = await SeedAsync();
         await BuyAsync(f, f.PenRows[f.FCtn.Id], 1m, 1000m);
 
-        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 0.01m)), "Lines", "You are not allowed to give a discount on Ball Pen.");
+        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 0.01m)), "lines[0].discount", "You are not allowed to give a discount on Ball Pen.");
 
         await AssertNothingSoldAsync(f, 100m);
     }
@@ -451,7 +453,7 @@ public class SalesUnitScenarioTests
         await f.Db.SaveChangesAsync();
         await BuyAsync(f, rows[f.Box.Id], 10m, 100m);
 
-        await RejectedAsync(() => SellAsync(f, canOverride, SLine(unpriced, 1m, 480m, overridePrice: canOverride)), "Lines",
+        await RejectedAsync(() => SellAsync(f, canOverride, SLine(unpriced, 1m, 480m, overridePrice: canOverride)), "lines[0].productUnitId",
             "Half Carton of Ball Pen has no price. Set a price before selling it.");
 
         Assert.Empty(await f.Db.SalesInvoices.ToListAsync());
@@ -466,7 +468,7 @@ public class SalesUnitScenarioTests
         open.EffectiveTo = DateTimeOffset.UtcNow;
         await f.Db.SaveChangesAsync();
 
-        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m)), "Lines", "Box of Ball Pen has no price. Set a price before selling it.");
+        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m)), "lines[0].productUnitId", "Box of Ball Pen has no price. Set a price before selling it.");
     }
 
     [Fact]
@@ -476,7 +478,7 @@ public class SalesUnitScenarioTests
         await BuyAsync(f, f.PenRows[f.FCtn.Id], 1m, 1000m);
         await PriceAsync(f, f.PenRows[f.Box.Id], 110m); // a manager repriced while the cashier's cart held 100
 
-        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Box.Id], 1m, 100m)), "Lines", "The price of Ball Pen (Box) is now 110.00. Refresh the item and try again.");
+        await RejectedAsync(() => SellAsync(f, SLine(f.PenRows[f.Box.Id], 1m, 100m)), "lines[0].unitPrice", "The price of Ball Pen (Box) is now 110.00. Refresh the item and try again.");
         var sale = await SellAsync(f, SLine(f.PenRows[f.Box.Id], 1m, 110m));
 
         Assert.Equal((110m, false), (sale.Lines.Single().ListUnitPrice, sale.Lines.Single().PriceOverridden));
@@ -493,7 +495,7 @@ public class SalesUnitScenarioTests
         var f = await SeedAsync();
         await BuyAsync(f, f.PenRows[f.FCtn.Id], 1m, 1000m);
 
-        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 99.99999m, overridePrice: true)), "Lines", "Unit price has too many decimals (at most 4).");
+        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 99.99999m, overridePrice: true)), "lines[0].unitPrice", "Unit price has too many decimals (at most 4).");
     }
 
     [Fact]
@@ -502,11 +504,11 @@ public class SalesUnitScenarioTests
         var f = await SeedAsync();
         await BuyAsync(f, f.PenRows[f.FCtn.Id], 1m, 1000m);
 
-        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 100.01m)), "Lines", "Discount on Ball Pen cannot exceed the line amount of 100.00.");
-        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: -1m)), "Lines", "Discount cannot be negative.");
+        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 100.01m)), "lines[0].discount", "Discount on Ball Pen cannot exceed the line amount of 100.00.");
+        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: -1m)), "lines[0].discount", "Discount cannot be negative.");
         // FI-D24: a discount is a money amount - at most the base currency's decimals (2 here), no longer 4.
-        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 12.34567m)), "Lines", "Discount can have at most 2 decimal places.");
-        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 1.005m)), "Lines", "Discount can have at most 2 decimal places.");
+        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 12.34567m)), "lines[0].discount", "Discount can have at most 2 decimal places.");
+        await RejectedAsync(() => SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 1.005m)), "lines[0].discount", "Discount can have at most 2 decimal places.");
         Assert.Empty(await f.Db.SalesInvoices.ToListAsync());
 
         var free = await SellAsync(f, canOverride: true, SLine(f.PenRows[f.Box.Id], 1m, 100m, discount: 100m));
@@ -524,7 +526,7 @@ public class SalesUnitScenarioTests
         await PriceAsync(f, kg, 50m);
         await BuyAsync(f, kg, 10m, 40m);
 
-        await RejectedAsync(() => SellAsync(f, SLine(kg, 0.0001m, 50m)), "Lines", "Kilogram allows at most 3 decimal place(s).");
+        await RejectedAsync(() => SellAsync(f, SLine(kg, 0.0001m, 50m)), "lines[0].qty", "Kilogram allows at most 3 decimal place(s).");
         var sale = await SellAsync(f, SLine(kg, 1.25m, 50m));
 
         Assert.Equal((1.25m, 1.25m), (sale.Lines.Single().Qty, sale.Lines.Single().BaseQty));
@@ -539,7 +541,7 @@ public class SalesUnitScenarioTests
         await PriceAsync(f, rows[f.Pack.Id], 30m);
         await BuyAsync(f, rows[f.Pack.Id], 10m, 20m);
 
-        var ex = await RejectedAsync(() => SellAsync(f, SLine(rows[f.Pack.Id], 0.01m, 30m)), "Lines");
+        var ex = await RejectedAsync(() => SellAsync(f, SLine(rows[f.Pack.Id], 0.01m, 30m)), "lines[0].qty");
 
         Assert.Equal("0.01 pk = 0.005 kg2; Kilogram (2 dp) is tracked to 2 decimal place(s).", ex.Message);
         await SellAsync(f, SLine(rows[f.Pack.Id], 0.02m, 30m));

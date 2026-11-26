@@ -67,6 +67,7 @@ public class SalesReturnsController(SelloraDbContext db, ISalesService salesServ
             .Include(x => x.CreatedByUser)
             .Include(x => x.Lines).ThenInclude(l => l.Product).ThenInclude(p => p.BaseUnit)
             .Include(x => x.Lines).ThenInclude(l => l.ProductUnit).ThenInclude(u => u.Unit)
+            .Include(x => x.Lines).ThenInclude(l => l.Taxes)
             .AsSplitQuery()
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         if (r is null) return NotFound();
@@ -83,7 +84,7 @@ public class SalesReturnsController(SelloraDbContext db, ISalesService salesServ
             $"{r.CreatedByUser.FirstName} {r.CreatedByUser.LastName}", r.CreatedAt,
             r.Lines.Select(l => new SalesReturnLineDto(
                 l.Id, l.Product.Name, l.ProductUnit.Label ?? l.ProductUnit.Unit.Name, l.UnitCode, l.Qty, l.BaseQty, l.Product.BaseUnit.ShortCode, l.Product.BaseUnit.DecimalPlaces,
-                l.TaxableValue, l.TaxAmount, l.LineTotal)).ToList(),
+                l.TaxableValue, l.TaxAmount, l.LineTotal, SalesController.ToTaxDtos(l.Taxes), l.PlaceOfSupply)).ToList(),
             refunds.Select(p => SalesController.ToPaymentDto(p, noReversed)).ToList(),
             r.BranchId, labels.Code(r.BranchId), labels.Name(r.BranchId),
             r.StockLocationId, locLabels.Code(r.StockLocationId), locLabels.Name(r.StockLocationId)));

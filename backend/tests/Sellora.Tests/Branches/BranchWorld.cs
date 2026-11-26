@@ -62,6 +62,7 @@ public sealed class BranchWorld
         db.StockLocations.Add(BranchBuilder.Store(blr)); // every branch owns its store (production invariant)
         db.AddRange(blr, role, user, kg, tax, inr, supplier, customer, settings, category, product);
         await db.SaveChangesAsync();
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: purchases need a country, an own state and a purchase profile
 
         var world = new BranchWorld
         {

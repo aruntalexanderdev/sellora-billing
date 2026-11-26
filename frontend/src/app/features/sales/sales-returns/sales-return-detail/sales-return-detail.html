@@ -20,7 +20,9 @@
             <th>Unit</th>
             <th class="num">Qty returned</th>
             <th class="num">Value</th>
-            <th class="num">Tax</th>
+            @for (code of taxCols(); track code) {
+              <th class="num" data-testid="tax-col">{{ code }}</th>
+            }
             <th class="num">Credit</th>
           </tr>
         </thead>
@@ -31,7 +33,15 @@
               <td>{{ l.unitLabel }} <span class="muted">({{ formatQuantity(l.baseQty, l.baseUnitDecimalPlaces) }} {{ l.baseUnitLabel }})</span></td>
               <td class="num">{{ formatQuantity(l.qty, 3) }} {{ l.unitCode }}</td>
               <td class="num">{{ INR(l.taxableValue) }}</td>
-              <td class="num">{{ INR(l.taxAmount) }}</td>
+              @for (code of taxCols(); track code) {
+                <td class="num" data-testid="tax-cell">
+                  @if (cell(l, code); as c) {
+                    {{ INR(c.taxAmount) }}@if (c.ratePercent !== null) { <span class="muted"> ({{ c.ratePercent }}%)</span> }
+                  } @else {
+                    <span class="muted">—</span>
+                  }
+                </td>
+              }
               <td class="num strong">{{ INR(l.lineTotal) }}</td>
             </tr>
           }
@@ -42,6 +52,11 @@
     <div class="summary-and-payment">
       <div class="summary-card">
         <div class="totals-row"><span>Value of goods</span><span>{{ INR(r.taxableTotal) }}</span></div>
+        @if (taxByCode().length > 1 || (taxByCode().length === 1 && !taxByCode()[0].isLegacy)) {
+          @for (c of taxByCode(); track c.code) {
+            <div class="totals-row sub-row" data-testid="tax-component"><span>{{ c.code }} reversed</span><span>{{ INR(c.taxAmount) }}</span></div>
+          }
+        }
         <div class="totals-row"><span>Tax</span><span>{{ INR(r.taxTotal) }}</span></div>
         <div class="totals-row totals-grand"><span>Credit to customer</span><span>{{ INR(r.total) }}</span></div>
       </div>

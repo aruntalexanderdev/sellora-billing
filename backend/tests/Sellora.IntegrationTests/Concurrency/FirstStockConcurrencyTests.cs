@@ -130,7 +130,7 @@ public class FirstStockConcurrencyTests(PostgresFixture postgres)
                     StockScenario.PurchaseDate, null, null, PaymentMethod.Cash, 0,
                     [new PurchaseLineInput(Guid.NewGuid(), seed.Box, 1m, 30m, 0, 0), new PurchaseLineInput(seed.PenId, seed.Box, 1m, 30m, 0, 0)]),
                     seed.Scenario.UserId));
-            Assert.Equal("Lines", ex.Field);
+            Assert.Equal("lines[0].productId", ex.Field);   // TP-3: purchase errors are keyed per line (was "Lines")
         }
 
         await using var check = database.CreateDbContext();

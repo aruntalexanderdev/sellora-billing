@@ -52,6 +52,8 @@ FROM (VALUES
   ('Inventory.Adjust', 'Inventory', 'Adjust', 'Post stock adjustments (damage, loss, correction, etc.).'),
   ('Inventory.Price', 'Inventory', 'Price', 'Configure product units and prices.'),
   ('Inventory.Categories', 'Inventory', 'Manage categories', 'Create, edit, activate and deactivate product categories and subcategories.'),
+  ('Tax.View', 'Inventory', 'View tax setup', 'View tax components, tax profiles and the tax mapping of products and categories.'),
+  ('Tax.Manage', 'Inventory', 'Manage tax setup', 'Create and edit tax components, tax profiles, their dated versions and the tax assignments.'),
   ('StockLocations.View', 'Inventory', 'View locations', 'View stock locations (branch stores, warehouses, vehicles, in-transit).'),
   ('StockTransfers.View', 'Inventory', 'View transfers', 'View stock transfers.'),
   ('StockTransfers.Create', 'Inventory', 'Create transfers', 'Create, edit and submit stock transfer requests.'),
@@ -83,6 +85,7 @@ FROM (VALUES
   ('Sales.View', 'Sales', 'View', 'View sales invoices.'),
   ('Sales.Create', 'Sales', 'Create', 'Create sales through POS billing.'),
   ('Sales.PriceOverride', 'Sales', 'PriceOverride', 'Charge a price other than the list price, or give a discount, at the POS.'),
+  ('Sales.BillDiscount', 'Sales', 'BillDiscount', 'Give a whole-bill discount on a sale (capped by the company''s maximum bill discount).'),
   ('Sales.Edit', 'Sales', 'Edit', 'Edit an in-progress sale.'),
   ('Sales.Receive', 'Sales', 'Receive', 'Record payments received against sales invoices.'),
   ('Sales.Return', 'Sales', 'Return', 'Take back goods from a customer.'),
@@ -104,6 +107,7 @@ FROM (VALUES
   ('Reports.Movement', 'Reports', 'View', 'View the stock movement report.'),
   ('Reports.Purchase', 'Reports', 'View', 'View the purchase report.'),
   ('Reports.Sales', 'Reports', 'View', 'View the sales report.'),
+  ('Reports.Tax', 'Reports', 'View', 'View the tax reports: GST or VAT summary and the HSN summary.'),
   ('Reports.Accounts', 'Reports', 'View', 'View the Accounts reports: payments, outstanding balances, expenses, cash flow, cash & bank and payment methods.'),
   ('Reports.Profit', 'Reports', 'View', 'View the profit/margin summary report.')
 ) AS v("Code", "Module", "Action", "Description")

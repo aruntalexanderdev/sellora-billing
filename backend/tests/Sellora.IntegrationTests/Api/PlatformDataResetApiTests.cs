@@ -96,15 +96,19 @@ public class PlatformDataResetApiTests(PostgresFixture postgres)
         Assert.False(report!.Applied);
         Assert.Equal(database, report.Database);
         Assert.Equal(["customers", "suppliers"], report.KeptMasters);
-        Assert.Equal(42, report.Tables.Count);
+        Assert.Equal(51, report.Tables.Count);   // 42 + the nine tax profile tables
         Assert.DoesNotContain(report.Tables, t => t.Table is "Customers" or "Suppliers");
         Assert.Equal(units, report.Tables.Single(t => t.Table == "Units").RowsBefore);
         Assert.Equal(products, report.Tables.Single(t => t.Table == "Products").RowsBefore);
         Assert.All(report.Tables, t => Assert.Null(t.RowsAfter));
-        Assert.Equal(44, everything!.Tables.Count);
+        Assert.Equal(53, everything!.Tables.Count);   // 44 + the nine tax profile tables
         Assert.Empty(everything.KeptMasters);
-        Assert.Equal(37, keeping!.Tables.Count);
-        Assert.DoesNotContain(keeping.Tables, t => t.Table is "Taxes" or "ProductCategories" or "ProductSubcategories" or "ExpenseCategories" or "FinancialAccounts");
+        Assert.Equal(42, keeping!.Tables.Count);   // 53 listed tables minus customers, suppliers, the five tax masters, two category tables, expense categories, accounts
+        Assert.DoesNotContain(keeping.Tables, t => t.Table is "Taxes" or "TaxComponents" or "TaxProfiles" or "TaxProfileVersions" or "TaxProfileVersionComponents"
+            or "ProductCategories" or "ProductSubcategories" or "ExpenseCategories" or "FinancialAccounts");
+        // T23: TaxAssignments is always listed, and reported as a partial action when taxes are kept.
+        Assert.StartsWith("partial", keeping.Tables.Single(t => t.Table == "TaxAssignments").Action);
+        Assert.StartsWith("remove all", report.Tables.Single(t => t.Table == "TaxAssignments").Action);
 
         Assert.Equal(units, await CountAsync(host, "Units"));
         Assert.Equal(products, await CountAsync(host, "Products"));
@@ -152,16 +156,20 @@ public class PlatformDataResetApiTests(PostgresFixture postgres)
         var report = (await response.Content.ReadFromJsonAsync<DataResetReportDto>(ApiHost.Json))!;
         Assert.True(report.Applied);
         Assert.Equal(database, report.Database);
-        Assert.Equal(42, report.Tables.Count);
+        Assert.Equal(51, report.Tables.Count);   // 42 + the nine tax profile tables
         Assert.All(report.Tables, t => Assert.NotNull(t.RowsBefore));
         Assert.All(report.Tables.Where(t => t.Table != "FinancialAccounts"), t => Assert.Equal(0L, t.RowsAfter));
         Assert.Equal(companies, report.Tables.Single(t => t.Table == "FinancialAccounts").RowsAfter);
 
-        foreach (var table in new[] { "Units", "Taxes", "Products", "ProductUnits", "SellingPrices", "ProductCategories", "ProductSubcategories", "StockItems",
+        foreach (var table in new[] { "Units", "Products", "ProductUnits", "SellingPrices", "ProductCategories", "ProductSubcategories", "StockItems",
                      "StockMovements", "PurchaseOrders", "SalesInvoices", "FinancialTransactions", "Expenses", "ExpenseCategories", "IdempotencyKeys" })
         {
             Assert.Equal(0L, await CountAsync(host, table));
         }
+        // taxes are not kept: the old ones are gone and only the standard profiles (with their mirror taxes) are back (T23)
+        Assert.Equal(0L, await CountAsync(host, "TaxProfiles", "\"Code\" LIKE 'LEGACY-%'"));
+        Assert.Equal(await CountAsync(host, "TaxProfiles"), await CountAsync(host, "Taxes"));
+        Assert.Equal(0L, await MirrorMismatchesAsync(host));
         // kept by default
         Assert.Equal(customers, await CountAsync(host, "Customers"));
         Assert.Equal(suppliers, await CountAsync(host, "Suppliers"));
@@ -220,5 +228,140 @@ public class PlatformDataResetApiTests(PostgresFixture postgres)
         Assert.Equal(1L, await CountAsync(host, "FinancialAccounts", $""" "Id" = '{account}' """));
         Assert.Equal(0L, await CountAsync(host, "Units"));
         Assert.Equal(0L, await CountAsync(host, "Products"));
+    }
+
+    // ---- T23: tax tables ----------------------------------------------------------------------------------------------------------
+
+    private const string DefaultCompany = "0c0a1f00-0000-4000-8000-000000000001";
+
+    private static async Task<HttpResponseMessage> CreateProductAfterResetAsync(ApiHost host)
+    {
+        var unit = Guid.NewGuid();
+        await ExecuteAsync(host.Database, $"""INSERT INTO "Units" ("Id", "Name", "ShortCode", "MeasurementCategory", "DecimalPlaces", "StandardFactor", "IsActive") VALUES ('{unit}', 'Piece', 'pc', 'Count', 0, NULL, true)""");
+        using var company = await host.LoginClientAsync();
+        return await company.PostAsJsonAsync("/api/v1/products",
+            new UpsertProductRequest("AFTER-RESET", "After reset", null, null, unit, 0m, [new UpsertProductUnitRequest(null, unit, null, 1m, "Each", null, true, true, true, true, true)]), ApiHost.Json);
+    }
+
+    private static Task<long> MirrorMismatchesAsync(ApiHost host) => ScalarAsync<long>(host.Database, """
+        SELECT (SELECT COUNT(*) FROM "Taxes" t WHERE NOT EXISTS (SELECT 1 FROM "TaxProfiles" p WHERE p."LegacyTaxId" = t."Id"))
+             + (SELECT COUNT(*) FROM "TaxProfiles" p WHERE NOT EXISTS (SELECT 1 FROM "Taxes" t WHERE t."Id" = p."LegacyTaxId"))
+        """);
+
+    [Fact]
+    public async Task Reset_KeepTaxes_KeepsTheProfileMastersAndOnlyTheCompanyDefault_AndAProductCanBeCreatedAfterwards()
+    {
+        var (host, _) = await StartWithOperatorAsync(postgres, ResetOn);
+        await using var disposeHost = host;
+        using var client = await PlatformClientAsync(host, "ops.alice");
+        var database = await DatabaseNameAsync(host);
+        var masters = new[] { "Taxes", "TaxComponents", "TaxProfiles", "TaxProfileVersions", "TaxProfileVersionComponents" };
+        var before = new List<long>();
+        foreach (var table in masters) before.Add(await CountAsync(host, table));
+        var companyDefaults = await CountAsync(host, "TaxAssignments", """ "Scope" = 'Company' """);
+        Assert.True(await CountAsync(host, "TaxAssignments", """ "Scope" = 'Product' """) > 0, "the demo products carry assignments before the reset");
+        Assert.True(companyDefaults > 0);
+
+        var response = await client.PostAsJsonAsync(Base, new DataResetRequest(database, KeepTaxes: true), ApiHost.Json);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var report = (await response.Content.ReadFromJsonAsync<DataResetReportDto>(ApiHost.Json))!;
+        for (var i = 0; i < masters.Length; i++) Assert.Equal(before[i], await CountAsync(host, masters[i]));
+        Assert.Equal(companyDefaults, await CountAsync(host, "TaxAssignments"));
+        Assert.Equal(companyDefaults, await CountAsync(host, "TaxAssignments", """ "Scope" = 'Company' """));
+        Assert.Equal(0L, await MirrorMismatchesAsync(host));
+        var row = report.Tables.Single(t => t.Table == "TaxAssignments");
+        Assert.StartsWith("partial", row.Action);
+        Assert.Equal(companyDefaults, row.RowsAfter);
+        Assert.Contains("Tax setup", report.Message);
+
+        var created = await CreateProductAfterResetAsync(host);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reset_KeepTaxes_RestoresAMissingCompanyDefault_PerT21()
+    {
+        var (host, _) = await StartWithOperatorAsync(postgres, ResetOn);
+        await using var disposeHost = host;
+        using var client = await PlatformClientAsync(host, "ops.alice");
+        var database = await DatabaseNameAsync(host);
+        await ExecuteAsync(host.Database, $"""DELETE FROM "TaxAssignments" WHERE "Scope" = 'Company' AND "CompanyId" = '{DefaultCompany}'""");
+
+        var response = await client.PostAsJsonAsync(Base, new DataResetRequest(database, KeepTaxes: true), ApiHost.Json);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var report = (await response.Content.ReadFromJsonAsync<DataResetReportDto>(ApiHost.Json))!;
+        Assert.Equal(1L, await CountAsync(host, "TaxAssignments", $""" "Scope" = 'Company' AND "CompanyId" = '{DefaultCompany}' """));
+        Assert.Contains("company default restored", report.Message);
+        Assert.Equal(HttpStatusCode.Created, (await CreateProductAfterResetAsync(host)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Reset_KeepTaxesAndCategories_KeepsCategoryAndSubcategoryAssignmentsOfTheKeptCategories()
+    {
+        var (host, _) = await StartWithOperatorAsync(postgres, ResetOn);
+        await using var disposeHost = host;
+        using var client = await PlatformClientAsync(host, "ops.alice");
+        var database = await DatabaseNameAsync(host);
+        await ExecuteAsync(host.Database, $"""
+            INSERT INTO "TaxAssignments" ("Id", "CompanyId", "Scope", "CountryId", "CategoryId", "SubcategoryId", "ProductId", "SalesTaxProfileId", "PurchaseTaxProfileId", "CreatedAt", "UpdatedAt")
+            SELECT gen_random_uuid(), c."CompanyId", 'Category', d."CountryId", c."Id", NULL, NULL, d."SalesTaxProfileId", NULL, now(), NULL
+            FROM (SELECT "Id", "CompanyId" FROM "ProductCategories" WHERE "CompanyId" = '{DefaultCompany}' ORDER BY "Name" LIMIT 1) c
+            JOIN "TaxAssignments" d ON d."CompanyId" = c."CompanyId" AND d."Scope" = 'Company'
+            """);
+        var categoryRows = await CountAsync(host, "TaxAssignments", """ "Scope" = 'Category' """);
+        var categories = await CountAsync(host, "ProductCategories");
+        Assert.True(categoryRows > 0);
+
+        var response = await client.PostAsJsonAsync(Base, new DataResetRequest(database, KeepTaxes: true, KeepCategories: true), ApiHost.Json);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(categories, await CountAsync(host, "ProductCategories"));
+        Assert.Equal(categoryRows, await CountAsync(host, "TaxAssignments", """ "Scope" = 'Category' """));
+        Assert.Equal(0L, await CountAsync(host, "TaxAssignments", """ "Scope" = 'Product' """));
+        Assert.Equal(0L, await CountAsync(host, "TaxAssignments", """ "Scope" IN ('Category', 'Subcategory') AND NOT EXISTS (SELECT 1 FROM "ProductCategories" c WHERE c."Id" = "TaxAssignments"."CategoryId") """));
+    }
+
+    [Fact]
+    public async Task Reset_WithoutKeepTaxes_ReSeedsTheStandardProfilesAndTheDefault_AndAProductCanBeCreatedAfterwards()
+    {
+        var (host, _) = await StartWithOperatorAsync(postgres, ResetOn);
+        await using var disposeHost = host;
+        using var client = await PlatformClientAsync(host, "ops.alice");
+        var database = await DatabaseNameAsync(host);
+        // India (the demo company): the standard set is five profiles; any extra profile or tax made before is gone.
+        await ExecuteAsync(host.Database, $"""UPDATE "BusinessSettings" SET "CountryId" = (SELECT "Id" FROM "Countries" WHERE "Code" = 'IN') WHERE "CompanyId" = '{DefaultCompany}'""");
+
+        var response = await client.PostAsJsonAsync(Base, new DataResetRequest(database), ApiHost.Json);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var report = (await response.Content.ReadFromJsonAsync<DataResetReportDto>(ApiHost.Json))!;
+        Assert.Contains("re-seeded", report.Message);
+        var codes = await ScalarAsync<string>(host.Database, $"""SELECT string_agg("Code", ',' ORDER BY "Code") FROM "TaxProfiles" WHERE "CompanyId" = '{DefaultCompany}'""");
+        Assert.Equal("GST-18,GST-40,GST-5,GST-EXEMPT,GST-NIL", codes);
+        Assert.Equal(5L, await CountAsync(host, "Taxes", $""" "CompanyId" = '{DefaultCompany}' """));
+        Assert.Equal(0L, await MirrorMismatchesAsync(host));
+        Assert.Equal(1L, await CountAsync(host, "TaxAssignments", $""" "CompanyId" = '{DefaultCompany}' AND "Scope" = 'Company' """));
+        Assert.Equal(0L, await CountAsync(host, "TaxAssignments", """ "Scope" <> 'Company' """));
+        Assert.StartsWith("remove all", report.Tables.Single(t => t.Table == "TaxAssignments").Action);
+        Assert.Equal(HttpStatusCode.Created, (await CreateProductAfterResetAsync(host)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Reset_WithoutKeepTaxes_ForACountryWithoutAStandardSeed_SaysSo()
+    {
+        var (host, _) = await StartWithOperatorAsync(postgres, ResetOn);
+        await using var disposeHost = host;
+        using var client = await PlatformClientAsync(host, "ops.alice");
+        var database = await DatabaseNameAsync(host);
+        await ExecuteAsync(host.Database, $"""UPDATE "BusinessSettings" SET "CountryId" = (SELECT "Id" FROM "Countries" WHERE "Code" = 'QA'), "StateId" = NULL WHERE "CompanyId" = '{DefaultCompany}'""");
+
+        var response = await client.PostAsJsonAsync(Base, new DataResetRequest(database), ApiHost.Json);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var report = (await response.Content.ReadFromJsonAsync<DataResetReportDto>(ApiHost.Json))!;
+        Assert.Contains("no standard tax seed exists for QA", report.Message);
+        Assert.Equal(0L, await CountAsync(host, "TaxProfiles", $""" "CompanyId" = '{DefaultCompany}' """));
     }
 }

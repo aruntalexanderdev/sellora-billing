@@ -175,7 +175,7 @@ public class IntroduceProductUnitsMigrationTests(PostgresFixture postgres)
         var countsBefore = await CountsAsync(database, "ProductSellingModes", "ProductSellingModeId");
 
         await using var db = database.CreateDbContext();
-        await db.Database.MigrateAsync();
+        await db.MigrateToHeadAsync();
 
         var units = await db.ProductUnits.AsNoTracking().ToListAsync();
         var byId = units.ToDictionary(u => u.Id);
@@ -284,7 +284,7 @@ public class IntroduceProductUnitsMigrationTests(PostgresFixture postgres)
         await using var database = await CreateLegacyDatabaseAsync(postgres);
         await using (var db = database.CreateDbContext())
         {
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
         }
 
         await using var check = database.CreateDbContext();
@@ -310,7 +310,7 @@ public class IntroduceProductUnitsMigrationTests(PostgresFixture postgres)
 
         await using (var db = database.CreateDbContext())
         {
-            var ex = await Assert.ThrowsAsync<PostgresException>(() => db.Database.MigrateAsync());
+            var ex = await Assert.ThrowsAsync<PostgresException>(() => db.MigrateToHeadAsync());
             Assert.Contains("factor <= 0", ex.MessageText);
         }
 
@@ -329,7 +329,7 @@ public class IntroduceProductUnitsMigrationTests(PostgresFixture postgres)
         var activeBefore = LegacyModes.Where(m => m.IsActive).Select(m => m.Id).ToHashSet();
         await using (var db = database.CreateDbContext())
         {
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
             await db.GetService<IMigrator>().MigrateAsync(PreviousMigration);
             Assert.DoesNotContain(IntroduceProductUnits, await db.Database.GetAppliedMigrationsAsync());
         }
@@ -385,14 +385,14 @@ public class IntroduceProductUnitsMigrationTests(PostgresFixture postgres)
         Dictionary<Guid, Guid> firstUnitIds;
         await using (var db = database.CreateDbContext())
         {
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
             firstUnitIds = await db.ProductUnits.AsNoTracking().ToDictionaryAsync(u => u.Id, u => u.UnitId);
             await db.GetService<IMigrator>().MigrateAsync(PreviousMigration);
         }
 
         await using (var db = database.CreateDbContext())
         {
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
 
             var units = await db.ProductUnits.AsNoTracking().ToListAsync();
             Assert.Equal(firstUnitIds.Keys.Order(), units.Select(u => u.Id).Order()); // inserted base rows are re-used as base
@@ -416,7 +416,7 @@ public class IntroduceProductUnitsMigrationTests(PostgresFixture postgres)
         await using var database = await CreateLegacyDatabaseAsync(postgres);
         await using (var db = database.CreateDbContext())
         {
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
         }
         // 0.5 g sachet on a kg base: factor 0.0005 is valid in numeric(28,10) but not representable in numeric(18,3).
         await ExecuteAsync(database, $"""
@@ -473,7 +473,7 @@ public class IntroduceProductUnitsMigrationTests(PostgresFixture postgres)
             Assert.False(db.Database.HasPendingModelChanges());
             // Multi-company: the head model's CompanyId filters read columns added by later migrations, so bring the schema to head
             // before the EF-model assertions below (the data assertions themselves are unchanged).
-            await db.Database.MigrateAsync();
+            await db.MigrateToHeadAsync();
             var rows = await db.ProductUnits.AsNoTracking().ToDictionaryAsync(u => u.Id);
             Assert.All(LegacyModes, m => Assert.Equal(m.Factor, rows[m.Id].ConversionFactorToBase));
         }

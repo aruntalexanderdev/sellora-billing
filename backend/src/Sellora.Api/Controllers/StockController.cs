@@ -7,13 +7,14 @@ using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Stock;
 using Sellora.Infrastructure.Data;
+using Sellora.Infrastructure.Services;
 
 namespace Sellora.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/stock")]
 [Authorize(Policy = "Inventory.View")]
-public class StockController(SelloraDbContext db, IEffectivePermissionService effectivePermissions) : ControllerBase
+public class StockController(SelloraDbContext db, IEffectivePermissionService effectivePermissions, ITaxResolver taxResolver) : ControllerBase
 {
     [HttpGet("overview")]
     [CompanyScopeRead]
@@ -107,7 +108,7 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
     [HttpGet("{productId:guid}")]
     public async Task<ActionResult<StockDetailDto>> Detail(Guid productId, CancellationToken ct = default, [FromQuery] Guid? stockLocationId = null)
     {
-        var product = await db.Products.Include(p => p.BaseUnit).Include(p => p.Tax)
+        var product = await db.Products.Include(p => p.BaseUnit)
             .SingleOrDefaultAsync(p => p.Id == productId, ct);
         if (product is null) return NotFound();
 
@@ -178,8 +179,10 @@ public class StockController(SelloraDbContext db, IEffectivePermissionService ef
             ? await db.ProductSubcategories.Where(s => s.Id == subId).Select(s => s.Name).FirstOrDefaultAsync(ct)
             : null;
 
+        var taxes = await SalesTaxLookup.ForCompanyAsync(db, taxResolver, [product.Id], ct);
+
         return Ok(new StockDetailDto(
-            product.Id, product.Sku, product.Name, product.Category, product.BaseUnit.ShortCode, product.Tax.Name,
+            product.Id, product.Sku, product.Name, product.Category, product.BaseUnit.ShortCode, SalesTaxLookup.Label(taxes, product.Id),
             qty, avgCost, stockValue, product.ReorderLevel, StockStatusCalculator.Calculate(qty, product.ReorderLevel),
             movements, batches, locationRows, product.BaseUnit.DecimalPlaces, breakdown,
             product.CategoryId, subcategoryName));

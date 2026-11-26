@@ -5,9 +5,10 @@ import { ProductForm } from './product-form';
 import { ProductCategoriesService } from '../../../../shared/product-categories/product-categories.service';
 import { ProductsService } from '../products.service';
 import { UnitsService } from '../../../masters/units/units.service';
-import { TaxesService } from '../../../masters/taxes/taxes.service';
+import { AuthService } from '../../../../core/auth/auth.service';
 import type { MeasurementCategory, UnitItem } from '../../../masters/units/units.models';
 import type { ProductDetail, ProductUnit } from '../products.models';
+import type { ProductCategory } from '../../../../shared/product-categories/product-categories.models';
 
 function u(id: string, measurementCategory: MeasurementCategory, isActive = true): UnitItem {
   return { id, name: id, shortCode: id, measurementCategory, decimalPlaces: 0, standardFactor: null, isActive, isInUse: false, canDeactivate: true };
@@ -38,18 +39,20 @@ function product(baseUnitId: string, extra: Partial<ProductDetail> = {}): Produc
     id: 'p1', sku: 'SKU', name: 'Legacy', category: null, categoryId: null, categoryName: null, subcategoryId: null, subcategoryName: null, baseUnitId, baseUnitLabel: baseUnitId,
     taxId: 't1', taxLabel: 'GST 5%', taxRatePercent: 5, reorderLevel: 0, isActive: true,
     isBaseUnitLocked: false, units: [pu({ unitId: baseUnitId })],
+    hsnCode: null, effectiveHsnCode: null, hsnSource: 'None', priceIncludesTax: null, salesTaxProfile: null, purchaseTaxProfile: null,
+    taxSource: null, taxSourceName: null, salesOverrideProfileId: null, purchaseOverrideProfileId: null, warnings: null,
     ...extra,
   };
 }
 
-function setup(id: string | null, baseUnitId = 'kg', detail: ProductDetail = product(baseUnitId)) {
+function setup(id: string | null, baseUnitId = 'kg', detail: ProductDetail = product(baseUnitId), canManageCategories = false) {
   TestBed.configureTestingModule({
     imports: [ProductForm],
     providers: [
       { provide: UnitsService, useValue: { list: () => of(UNITS) } },
       { provide: ProductCategoriesService, useValue: { list: () => of([]) } },
-      { provide: TaxesService, useValue: { list: () => of([{ id: 't1', name: 'GST 5%', ratePercent: 5, isActive: true }]) } },
       { provide: ProductsService, useValue: { get: () => of(detail) } },
+      { provide: AuthService, useValue: { hasPermission: (code: string) => canManageCategories && code === 'Inventory.Categories' } },
       { provide: Router, useValue: { navigateByUrl: vi.fn() } },
       { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap(id ? { id } : {}) } } },
     ],
@@ -210,5 +213,139 @@ describe('ProductForm category mapping', () => {
     expect(c.form.controls.categoryId.errors?.['server']).toBe('Category is inactive.');
     expect(c.form.controls.subcategoryId.errors?.['server']).toBe('Does not belong to the category.');
     expect(c.serverError()).toBeNull();
+  });
+});
+
+describe('ProductForm category / subcategory pickers', () => {
+  const cats: ProductCategory[] = [
+    { id: 'c1', code: 'G', name: 'Grains', sortOrder: 0, isActive: true, productCount: 0, subcategories: [
+      { id: 's1', categoryId: 'c1', code: 'R', name: 'Rice', sortOrder: 0, isActive: true, productCount: 0 },
+      { id: 's2', categoryId: 'c1', code: 'O', name: 'Others', sortOrder: 1, isActive: true, productCount: 0 },
+      { id: 's3', categoryId: 'c1', code: 'X', name: 'Old', sortOrder: 2, isActive: false, productCount: 0 },
+    ] },
+    { id: 'c2', code: 'D', name: 'Dairy', sortOrder: 1, isActive: true, productCount: 0, subcategories: [
+      { id: 's4', categoryId: 'c2', code: 'O', name: 'Others', sortOrder: 0, isActive: true, productCount: 0 },
+    ] },
+    { id: 'c3', code: 'Z', name: 'Retired', sortOrder: 2, isActive: false, productCount: 0, subcategories: [
+      { id: 's5', categoryId: 'c3', code: 'Z', name: 'Gone', sortOrder: 0, isActive: true, productCount: 0 },
+    ] },
+  ];
+
+  function fresh(canManage = false) {
+    const c = setup(null, 'kg', product('kg'), canManage);
+    c.allCategories.set(cats);
+    return c;
+  }
+  const values = (c: ProductForm) => c.subcategoryComboOptions().map((o) => `${o.label}${o.hint ? ' · ' + o.hint : ''}`);
+
+  it('no category: lists every active subcategory of active categories, labelled with the category', () => {
+    const c = fresh();
+    expect(values(c)).toEqual(['Rice · Grains', 'Others · Grains', 'Others · Dairy']);
+  });
+
+  it('selecting a subcategory sets its category and narrows the list', () => {
+    const c = fresh();
+    c.form.controls.subcategoryId.setValue('s4');
+    expect(c.form.controls.categoryId.value).toBe('c2');
+    expect(c.form.controls.categoryId.dirty).toBe(true);
+    expect(values(c)).toEqual(['Others']);
+    // Picking a subcategory of another category (via the full list) switches the category.
+    c.form.controls.subcategoryId.setValue('s1');
+    expect(c.form.controls.categoryId.value).toBe('c1');
+    expect(c.form.controls.subcategoryId.value).toBe('s1');
+  });
+
+  it('selecting a category filters and clears a subcategory of another category', () => {
+    const c = fresh();
+    c.form.controls.subcategoryId.setValue('s2');
+    c.form.controls.categoryId.setValue('c1');
+    expect(c.form.controls.subcategoryId.value).toBe('s2');
+    c.form.controls.categoryId.setValue('c2');
+    expect(c.form.controls.subcategoryId.value).toBe('');
+    expect(values(c)).toEqual(['Others']);
+  });
+
+  it('clearing the category clears the subcategory and restores the full list', () => {
+    const c = fresh();
+    c.form.controls.subcategoryId.setValue('s1');
+    c.form.controls.categoryId.setValue('');
+    expect(c.form.controls.subcategoryId.value).toBe('');
+    expect(values(c)).toEqual(['Rice · Grains', 'Others · Grains', 'Others · Dairy']);
+  });
+
+  it('edit: an inactive current subcategory still displays, marked inactive', () => {
+    const c = setup('p1', 'kg', product('kg', { categoryId: 'c1', subcategoryId: 's3' }));
+    c.allCategories.set(cats);
+    expect(c.form.controls.subcategoryId.value).toBe('s3');
+    expect(values(c)).toEqual(['Rice', 'Others', 'Old (inactive)']);
+  });
+
+  it('"+ New subcategory" is shown only with Inventory.Categories and opens with the selected category', () => {
+    expect(fresh(false).canManageCategories()).toBe(false);
+    TestBed.resetTestingModule();
+    const c = fresh(true);
+    expect(c.canManageCategories()).toBe(true);
+    c.openNewSubcategory();
+    expect(c.subcategoryEditor()).toEqual({ kind: 'subcategory', categoryId: null, id: null });
+    c.form.controls.categoryId.setValue('c2');
+    c.openNewSubcategory();
+    expect(c.subcategoryEditor()).toEqual({ kind: 'subcategory', categoryId: 'c2', id: null });
+  });
+
+  it('a created subcategory is added to the list and selected (setting its category)', () => {
+    const c = fresh(true);
+    c.openNewSubcategory();
+    const sub = { id: 's9', categoryId: 'c2', code: 'CH', name: 'Cheese', sortOrder: 5, isActive: true, productCount: 0 };
+    c.onSubcategoryCreated({ kind: 'subcategory', created: true, subcategory: sub });
+    expect(c.subcategoryEditor()).toBeNull();
+    expect(c.form.controls.subcategoryId.value).toBe('s9');
+    expect(c.form.controls.categoryId.value).toBe('c2');
+    expect(values(c)).toEqual(['Others', 'Cheese']);
+    expect(c.hasUnsavedChanges()).toBe(true);
+  });
+
+  it('a created subcategory under a category missing from the list still sends its category', () => {
+    const c = fresh(true);
+    const sub = { id: 's10', categoryId: 'c-new', code: 'N', name: 'New', sortOrder: 0, isActive: true, productCount: 0 };
+    c.onSubcategoryCreated({ kind: 'subcategory', created: true, subcategory: sub });
+    expect(c.buildRequest()).toMatchObject({ categoryId: 'c-new', subcategoryId: 's10' });
+  });
+});
+
+describe('ProductForm tax fields', () => {
+  it('loads the stored overrides, HSN and price basis into the tax group', () => {
+    const c = setup('p1', 'kg', product('kg', { salesOverrideProfileId: 'gst5', purchaseOverrideProfileId: 'gst18', hsnCode: '1006', priceIncludesTax: false }));
+    expect(c.form.controls.tax.getRawValue()).toEqual({
+      overrideEnabled: true, salesProfileId: 'gst5', purchaseSameAsSales: false, purchaseProfileId: 'gst18', hsnCode: '1006', priceBasis: 'false',
+    });
+    expect(c.initialPriceBasis()).toBe('false');
+  });
+
+  it('always resends the override ids on save, and no taxId', () => {
+    const c = setup('p1', 'kg', product('kg', { salesOverrideProfileId: 'gst5', purchaseOverrideProfileId: null }));
+    const request = c.buildRequest();
+    expect(request).toMatchObject({ salesTaxProfileId: 'gst5', purchaseTaxProfileId: null, hsnCode: null, priceIncludesTax: null });
+    expect('taxId' in request).toBe(false);
+  });
+
+  it('sends null ids when there is no override so a stored one is removed', () => {
+    const c = setup('p1', 'kg');
+    expect(c.buildRequest()).toMatchObject({ salesTaxProfileId: null, purchaseTaxProfileId: null });
+  });
+
+  it('maps taxProfile, hsnCode and salesTaxProfileId errors onto the tax controls', () => {
+    const c = setup(null);
+    c.form.controls.tax.controls.overrideEnabled.setValue(true);
+    c.applyServerErrors({ errors: { taxProfile: ['No tax profile applies.'], HsnCode: ['Bad HSN.'], SalesTaxProfileId: ['Wrong country.'] } });
+    expect(c.form.controls.tax.errors?.['server']).toBe('No tax profile applies.');
+    expect(c.form.controls.tax.controls.hsnCode.errors?.['server']).toBe('Bad HSN.');
+    expect(c.form.controls.tax.controls.salesProfileId.errors?.['server']).toBe('Wrong country.');
+    expect(c.serverError()).toBeNull();
+  });
+
+  it('an invalid HSN blocks the form', () => {
+    const c = setup(null);
+    c.form.controls.tax.controls.hsnCode.setValue('12');
+    expect(c.form.controls.tax.invalid).toBe(true);
   });
 });

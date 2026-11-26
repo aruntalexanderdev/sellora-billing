@@ -18,6 +18,30 @@ public class SalesInvoiceConfiguration : IEntityTypeConfiguration<SalesInvoice>
             builder.Property(money).HasColumnType("numeric(18,2)");
         }
 
+        // TP-4 tax snapshot: the new header money columns are numeric(18,4); the existing numeric(18,2) ones are untouched. DB defaults keep the previous build able to insert.
+        builder.Property(i => i.BillDiscountPercent).HasColumnType("numeric(9,4)");
+        foreach (var money in new[] { nameof(SalesInvoice.BillDiscountAmount), nameof(SalesInvoice.BillCharges) })
+        {
+            builder.Property(money).HasColumnType("numeric(18,4)").HasDefaultValue(0m);
+        }
+        builder.Property(i => i.TaxableTotal).HasColumnType("numeric(18,4)");
+        builder.Property(i => i.PlaceOfSupply).HasConversion<string>().HasMaxLength(20);
+        builder.Property(i => i.PartyTaxStatus).HasConversion<string>().HasMaxLength(20).HasDefaultValue(PartyTaxStatus.Unspecified);
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_SalesInvoices_PlaceOfSupply", PurchaseTaxValues.PlaceOfSupplyOrNull);
+            t.HasCheckConstraint("CK_SalesInvoices_PartyTaxStatus", "\"PartyTaxStatus\" IN ('Unspecified')");
+            t.HasCheckConstraint("CK_SalesInvoices_BillDiscountPercent_Range", "\"BillDiscountPercent\" IS NULL OR (\"BillDiscountPercent\" >= 0 AND \"BillDiscountPercent\" <= 100)");
+            t.HasCheckConstraint("CK_SalesInvoices_BillAmounts_NonNegative", "\"BillDiscountAmount\" >= 0 AND \"BillCharges\" >= 0");
+        });
+        // States are global masters: simple FKs (the state the supply was placed in = the buyer's, and the seller's own). The migrations add them NOT VALID, then validate.
+        builder.HasOne<State>().WithMany().HasForeignKey(i => i.PlaceOfSupplyStateId).IsRequired(false).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_SalesInvoices_States_PlaceOfSupplyStateId");
+        builder.HasOne<State>().WithMany().HasForeignKey(i => i.SellerStateId).IsRequired(false).OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_SalesInvoices_States_SellerStateId");
+        builder.HasIndex(i => i.PlaceOfSupplyStateId, "IX_SalesInvoices_PlaceOfSupplyStateId");
+        builder.HasIndex(i => i.SellerStateId, "IX_SalesInvoices_SellerStateId");
+
         builder.Ignore(i => i.NetTotal);
         builder.Ignore(i => i.DueAmount);
         builder.Ignore(i => i.RefundableAmount);
@@ -124,8 +148,13 @@ public class SalesReturnLineConfiguration : IEntityTypeConfiguration<SalesReturn
             builder.Property(money).HasColumnType("numeric(18,4)");
         }
 
+        builder.Property(l => l.PlaceOfSupply).HasConversion<string>().HasMaxLength(20);
+        PurchaseTaxValues.MapProfileLink<SalesReturnLine>(builder, "SalesReturnLines");
+
         builder.ToTable(t =>
         {
+            t.HasCheckConstraint("CK_SalesReturnLines_PlaceOfSupply", PurchaseTaxValues.PlaceOfSupplyOrNull);
+            t.HasCheckConstraint("CK_SalesReturnLines_TaxProfile_VersionNeedsProfile", PurchaseTaxValues.VersionNeedsProfile);
             t.HasCheckConstraint("CK_SalesReturnLines_Qty_Positive", "\"Qty\" > 0");
             t.HasCheckConstraint("CK_SalesReturnLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
             t.HasCheckConstraint("CK_SalesReturnLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
@@ -160,8 +189,20 @@ public class SalesInvoiceLineConfiguration : IEntityTypeConfiguration<SalesInvoi
         builder.Property(l => l.BaseQty).HasColumnType("numeric(18,3)");
         builder.Property(l => l.TaxRatePercent).HasColumnType("numeric(6,3)");
 
+        // TP-4 tax snapshot. DB defaults (false / 0) keep the previous build able to insert.
+        builder.Property(l => l.PlaceOfSupply).HasConversion<string>().HasMaxLength(20);
+        builder.Property(l => l.HsnCode).HasMaxLength(8);
+        builder.Property(l => l.PriceIncludesTax).HasDefaultValue(false);
+        builder.Property(l => l.BillDiscountShare).HasColumnType("numeric(18,4)").HasDefaultValue(0m);
+        builder.Property(l => l.BillChargeShare).HasColumnType("numeric(18,4)").HasDefaultValue(0m);
+        PurchaseTaxValues.MapProfileLink<SalesInvoiceLine>(builder, "SalesInvoiceLines", partialIndexes: true);
+
         builder.ToTable(t =>
         {
+            t.HasCheckConstraint("CK_SalesInvoiceLines_PlaceOfSupply", PurchaseTaxValues.PlaceOfSupplyOrNull);
+            t.HasCheckConstraint("CK_SalesInvoiceLines_TaxProfile_VersionNeedsProfile", PurchaseTaxValues.VersionNeedsProfile);
+            t.HasCheckConstraint("CK_SalesInvoiceLines_HsnCode_Format", TaxValues.HsnFormat);
+            t.HasCheckConstraint("CK_SalesInvoiceLines_BillShares_NonNegative", "\"BillDiscountShare\" >= 0 AND \"BillChargeShare\" >= 0");
             t.HasCheckConstraint("CK_SalesInvoiceLines_Qty_Positive", "\"Qty\" > 0");
             t.HasCheckConstraint("CK_SalesInvoiceLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
             t.HasCheckConstraint("CK_SalesInvoiceLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
@@ -203,5 +244,25 @@ public class SalesInvoiceLineBatchConsumptionConfiguration : IEntityTypeConfigur
         builder.HasOne(c => c.PurchaseBatch).WithMany().HasForeignKey(c => c.PurchaseBatchId).OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(c => c.PurchaseBatchId);
+    }
+}
+
+public class SalesInvoiceLineTaxConfiguration : IEntityTypeConfiguration<SalesInvoiceLineTax>
+{
+    public void Configure(EntityTypeBuilder<SalesInvoiceLineTax> builder)
+    {
+        LineTaxMapping.Apply(builder, "SalesInvoiceLineTaxes", "SalesInvoiceLineId");
+        builder.HasOne(r => r.Line).WithMany(l => l.Taxes).HasForeignKey(r => r.SalesInvoiceLineId).OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_SalesInvoiceLineTaxes_SalesInvoiceLines");
+    }
+}
+
+public class SalesReturnLineTaxConfiguration : IEntityTypeConfiguration<SalesReturnLineTax>
+{
+    public void Configure(EntityTypeBuilder<SalesReturnLineTax> builder)
+    {
+        LineTaxMapping.Apply(builder, "SalesReturnLineTaxes", "SalesReturnLineId");
+        builder.HasOne(r => r.Line).WithMany(l => l.Taxes).HasForeignKey(r => r.SalesReturnLineId).OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_SalesReturnLineTaxes_SalesReturnLines");
     }
 }

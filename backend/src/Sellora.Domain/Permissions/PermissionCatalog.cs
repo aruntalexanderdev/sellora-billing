@@ -15,14 +15,14 @@ public static class PermissionCatalog
     /// </summary>
     private static readonly HashSet<string> BranchEligibleCodes = new(StringComparer.Ordinal)
     {
-        "Sales.View", "Sales.Create", "Sales.PriceOverride", "Sales.Edit", "Sales.Receive", "Sales.Return", "Sales.Refund", "Sales.Cancel",
+        "Sales.View", "Sales.Create", "Sales.PriceOverride", "Sales.BillDiscount", "Sales.Edit", "Sales.Receive", "Sales.Return", "Sales.Refund", "Sales.Cancel",
         "Purchase.View", "Purchase.Create", "Purchase.Edit", "Purchase.Pay", "Purchase.Return", "Purchase.Refund", "Purchase.Cancel",
         "Inventory.Adjust", "StockLocations.View", "Inventory.View",
         "StockTransfers.View", "StockTransfers.Create", "StockTransfers.Approve", "StockTransfers.Dispatch", "StockTransfers.Receive", "StockTransfers.ApproveReceipt", "StockTransfers.Cancel",
         "Shipments.View", "Shipments.Plan", "Shipments.Load", // FI-D31 (Reservations.Release stays company-only)
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
         "Customers.View", // Phase 11 D15: branch cashiers pick named customers at POS (customers stay company master data)
-        "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",
+        "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement", "Reports.Tax",
         BranchRolesView, BranchRolesManage, BranchUsersAssignRoles,
         BranchUsersView, BranchUsersCreate, BranchUsersEdit, BranchUsersDisable, BranchUsersResetPassword, // Phase 01b, FI-D44
     };
@@ -117,6 +117,8 @@ public static class PermissionCatalog
         new("Inventory.Adjust", "Inventory", "Adjust", "Post stock adjustments (damage, loss, correction, etc.)."),
         new("Inventory.Price", "Inventory", "Price", "Configure product units and prices."),
         new("Inventory.Categories", "Inventory", "Manage categories", "Create, edit, activate and deactivate product categories and subcategories."),
+        new("Tax.View", "Inventory", "View tax setup", "View tax components, tax profiles and the tax mapping of products and categories."),
+        new("Tax.Manage", "Inventory", "Manage tax setup", "Create and edit tax components, tax profiles, their dated versions and the tax assignments."),
         new("StockLocations.View", "Inventory", "View locations", "View stock locations (branch stores, warehouses, vehicles, in-transit)."),
         new("StockTransfers.View", "Inventory", "View transfers", "View stock transfers."),
         new("StockTransfers.Create", "Inventory", "Create transfers", "Create, edit and submit stock transfer requests."),
@@ -156,6 +158,7 @@ public static class PermissionCatalog
         new("Sales.View", "Sales", "View", "View sales invoices."),
         new("Sales.Create", "Sales", "Create", "Create sales through POS billing."),
         new("Sales.PriceOverride", "Sales", "PriceOverride", "Charge a price other than the list price, or give a discount, at the POS."),
+        new("Sales.BillDiscount", "Sales", "BillDiscount", "Give a whole-bill discount on a sale (capped by the company's maximum bill discount)."),
         new("Sales.Edit", "Sales", "Edit", "Edit an in-progress sale."),
         new("Sales.Receive", "Sales", "Receive", "Record payments received against sales invoices."),
         new("Sales.Return", "Sales", "Return", "Take back goods from a customer."),
@@ -185,6 +188,7 @@ public static class PermissionCatalog
         new("Reports.Movement", "Reports", "View", "View the stock movement report."),
         new("Reports.Purchase", "Reports", "View", "View the purchase report."),
         new("Reports.Sales", "Reports", "View", "View the sales report."),
+        new("Reports.Tax", "Reports", "View", "View the tax reports: GST or VAT summary and the HSN summary."),
         new("Reports.Accounts", "Reports", "View", "View the Accounts reports: payments, outstanding balances, expenses, cash flow, cash & bank and payment methods."),
         new("Reports.Profit", "Reports", "View", "View the profit/margin summary report."),
     };

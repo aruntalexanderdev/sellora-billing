@@ -21,6 +21,7 @@ public class ProductCategoryServiceTests
         var tax = new Tax { Id = Guid.NewGuid(), Name = "GST 5%", RatePercent = 5m };
         db.AddRange(unit, tax);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);
         return new Fixture(db, new ProductCategoryService(db), new ProductService(db), unit, tax);
     }
 
@@ -29,7 +30,7 @@ public class ProductCategoryServiceTests
     private static async Task<string?> FieldOf(Func<Task> act) => (await Assert.ThrowsAsync<DomainValidationException>(act)).Field;
 
     private static UpsertProductInput ProductInput(Fixture f, string sku, Guid? categoryId, Guid? subcategoryId) => new(
-        sku, "Item " + sku, categoryId, subcategoryId, f.Unit.Id, f.Tax.Id, 0m,
+        sku, "Item " + sku, categoryId, subcategoryId, f.Unit.Id, 0m,
         [new ProductUnitInputItem(null, f.Unit.Id, null, 1m, "Piece", null, true, true, false, false, true)]);
 
     // ------------------------------------------------------------------ masters

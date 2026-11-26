@@ -4,17 +4,28 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { UiButton } from '../../../../shared/ui/button/button';
+import { UiCombobox, type ComboOption } from '../../../../shared/ui/combobox/combobox';
+import { AuthService } from '../../../../core/auth/auth.service';
+import {
+  ClassificationEditorDialog,
+  type ClassificationEditorTarget,
+  type ClassificationSaved,
+} from '../../../../shared/product-categories/classification-editor-dialog';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { ProductCategoriesService } from '../../../../shared/product-categories/product-categories.service';
 import type { ProductCategory, ProductSubcategory } from '../../../../shared/product-categories/product-categories.models';
 import { ProductsService } from '../products.service';
 import { UnitsService } from '../../../masters/units/units.service';
-import { TaxesService } from '../../../masters/taxes/taxes.service';
 import type { UnitItem } from '../../../masters/units/units.models';
-import type { TaxItem } from '../../../masters/taxes/taxes.models';
 import type { ApiProblem } from '../../../../core/auth/auth.models';
 import type { HasUnsavedChanges } from '../../../../core/unsaved-changes.guard';
 import type { ProductDetail, UpsertProductRequest } from '../products.models';
+import {
+  ProductTaxSection,
+  createProductTaxGroup,
+  taxProblemPath,
+  taxRequestFields,
+} from './product-tax-section/product-tax-section';
 import {
   ProductUnitsEditor,
   createBaseUnitRow,
@@ -28,7 +39,7 @@ import {
 @Component({
   selector: 'app-product-form',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton, ProductUnitsEditor],
+  imports: [ReactiveFormsModule, RouterLink, UiButton, UiCombobox, ClassificationEditorDialog, ProductUnitsEditor, ProductTaxSection],
   templateUrl: './product-form.html',
   styleUrl: './product-form.scss',
 })
@@ -37,10 +48,10 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
   private readonly productsService = inject(ProductsService);
   private readonly unitsService = inject(UnitsService);
   private readonly categoriesService = inject(ProductCategoriesService);
-  private readonly taxesService = inject(TaxesService);
   private readonly toast = inject(ToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
 
   readonly productId = this.route.snapshot.paramMap.get('id');
   readonly isEdit = computed(() => this.productId !== null && this.productId !== 'new');
@@ -57,17 +68,41 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
       (u) => u.id === current || (u.isActive && u.measurementCategory !== 'Packaging'),
     );
   });
-  readonly taxes = signal<TaxItem[]>([]);
   /** All categories (active and inactive); inactive ones are offered only while they are the current selection. */
   readonly allCategories = signal<ProductCategory[]>([]);
-  private readonly selectedCategoryId = signal('');
-  private readonly selectedSubcategoryId = signal('');
+  readonly selectedCategoryId = signal('');
+  readonly selectedSubcategoryId = signal('');
+  /** Price basis the product was loaded with (T16 warning); null for a new product. */
+  readonly initialPriceBasis = signal<string | null>(null);
 
   readonly categoryOptions = computed(() => this.allCategories().filter((c) => c.isActive || c.id === this.selectedCategoryId()));
+  /**
+   * With a category: that category's subcategories. Without one: every subcategory of the offered categories,
+   * so picking one fills in the category. Inactive subcategories appear only while they are the current value.
+   */
   readonly subcategoryOptions = computed<ProductSubcategory[]>(() => {
-    const cat = this.allCategories().find((c) => c.id === this.selectedCategoryId());
-    return (cat?.subcategories ?? []).filter((s) => s.isActive || s.id === this.selectedSubcategoryId());
+    const categoryId = this.selectedCategoryId();
+    const subId = this.selectedSubcategoryId();
+    const categories = categoryId
+      ? this.allCategories().filter((c) => c.id === categoryId)
+      : this.allCategories().filter((c) => c.isActive || c.subcategories.some((s) => s.id === subId));
+    return categories.flatMap((c) => c.subcategories.filter((s) => s.isActive || s.id === subId));
   });
+  readonly categoryComboOptions = computed<ComboOption[]>(() =>
+    this.categoryOptions().map((c) => ({ value: c.id, label: c.name + (c.isActive ? '' : ' (inactive)') })),
+  );
+  /** Names such as "Others" repeat across categories, so the unfiltered list adds the category as a hint. */
+  readonly subcategoryComboOptions = computed<ComboOption[]>(() => {
+    const narrowed = !!this.selectedCategoryId();
+    return this.subcategoryOptions().map((s) => ({
+      value: s.id,
+      label: s.name + (s.isActive ? '' : ' (inactive)'),
+      hint: narrowed ? undefined : this.categoryName(s.categoryId),
+    }));
+  });
+  readonly canManageCategories = computed(() => this.auth.hasPermission('Inventory.Categories'));
+  /** Target of the "+ New subcategory" modal; null = closed. */
+  readonly subcategoryEditor = signal<ClassificationEditorTarget | null>(null);
   /** Stock history or a locked unit row exists: the base unit cannot change (R9). */
   readonly isBaseUnitLocked = signal(false);
 
@@ -77,8 +112,8 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
     categoryId: [''],
     subcategoryId: [''],
     baseUnitId: ['', Validators.required],
-    taxId: ['', Validators.required],
     reorderLevel: [0, [Validators.required, Validators.min(0)]],
+    tax: createProductTaxGroup(),
     /** Row 0 is the base row, kept in sync with `baseUnitId`. */
     units: new FormArray<UnitRowGroup>([createBaseUnitRow('')]),
   });
@@ -96,13 +131,8 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
 
   constructor() {
     this.form.controls.baseUnitId.valueChanges.pipe(takeUntilDestroyed()).subscribe((id) => this.syncBaseRow(id));
-    this.form.controls.categoryId.valueChanges.pipe(takeUntilDestroyed()).subscribe((id) => {
-      this.selectedCategoryId.set(id);
-      // Changing the category invalidates the subcategory.
-      this.form.controls.subcategoryId.setValue('', { emitEvent: false });
-      this.selectedSubcategoryId.set('');
-    });
-    this.form.controls.subcategoryId.valueChanges.pipe(takeUntilDestroyed()).subscribe((id) => this.selectedSubcategoryId.set(id));
+    this.form.controls.categoryId.valueChanges.pipe(takeUntilDestroyed()).subscribe((id) => this.onCategoryChanged(id));
+    this.form.controls.subcategoryId.valueChanges.pipe(takeUntilDestroyed()).subscribe((id) => this.onSubcategoryChanged(id));
   }
 
   hasUnsavedChanges(): boolean {
@@ -112,7 +142,6 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
   ngOnInit(): void {
     this.unitsService.list().subscribe({ next: (units) => this.allUnits.set(units) });
     this.categoriesService.list(true).subscribe({ next: (list) => this.allCategories.set(list) });
-    this.taxesService.list().subscribe({ next: (taxes) => this.taxes.set(taxes.filter((t) => t.isActive)) });
 
     if (this.isEdit()) {
       this.productsService.get(this.productId!).subscribe({
@@ -130,9 +159,18 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
       categoryId: p.categoryId ?? '',
       subcategoryId: p.subcategoryId ?? '',
       baseUnitId: p.baseUnitId,
-      taxId: p.taxId,
       reorderLevel: p.reorderLevel,
     });
+    const basis = p.priceIncludesTax === null || p.priceIncludesTax === undefined ? '' : p.priceIncludesTax ? 'true' : 'false';
+    this.form.controls.tax.reset({
+      overrideEnabled: !!p.salesOverrideProfileId,
+      salesProfileId: p.salesOverrideProfileId ?? '',
+      purchaseSameAsSales: !p.purchaseOverrideProfileId,
+      purchaseProfileId: p.purchaseOverrideProfileId ?? '',
+      hsnCode: p.hsnCode ?? '',
+      priceBasis: basis,
+    });
+    this.initialPriceBasis.set(basis);
     this.unitRows.clear();
     const units = sortUnitsForEditor(p.units);
     if (!units.some((x) => x.isBaseUnit)) this.unitRows.push(createBaseUnitRow(p.baseUnitId));
@@ -143,6 +181,62 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
     if (p.isBaseUnitLocked) this.form.controls.baseUnitId.disable({ emitEvent: false });
     else this.form.controls.baseUnitId.enable({ emitEvent: false });
     this.form.markAsPristine();
+  }
+
+  /** Clearing the category, or choosing one the selected subcategory does not belong to, clears the subcategory. */
+  private onCategoryChanged(categoryId: string): void {
+    this.selectedCategoryId.set(categoryId);
+    const sub = this.findSubcategory(this.form.controls.subcategoryId.value);
+    if (sub && sub.categoryId !== categoryId) {
+      this.form.controls.subcategoryId.setValue('', { emitEvent: false });
+      this.selectedSubcategoryId.set('');
+    }
+  }
+
+  /** Picking a subcategory sets its category, which narrows the subcategory list. */
+  private onSubcategoryChanged(subcategoryId: string): void {
+    this.selectedSubcategoryId.set(subcategoryId);
+    const sub = this.findSubcategory(subcategoryId);
+    if (sub && sub.categoryId !== this.form.controls.categoryId.value) {
+      this.form.controls.categoryId.setValue(sub.categoryId, { emitEvent: false });
+      this.form.controls.categoryId.markAsDirty();
+      this.selectedCategoryId.set(sub.categoryId);
+    }
+  }
+
+  private findSubcategory(id: string): ProductSubcategory | undefined {
+    if (!id) return undefined;
+    for (const c of this.allCategories()) {
+      const s = c.subcategories.find((x) => x.id === id);
+      if (s) return s;
+    }
+    return undefined;
+  }
+
+  private categoryName(id: string): string {
+    return this.allCategories().find((c) => c.id === id)?.name ?? '';
+  }
+
+  openNewSubcategory(): void {
+    this.subcategoryEditor.set({ kind: 'subcategory', categoryId: this.form.controls.categoryId.value || null, id: null });
+  }
+
+  /** Adds the created subcategory to its category's list and selects it (which also sets the category). */
+  onSubcategoryCreated(result: ClassificationSaved): void {
+    this.subcategoryEditor.set(null);
+    if (result.kind !== 'subcategory') return;
+    const sub = result.subcategory;
+    this.allCategories.update((list) =>
+      list.map((c) =>
+        c.id === sub.categoryId ? { ...c, subcategories: [...c.subcategories.filter((s) => s.id !== sub.id), sub] } : c,
+      ),
+    );
+    // Set the category explicitly too: the parent may be missing from a stale list, so the lookup could fail.
+    this.form.controls.categoryId.setValue(sub.categoryId, { emitEvent: false });
+    this.selectedCategoryId.set(sub.categoryId);
+    this.form.controls.subcategoryId.setValue(sub.id);
+    this.form.controls.categoryId.markAsDirty();
+    this.form.controls.subcategoryId.markAsDirty();
   }
 
   /** Keeps the base row bound to the selected base unit and re-points rows that contained the old base. */
@@ -168,9 +262,9 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
       categoryId: v.categoryId || null,
       subcategoryId: v.categoryId ? v.subcategoryId || null : null,
       baseUnitId: v.baseUnitId,
-      taxId: v.taxId,
       reorderLevel: v.reorderLevel,
       units: toProductUnitInputs(v.units),
+      ...taxRequestFields(this.form.controls.tax),
     };
   }
 
@@ -188,10 +282,12 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
     const request$ = this.isEdit() ? this.productsService.update(this.productId!, request) : this.productsService.create(request);
 
     request$.subscribe({
-      next: () => {
+      next: (saved) => {
         this.saving.set(false);
         this.saved = true;
         this.toast.show(this.isEdit() ? 'Product updated.' : 'Product created.');
+        // T11: the save is allowed, the warning is shown once.
+        for (const w of saved?.warnings ?? []) this.toast.show(w.message, 6000);
         this.router.navigateByUrl('/inventory/products');
       },
       error: (err: HttpErrorResponse) => {
@@ -209,7 +305,7 @@ export class ProductForm implements OnInit, HasUnsavedChanges {
     const unmatched: string[] = [];
     for (const [field, messages] of Object.entries(problem?.errors ?? {})) {
       if (!messages?.length) continue;
-      const control = this.form.get(problemKeyToFormPath(field));
+      const control = this.form.get(taxProblemPath(field) ?? problemKeyToFormPath(field));
       if (control) {
         control.setErrors({ ...control.errors, server: messages[0] });
         control.markAsTouched();

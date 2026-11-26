@@ -126,6 +126,37 @@
   color: var(--color-text-muted);
 }
 
+.tax-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.tax-warning {
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-subtle);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.sub-row {
+  padding-left: 14px;
+  font-size: 12px;
+}
+.row-toggle {
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tax-row-detail td {
+  background: var(--color-surface-subtle);
+}
+
 @media print {
   :host {
     display: block;

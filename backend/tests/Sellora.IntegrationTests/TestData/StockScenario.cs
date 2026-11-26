@@ -60,6 +60,7 @@ public sealed record StockScenario(Guid UserId, Guid SupplierId, Guid CustomerId
         db.AddRange(role, user, unit, bagUnit, tax, supplier, customer, settings, product);
         db.AddRange(prices);
         await db.SaveChangesAsync();
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, tax);   // TP-1: the product's 5% tax is the mirror of the company default profile
 
         return new StockScenario(user.Id, supplier.Id, customer.Id, product.Id, bag.Id, looseKg.Id);
     }

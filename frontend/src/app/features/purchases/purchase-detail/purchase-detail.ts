@@ -8,12 +8,15 @@ import { ToastService } from '../../../shared/ui/toast/toast.service';
 import { ConfirmDialogService } from '../../../shared/ui/confirm-dialog/confirm-dialog.service';
 import { AuthService } from '../../../core/auth/auth.service';
 import { PurchasesService } from '../purchases.service';
-import type { PurchaseDetail as PurchaseDetailModel, PurchasePayment, PaymentMethod } from '../purchases.models';
+import type { PurchaseDetail as PurchaseDetailModel, PurchaseLine, PurchasePayment, PaymentMethod } from '../purchases.models';
 import { DocumentScope, type DocumentScopeItem } from '../../../shared/scope/document-scope';
 import { placeLabel } from '../../../shared/scope/list-scope';
 import { LocationSelect } from '../../../shared/locations/location-select';
 import { loadErrorText, problemText } from '../../../shared/scope/problem-text';
 import { formatQuantity } from '../../../shared/units/unit-conversion';
+import { LEGACY_TAX_CODE, placeOfSupplyLabel, taxByComponent, taxColumns, taxInColumn } from '../../../shared/tax/tax-breakdown';
+import { LineTaxBreakdown } from '../../../shared/tax/line-tax-breakdown/line-tax-breakdown';
+import type { TaxRowView } from '../../../shared/tax/tax-preview.models';
 import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
 import type { AccountOption } from '../../accounts/cash-bank/cash-bank.models';
 
@@ -28,7 +31,7 @@ const FORMAT = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits:
 @Component({
   selector: 'app-purchase-detail',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton, UiBadge, DocumentScope, LocationSelect],
+  imports: [ReactiveFormsModule, RouterLink, UiButton, UiBadge, DocumentScope, LocationSelect, LineTaxBreakdown],
   templateUrl: './purchase-detail.html',
   styleUrl: './purchase-detail.scss',
 })
@@ -65,6 +68,38 @@ export class PurchaseDetail implements OnInit {
   });
   readonly editing = signal(false);
   readonly saving = signal(false);
+
+  // ---- TP-3 tax columns / summary ----
+  /** Warnings of the save that created this purchase (passed once via the router state; GET returns none). */
+  readonly createWarnings = signal<string[]>(((history.state as { warnings?: string[] } | null)?.warnings) ?? []);
+
+  /** Tax rows of a line; history without rows shows the line's tax as one legacy "Tax" row. */
+  readonly rowsOf = (line: PurchaseLine): TaxRowView[] =>
+    line.taxes && line.taxes.length > 0
+      ? line.taxes
+      : [{ code: LEGACY_TAX_CODE, kind: 'Other', method: 'Percent', ratePercent: line.taxRatePercent, amountPerBaseUnit: null, baseAmount: line.taxableValue, taxAmount: line.taxAmount, isLegacy: true }];
+
+  private readonly lineRows = computed(() => (this.purchase()?.lines ?? []).map((l) => ({ rows: this.rowsOf(l) })));
+  /** Distinct tax codes across the lines (CGST/SGST/IGST/Cess/VAT...; legacy rows as one "Tax" column last). */
+  readonly taxCols = computed(() => taxColumns(this.lineRows()));
+  /** Tax per component over the whole purchase. */
+  readonly taxByCode = computed(() => taxByComponent(this.lineRows()));
+  readonly cell = (line: PurchaseLine, code: string) => taxInColumn(this.rowsOf(line), code);
+  readonly placeLabel = computed(() => placeOfSupplyLabel(this.purchase()?.placeOfSupply, null));
+  readonly expandedLines = signal<ReadonlySet<string>>(new Set());
+  toggleLine(id: string): void {
+    this.expandedLines.update((set) => {
+      const next = new Set(set);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
+  readonly hasHsn = computed(() => (this.purchase()?.lines ?? []).some((l) => !!l.hsnCode));
+  readonly taxable = computed(() => {
+    const p = this.purchase();
+    if (!p) return 0;
+    return p.taxableTotal ?? p.subtotal + p.otherChargesTotal - p.discountTotal;
+  });
 
   readonly canEdit = computed(() => this.auth.hasPermission('Purchase.Edit'));
   readonly canPayPermission = computed(() => this.auth.hasPermission('Purchase.Pay'));

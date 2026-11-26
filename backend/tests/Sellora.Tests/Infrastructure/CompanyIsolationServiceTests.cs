@@ -25,7 +25,7 @@ public class CompanyIsolationServiceTests
 
     private sealed record Tenant(
         Guid Company, Guid UserId, Guid TaxId, Guid SupplierId, Guid CustomerId, Guid ProductId, Guid LooseKgId, Guid BagId,
-        Guid CategoryId, Guid AccountId);
+        Guid CategoryId, Guid AccountId, Guid ProfileId);
 
     private sealed record World(string Name, Guid UserId, Guid InrId, Guid EurId, Guid KgId, Guid BagUnitId, Tenant TenantA, Tenant TenantB)
     {
@@ -88,7 +88,9 @@ public class CompanyIsolationServiceTests
         await db.SaveChangesAsync();
         db.SellingPrices.Add(new SellingPrice { Id = Guid.NewGuid(), ProductUnitId = loose.Id, Price = 65m, CreatedByUserId = w.UserId });
         await db.SaveChangesAsync();
-        return new Tenant(company, w.UserId, tax.Id, supplier.Id, customer.Id, product.Id, loose.Id, bag.Id, category.Id, account.Id);
+        var profile = await TaxFixtures.UseAsCompanyDefaultAsync(db, tax); // each company: country India, GST 5% profile as the company default
+        await TaxFixtures.EnablePurchasesAsync(db); // TP-3: ... and an own state, so purchases can be placed
+        return new Tenant(company, w.UserId, tax.Id, supplier.Id, customer.Id, product.Id, loose.Id, bag.Id, category.Id, account.Id, profile.Id);
     }
 
     private static PurchaseService Purchases(SelloraDbContext db) => new(db, new ExchangeRateService(db));
@@ -114,10 +116,11 @@ public class CompanyIsolationServiceTests
     {
         var w = await SeedAsync(seedA: false);
         await using var db = w.Db(A);
-        db.Taxes.Add(new Tax { Id = Guid.NewGuid(), Name = "GST 5%", RatePercent = 5m });
+        var taxA = new Tax { Id = Guid.NewGuid(), Name = "GST 5%", RatePercent = 5m };
+        db.Taxes.Add(taxA);
         await db.SaveChangesAsync();
-        var taxA = await db.Taxes.SingleAsync();
-        var input = new UpsertProductInput(w.TenantB is null ? "x" : "RICE-BP10", "Ponni Rice", null, null, w.KgId, taxA.Id, 0m,
+        await TaxFixtures.UseAsCompanyDefaultAsync(db, taxA);
+        var input = new UpsertProductInput(w.TenantB is null ? "x" : "RICE-BP10", "Ponni Rice", null, null, w.KgId, 0m,
             [new ProductUnitInputItem(null, w.KgId, null, 1m, "Loose kg", "8901234567890", true, true, true, true, true)]);
         var service = new ProductService(db);
 
@@ -136,14 +139,15 @@ public class CompanyIsolationServiceTests
         var w = await SeedAsync();
         await using var db = w.Db(A);
         var service = new ProductService(db);
-        var input = new UpsertProductInput("NEW", "New", null, null, w.KgId, w.TenantB.TaxId, 0m,
-            [new ProductUnitInputItem(null, w.KgId, null, 1m, "Each", null, true, true, false, false, true)]);
+        // The other company's tax profile is not visible from A: it is refused like an unknown profile.
+        var input = new UpsertProductInput("NEW", "New", null, null, w.KgId, 0m,
+            [new ProductUnitInputItem(null, w.KgId, null, 1m, "Each", null, true, true, false, false, true)], SalesTaxProfileId: w.TenantB.ProfileId);
 
         var tax = await Assert.ThrowsAsync<DomainValidationException>(() => service.CreateProductAsync(input));
-        var update = await service.UpdateProductAsync(w.TenantB.ProductId, input with { TaxId = w.TenantA.TaxId });
+        var update = await service.UpdateProductAsync(w.TenantB.ProductId, input with { SalesTaxProfileId = w.TenantA.ProfileId });
         var preview = await service.PreviewUnitsAsync(w.TenantB.ProductId, w.KgId, input.Units);
 
-        Assert.Equal(nameof(UpsertProductInput.TaxId), tax.Field);
+        Assert.Equal("salesTaxProfileId", tax.Field);
         Assert.Null(update);
         Assert.Null(preview);
         Assert.Equal("RICE-BP10", (await w.Db(B).Products.SingleAsync()).Sku); // B untouched
@@ -249,7 +253,7 @@ public class CompanyIsolationServiceTests
         var customer = await Assert.ThrowsAsync<DomainValidationException>(() => service.CreateSaleAsync(Build(w.TenantB.CustomerId, w.TenantA.ProductId, w.TenantA.LooseKgId), w.UserId));
         await Assert.ThrowsAnyAsync<DomainValidationException>(() => service.CreateSaleAsync(Build(w.TenantA.CustomerId, w.TenantB.ProductId, w.TenantB.LooseKgId), w.UserId));
 
-        Assert.Equal("CustomerId", customer.Field);
+        Assert.Equal("customerId", customer.Field);
         Assert.Equal(30m, await StockAsync(w, B, w.TenantB.ProductId));
         Assert.Equal(0, await dbA.SalesInvoices.CountAsync());
     }

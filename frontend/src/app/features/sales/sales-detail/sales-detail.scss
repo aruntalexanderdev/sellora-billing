@@ -1,0 +1,66 @@
+// TP-4: printed A4 tax invoice. Screen styles come from the shared purchase-detail stylesheet.
+.print-only {
+  display: none;
+}
+
+.invoice-head {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--color-border-strong);
+  font-size: 12.5px;
+}
+.invoice-title h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.invoice-parties {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.party-label {
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--color-text-fainter);
+}
+
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
+@media print {
+  .print-only {
+    display: grid;
+  }
+  :host {
+    font-size: 11px;
+    color: #000;
+  }
+  .invoice-lines {
+    overflow: visible;
+  }
+  .lines-table {
+    font-size: 10.5px;
+    table-layout: auto;
+    th,
+    td {
+      padding: 4px 5px;
+    }
+  }
+  .lines-table tr {
+    break-inside: avoid;
+  }
+  .detail-card {
+    box-shadow: none;
+    border: none;
+  }
+  .summary-and-payment {
+    break-inside: avoid;
+  }
+}
