@@ -41,6 +41,15 @@ describe('availableActions (status x permission)', () => {
     expect(availableActions({ status: 'Dispatched', lines }, has(['StockTransfers.Receive']))).toEqual(['receive']);
   });
 
+  it('offers approve / reject / close only where the server says the active branch fits the source', () => {
+    const approver = has(['StockTransfers.Approve', 'StockTransfers.Cancel']);
+    expect(availableActions({ status: 'Requested', canApprove: false, lines }, approver)).toEqual(['cancel']);
+    expect(availableActions({ status: 'Requested', canApprove: true, lines }, approver)).toEqual(['approve', 'reject', 'cancel']);
+    const dispatched = [{ outstandingBaseQty: 0, dispatchedBaseQty: 1 }];
+    expect(availableActions({ status: 'PartiallyFulfilled', canApprove: false, lines: dispatched }, approver)).not.toContain('close');
+    expect(availableActions({ status: 'PartiallyFulfilled', canApprove: true, lines: dispatched }, approver)).toContain('close');
+  });
+
   it('resolve is only offered with StockTransfers.Resolve (company-level)', () => {
     expect(availableActions({ status: 'Dispatched', lines }, has(['StockTransfers.Receive', 'StockTransfers.Dispatch']))).not.toContain('resolve');
     expect(availableActions({ status: 'Dispatched', lines }, has(['StockTransfers.Resolve']))).toEqual(['resolve']);

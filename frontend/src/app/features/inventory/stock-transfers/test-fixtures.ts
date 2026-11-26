@@ -29,6 +29,6 @@ export function transfer(status: StockTransferStatus, lines: StockTransferLine[]
     sourceBranch: branch, destinationBranch: branch, created: actor,
     submitted: null, approved: null, rejected: null, rejectionReason: null, dispatched: null, completed: null, cancelled: null, cancellationReason: null,
     closedAt: null, closedByName: null, closureReason: null,
-    lines, receipts: [], ...overrides,
+    lines, receipts: [], canApprove: true, ...overrides,
   };
 }

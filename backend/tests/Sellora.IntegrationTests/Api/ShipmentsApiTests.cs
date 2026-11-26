@@ -758,6 +758,10 @@ public class ShipmentsApiTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(b, HttpMethod.Get, $"/api/v1/consignments/{cid}")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(a, HttpMethod.Get, $"/api/v1/shipments/{sid}")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(a, HttpMethod.Get, $"/api/v1/consignments/{cid}")).StatusCode);
+        // Own-fleet vehicle picker: the other company's shipment is a 404, and A's picker never offers B's vehicles.
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(b, HttpMethod.Get, $"/api/v1/shipments/{sid}/eligible-vehicles")).StatusCode);
+        var eligible = await OkAsync(await SendAsync(a, HttpMethod.Get, $"/api/v1/shipments/{sid}/eligible-vehicles"));
+        Assert.DoesNotContain(iso.B.VehicleId, eligible.EnumerateArray().Select(IdOf));
         Assert.DoesNotContain(sid, (await OkAsync(await SendAsync(b, HttpMethod.Get, "/api/v1/shipments?pageSize=100&scope=company"))).GetProperty("items").EnumerateArray().Select(IdOf));
         Assert.Contains(sid, (await OkAsync(await SendAsync(a, HttpMethod.Get, "/api/v1/shipments?pageSize=100&scope=company"))).GetProperty("items").EnumerateArray().Select(IdOf));
         foreach (var direction in new[] { "incoming", "outgoing" })

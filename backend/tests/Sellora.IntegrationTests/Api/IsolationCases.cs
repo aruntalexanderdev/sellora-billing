@@ -338,7 +338,7 @@ public static class IsolationCases
         // Functional improvements Phase 04: ShipmentsApiTests.OtherCompanysShipmentConsignmentAndReservation_Are404_ForReadsAndEveryWrite_AndNothingChanges (same IsolationWorld):
         // the other company's shipment / consignment / reservation is never listed, its detail is a 404 and every write on it (update, cancel, vehicles, allocations, assign, load,
         // release) is a 404; creates naming its source location / vehicle / request line are a 400 on the field.
-        "ShipmentsController.List", "ShipmentsController.Get", "ShipmentsController.Create", "ShipmentsController.Update", "ShipmentsController.Cancel",
+        "ShipmentsController.List", "ShipmentsController.Get", "ShipmentsController.EligibleVehicles", "ShipmentsController.Create", "ShipmentsController.Update", "ShipmentsController.Cancel",
         "ShipmentsController.AddVehicle", "ShipmentsController.RemoveVehicle", "ShipmentsController.Allocate", "ShipmentsController.ChangeAllocation",
         "ShipmentsController.CancelAllocation", "ShipmentsController.AssignVehicle", "ShipmentsController.CancelConsignment", "ShipmentsController.Load",
         "ConsignmentsController.List", "ConsignmentsController.Get", "StockReservationsController.List", "StockReservationsController.Release",

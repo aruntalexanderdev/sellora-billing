@@ -116,7 +116,10 @@ public record StockTransferDto(
     StockTransferActorDto? Cancelled, string? CancellationReason,
     DateTimeOffset? ClosedAt, string? ClosedByName, string? ClosureReason,
     IReadOnlyList<StockTransferLineDto> Lines,
-    IReadOnlyList<StockTransferReceiptDto> Receipts);
+    IReadOnlyList<StockTransferReceiptDto> Receipts,
+    // True when the caller's active branch fits the source for approve / reject / close (the source branch decides, FI-D26).
+    // The UI still checks the permission and status; the server re-checks everything on the action itself.
+    bool CanApprove = false);
 
 /// <summary>Ready-for-shipment queue row (FI-D28): an Approved / PartiallyFulfilled request with quantity still to ship.</summary>
 public record ReadyForShipmentItemDto(

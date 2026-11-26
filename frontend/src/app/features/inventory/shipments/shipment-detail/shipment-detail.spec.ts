@@ -14,7 +14,7 @@ import { ShipmentDetail } from './shipment-detail';
 const ALL = ['Shipments.View', 'Shipments.Plan', 'Shipments.Load', 'StockTransfers.Dispatch'];
 
 function setup(s: Shipment, permissions: string[] = ALL, extra: Record<string, unknown> = {}) {
-  const service = { get: vi.fn(() => of(s)), dispatch: vi.fn((_id: string, _key: string) => of(shipment('Dispatched'))), ...extra };
+  const service = { get: vi.fn(() => of(s)), eligibleVehicles: vi.fn(() => of([])), dispatch: vi.fn((_id: string, _key: string) => of(shipment('Dispatched'))), ...extra };
   const ask = vi.fn(() => Promise.resolve(true));
   const show = vi.fn();
   TestBed.configureTestingModule({
