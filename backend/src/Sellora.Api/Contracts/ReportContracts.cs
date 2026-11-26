@@ -37,8 +37,12 @@ public record SalesReportRowDto(
     Guid Id, string InvoiceNo, DateOnly InvoiceDate, string CustomerName,
     decimal Subtotal, decimal TaxTotal, decimal DiscountTotal, decimal GrandTotal,
     decimal PaidAmount, decimal DueAmount, SalesStatus Status,
-    Guid BranchId, string? BranchCode, string? BranchName
+    Guid BranchId, string? BranchCode, string? BranchName,
+    decimal TaxableTotal = 0m, IReadOnlyList<SalesReportTaxDto>? TaxByKind = null
 );
+
+/// <summary>Tax of one sale by component kind (TP-4). Rows saved before the calculator (no component) are counted as <c>Other</c>.</summary>
+public record SalesReportTaxDto(TaxComponentKind Kind, decimal TaxAmount);
 
 /// <summary>
 /// Gross margin basis (docx §12.5): SalesRevenue is the taxable value actually charged (net of

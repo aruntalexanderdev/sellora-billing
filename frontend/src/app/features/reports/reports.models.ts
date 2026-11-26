@@ -87,6 +87,16 @@ export interface SalesReportRow extends BranchFields {
   paidAmount: number;
   dueAmount: number;
   status: SalesStatus;
+  /** TP-4: always present on current servers (history falls back to subtotal - discount). */
+  taxableTotal?: number;
+  /** Tax per component kind; rows saved before the calculator are under `Other`. */
+  taxByKind?: SalesReportTax[] | null;
+}
+
+/** Mirrors `SalesReportTaxDto`. */
+export interface SalesReportTax {
+  kind: TaxComponentKind;
+  taxAmount: number;
 }
 
 export interface ProfitSummary {

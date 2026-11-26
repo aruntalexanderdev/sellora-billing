@@ -253,7 +253,7 @@ public class CompanyIsolationServiceTests
         var customer = await Assert.ThrowsAsync<DomainValidationException>(() => service.CreateSaleAsync(Build(w.TenantB.CustomerId, w.TenantA.ProductId, w.TenantA.LooseKgId), w.UserId));
         await Assert.ThrowsAnyAsync<DomainValidationException>(() => service.CreateSaleAsync(Build(w.TenantA.CustomerId, w.TenantB.ProductId, w.TenantB.LooseKgId), w.UserId));
 
-        Assert.Equal("CustomerId", customer.Field);
+        Assert.Equal("customerId", customer.Field);
         Assert.Equal(30m, await StockAsync(w, B, w.TenantB.ProductId));
         Assert.Equal(0, await dbA.SalesInvoices.CountAsync());
     }

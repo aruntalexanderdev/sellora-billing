@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { IdempotentSubmission } from '../../../core/idempotency';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { FormArray, FormBuilder, FormGroup, FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LocationSelect } from '../../../shared/locations/location-select';
@@ -13,7 +13,7 @@ import { ContextService } from '../../../core/context/context.service';
 import { problemMessage } from '../../../core/http/api-errors';
 import { UiBadge } from '../../../shared/ui/badge/badge';
 import { UiButton } from '../../../shared/ui/button/button';
-import { BASE_CURRENCY_DECIMALS, discountExceedsGross, discountFromPercent, discountWithinGross, hasTooManyDecimals, isValidPercent, lineAmounts, roundMoney } from '../../../shared/money/money';
+import { BASE_CURRENCY_DECIMALS, discountExceedsGross, discountFromPercent, discountWithinGross, hasTooManyDecimals, isValidPercent, roundMoney } from '../../../shared/money/money';
 import { ToastService } from '../../../shared/ui/toast/toast.service';
 import { SalesService } from '../sales.service';
 import { CustomersService } from '../customers/customers.service';
@@ -23,6 +23,12 @@ import { defaultSaleUnit, isPriced, needsPriceOverride } from './pos-units';
 import { convert, formatQuantity } from '../../../shared/units/unit-conversion';
 import { quantityStep, quantityValidators } from '../../../shared/forms/quantity-input';
 import { AuthService } from '../../../core/auth/auth.service';
+import { LineTaxBreakdown } from '../../../shared/tax/line-tax-breakdown/line-tax-breakdown';
+import { billDiscountFields, type BillDiscountMode } from '../../../shared/tax/bill-discount';
+import { taxByComponent, placeOfSupplyLabel } from '../../../shared/tax/tax-breakdown';
+import { TaxPreviewService, planKey, previewStates, type PreviewPlan, type PreviewState } from '../../../shared/tax/tax-preview.service';
+import type { TaxPreviewLine, TaxRowView } from '../../../shared/tax/tax-preview.models';
+import { applySaleProblem, buildSalePreview, problemField, totalChangedMessage } from './pos-tax';
 import type { ApiProblem } from '../../../core/auth/auth.models';
 import type { PaymentMethod } from '../sales.models';
 import { CashBankService, defaultAccountId } from '../../accounts/cash-bank/cash-bank.service';
@@ -43,10 +49,6 @@ type LineGroup = FormGroup<{
 interface LinePreview {
   baseQty: number;
   baseUnitLabel: string;
-  taxRatePercent: number;
-  taxableValue: number;
-  taxAmount: number;
-  lineTotal: number;
   availableOnHand: number;
   exceedsStock: boolean;
 }
@@ -54,18 +56,28 @@ interface LinePreview {
 const EMPTY_PREVIEW: LinePreview = {
   baseQty: 0,
   baseUnitLabel: '',
-  taxRatePercent: 0,
-  taxableValue: 0,
-  taxAmount: 0,
-  lineTotal: 0,
   availableOnHand: 0,
   exceedsStock: false,
 };
 
+/** What the cart shows for one line: the server figures, or a tax-less estimate while they are not available. */
+interface LineView {
+  taxable: number;
+  tax: number;
+  lineTotal: number;
+  /** Combined percent of the line's percent rows (null when not known or per-unit based). */
+  ratePercent: number | null;
+  hsnCode: string | null;
+  priceIncludesTax: boolean;
+  rows: TaxRowView[];
+  profileName: string | null;
+  estimated: boolean;
+}
+
 @Component({
   selector: 'app-pos',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, UiButton, UiBadge, LocationSelect],
+  imports: [ReactiveFormsModule, RouterLink, UiButton, UiBadge, LocationSelect, LineTaxBreakdown],
   templateUrl: './pos.html',
   styleUrl: './pos.scss',
 })
@@ -82,6 +94,7 @@ export class Pos implements OnInit, HasUnsavedChanges {
   private readonly auth = inject(AuthService);
   private readonly context = inject(ContextService);
   private readonly confirmDialog = inject(ConfirmDialogService);
+  private readonly taxPreview = inject(TaxPreviewService);
 
   /** Only holders of Sales.PriceOverride may change a price or discount; everyone else charges the list price. */
   readonly canOverridePrice = computed(() => this.auth.hasPermission('Sales.PriceOverride'));
@@ -119,14 +132,32 @@ export class Pos implements OnInit, HasUnsavedChanges {
     paymentMethod: ['Cash' as PaymentMethod, Validators.required],
     accountId: [''],
     paidAmount: [0, [Validators.required, Validators.min(0)]],
+    // ---- TP-4: whole-bill discount (percent or amount; needs Sales.BillDiscount) and charges
+    billDiscountPercent: [null as number | null, [Validators.min(0), Validators.max(100)]],
+    billDiscountAmount: [null as number | null, [Validators.min(0)]],
+    billCharges: [0, [Validators.min(0)]],
     lines: this.fb.array<LineGroup>([]),
   });
+
+  /** Only holders of Sales.BillDiscount may give a whole-bill discount; the input is hidden for everyone else. */
+  readonly canBillDiscount = computed(() => this.auth.hasPermission('Sales.BillDiscount'));
+  /** The bill discount is a percent or an amount, never both: only the active mode's control is shown and sent. */
+  readonly billDiscountMode = signal<BillDiscountMode>('percent');
+
+  setBillDiscountMode(mode: BillDiscountMode): void {
+    if (mode === this.billDiscountMode()) return;
+    this.billDiscountMode.set(mode);
+    const other = mode === 'percent' ? this.form.controls.billDiscountAmount : this.form.controls.billDiscountPercent;
+    other.setValue(null);
+    other.setErrors(null);
+  }
 
   get lines(): FormArray<LineGroup> {
     return this.form.controls.lines;
   }
 
   private readonly linesValue = toSignal(this.lines.valueChanges, { initialValue: this.lines.value });
+  private readonly formValue = toSignal(this.form.valueChanges, { initialValue: this.form.getRawValue() });
   private readonly paidAmountValue = toSignal(this.form.controls.paidAmount.valueChanges, {
     initialValue: this.form.controls.paidAmount.value,
   });
@@ -155,19 +186,12 @@ export class Pos implements OnInit, HasUnsavedChanges {
       const unit = product?.units.find((u) => u.productUnitId === row?.productUnitId);
       if (!product || !unit || !row?.qty || !productId) return EMPTY_PREVIEW;
 
-      // Same per-line rounding as the server: taxable, tax and total each rounded (half away from zero).
-      const amounts = lineAmounts(row.qty, row.unitPrice, row.discount, product.taxRatePercent);
-      const taxableValue = amounts.taxable;
-      const taxAmount = amounts.tax;
+      // Quantity facts only; tax and totals come from the server breakdown (`/api/v1/tax/preview`).
       const totalRequested = requestedByProduct.get(productId) ?? 0;
 
       return {
         baseQty: baseQtys[i],
         baseUnitLabel: product.baseUnitLabel,
-        taxRatePercent: product.taxRatePercent,
-        taxableValue,
-        taxAmount,
-        lineTotal: amounts.total,
         availableOnHand: product.quantityOnHand,
         exceedsStock: totalRequested > product.quantityOnHand,
       };
@@ -194,32 +218,173 @@ export class Pos implements OnInit, HasUnsavedChanges {
     });
   });
 
+  // ---- Live tax breakdown: debounced, newest request wins (switchMap cancels the one in flight) ----
+  /** Bumped to re-request an unchanged preview (after "the total is now X" / "rate changed"). */
+  private readonly previewNonce = signal(0);
+
+  readonly previewPlan = computed<(PreviewPlan & { nonce: number }) | null>(() => {
+    const v = this.formValue();
+    const plan = buildSalePreview({
+      customerId: v.customerId ?? '',
+      invoiceDate: v.invoiceDate ?? '',
+      canBillDiscount: this.canBillDiscount(),
+      billDiscountMode: this.billDiscountMode(),
+      billDiscountPercent: v.billDiscountPercent ?? null,
+      billDiscountAmount: v.billDiscountAmount ?? null,
+      billCharges: v.billCharges ?? 0,
+      lines: (v.lines ?? []).map((l) => ({
+        productId: l.productId ?? '', productUnitId: l.productUnitId ?? '', qty: l.qty ?? null, unitPrice: l.unitPrice ?? null, discount: l.discount ?? 0,
+      })),
+    });
+    return plan ? { ...plan, nonce: this.previewNonce() } : null;
+  });
+
+  private readonly previewState = toSignal(
+    previewStates(toObservable(this.previewPlan), (request) => this.taxPreview.preview(request)),
+    { initialValue: { kind: 'idle' } as PreviewState },
+  );
+
+  /** The latest server breakdown (kept while a newer one is loading; used for the totals only). */
+  readonly preview = computed(() => {
+    const s = this.previewState();
+    return s.kind === 'ok' ? s.preview : null;
+  });
+  /** The cart changed since the shown breakdown was requested (or none was requested yet). */
+  readonly previewPending = computed(() => {
+    const plan = this.previewPlan();
+    if (!plan) return false;
+    const s = this.previewState();
+    return planKey(plan) !== (s.kind === 'idle' ? '' : planKey(s.plan));
+  });
+  private readonly previewProblem = computed(() => {
+    const s = this.previewState();
+    return s.kind === 'error' && !this.previewPending() ? s.problem : null;
+  });
+  /** Why the current cart could not be calculated (e.g. a stock shortage or a bill discount over the cap); null when fine. */
+  readonly previewError = computed(() => {
+    const s = this.previewState();
+    if (s.kind !== 'error' || this.previewPending()) return null;
+    const fields = Object.values(s.problem?.errors ?? {}).flat();
+    return fields.length > 0 ? fields.join(' ') : problemMessage(s.problem, 'Tax could not be calculated.');
+  });
+  /** Server message of a bill field from the preview (cap exceeded, both given...). */
+  readonly previewBillError = computed(
+    () => problemField(this.previewProblem(), 'billDiscountPercent') ?? problemField(this.previewProblem(), 'billDiscountAmount'),
+  );
+
+  /** The bill discount message: from the last save attempt, else from the preview (cap exceeded). */
+  billDiscountError(): string | null {
+    const c = this.billDiscountMode() === 'percent' ? this.form.controls.billDiscountPercent : this.form.controls.billDiscountAmount;
+    const own = c.errors?.['server'] as string | undefined;
+    if (own) return own;
+    if (c.errors?.['max']) return 'Enter a percent between 0 and 100.';
+    if (c.errors?.['min']) return 'Enter an amount of zero or more.';
+    return this.previewBillError();
+  }
+
+  /** Soft findings of the preview (e.g. a missing HSN), prefixed with the cart row number. */
+  readonly previewWarnings = computed<string[]>(() => {
+    const s = this.previewState();
+    if (s.kind !== 'ok') return [];
+    return s.preview.warnings.map((w) => saleWarningLabel(w.field, w.message, s.plan.rows));
+  });
+
+  private readonly previewRows = computed(() => {
+    const s = this.previewState();
+    const map = new Map<number, TaxPreviewLine>();
+    // While a newer breakdown is pending, the shown one was planned for the old rows (a deleted row would shift the
+    // figures onto the wrong lines), so lines fall back to a tax-less estimate until it arrives (TP-3 review).
+    if (s.kind === 'ok' && !this.previewPending()) for (const l of s.preview.lines) map.set(s.plan.rows[l.index], l);
+    return map;
+  });
+
+  readonly precision = computed(() => this.preview()?.precision ?? BASE_CURRENCY_DECIMALS);
+  readonly money = (n: number) => '₹' + n.toFixed(this.precision());
+
+  readonly lineViews = computed<LineView[]>(() => {
+    const server = this.previewRows();
+    const catalog = this.catalog();
+    const places = this.precision();
+    return this.linesValue().map((row, i) => {
+      const line = server.get(i);
+      if (line) {
+        const percentRows = line.rows.filter((r) => r.method === 'Percent');
+        return {
+          taxable: line.taxable, tax: line.taxTotal, lineTotal: line.lineTotal, ratePercent: percentRows.length === line.rows.length ? line.taxRatePercent : null,
+          hsnCode: line.hsnCode, priceIncludesTax: line.priceIncludesTax, rows: line.rows, profileName: line.profileName, estimated: false,
+        };
+      }
+      const product = row?.productId ? catalog.find((p) => p.productId === row.productId) : undefined;
+      const gross = roundMoney((row?.qty ?? 0) * (row?.unitPrice ?? 0) - (row?.discount ?? 0), places);
+      return {
+        taxable: gross, tax: 0, lineTotal: gross, ratePercent: null, hsnCode: product?.hsnCode ?? null, priceIncludesTax: !!product?.priceIncludesTax,
+        rows: [], profileName: null, estimated: true,
+      };
+    });
+  });
+
+  readonly totals = computed(() => {
+    const p = this.preview();
+    if (p) {
+      return {
+        subtotal: p.subtotal, discount: p.discountTotal, billDiscount: p.billDiscountAmount, charges: p.chargesTotal, taxable: p.taxableTotal, tax: p.taxTotal,
+        grandTotal: p.grandTotal, byComponent: taxByComponent(p.lines), estimated: false,
+      };
+    }
+    const rows = this.linesValue();
+    let subtotal = 0,
+      discount = 0;
+    rows.forEach((row) => {
+      subtotal += roundMoney((row?.qty ?? 0) * (row?.unitPrice ?? 0));
+      discount += roundMoney(row?.discount ?? 0);
+    });
+    const charges = this.formValue().billCharges ?? 0;
+    const grandTotal = roundMoney(subtotal - discount + charges);
+    return { subtotal: roundMoney(subtotal), discount: roundMoney(discount), billDiscount: 0, charges, taxable: grandTotal, tax: 0, grandTotal, byComponent: [], estimated: true };
+  });
+
+  readonly placeLabel = computed(() => {
+    const p = this.preview();
+    return p ? placeOfSupplyLabel(p.placeOfSupply, p.regime) : null;
+  });
+
+  /** True when the bill carries a price-inclusive line (the subtotal then includes tax). */
+  readonly anyInclusive = computed(() => this.lineViews().some((l) => l.priceIncludesTax));
+
+  /** The sale figures are final only once the preview of exactly this cart is in. */
   readonly completeSaleDisabledReason = computed(() => {
     if (this.linesValue().length === 0) return 'Add at least one item to the cart first.';
     if (this.lineErrors().some((e) => !!e)) return 'Fix the highlighted items — a unit has no price or a price is not allowed.';
     if (this.hasStockError()) return 'Reduce quantity — not enough stock for one or more items.';
+    if (this.previewPending()) return 'Calculating tax…';
+    if (this.previewError()) return `Tax could not be calculated: ${this.previewError()}`;
+    if (!this.preview() || this.previewPlan() === null) return 'Waiting for the tax calculation — check the customer and quantities.';
     return null;
   });
 
-  readonly totals = computed(() => {
-    const rows = this.linesValue();
-    const previews = this.previews();
-    let subtotal = 0,
-      discount = 0,
-      tax = 0,
-      grandTotal = 0;
-    rows.forEach((row, i) => {
-      subtotal += roundMoney((row?.qty ?? 0) * (row?.unitPrice ?? 0));
-      discount += roundMoney(row?.discount ?? 0);
-      tax += previews[i]?.taxAmount ?? 0;
-      grandTotal += previews[i]?.lineTotal ?? 0;
-    });
-    // Invoice totals are sums of the rounded lines.
-    return { subtotal: roundMoney(subtotal), discount: roundMoney(discount), tax: roundMoney(tax), grandTotal: roundMoney(grandTotal) };
-  });
+  readonly dueAmount = computed(() => Math.max(0, roundMoney(this.totals().grandTotal - (this.paidAmountValue() ?? 0), this.precision())));
+  readonly changeAmount = computed(() => Math.max(0, roundMoney((this.paidAmountValue() ?? 0) - this.totals().grandTotal, this.precision())));
 
-  readonly dueAmount = computed(() => Math.max(0, roundMoney(this.totals().grandTotal - (this.paidAmountValue() ?? 0))));
-  readonly changeAmount = computed(() => Math.max(0, roundMoney((this.paidAmountValue() ?? 0) - this.totals().grandTotal)));
+  private readonly expandedRows = signal<ReadonlySet<LineGroup>>(new Set());
+  isExpanded(row: LineGroup): boolean {
+    return this.expandedRows().has(row);
+  }
+  toggleTax(row: LineGroup): void {
+    this.expandedRows.update((set) => {
+      const next = new Set(set);
+      if (!next.delete(row)) next.add(row);
+      return next;
+    });
+  }
+
+  /** Server message(s) stored on the controls of a cart row (qty, price, discount, unit), shown under the row. */
+  rowServerError(row: LineGroup): string | null {
+    const c = row.controls;
+    const messages = [c.productId, c.productUnitId, c.qty, c.unitPrice, c.discount]
+      .map((x) => x.errors?.['server'] as string | undefined)
+      .filter((m): m is string => !!m);
+    return messages.length > 0 ? messages.join(' ') : null;
+  }
 
   readonly saving = signal(false);
   readonly serverError = signal<string | null>(null);
@@ -477,6 +642,13 @@ export class Pos implements OnInit, HasUnsavedChanges {
       this.serverError.set('Reduce quantity — not enough stock for one or more items.');
       return;
     }
+    // Cash is only taken on a total the server has calculated for exactly this cart.
+    const blocked = this.completeSaleDisabledReason();
+    const preview = this.preview();
+    if (blocked || !preview) {
+      this.serverError.set(blocked ?? 'Waiting for the tax calculation.');
+      return;
+    }
 
     this.saving.set(true);
     const v = this.form.getRawValue();
@@ -487,6 +659,11 @@ export class Pos implements OnInit, HasUnsavedChanges {
         paidAmount: v.paidAmount,
         accountId: v.accountId || null,
         stockLocationId: this.committedLocation,
+        ...(this.canBillDiscount()
+          ? billDiscountFields(this.billDiscountMode(), v.billDiscountPercent, v.billDiscountAmount)
+          : { billDiscountPercent: null, billDiscountAmount: null }),
+        billCharges: v.billCharges ?? 0,
+        expectedGrandTotal: preview.grandTotal,
         lines: v.lines.map((l) => ({
           productId: l.productId,
           productUnitId: l.productUnitId,
@@ -503,19 +680,51 @@ export class Pos implements OnInit, HasUnsavedChanges {
           this.saving.set(false);
           this.saved = true;
           this.toast.show(`${invoice.invoiceNo} completed · stock updated.`);
-          this.router.navigate(['/sales', invoice.id]);
+          const warnings = (invoice.warnings ?? []).map((w) => saleWarningLabel(w.field, w.message));
+          // The detail screen shows the warnings once (GET returns none).
+          this.router.navigate(['/sales', invoice.id], warnings.length > 0 ? { state: { warnings } } : undefined);
         },
         error: (err: HttpErrorResponse) => {
           this.saving.set(false);
           const { locationError, rest } = splitLocationError(err.error as ApiProblem | undefined);
           if (locationError) this.locationError.set(locationError);
-          // Field errors (key "Lines") carry the specific message; the ProblemDetails title is generic.
-          const message = Object.values(rest?.errors ?? {})[0]?.[0] ?? locationError ?? problemMessage(rest, 'Something went wrong.');
+          const totalChanged = totalChangedMessage(rest);
+          if (totalChanged) {
+            // The total moved while the cashier looked at it: re-calculate and say what it is now. Nothing was sold.
+            this.previewNonce.update((n) => n + 1);
+            this.serverError.set(`${totalChanged} Check the amount, then complete the sale again.`);
+            return;
+          }
+          const hasFieldErrors = Object.keys(rest?.errors ?? {}).length > 0;
+          let message: string | null;
+          if (hasFieldErrors) {
+            message = applySaleProblem(this.form, rest) ?? locationError ?? 'Fix the highlighted fields and try again.';
+          } else if (err.status === 403 && (body.billDiscountPercent != null || body.billDiscountAmount != null)) {
+            message = null;
+            const control = body.billDiscountPercent != null ? this.form.controls.billDiscountPercent : this.form.controls.billDiscountAmount;
+            control.setErrors({ server: problemMessage(rest, 'You are not allowed to give a bill discount.') });
+            control.markAsTouched();
+          } else {
+            message = locationError ?? problemMessage(rest, 'Something went wrong.');
+          }
           this.serverError.set(message);
-          if (/price of .* is now/i.test(message)) this.refreshPrices();
+          const allText = Object.values(rest?.errors ?? {}).flat().join(' ');
+          if (/price of .* is now|tax rate changed/i.test(allText)) {
+            // The refresh moves the price (clearing the field error), so the new price must stay visible in the banner.
+            const moved = Object.values(rest?.errors ?? {}).flat().filter((m) => /is now|tax rate changed/i.test(m)).join(' ');
+            this.serverError.set(message && message !== 'Fix the highlighted fields and try again.' ? message : moved);
+            this.refreshPrices();
+            this.previewNonce.update((n) => n + 1);
+          }
         },
       });
   }
+}
+
+/** Warning text for a `lines[i].hsnCode` field of the create response, prefixed with the item number. */
+export function saleWarningLabel(field: string, message: string, rows?: readonly number[]): string {
+  const m = /^lines\[(\d+)\]\.hsncode$/i.exec(field);
+  return m ? `Item ${(rows?.[Number(m[1])] ?? Number(m[1])) + 1}: ${message}` : message;
 }
 
 function today(): string {

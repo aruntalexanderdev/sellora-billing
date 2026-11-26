@@ -2,26 +2,13 @@ import type { FormGroup } from '@angular/forms';
 import { applyProblem } from '../../core/http/api-errors';
 import type { ApiProblem } from '../../core/auth/auth.models';
 import { roundMoney } from '../../shared/money/money';
+import { billDiscountFields, type BillDiscountMode } from '../../shared/tax/bill-discount';
 import { displayRows } from '../../shared/tax/tax-breakdown';
 import type { PreviewPlan } from '../../shared/tax/tax-preview.service';
 import type { TaxRowView } from '../../shared/tax/tax-preview.models';
 import { proratedCredit } from '../../shared/units/return-units';
-import type { PurchaseLine, PurchaseLineTax } from './purchases.models';
 
-/** The bill discount is entered either as a percent or as an amount, never both. */
-export type BillDiscountMode = 'percent' | 'amount';
-
-/** The bill discount fields of a request: at most one is non-null (the active mode, when it holds a positive value). */
-export function billDiscountFields(
-  mode: BillDiscountMode,
-  percent: number | null | undefined,
-  amount: number | null | undefined,
-): { billDiscountPercent: number | null; billDiscountAmount: number | null } {
-  const positive = (n: number | null | undefined) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : null);
-  return mode === 'percent'
-    ? { billDiscountPercent: positive(percent), billDiscountAmount: null }
-    : { billDiscountPercent: null, billDiscountAmount: positive(amount) };
-}
+export { billDiscountFields, type BillDiscountMode };
 
 export interface PurchasePreviewInput {
   supplierId: string;
@@ -116,9 +103,13 @@ export interface ReturnTaxEstimate {
  * Estimated tax of returning `returnBaseQty` of a purchase line: the original line's rows prorated by base quantity
  * (legacy rows as one "Tax" row). The server reverses the rows exactly on save and is authoritative.
  */
-export function estimateReturnTax(line: PurchaseLine, returnBaseQty: number, places = 2): ReturnTaxEstimate {
+export function estimateReturnTax(
+  line: { baseQty: number; taxableValue: number; taxAmount: number; taxes?: readonly TaxRowView[] | null },
+  returnBaseQty: number,
+  places = 2,
+): ReturnTaxEstimate {
   const share = (n: number) => roundMoney(proratedCredit(n, returnBaseQty, line.baseQty), places);
-  const source: readonly PurchaseLineTax[] = line.taxes && line.taxes.length > 0 ? line.taxes : [];
+  const source: readonly TaxRowView[] = line.taxes && line.taxes.length > 0 ? line.taxes : [];
   const rows = displayRows(source).map((r) => ({
     ...r,
     baseAmount: r.method === 'AmountPerBaseUnit' ? roundMoney(proratedCredit(r.baseAmount, returnBaseQty, line.baseQty), 3) : share(r.baseAmount),

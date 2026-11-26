@@ -111,8 +111,9 @@ public static class TaxFixtures
                 db.States.Add(state);
             }
             settings.StateId = state.Id;
-            await db.SaveChangesAsync();
         }
+        settings.SellingPricesIncludeTax = false; // a company that has been selling keeps exclusive prices (T18); the fixture's rate assertions are tax-on-top
+        await db.SaveChangesAsync();
 
         var assigned = (await db.TaxAssignments.Where(a => a.Scope == TaxScope.Product).Select(a => a.ProductId).ToListAsync()).ToHashSet();
         foreach (var product in await db.Products.Include(p => p.Tax).ToListAsync())
@@ -149,6 +150,35 @@ public static class TaxFixtures
             db.PurchaseOrderLineTaxes.Add(new PurchaseOrderLineTax
             {
                 Id = Sellora.Infrastructure.Data.TaxSeedData.LegacyLineTaxId(line.Id), PurchaseOrderLineId = line.Id, TaxComponentId = null,
+                ComponentCode = line.Tax.Name, Kind = TaxComponentKind.Other, Method = TaxCalculationMethod.Percent, RatePercent = line.TaxRatePercent,
+                BaseAmount = line.TaxableValue, TaxAmount = line.TaxAmount,
+            });
+        }
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Rewrites a sale into the shape history has (written before TP-4): no profile/version/place/HSN snapshot, no header taxable total or place, exclusive prices, and one
+    /// legacy tax row per line (the id and values of <c>AddTaxProfiles.legacy-rows.sql</c>), or none at all when <paramref name="keepLegacyRows"/> is false (history that missed
+    /// the catch-up). Amounts of the lines are untouched, so a return against it exercises the pre-TP-4 proportional rule.
+    /// </summary>
+    public static async Task MakeLegacySaleAsync(SelloraDbContext db, Guid invoiceId, bool keepLegacyRows = true)
+    {
+        var invoice = await db.SalesInvoices.Include(i => i.Lines).ThenInclude(l => l.Taxes).Include(i => i.Lines).ThenInclude(l => l.Tax).SingleAsync(i => i.Id == invoiceId);
+        invoice.TaxableTotal = null;
+        invoice.PlaceOfSupply = null;
+        invoice.PlaceOfSupplyStateId = null;
+        invoice.SellerStateId = null;
+        (invoice.BillDiscountPercent, invoice.BillDiscountAmount, invoice.BillCharges) = (null, 0m, 0m);
+        foreach (var line in invoice.Lines)
+        {
+            db.SalesInvoiceLineTaxes.RemoveRange(line.Taxes);
+            (line.TaxProfileId, line.TaxProfileVersionId, line.PlaceOfSupply, line.HsnCode) = (null, null, null, null);
+            (line.PriceIncludesTax, line.BillDiscountShare, line.BillChargeShare) = (false, 0m, 0m);
+            if (!keepLegacyRows) continue;
+            db.SalesInvoiceLineTaxes.Add(new SalesInvoiceLineTax
+            {
+                Id = Sellora.Infrastructure.Data.TaxSeedData.LegacyLineTaxId(line.Id), SalesInvoiceLineId = line.Id, TaxComponentId = null,
                 ComponentCode = line.Tax.Name, Kind = TaxComponentKind.Other, Method = TaxCalculationMethod.Percent, RatePercent = line.TaxRatePercent,
                 BaseAmount = line.TaxableValue, TaxAmount = line.TaxAmount,
             });

@@ -13,7 +13,7 @@ public sealed record UpdateTaxComponentInput(string Code, string Name, TaxCompon
 /// <summary>One component line of a version. Percent components carry <see cref="RatePercent"/>, per-unit components <see cref="AmountPerBaseUnit"/>.</summary>
 public sealed record TaxVersionComponentInput(Guid TaxComponentId, TaxApplicability Applicability, decimal? RatePercent, decimal? AmountPerBaseUnit);
 
-/// <summary>A new version (BR3, BR4). <see cref="EffectiveFrom"/> may not be later than today until TP-4 (T19).</summary>
+/// <summary>A new version (BR3, BR4). <see cref="EffectiveFrom"/> may be in the future since TP-4 (T19 lifted): documents resolve the version valid on their date.</summary>
 public sealed record AddTaxVersionInput(DateOnly EffectiveFrom, IReadOnlyList<TaxVersionComponentInput> Components);
 
 /// <summary>A profile for the company. <paramref name="InitialVersion"/> creates the first version in the same transaction (a profile with no version cannot be resolved).</summary>

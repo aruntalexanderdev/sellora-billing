@@ -29,7 +29,7 @@ const KIND_ORDER: TaxComponentKind[] = ['Cgst', 'Sgst', 'Utgst', 'Igst', 'Cess',
 const KIND_LABEL: Record<TaxComponentKind, string> = { Cgst: 'CGST', Sgst: 'SGST', Utgst: 'UTGST', Igst: 'IGST', Cess: 'Cess', Vat: 'VAT', Other: 'Other tax' };
 
 /** Distinct tax component kinds present in the rows, in a fixed order (legacy tax is under `Other`). */
-export function reportTaxKinds(rows: readonly PurchaseReportRow[]): TaxComponentKind[] {
+export function reportTaxKinds(rows: readonly { taxByKind?: readonly { kind: TaxComponentKind }[] | null }[]): TaxComponentKind[] {
   const seen = new Set<TaxComponentKind>();
   for (const r of rows) for (const t of r.taxByKind ?? []) seen.add(t.kind);
   return KIND_ORDER.filter((k) => seen.has(k));

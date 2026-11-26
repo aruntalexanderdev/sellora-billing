@@ -4,7 +4,9 @@ import { DocumentScope, type DocumentScopeItem } from '../../../../shared/scope/
 import { placeLabel } from '../../../../shared/scope/list-scope';
 import { loadErrorText } from '../../../../shared/scope/problem-text';
 import { SalesService } from '../../sales.service';
-import type { SalesReturnDetail as SalesReturnDetailModel } from '../../sales.models';
+import type { SalesReturnDetail as SalesReturnDetailModel, SalesReturnLine } from '../../sales.models';
+import { LEGACY_TAX_CODE, taxByComponent, taxColumns, taxInColumn } from '../../../../shared/tax/tax-breakdown';
+import type { TaxRowView } from '../../../../shared/tax/tax-preview.models';
 
 import { formatQuantity } from '../../../../shared/units/unit-conversion';
 
@@ -34,6 +36,17 @@ export class SalesReturnDetail implements OnInit {
       { label: 'Restocked to', value: placeLabel(r.stockLocationCode, r.stockLocationName), testId: 'scope-location' },
     ];
   });
+
+  /** Reversed tax rows of a return line; a line without rows (history) shows its tax as one legacy "Tax" row. */
+  readonly rowsOf = (line: SalesReturnLine): TaxRowView[] =>
+    line.taxes && line.taxes.length > 0
+      ? line.taxes
+      : [{ code: LEGACY_TAX_CODE, kind: 'Other', method: 'Percent', ratePercent: null, amountPerBaseUnit: null, baseAmount: line.taxableValue, taxAmount: line.taxAmount, isLegacy: true }];
+  private readonly lineRows = computed(() => (this.ret()?.lines ?? []).map((l) => ({ rows: this.rowsOf(l) })));
+  /** Distinct tax codes across the return lines (CGST/SGST or IGST, Cess, VAT; legacy as one "Tax" column last). */
+  readonly taxCols = computed(() => taxColumns(this.lineRows()));
+  readonly taxByCode = computed(() => taxByComponent(this.lineRows()));
+  readonly cell = (line: SalesReturnLine, code: string) => taxInColumn(this.rowsOf(line), code);
 
   ngOnInit(): void {
     this.salesService.getReturn(this.route.snapshot.paramMap.get('id')!).subscribe({

@@ -377,6 +377,18 @@ Each phase is approved, built, verified and reviewed before the next.
 - T27 TP-3 design approved; TP3-Q1 to TP3-Q6 as recommended. No company uses a 3-decimal base currency, so the
   existing numeric(18,2) purchase header columns stay; new header columns use numeric(18,4).
 - T28 TP-3 API contract (section "TP-3 design › API / DTO") approved; TP-3 WP1 done (commit b20c667).
+- T29 TP-4 design approved; TP4-Q1 to TP4-Q9 as recommended. TP4-Q2: no company has live sales yet, so no company's
+  stored prices change meaning at release; P3 stays in the release notes as a safety check.
+- T30 TP-4 API contract (section "TP-4 design › API / DTO") approved; TP-4 WP1 done (commit 39dfaed). Runbook order:
+  AddSalesTaxSnapshot → CONCURRENTLY index pre-create → ValidateSalesTaxConstraints.
+- T31 (TP-4 review, lead decisions) (a) Screens and APIs that show a product's tax rate (POS catalog, product detail)
+  read the version valid today through the resolver, not the mirror tax; the mirror stays for rollback and is refreshed
+  on tax writes; before rolling back to a pre-TP-4 build, refresh mirrors (runbook). (b) The sales invoice response
+  carries the seller's name, address, GSTIN/TRN, state name and GST state code from the server, so every printed tax
+  invoice shows them regardless of the cashier's permissions; place of supply carries its GST state code. (c) For a
+  customer in another country, the place-of-supply state is left empty. (d) `AddSalesTaxSnapshot` locks the referenced
+  tables (States, TaxProfiles, TaxProfileVersions) before the sales tables. (e) Accepted: numeric(18,2) header columns
+  and numeric(6,3) line `TaxRatePercent` (display only), noted in the release notes.
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
@@ -747,6 +759,130 @@ Purchase register gains `taxableTotal` and tax by component kind (legacy rows un
 Risks: Indian companies without branch and company state cannot purchase after release (check P first); new 400s for
 over-precise input and `lines[i]` error keys may affect API clients sending many decimals; `Treatment` is added to
 `SalesInvoiceLineTaxes` in a purchase phase (required by DQ-TP2-3, placed last to keep the lock short).
+
+## TP-4 design (sales, POS and sales returns on the calculator)
+
+Status: **implemented and reviewed** (TP4-Q1..Q9 as recommended, T29; review decisions T31). Branch `feature/tax-sales`.
+
+### Scope
+- `SalesService.CreateSaleAsync` is the only sale path: POS (`sales/new`) and the van workspace both post to
+  `POST /api/v1/sales`. Plus sales returns, sales contracts, the POS catalog, sales detail/print, return screens and the
+  sales report (minimal).
+- Unchanged: cancel, payments, refunds, reversals, stock/FIFO.
+- TP-5: drop `TaxId`/`Taxes`, history `TaxProfileId` backfill (D4), tax reports, HSN summary, HSN warning → error.
+  Later: party status, round-off, thermal receipt, buyer GSTIN.
+
+### Migration `AddSalesTaxSnapshot` (additive, one transaction) + `ValidateSalesTaxConstraints`
+All columns nullable or with a constant default (no rewrite; the TP-3 build keeps inserting and can be redeployed).
+
+| Table | New columns | History |
+|---|---|---|
+| SalesInvoiceLines | `TaxProfileId`, `TaxProfileVersionId` (null), `PlaceOfSupply`, `HsnCode` (null), `PriceIncludesTax` (default false — history lines were exclusive), `BillDiscountShare`, `BillChargeShare` (default 0) | defaults |
+| SalesInvoices | `BillDiscountPercent` (null), `BillDiscountAmount`, `BillCharges` (default 0), `TaxableTotal` numeric(18,4) null (null = legacy; DTO falls back to Subtotal − DiscountTotal), `PlaceOfSupply`, `PlaceOfSupplyStateId`, `SellerStateId` (null), `PartyTaxStatus` (default `Unspecified`) | defaults |
+| SalesReturnLines | `TaxProfileId`, `TaxProfileVersionId`, `PlaceOfSupply` (null) | null |
+
+- For a sale the GST place of supply is the **buyer's** state: `PlaceOfSupplyStateId` = customer state, else own state;
+  the seller's state goes in `SellerStateId` (TP-3 stores the own state, correct for purchases).
+- Order: `lock_timeout 5s`; re-run the frozen legacy-rows SQL (catch-up); one `LOCK TABLE SalesInvoices,
+  SalesInvoiceLines, SalesReturnLines IN ACCESS EXCLUSIVE MODE` in the application's own lock order, followed only by
+  metadata ALTERs (milliseconds); CKs and FKs `NOT VALID`.
+- `ValidateSalesTaxConstraints`: VALIDATE (does not block inserts); partial indexes on SalesInvoiceLines profile/version
+  ids (`WHERE … IS NOT NULL`, `IF NOT EXISTS`) — the runbook pre-creates them `CONCURRENTLY` so sales are not blocked.
+- Validation SQL: new `V__tax-sales-snapshot.sql` (block; profile/version/company, mirror TaxId, LineTotal = Taxable +
+  Tax, Treatment set, intra/inter/VAT component rules, CGST = SGST, **inclusive exact-price invariant**, header sums,
+  return lines carry the original's profile/version/place, returned rows never exceed the original and fully returned
+  lines sum exactly); `V__tax-line-rows-missing.sql` switches to **block**.
+- Release notes `scripts/sql/tax-sales-release-notes.sql`: P1 (blocking) Indian companies with neither branch nor company
+  state — their POS stops; P2 sellable products with no sales profile version valid today; P3 companies with
+  `SellingPricesIncludeTax = true` that already have sales (TP4-Q2); R1 catch-up; R2 non-walk-in customers in another
+  state (now IGST); R3 walk-in customers with a state; the 0.01 rounding note.
+
+### Service flow (mirrors TP-3 purchases)
+1. Transaction, idempotency, customer, branch, number, location unchanged; idempotent replay returns stored rows.
+2. Locks: products KEY SHARE → place of supply (branch, customer) → rate sets for the invoice date → tax profiles
+   `FOR KEY SHARE` + re-check versions (400 `lines`) → locations → stock items. No new deadlock path.
+3. Walk-in customers are always intra-state (resolver change, so preview = save). A customer without a state is
+   intra-state without warning (BR12); a customer in another country is inter-state (DQ-TP2-7).
+4. Line preparation keeps the existing checks (unit, decimals, open list price, list-price equality and
+   `Sales.PriceOverride`, discount ≤ gross) with errors keyed `lines[i].field`. The stored selling price is the shelf
+   price in the product's basis (T16); an inclusive line discount reduces the inclusive amount (BR17).
+5. Price basis per line: product → company setting (shared `SalesTaxRules.PriceIncludesTax`, used by preview and save).
+   Existing companies keep exclusive (T18).
+6. Bill discount: 403 in the controller without `Sales.BillDiscount` at the working branch (re-checked in the service);
+   cap check moved to a shared `SalesTaxRules.EnsureBillDiscountCap` (400 on the field sent).
+7. Calculator at base precision, place of supply, bill discount/charges; sale lines carry no line charges (DQ-TP2-8).
+8. Line: discount, taxable, tax = Σ rows, line total; mirror `TaxId` = sales profile mirror, `TaxRatePercent` = Σ
+   percent; profile, version, place, HSN, price basis, shares; one tax row per component with `Treatment`.
+9. Header: `Subtotal` = Σ gross (inclusive for inclusive lines), `DiscountTotal`, `TaxTotal`, `TaxableTotal`, bill
+   amounts, **`GrandTotal` = Σ line totals**, place/state snapshots, HSN warnings.
+10. POS cash: new optional `expectedGrandTotal`; if sent and different → 400 `expectedGrandTotal` ("The total is now
+    X"), so cash is never taken on a stale total. Paid/due/change logic unchanged. An all-inclusive cart without bill
+    charges totals exactly Σ(shelf × qty − line discount) − bill discount (T9).
+11. Returns: `TaxReversal` per row (taxable share, rows, Σ rows = line tax, last return takes the remainder); copy
+    profile/version/place/treatment; a line without rows falls back to one legacy row, so legacy invoices return as
+    today.
+12. Retired: `SaleMoney` and `LegacyLineTax` (no callers after TP-4) are deleted (TP4-Q8).
+13. T19 (no future-dated versions) is lifted: both write paths resolve versions by date.
+
+### API / DTO (append-only)
+- `CreateSaleRequest`: `billDiscountPercent?` (0–100), `billDiscountAmount?`, `billCharges` (0), `expectedGrandTotal?`.
+- `SalesInvoiceLineDto`: `taxes[]` (as TP-3, without originals), `placeOfSupply`, `priceIncludesTax`, `hsnCode`,
+  shares, `taxProfileName`. `SalesInvoiceDetailDto`: `taxableTotal` (fallback), bill discount/charges,
+  `placeOfSupply`, `regime`, place-of-supply and seller state names, `partyTaxStatus`, `warnings[]`.
+  `SalesReturnLineDto`: `taxes[]`, `placeOfSupply`. `SaleCatalogProductDto`: `priceIncludesTax`, `hsnCode`.
+  Sales report row: `taxableTotal`, tax by kind.
+- Errors: `lines[i].field`, `lines`, `billDiscountPercent`/`billDiscountAmount`, `billCharges`, `branchId`,
+  `expectedGrandTotal`, `customerId`. Keys move from `Lines` to `lines[i].*` (API release note); the controller returns
+  every field error, not only the first. No new permissions.
+
+### Frontend (reuses `shared/tax/*`)
+- POS: server preview (debounced) drives line breakdown and totals; "Complete sale" waits for a pending preview and
+  sends `expectedGrandTotal`; change and due from the preview total; inclusive badge per line; bill discount input only
+  with `Sales.BillDiscount` (shows the cap error); bill charges input; `lines[i]` error mapping; precision from the
+  preview.
+- Sales detail / print: "Tax Invoice"; seller GSTIN (or TRN for VAT); place of supply as state name and code; per line
+  HSN, qty/unit, rate (incl. tax note), discount, taxable, dynamic CGST/SGST or IGST (+ Cess) or VAT columns (legacy:
+  one Tax column); footer taxable, tax per component, bill discount, bill charges, grand total. A4 only.
+- Return form keeps an "estimate" column; return detail shows component rows; sales report gets taxable and tax-by-kind.
+
+### Tests
+- xUnit `Sales/SalesTaxTests.cs`: AC1–AC8, AC18, AC19, AC22 (403 and cap), AC23, walk-in, VAT branch, E3, bill
+  charges, `expectedGrandTotal` mismatch, idempotent replay, BR5, T25, preview total = save total, AC15 returns, legacy
+  invoice return, inclusive final return exact, payments/due/change on inclusive totals, cancel unchanged; `SaleMoney`
+  parity tests replaced by fixed expected values.
+- Postgres: migration (no rewrite, catch-up, NOT VALID → VALIDATE, lock timeout, Down/Up, old-build insert),
+  constraints, every new/changed V__ file, POS end to end (sale → payment → partial return → refund → cancel + stock
+  reconciliation), sale vs rate-version race.
+- Vitest: POS preview/debounce, pending blocks completion, `expectedGrandTotal`, change, bill discount permission/cap,
+  errors, inclusive badge; print columns (intra/inter/VAT/legacy); return detail; report.
+
+### Work packages
+1. database-engineer: entities, configurations, two migrations, V__ files, release-notes SQL, CONCURRENTLY runbook step.
+2. backend-engineer: resolver walk-in change, `SalesTaxRules`, `SalesService`, controller, contracts, catalog, report,
+   T19 lift, deletions; test-engineer in parallel: Postgres migration/V__/race tests (gate: API contract frozen).
+3. frontend-engineer; test-engineer in parallel: xUnit service tests and Vitest.
+4. code-reviewer, then `scripts/verify.sh all`.
+
+### Design questions (decided as recommended, T29)
+- TP4-Q1 POS live total: server preview, client copy of the calculator, or compute on save? [Server preview +
+  `expectedGrandTotal`; one round trip after a 300 ms pause.]
+- TP4-Q2 Companies created after TP-1 have `SellingPricesIncludeTax = true` (T18) but have been selling exclusive; at
+  release their stored prices start to count as tax-inclusive, so customers pay less. [Run P3 and decide per company:
+  keep inclusive (prices are shelf labels) or set exclusive before the release.]
+- TP4-Q3 Walk-in customer with a stored state. [Always intra-state.]
+- TP4-Q4 Customers without a state are intra-state without warning. [Keep (BR12); inter-state delivery needs the
+  customer's state.]
+- TP4-Q5 Round-off to the nearest rupee/fils. [Later.]
+- TP4-Q6 Print format. [A4 tax invoice now; thermal receipt later; no buyer GSTIN until the party-status phase.]
+- TP4-Q7 Lift T19 in TP-4. [Yes.]
+- TP4-Q8 Delete `SaleMoney` and `LegacyLineTax` and replace their tests. [Yes — tests of deleted code, not weakened.]
+- TP4-Q9 Profile/version indexes on SalesInvoiceLines pre-created `CONCURRENTLY`. [Yes.]
+
+Risks: CGST/SGST split can move exclusive carts by 0.01 (release note); `TaxRatePercent` is numeric(6,3), so a Σ applied
+percent with 4 decimals would round silently (reject in the version validator or accept — review); rollback to the TP-3
+build is safe for reads, but a return made by the old build on a TP-4 line writes one legacy row next to the component
+rows (totals stay right, per-component split approximate); Indian companies without a state, or products without a
+valid version, cannot sell at all — P1 and P2 must be clean before release.
 
 ## Deployment notes
 

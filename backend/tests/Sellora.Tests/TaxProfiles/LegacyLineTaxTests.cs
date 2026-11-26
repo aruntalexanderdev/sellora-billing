@@ -9,8 +9,9 @@ using Sellora.Tests.TestData;
 
 namespace Sellora.Tests.TaxProfiles;
 
-/// <summary>TP-1 D2 / T10: the four write paths add exactly one legacy tax row per line (component NULL, code = the tax name, kind Other, method Percent),
-/// with the id and column values of <c>AddTaxProfiles.legacy-rows.sql</c>; the amounts of the lines are unchanged.</summary>
+/// <summary>TP-1 D2 / T10, as far as it still exists: only returns of a legacy purchase write the one legacy tax row (component NULL, code = the tax name, kind Other,
+/// method Percent) with the id and column values of <c>AddTaxProfiles.legacy-rows.sql</c>. Sales (TP-4) and purchases (TP-3) run on the calculator; the legacy row of
+/// sales is covered by <c>SalesTaxTests</c> (legacy invoice return).</summary>
 public class LegacyLineTaxTests
 {
     private sealed record Fixture(SelloraDbContext Db, PurchaseService Purchases, ISalesService Sales, Supplier Supplier, Customer Customer, Product Product, ProductUnit Kg, Guid UserId, Tax Tax);
@@ -56,21 +57,6 @@ public class LegacyLineTaxTests
     }
 
     [Fact]
-    public async Task Sale_AddsOneLegacyRowPerLine_WithTheLinesOwnFigures()
-    {
-        var f = await SeedAsync();
-        await Buy(f, 100, 50m);
-
-        var sale = await Sell(f, 10, 100m); // 1000 + 5% = 1050
-
-        var line = sale.Lines.Single();
-        var row = await f.Db.SalesInvoiceLineTaxes.AsNoTracking().SingleAsync();
-        Assert.Equal(line.Id, row.SalesInvoiceLineId);
-        AssertLegacyRow(row, line.Id, f.Tax, 5m, 1000m, 50m);
-        Assert.Equal((1000m, 50m, 1050m), (line.TaxableValue, line.TaxAmount, line.LineTotal)); // billing itself is unchanged
-    }
-
-    [Fact]
     public async Task Purchase_NoLongerWritesALegacyRow_ButOneCalculatorRowPerComponent() // TP-3 behaviour change: purchases run on the calculator
     {
         var f = await SeedAsync();
@@ -89,50 +75,6 @@ public class LegacyLineTaxTests
             Assert.Equal(125m, r.OriginalTaxAmount);
         });
         Assert.Equal((5000m, 250m, 5250m), (line.TaxableValue, line.TaxAmount, line.LineTotal));
-    }
-
-    [Fact]
-    public async Task SaleWithSeveralLines_GetsOneRowPerLine()
-    {
-        var f = await SeedAsync();
-        var wheat = new Product { Id = Guid.NewGuid(), Sku = "WHEAT", Name = "Wheat", BaseUnitId = f.Product.BaseUnitId, BaseUnit = f.Product.BaseUnit, TaxId = f.Tax.Id, Tax = f.Tax, ReorderLevel = 1 };
-        var wheatKg = TestProductUnits.Base(wheat, "kg");
-        f.Db.Add(wheat);
-        await f.Db.SaveChangesAsync();
-        await TaxFixtures.EnablePurchasesAsync(f.Db);
-        await Buy(f, 100, 50m);
-        await f.Purchases.CreatePurchaseAsync(new CreatePurchaseInput(f.Supplier.Id, D, null, null, PaymentMethod.Cash, 0, [new PurchaseLineInput(wheat.Id, wheatKg.Id, 100, 40m, 0, 0)]), f.UserId);
-
-        var sale = await f.Sales.CreateSaleAsync(new CreateSaleInput(f.Customer.Id, D, PaymentMethod.Cash, 0,
-            [new SaleLineInput(f.Product.Id, f.Kg.Id, 2, 100m, 0), new SaleLineInput(wheat.Id, wheatKg.Id, 3, 100m, 0)]), f.UserId);
-
-        var rows = await f.Db.SalesInvoiceLineTaxes.AsNoTracking().ToListAsync();
-        Assert.Equal(2, rows.Count);
-        Assert.Equal(sale.Lines.Select(l => l.Id).Order(), rows.Select(r => r.SalesInvoiceLineId).Order());
-        Assert.Equal(sale.Lines.Sum(l => l.TaxAmount), rows.Sum(r => r.TaxAmount)); // the sum of the rows = the lines' tax (validation SQL rule)
-    }
-
-    [Fact]
-    public async Task SalesReturns_EachGetOneRow_TakingTheOriginalLinesRate_AndTheirRowsSumToTheLine()
-    {
-        var f = await SeedAsync();
-        await Buy(f, 100, 50m);
-        var sale = await Sell(f, 3, 33.33m); // an awkward amount: 99.99 + 5%
-        var lineId = sale.Lines.Single().Id;
-
-        var first = await f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D, "damaged", [new SaleReturnLineInput(lineId, null, 1m)]), f.UserId);
-        var second = await f.Sales.CreateReturnAsync(new CreateSaleReturnInput(sale.Id, D, "rest", [new SaleReturnLineInput(lineId, null, 2m)]), f.UserId);
-
-        var rows = await f.Db.SalesReturnLineTaxes.AsNoTracking().ToListAsync();
-        Assert.Equal(2, rows.Count);
-        foreach (var ret in new[] { first, second })
-        {
-            var returnLine = ret.Lines.Single();
-            AssertLegacyRow(rows.Single(r => r.SalesReturnLineId == returnLine.Id), returnLine.Id, f.Tax, 5m, returnLine.TaxableValue, returnLine.TaxAmount);
-        }
-        var original = await f.Db.SalesInvoiceLineTaxes.AsNoTracking().SingleAsync();
-        Assert.Equal(original.TaxAmount, rows.Sum(r => r.TaxAmount)); // AC15 shape: the returns add up exactly to the original row
-        Assert.Equal(original.BaseAmount, rows.Sum(r => r.BaseAmount));
     }
 
     [Fact]

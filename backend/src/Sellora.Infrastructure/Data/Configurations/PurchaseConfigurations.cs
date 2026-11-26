@@ -14,14 +14,20 @@ internal static class PurchaseTaxValues
 
     /// <summary>Navigation-less FKs from a line to the profile and the version it was calculated with. The lines have no CompanyId, so these are simple FKs; "the version
     /// belongs to the profile and the company" is checked by V__tax-purchase-snapshot.sql. The migrations add them NOT VALID and validate in the next migration.</summary>
-    public static void MapProfileLink<T>(Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<T> builder, string table) where T : class
+    public static void MapProfileLink<T>(Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<T> builder, string table, bool partialIndexes = false) where T : class
     {
         builder.HasOne<TaxProfile>().WithMany().HasForeignKey("TaxProfileId").IsRequired(false).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName($"FK_{table}_TaxProfiles_TaxProfileId");
         builder.HasOne<TaxProfileVersion>().WithMany().HasForeignKey("TaxProfileVersionId").IsRequired(false).OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName($"FK_{table}_TaxProfileVersions_TaxProfileVersionId");
-        builder.HasIndex("TaxProfileId").HasDatabaseName($"IX_{table}_TaxProfileId");
-        builder.HasIndex("TaxProfileVersionId").HasDatabaseName($"IX_{table}_TaxProfileVersionId");
+        // TP-4 (TP4-Q9): the big SalesInvoiceLines table gets partial indexes (WHERE ... IS NOT NULL) that the runbook pre-creates CONCURRENTLY.
+        var profileIndex = builder.HasIndex("TaxProfileId").HasDatabaseName($"IX_{table}_TaxProfileId");
+        var versionIndex = builder.HasIndex("TaxProfileVersionId").HasDatabaseName($"IX_{table}_TaxProfileVersionId");
+        if (partialIndexes)
+        {
+            profileIndex.HasFilter("\"TaxProfileId\" IS NOT NULL");
+            versionIndex.HasFilter("\"TaxProfileVersionId\" IS NOT NULL");
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 import type { BranchFields, LocationFields } from '../../shared/scope/scope.models';
+import type { PlaceOfSupply, TaxRegime, TaxRowView } from '../../shared/tax/tax-preview.models';
 
 export type SalesStatus = 'Completed' | 'Cancelled';
 export type PaymentStatus = 'Due' | 'PartiallyPaid' | 'Paid';
@@ -47,8 +48,13 @@ export interface SaleCatalogProduct {
   subcategoryId?: string | null;
   baseUnitLabel: string;
   quantityOnHand: number;
+  /** Deprecated mirror of the tax profile's rate; totals come from the server preview. */
   taxRatePercent: number;
   units: SaleCatalogUnit[];
+  /** TP-4: the unit prices are tax-inclusive shelf prices. */
+  priceIncludesTax?: boolean;
+  /** TP-4: effective HSN/SAC (product, else subcategory). */
+  hsnCode?: string | null;
 }
 
 export interface SalesInvoiceListItem extends BranchFields, LocationFields {
@@ -104,6 +110,25 @@ export interface SalesInvoiceLine {
   /** Units a return may be entered in (empty when cancelled or nothing is returnable). */
   returnUnits: SaleReturnUnit[];
   batchConsumptions: SaleBatchConsumption[];
+  /** TP-4 tax snapshot (absent / empty on history). */
+  taxes?: SalesLineTax[] | null;
+  taxProfileId?: string | null;
+  taxProfileName?: string | null;
+  placeOfSupply?: PlaceOfSupply | null;
+  /** `unitPrice` and `discount` include tax. */
+  priceIncludesTax?: boolean;
+  hsnCode?: string | null;
+  billDiscountShare?: number;
+  billChargeShare?: number;
+}
+
+/** Mirrors `SalesLineTaxDto`; satisfies `TaxRowView`. */
+export type SalesLineTax = TaxRowView;
+
+/** Mirrors `SalesWarningDto`. */
+export interface SalesWarning {
+  field: string;
+  message: string;
 }
 
 export interface SalesPayment {
@@ -153,6 +178,26 @@ export interface SalesInvoiceDetail extends BranchFields, LocationFields {
   returns: SalesReturnSummary[];
   /** Seller GSTIN snapshot (null for legacy invoices / unregistered branches). */
   sellerGstin: string | null;
+  /** TP-4. `taxableTotal` falls back to subtotal - discount for history; `regime` is null for history. */
+  taxableTotal?: number;
+  billDiscountPercent?: number | null;
+  billDiscountAmount?: number;
+  billCharges?: number;
+  placeOfSupply?: PlaceOfSupply | null;
+  regime?: TaxRegime | null;
+  placeOfSupplyStateId?: string | null;
+  placeOfSupplyStateName?: string | null;
+  sellerStateId?: string | null;
+  sellerStateName?: string | null;
+  /** TP-4 review (T31b): seller block set by the server from the branch / company, readable without Masters.View. */
+  sellerName?: string | null;
+  sellerAddress?: string | null;
+  sellerTaxIdLabel?: string | null;
+  sellerStateGstCode?: string | null;
+  placeOfSupplyStateGstCode?: string | null;
+  partyTaxStatus?: string;
+  /** Only the create response carries warnings. */
+  warnings?: SalesWarning[] | null;
 }
 
 export interface CreateSaleLineRequest {
@@ -174,6 +219,12 @@ export interface CreateSaleRequest {
   /** Selling location; omitted/null = the working branch's default store. */
   stockLocationId?: string | null;
   lines: CreateSaleLineRequest[];
+  /** TP-4: at most one of the bill discount percent and amount (needs Sales.BillDiscount). */
+  billDiscountPercent?: number | null;
+  billDiscountAmount?: number | null;
+  billCharges?: number;
+  /** The total the cashier saw; a different saved total is a 400 on `expectedGrandTotal`. */
+  expectedGrandTotal?: number | null;
 }
 
 export interface AddSalePaymentRequest {
@@ -226,6 +277,9 @@ export interface SalesReturnLine {
   taxableValue: number;
   taxAmount: number;
   lineTotal: number;
+  /** TP-4: the reversed tax rows (empty on history without rows). */
+  taxes?: SalesLineTax[] | null;
+  placeOfSupply?: PlaceOfSupply | null;
 }
 
 export interface SalesReturnDetail extends BranchFields, LocationFields {

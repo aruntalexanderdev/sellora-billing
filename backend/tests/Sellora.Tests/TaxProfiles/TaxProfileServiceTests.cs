@@ -405,19 +405,24 @@ public class TaxProfileServiceTests
     }
 
     [Fact]
-    public async Task AddVersion_T19_StartingAfterToday_RefusedOnEffectiveFrom()
+    public async Task AddVersion_T19Lifted_StartingAfterToday_IsAllowed_AndTheCurrentVersionEndsTheDayBefore() // TP-4: T19 refused this before
     {
         var w = await TaxWorld.CreateAsync("IN"); // today = 2026-11-24
         var p = await NewProfileAsync(w);
+        var current = await w.Profiles.AddVersionAsync(p.Id, TaxWorld.Version(TaxWorld.Today, await w.GstSetAsync(12m)), null);
 
-        var tomorrow = await TaxWorld.FailsAsync(() => AddGst(w, p, TaxWorld.Today.AddDays(1), 12m));
-        Assert.Equal("effectiveFrom", tomorrow.Field);
-        Assert.Empty(await w.Db.TaxProfileVersions.Where(v => v.TaxProfileId == p.Id).ToListAsync());
+        var tomorrow = TaxWorld.Today.AddDays(1);
+        var future = await w.Profiles.AddVersionAsync(p.Id, TaxWorld.Version(tomorrow, await w.GstSetAsync(18m)), null);
 
-        var today = await w.Profiles.AddVersionAsync(p.Id, TaxWorld.Version(TaxWorld.Today, await w.GstSetAsync(12m)), null); // today itself is allowed
-        var future = await w.GstSetAsync(5m);
-        Assert.Equal(TaxWorld.Today, today!.EffectiveFrom);
-        Assert.Equal("effectiveFrom", await TaxWorld.FieldOfAsync(() => w.Profiles.CreateAsync(NewGst(w, "FUT", "Future", v: TaxWorld.Version(TaxWorld.Today.AddDays(30), future)), null)));
+        Assert.Equal(tomorrow, future!.EffectiveFrom);
+        Assert.Null(future.EffectiveTo);
+        var stored = await w.Db.TaxProfileVersions.AsNoTracking().SingleAsync(v => v.Id == current!.Id);
+        Assert.Equal(TaxWorld.Today, stored.EffectiveTo); // BR4: the previous version ends the day before the new one starts
+        var mirror = await w.Db.Taxes.AsNoTracking().SingleAsync(t => t.Id == p.LegacyTaxId);
+        Assert.Equal(12m, mirror.RatePercent); // the mirror follows the version valid today
+
+        var created = await w.Profiles.CreateAsync(NewGst(w, "FUT", "Future", v: TaxWorld.Version(TaxWorld.Today.AddDays(30), await w.GstSetAsync(5m))), null);
+        Assert.Equal(TaxWorld.Today.AddDays(30), (await w.Db.TaxProfileVersions.AsNoTracking().SingleAsync(v => v.TaxProfileId == created.Id)).EffectiveFrom);
     }
 
     [Fact]

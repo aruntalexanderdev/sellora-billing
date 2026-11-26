@@ -8,7 +8,7 @@ using static Sellora.IntegrationTests.TestData.TaxProfileWorld;
 namespace Sellora.IntegrationTests.Migrations;
 
 /// <summary>
-/// The eight backend/db/validation/V__tax-*.sql files (six of TP-1, two of TP-3: see TaxPurchaseValidationFilesTests for the TP-3 probes) (docs/features/tax-profiles.md, "Validation SQL"): zero rows on a clean database and on the migrated legacy world, then one probe per check
+/// The nine backend/db/validation/V__tax-*.sql files (six of TP-1, two of TP-3, one of TP-4: see TaxPurchaseValidationFilesTests and TaxSalesValidationFilesTests for their probes) (docs/features/tax-profiles.md, "Validation SQL"): zero rows on a clean database and on the migrated legacy world, then one probe per check
 /// (a violation written inside a transaction that is always rolled back) proving the check fires with the expected label, and the block / warn header of each file through the real migrator.
 /// </summary>
 [Collection(PostgresCollection.Name)]
@@ -21,7 +21,7 @@ public class TaxValidationFilesTests(PostgresFixture postgres)
 
     private const string Integrity = "tax-profiles-integrity.sql", GstRules = "tax-gst-rules.sql", Resolve = "tax-products-resolve.sql",
         Consistency = "tax-line-rows-consistency.sql", Missing = "tax-line-rows-missing.sql", Drift = "tax-mirror-drift.sql",
-        MissingPurchases = "tax-line-rows-missing-purchases.sql", PurchaseSnapshotFile = "tax-purchase-snapshot.sql";
+        MissingPurchases = "tax-line-rows-missing-purchases.sql", PurchaseSnapshotFile = "tax-purchase-snapshot.sql", SalesSnapshotFile = "tax-sales-snapshot.sql";
 
     /// <summary>Applies <paramref name="mutate"/> in a rolled-back transaction, then runs the file; the rows must be empty before and contain the expected text after.</summary>
     private async Task<List<string>> ProbeAsync(string file, Func<Probe, Task> mutate, params string[] expected)
@@ -274,7 +274,7 @@ public class TaxValidationFilesTests(PostgresFixture postgres)
         {
             await p.ExecAsync($"""DELETE FROM "{taxRows}" WHERE "{idColumn}" = (SELECT "Id" FROM "{lines}" ORDER BY "Id" LIMIT 1)""");
             var rows = await p.ViolationsAsync(MissingPurchases);
-            var sales = await p.ViolationsAsync(Missing);   // the sales-only warn file no longer sees purchase gaps
+            var sales = await p.ViolationsAsync(Missing);   // the sales-only (blocking since TP-4) file does not see purchase gaps
             await p.RunResourceAsync(LegacyRowsResource);
             return (rows, await p.ViolationsAsync(MissingPurchases), sales);
         });
@@ -351,10 +351,11 @@ public class TaxValidationFilesTests(PostgresFixture postgres)
     [InlineData(GstRules, "block")]
     [InlineData(Resolve, "block")]
     [InlineData(Consistency, "block")]
-    [InlineData(Missing, "warn")]
+    [InlineData(Missing, "block")]
     [InlineData(Drift, "warn")]
     [InlineData(MissingPurchases, "block")]
     [InlineData(PurchaseSnapshotFile, "block")]
+    [InlineData(SalesSnapshotFile, "block")]
     public async Task Migrator_ABlockFileFailsAndAWarnFileWarns_WhenItsCheckFindsARow(string file, string mode)
     {
         await using var d = await MigratedCopyAsync(postgres);
@@ -365,6 +366,7 @@ public class TaxValidationFilesTests(PostgresFixture postgres)
             Resolve => $"""UPDATE "Products" SET "TaxId" = '{TaxA18}' WHERE "Id" = '{Fx(20)}'""",
             Consistency => """UPDATE "SalesInvoiceLineTaxes" SET "TaxAmount" = "TaxAmount" + 1 WHERE "Id" = (SELECT "Id" FROM "SalesInvoiceLineTaxes" LIMIT 1)""",
             Missing => """DELETE FROM "SalesInvoiceLineTaxes" WHERE "Id" = (SELECT "Id" FROM "SalesInvoiceLineTaxes" LIMIT 1)""",
+            SalesSnapshotFile => $"""UPDATE "SalesInvoiceLines" SET "TaxProfileId" = '{ProfileA}', "TaxProfileVersionId" = '{VersionA}', "LineTotal" = "LineTotal" + 1 WHERE "Id" = '{Fx(90)}'""",
             MissingPurchases => """DELETE FROM "PurchaseOrderLineTaxes" WHERE "Id" = (SELECT "Id" FROM "PurchaseOrderLineTaxes" LIMIT 1)""",
             PurchaseSnapshotFile => """INSERT INTO "PurchaseOrderLineTaxes" ("Id", "PurchaseOrderLineId", "ComponentCode", "Kind", "Method", "RatePercent", "BaseAmount", "TaxAmount", "TaxComponentId") SELECT gen_random_uuid(), "Id", 'X', 'Other', 'Percent', 1, 1, 0, (SELECT "Id" FROM "TaxComponents" LIMIT 1) FROM "PurchaseOrderLines" LIMIT 1""",
             _ => $"""UPDATE "Taxes" SET "RatePercent" = 99 WHERE "Id" = '{TaxA5}'""",
@@ -378,8 +380,8 @@ public class TaxValidationFilesTests(PostgresFixture postgres)
     {
         var expected = new Dictionary<string, string>
         {
-            [Integrity] = "block", [GstRules] = "block", [Resolve] = "block", [Consistency] = "block", [Missing] = "warn", [Drift] = "warn",
-            [MissingPurchases] = "block", [PurchaseSnapshotFile] = "block",
+            [Integrity] = "block", [GstRules] = "block", [Resolve] = "block", [Consistency] = "block", [Missing] = "block", [Drift] = "warn",
+            [MissingPurchases] = "block", [PurchaseSnapshotFile] = "block", [SalesSnapshotFile] = "block",
         };
 
         foreach (var (file, mode) in expected)

@@ -26,7 +26,7 @@ public interface ITaxResolver
     /// <summary>
     /// Place of supply of a document (BR11, BR12, T14). Regime comes from the document country (VAT is <see cref="PlaceOfSupply.NotApplicable"/>).
     /// GST: own state = the branch's, else the company's (400 <c>branchId</c> when neither is set); a party with no state (walk-in, <paramref name="partyId"/> null)
-    /// is intra-state (a supplier without state also warns); equal states are intra-state, otherwise inter-state; a party in another country is inter-state.
+    /// is intra-state (so is a walk-in customer, whatever state it carries, TP-4) (a supplier without state also warns); equal states are intra-state, otherwise inter-state; a party in another country is inter-state.
     /// </summary>
     Task<PlaceOfSupplyResolution> ResolvePlaceOfSupplyAsync(TaxDirection direction, Guid? branchId, Guid? partyId, CancellationToken ct = default);
 
@@ -37,4 +37,10 @@ public interface ITaxResolver
     /// </summary>
     Task<IReadOnlyDictionary<Guid, ResolvedLineRates>> ResolveRateSetsAsync(
         TaxDirection direction, Guid countryId, DateOnly date, IReadOnlyList<Guid> productIds, string field = "lines", CancellationToken ct = default);
+
+    /// <summary>
+    /// The total percent of the sales profile version valid on <paramref name="date"/> for each product (T31a): what a screen shows as the product's rate. Batched, never throws
+    /// for a product without a profile or version (it is simply absent from the result), so a catalog page never fails on one product.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, decimal>> ResolveCurrentSalesPercentsAsync(Guid countryId, DateOnly date, IReadOnlyCollection<Guid> productIds, CancellationToken ct = default);
 }

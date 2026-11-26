@@ -238,7 +238,7 @@ public class SalesEndpointsTests
         var result = await f.Sales.Create(Request(f, overridePrice: false), default);
 
         var problem = Assert.IsType<ValidationProblemDetails>(Assert.IsAssignableFrom<ObjectResult>(result.Result).Value);
-        Assert.Equal("The price of Ball Pen (Box) is now 100.00. Refresh the item and try again.", problem.Errors["Lines"].Single());
+        Assert.Equal("The price of Ball Pen (Box) is now 100.00. Refresh the item and try again.", problem.Errors["lines[0].unitPrice"].Single());
         Assert.Empty(await f.Db.SalesInvoices.ToListAsync());
     }
 

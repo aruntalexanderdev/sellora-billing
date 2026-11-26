@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
@@ -24,8 +23,7 @@ public class TaxDocumentPreviewService(SelloraDbContext db, ITaxResolver resolve
         var companyId = db.CompanyContext.RequireCompanyId();
 
         var branch = await BranchRules.ResolveWorkingBranchAsync(db, ct);
-        var settings = await db.BusinessSettings.AsNoTracking().Where(s => s.CompanyId == companyId)
-            .Select(s => new { s.SellingPricesIncludeTax, s.MaxBillDiscountPercent }).SingleAsync(ct);
+        var settings = await db.BusinessSettings.AsNoTracking().Where(s => s.CompanyId == companyId).SingleAsync(ct);
 
         // The party and the currency whose precision rounds the document.
         string currencyCode;
@@ -84,7 +82,7 @@ public class TaxDocumentPreviewService(SelloraDbContext db, ITaxResolver resolve
         for (var i = 0; i < input.Lines.Count; i++)
         {
             var line = input.Lines[i];
-            var includes = sale ? products[line.ProductId].PriceIncludesTax ?? settings.SellingPricesIncludeTax : input.RatesIncludeTax ?? false;
+            var includes = sale ? SalesTaxRules.PriceIncludesTax(products[line.ProductId], settings) : input.RatesIncludeTax ?? false;
             calcLines.Add(new TaxCalcLine(line.Qty, baseQtys[i], line.UnitPrice, line.Discount, line.OtherCharges, includes, rates[line.ProductId].Rates));
         }
 
@@ -92,15 +90,8 @@ public class TaxDocumentPreviewService(SelloraDbContext db, ITaxResolver resolve
             precision, place.Place, PartyTaxStatus.Unspecified, input.BillDiscountPercent, input.BillDiscountAmount, input.BillCharges ?? 0m, calcLines);
         var result = TaxCalculator.Calculate(document);
 
-        // T15 (BR19a): the bill discount of a sale may not exceed the company cap (a percent of the bill's entered amount; purchases are not limited).
-        if (sale && settings.MaxBillDiscountPercent is { } cap && result.BillDiscountAmount > 0)
-        {
-            var billAmount = result.Lines.Sum(l => l.Gross - l.LineDiscount);
-            if (result.BillDiscountAmount > TaxMoney.Round(billAmount * cap / 100m, precision))
-            {
-                throw new DomainValidationException("billDiscount", $"The bill discount cannot exceed {cap.ToString("0.##", CultureInfo.InvariantCulture)}% of the bill.");
-            }
-        }
+        // T15 (BR19a): the bill discount of a sale may not exceed the company cap (purchases are not limited).
+        if (sale) SalesTaxRules.EnsureBillDiscountCap(result, settings.MaxBillDiscountPercent, precision, "billDiscount");
 
         var lines = new List<TaxPreviewLine>();
         var warnings = place.Warnings.Select(w => new TaxPreviewWarning("partyId", w)).ToList();

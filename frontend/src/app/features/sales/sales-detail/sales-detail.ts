@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, Injector, OnInit, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -9,7 +9,11 @@ import { ConfirmDialogService } from '../../../shared/ui/confirm-dialog/confirm-
 import { AuthService } from '../../../core/auth/auth.service';
 import { SalesService } from '../sales.service';
 import { formatQuantity } from '../../../shared/units/unit-conversion';
-import type { PaymentMethod, SalesInvoiceDetail as SalesInvoiceDetailModel, SalesPayment } from '../sales.models';
+import type { PaymentMethod, SalesInvoiceDetail as SalesInvoiceDetailModel, SalesInvoiceLine, SalesPayment } from '../sales.models';
+import { SettingsService } from '../../masters/settings/settings.service';
+import type { BusinessSettings } from '../../masters/settings/settings.models';
+import { LEGACY_TAX_CODE, placeOfSupplyLabel, taxByComponent, taxColumns, taxInColumn } from '../../../shared/tax/tax-breakdown';
+import type { TaxRowView } from '../../../shared/tax/tax-preview.models';
 import { DocumentScope, type DocumentScopeItem } from '../../../shared/scope/document-scope';
 import { placeLabel } from '../../../shared/scope/list-scope';
 import { loadErrorText, problemText } from '../../../shared/scope/problem-text';
@@ -24,7 +28,7 @@ const INR = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDi
   standalone: true,
   imports: [ReactiveFormsModule, RouterLink, UiButton, UiBadge, DocumentScope],
   templateUrl: './sales-detail.html',
-  styleUrl: '../../purchases/purchase-detail/purchase-detail.scss',
+  styleUrls: ['../../purchases/purchase-detail/purchase-detail.scss', './sales-detail.scss'],
 })
 export class SalesDetail implements OnInit {
   readonly formatQuantity = formatQuantity;
@@ -36,6 +40,7 @@ export class SalesDetail implements OnInit {
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
   private readonly cashBank = inject(CashBankService);
+  private readonly injector = inject(Injector);
   readonly accountOptions = signal<AccountOption[]>([]);
 
   readonly INR = INR;
@@ -47,11 +52,56 @@ export class SalesDetail implements OnInit {
     const i = this.invoice();
     if (!i) return [];
     return [
-      { label: 'Seller GSTIN', value: i.sellerGstin || '—', testId: 'scope-gstin' },
+      { label: `Seller ${this.taxIdLabel()}`, value: i.sellerGstin || '—', testId: 'scope-gstin' },
       { label: 'Branch', value: placeLabel(i.branchCode, i.branchName), testId: 'scope-branch' },
       { label: 'Stock location', value: placeLabel(i.stockLocationCode, i.stockLocationName), testId: 'scope-location' },
     ];
   });
+
+  // ---- TP-4: tax invoice (A4 print) ----
+  /** Warnings of the save that created this invoice (passed once via the router state; GET returns none). */
+  readonly createWarnings = signal<string[]>(((history.state as { warnings?: string[] } | null)?.warnings) ?? []);
+  /** Business settings, read only for the seller's phone and e-mail when the user has Masters.View (name, address and
+   * tax id come from the invoice itself, T31b). */
+  readonly seller = signal<BusinessSettings | null>(null);
+
+  /** VAT registrations are "TRN", everything else (and history) "GSTIN". */
+  readonly taxIdLabel = computed(() => this.invoice()?.sellerTaxIdLabel || (this.invoice()?.regime === 'Vat' ? 'TRN' : 'GSTIN'));
+  readonly sellerName = computed(() => this.invoice()?.sellerName || this.seller()?.businessName || this.invoice()?.branchName || '');
+  readonly sellerAddress = computed(() => {
+    const i = this.invoice();
+    const state = withGstCode(i?.sellerStateName ?? null, i?.sellerStateGstCode ?? null);
+    const address = i?.sellerAddress || [this.seller()?.addressLine, this.seller()?.city].filter((x): x is string => !!x).join(', ');
+    return [address, state].filter((x): x is string => !!x).join(', ');
+  });
+  readonly sellerContact = computed(() => [this.seller()?.phone, this.seller()?.email].filter((x): x is string => !!x).join(' · '));
+  readonly placeLabel = computed(() => placeOfSupplyLabel(this.invoice()?.placeOfSupply, this.invoice()?.regime));
+  /** State name of the place of supply (GST), else null (VAT or history). */
+  readonly placeState = computed(() => {
+    const i = this.invoice();
+    return i?.regime === 'Vat' ? null : withGstCode(i?.placeOfSupplyStateName ?? null, i?.placeOfSupplyStateGstCode ?? null);
+  });
+
+  /** Tax rows of a line; history without rows shows the line's tax as one legacy "Tax" row. */
+  readonly rowsOf = (line: SalesInvoiceLine): TaxRowView[] =>
+    line.taxes && line.taxes.length > 0
+      ? line.taxes
+      : [{ code: LEGACY_TAX_CODE, kind: 'Other', method: 'Percent', ratePercent: line.taxRatePercent, amountPerBaseUnit: null, baseAmount: line.taxableValue, taxAmount: line.taxAmount, isLegacy: true }];
+  private readonly lineRows = computed(() => (this.invoice()?.lines ?? []).map((l) => ({ rows: this.rowsOf(l) })));
+  /** Distinct tax codes across the lines (CGST/SGST or IGST, Cess, VAT; legacy rows as one "Tax" column last). */
+  readonly taxCols = computed(() => taxColumns(this.lineRows()));
+  /** Tax per component over the whole invoice. */
+  readonly taxByCode = computed(() => taxByComponent(this.lineRows()));
+  readonly cell = (line: SalesInvoiceLine, code: string) => taxInColumn(this.rowsOf(line), code);
+  readonly hasHsn = computed(() => (this.invoice()?.lines ?? []).some((l) => !!l.hsnCode));
+  readonly anyInclusive = computed(() => (this.invoice()?.lines ?? []).some((l) => l.priceIncludesTax));
+  readonly taxable = computed(() => {
+    const i = this.invoice();
+    return i ? i.taxableTotal ?? i.subtotal - i.discountTotal : 0;
+  });
+  /** Whole-bill discount included in `discountTotal` (0 on history). */
+  readonly billDiscount = computed(() => this.invoice()?.billDiscountAmount ?? 0);
+  readonly billCharges = computed(() => this.invoice()?.billCharges ?? 0);
 
   readonly canCancel = computed(() => this.auth.hasPermission('Sales.Cancel'));
   readonly paymentMethods: PaymentMethod[] = ['Cash', 'Upi', 'Card', 'Credit', 'BankTransfer'];
@@ -195,6 +245,10 @@ export class SalesDetail implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    // Seller phone/e-mail only (the endpoint needs Masters.View); name, address and tax id come from the invoice.
+    if (this.auth.hasPermission('Masters.View')) {
+      this.injector.get(SettingsService).get().subscribe({ next: (s) => this.seller.set(s), error: () => undefined });
+    }
     this.refundForm.controls.paymentMethod.valueChanges.subscribe((m) =>
       this.refundForm.patchValue({ accountId: defaultAccountId(this.accountOptions(), m) }),
     );
@@ -305,4 +359,10 @@ export class SalesDetail implements OnInit {
   goBack(): void {
     this.router.navigateByUrl('/sales');
   }
+}
+
+/** "Kerala (32)": a state name with its GST state code when known. */
+function withGstCode(name: string | null, code: string | null): string | null {
+  if (!name) return null;
+  return code ? `${name} (${code})` : name;
 }

@@ -65,7 +65,8 @@ public sealed class BranchApiWorld
             CurrencyId = settings.BaseCurrencyId, CompanyPrefix = settings.InvoicePrefix,
         };
         Check(await admin.PutAsJsonAsync($"/api/v1/pricing/{unit.Id}", new SetPriceRequest(20m), ApiHost.Json), "set price");
-        Check(await world.SendAsync(HttpMethod.Put, "/api/v1/settings", new UpdateBusinessSettingsRequest(settings.BusinessName, settings.AddressLine, settings.City, settings.State, CompanyGstin, settings.Phone, settings.Email, settings.InvoicePrefix, settings.BaseCurrencyId)), "set GSTIN");
+        Check(await world.SendAsync(HttpMethod.Put, "/api/v1/settings", new UpdateBusinessSettingsRequest(settings.BusinessName, settings.AddressLine, settings.City, settings.State, CompanyGstin, settings.Phone, settings.Email, settings.InvoicePrefix, settings.BaseCurrencyId,
+            SellingPricesIncludeTax: false)), "set GSTIN and the price basis");   // TP-4 (T18): a company created after TP-1 defaults to tax-inclusive shelf prices; these fixtures sell tax-exclusive (the pre-TP-4 behaviour)
         Check(await world.PurchaseAsync(null, qty: 1000m), "seed stock");
         return world;
     }

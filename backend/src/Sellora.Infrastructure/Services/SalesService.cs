@@ -3,12 +3,15 @@ using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Payments;
 using Sellora.Domain.Sales;
+using Sellora.Domain.Taxes;
 using Sellora.Infrastructure.Data;
 
 namespace Sellora.Infrastructure.Services;
 
-public class SalesService(SelloraDbContext db, IEffectivePermissionService? permissions = null) : ISalesService
+public class SalesService(SelloraDbContext db, IEffectivePermissionService? permissions = null, ITaxResolver? taxResolver = null) : ISalesService
 {
+    private readonly ITaxResolver resolver = taxResolver ?? new TaxResolver(db);
+
     public async Task<Guid> ResolveSellingLocationAsync(Guid? stockLocationId, CancellationToken ct = default)
     {
         var branch = await BranchRules.ResolveWorkingBranchAsync(db, ct);
@@ -20,26 +23,35 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
     {
         if (input.Lines.Count == 0)
         {
-            throw new DomainValidationException("Lines", "Add at least one item.");
+            throw new DomainValidationException("lines", "Add at least one item.");
         }
 
         await using var transaction = await StockLocks.BeginAsync(db, ct);
 
         if (await Idempotency.FindAsync(db, createdByUserId, Idempotency.Sale, input.IdempotencyKey, ct) is { } existingId)
         {
-            return await db.SalesInvoices.SingleOrDefaultAsync(i => i.Id == existingId, ct)
+            // The stored rows (lines and their tax rows) are returned, never recalculated.
+            return await db.SalesInvoices.Include(i => i.Lines).ThenInclude(l => l.Taxes).SingleOrDefaultAsync(i => i.Id == existingId, ct)
                 ?? throw new DomainValidationException("IdempotencyKey", "This request was already processed, but its result is no longer visible with your current branch access.");
         }
 
         var customer = await db.Customers.SingleOrDefaultAsync(c => c.Id == input.CustomerId, ct)
-            ?? throw new DomainValidationException("CustomerId", "Select a valid customer.");
+            ?? throw new DomainValidationException("customerId", "Select a valid customer.");
         if (!customer.IsActive)
         {
-            throw new DomainValidationException("CustomerId", "This customer is inactive.");
+            throw new DomainValidationException("customerId", "This customer is inactive.");
         }
 
         var branch = await BranchRules.ResolveWorkingBranchAsync(db, ct);
         await FinancialAccountRules.EnsureUsableAsync(db, input.PaidAmount > 0 ? input.AccountId : null, branch.Id, ct);
+
+        // TP-4 (BR19a): a whole-bill discount needs Sales.BillDiscount at the working branch. The controller answers 403 first; this is the same check for
+        // every other caller. Without a permission service it fails closed, like the other permission checks of this service.
+        var discountField = input.BillDiscountPercent is not null ? "billDiscountPercent" : "billDiscountAmount";
+        if ((input.BillDiscountPercent is > 0 || input.BillDiscountAmount is > 0) && !await CanGiveBillDiscountAsync(branch.Id, ct))
+        {
+            throw new DomainValidationException(discountField, "You are not allowed to give a whole-bill discount.");
+        }
 
         var invoiceNo = await DocumentNumbers.NextNumberAsync(db, DocumentSeries.Invoice, branch, ct);
 
@@ -59,29 +71,71 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
             PaymentMethod = input.PaymentMethod,
             Status = SalesStatus.Completed,
             CreatedByUserId = createdByUserId,
+            BillDiscountPercent = input.BillDiscountPercent,
         };
 
-        decimal subtotal = 0, taxTotal = 0, discountTotal = 0;
         // FI-D24 Q1a: money is rounded per line to the base currency precision; header totals are sums of rounded line values.
         var precision = (await db.GetCurrentCompanySettingsAsync(ct)).BaseCurrencyDecimalPrecision;
+        var companyId = db.CompanyContext.RequireCompanyId();
+        var settings = await db.BusinessSettings.AsNoTracking().Where(s => s.CompanyId == companyId).SingleAsync(ct);
 
         // Product KEY SHARE before building lines: a concurrent product-unit edit (FOR UPDATE) waits for this sale to
         // commit, so the factors snapshotted below cannot change underneath it. StockItems locks follow (§5.4).
         await StockLocks.LockProductsKeyShareAsync(db, input.Lines.Select(l => l.ProductId), ct);
 
-        // Requested base quantity per product, summed across lines, so a product picked in two
+        // TP-4: place of supply (BR12; a walk-in customer is intra-state) and the sales rate sets valid on the invoice date (BR5). The profiles are then locked
+        // FOR KEY SHARE (after the products, before the locations and StockItems: no new deadlock path) so a version cannot be superseded under this sale, and the
+        // versions are resolved again under the lock (TP3-Q6).
+        var place = await resolver.ResolvePlaceOfSupplyAsync(TaxDirection.Sale, branch.Id, customer.Id, ct);
+        var productIds = input.Lines.Select(l => l.ProductId).ToList();
+        var rates = await resolver.ResolveRateSetsAsync(TaxDirection.Sale, place.CountryId, input.InvoiceDate, productIds, "lines", ct);
+        await StockLocks.LockTaxProfilesKeyShareAsync(db, rates.Values.Select(r => r.Rates.ProfileId), ct);
+        if (db.Database.IsRelational())
+        {
+            var again = await resolver.ResolveRateSetsAsync(TaxDirection.Sale, place.CountryId, input.InvoiceDate, productIds, "lines", ct);
+            if (again.Any(kv => !rates.TryGetValue(kv.Key, out var first) || first.Rates.VersionId != kv.Value.Rates.VersionId || first.Rates.ProfileId != kv.Value.Rates.ProfileId))
+            {
+                throw new DomainValidationException("lines", "A tax rate changed while the sale was being saved. Review the tax and save again.");
+            }
+        }
+
+        // ---- 1. validate every line (units, quantities, prices), collecting the errors of all lines
+        var errors = new List<FieldError>();
+        var prepared = new List<PreparedLine>(input.Lines.Count);
+        for (var i = 0; i < input.Lines.Count; i++)
+        {
+            try
+            {
+                prepared.Add(await PrepareLineAsync(i, input.Lines[i], input.CanOverridePrice, precision, ct));
+            }
+            catch (DomainValidationException ex)
+            {
+                errors.AddRange(ex.Errors);
+            }
+        }
+        if (errors.Count > 0) throw new DomainValidationException(errors);
+
+        // ---- 2. the calculator (base currency precision, place of supply, bill discount and charges), then the checks that need its result
+        var calc = Calculate(input, discountField, place, rates, prepared, settings, precision);
+        SalesTaxRules.EnsureBillDiscountCap(calc, settings.MaxBillDiscountPercent, precision, discountField);
+        if (input.ExpectedGrandTotal is { } expected && expected != calc.GrandTotal)
+        {
+            throw new DomainValidationException("expectedGrandTotal", $"The total is now {calc.GrandTotal.ToString("F" + precision, System.Globalization.CultureInfo.InvariantCulture)}.");
+        }
+
+        // ---- 3. build the lines; requested base quantity per product, summed across lines, so a product picked in two
         // different units (e.g. one bag + some loose kg) can't together oversell stock.
         var requestedBaseQtyByProduct = new Dictionary<Guid, decimal>();
-
-        foreach (var lineInput in input.Lines)
+        var warnings = new List<SaleWarning>();
+        var warnedProducts = new HashSet<Guid>();
+        for (var i = 0; i < prepared.Count; i++)
         {
-            var line = await BuildLineAsync(invoice, lineInput, input.CanOverridePrice, precision, ct);
+            var line = BuildLine(invoice, prepared[i], calc.Lines[i], rates[prepared[i].Product.Id], settings, place.Place);
             invoice.Lines.Add(line);
-
-            var amounts = SaleMoney.Line(lineInput.Qty, lineInput.UnitPrice, lineInput.Discount, line.TaxRatePercent, precision);
-            subtotal += amounts.Gross;
-            taxTotal += line.TaxAmount;
-            discountTotal += amounts.Discount;
+            if (rates[line.ProductId] is { HsnWarning: true, HsnWarningMessage: { } hsnMessage } && warnedProducts.Add(line.ProductId))
+            {
+                warnings.Add(new SaleWarning($"lines[{i}].hsnCode", hsnMessage));
+            }
 
             requestedBaseQtyByProduct[line.ProductId] = requestedBaseQtyByProduct.GetValueOrDefault(line.ProductId) + line.BaseQty;
         }
@@ -97,7 +151,7 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         {
             var product = await db.Products.Include(p => p.BaseUnit).SingleAsync(p => p.Id == shortage.ProductId, ct);
             var code = product.BaseUnit.ShortCode;
-            throw new DomainValidationException("Lines", $"Only {StockQuantity.Format(shortage.Available)} {code} of {product.Name} in stock — cannot sell {StockQuantity.Format(shortage.Requested)} {code}.");
+            throw new DomainValidationException("lines", $"Only {StockQuantity.Format(shortage.Available)} {code} of {product.Name} in stock — cannot sell {StockQuantity.Format(shortage.Requested)} {code}.");
         }
 
         foreach (var line in invoice.Lines)
@@ -105,10 +159,23 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
             await ApplySaleLineToStockAsync(line, stockItems[(locationId, line.ProductId)], invoiceNo, createdByUserId, ct);
         }
 
-        invoice.Subtotal = subtotal;
-        invoice.TaxTotal = taxTotal;
-        invoice.DiscountTotal = discountTotal;
-        invoice.GrandTotal = SaleMoney.GrandTotal(subtotal, discountTotal, taxTotal);
+        // Header (BR20, BR21): sums of the rounded lines; the grand total is the sum of the line totals (the old Subtotal - Discount + Tax identity breaks for
+        // tax-inclusive lines).
+        invoice.Subtotal = calc.Subtotal;
+        invoice.TaxTotal = invoice.Lines.Sum(l => l.TaxAmount);
+        invoice.DiscountTotal = invoice.Lines.Sum(l => l.Discount + l.BillDiscountShare);
+        invoice.TaxableTotal = invoice.Lines.Sum(l => l.TaxableValue);
+        invoice.BillDiscountAmount = invoice.Lines.Sum(l => l.BillDiscountShare);
+        invoice.BillCharges = invoice.Lines.Sum(l => l.BillChargeShare);
+        invoice.GrandTotal = invoice.Lines.Sum(l => l.LineTotal);
+        invoice.PlaceOfSupply = place.Place;
+        // The buyer's state when the buyer is in the same country, else the seller's own (walk-in, customer without state). A buyer in another country has no GST
+        // state here (T31c): the supply is inter-state and the state stays empty.
+        var abroad = customer.CountryId is { } customerCountry && customerCountry != place.CountryId;
+        invoice.PlaceOfSupplyStateId = abroad ? null : place.PartyStateId ?? place.OwnStateId;
+        invoice.SellerStateId = place.OwnStateId;
+        invoice.PartyTaxStatus = PartyTaxStatus.Unspecified;
+        invoice.Warnings = warnings;
 
         // Cash tendered above the total is change handed back, not money received against the invoice.
         var received = Math.Min(input.PaidAmount, invoice.GrandTotal);
@@ -123,6 +190,14 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         if (transaction is not null) await transaction.CommitAsync(ct);
 
         return invoice;
+    }
+
+    // Sales.BillDiscount at the working branch (or company-wide). Fail closed without a permission service.
+    private async Task<bool> CanGiveBillDiscountAsync(Guid branchId, CancellationToken ct)
+    {
+        if (permissions is null) return false;
+        var set = await permissions.GetCurrentAsync(ct);
+        return set.HasCompanyLevel("Sales.BillDiscount") || set.HasAtBranch("Sales.BillDiscount", branchId);
     }
 
     public async Task<SalesInvoice?> AddPaymentAsync(Guid salesInvoiceId, AddSalePaymentInput input, Guid receivedByUserId, CancellationToken ct = default)
@@ -347,10 +422,10 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         var locationId = await StockLocationRules.ResolveRestockAsync(db, invoice, false, ct);
         var stockItems = await StockLocks.EnsureAndLockStockItemsAsync(db, lineProductIds.Select(id => (locationId, id)), ct);
         var lines = await db.SalesInvoiceLines
-            .Include(l => l.Product).ThenInclude(p => p.BaseUnit).Include(l => l.Tax)
+            .Include(l => l.Product).ThenInclude(p => p.BaseUnit).Include(l => l.Tax).Include(l => l.Taxes)
             .Include(l => l.BatchConsumptions).ThenInclude(c => c.PurchaseBatch)
             .Where(l => l.SalesInvoiceId == invoice.Id).ToListAsync(ct);
-        var priorReturns = await db.SalesReturnLines
+        var priorReturns = await db.SalesReturnLines.Include(r => r.Taxes)
             .Where(r => r.SalesInvoiceLine.SalesInvoiceId == invoice.Id).ToListAsync(ct);
         var productUnits = await db.ProductUnits.Include(u => u.Unit)
             .Where(u => lineProductIds.Contains(u.ProductId)).ToListAsync(ct);
@@ -410,10 +485,13 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
 
             // Returning whatever is left takes the exact remainder, so per-line rounding can never leave a stray
             // paisa of credit unissued (or issue one too many) once an item is fully returned. Credit is prorated
-            // by base quantity, so returns in different units of the same line add up.
-            var last = baseQty == returnableBase;
-            var taxable = last ? line.TaxableValue - prior.Sum(r => r.TaxableValue) : Math.Round(line.TaxableValue * baseQty / line.BaseQty, precision, MidpointRounding.AwayFromZero);
-            var tax = last ? line.TaxAmount - prior.Sum(r => r.TaxAmount) : Math.Round(line.TaxAmount * baseQty / line.BaseQty, precision, MidpointRounding.AwayFromZero);
+            // by base quantity, so returns in different units of the same line add up. Every tax row of the original is
+            // reversed on its own (BR25, TaxReversal) and the return line's tax is the sum of the returned rows (DQ-TP2-4).
+            // A line without rows (history that missed the catch-up) reverses as the one legacy row it would have had.
+            var taxable = TaxReversal.Share(line.TaxableValue, prior.Sum(r => r.TaxableValue), baseQty, returnableBase, line.BaseQty, precision);
+            var originalRows = OriginalRows(line);
+            var rows = TaxReversal.ReverseRows(originalRows, PriorRows(prior, originalRows, line.Taxes.Count == 0), baseQty, returnableBase, line.BaseQty, precision);
+            var tax = rows.Sum(r => r.TaxAmount);
 
             // Put the goods back into the batches they were sold from, oldest first.
             var remaining = baseQty;
@@ -450,8 +528,29 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
                 TaxAmount = tax,
                 LineTotal = taxable + tax,
                 CostRestored = StockCost.Money(costRestored),
+                TaxProfileId = line.TaxProfileId,
+                TaxProfileVersionId = line.TaxProfileVersionId,
+                PlaceOfSupply = line.PlaceOfSupply,
             };
-            returnLine.Taxes.Add(LegacyLineTax.ForSalesReturn(returnLine, line));
+            foreach (var row in rows)
+            {
+                var source = line.Taxes.FirstOrDefault(t => TaxReversal.RowKey(t.TaxComponentId, t.ComponentCode) == TaxReversal.RowKey(row.ComponentId, row.Code));
+                var legacy = row.ComponentId is null && source?.Treatment is null && rows.Count == 1; // the one legacy row keeps the id the SQL catch-up gives it
+                returnLine.Taxes.Add(new SalesReturnLineTax
+                {
+                    Id = legacy ? TaxSeedData.LegacyLineTaxId(returnLine.Id) : Guid.NewGuid(),
+                    SalesReturnLineId = returnLine.Id,
+                    TaxComponentId = row.ComponentId,
+                    ComponentCode = row.Code,
+                    Kind = row.Kind,
+                    Method = row.Method,
+                    RatePercent = row.RatePercent,
+                    AmountPerBaseUnit = row.AmountPerBaseUnit,
+                    BaseAmount = row.BaseAmount,
+                    TaxAmount = row.TaxAmount,
+                    Treatment = source?.Treatment,
+                });
+            }
             salesReturn.Lines.Add(returnLine);
             priorReturns.Add(returnLine);
             salesReturn.TaxableTotal += taxable;
@@ -546,121 +645,182 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         if (transaction is not null) await transaction.CommitAsync(ct);
     }
 
-    private async Task<SalesInvoiceLine> BuildLineAsync(SalesInvoice invoice, SaleLineInput input, bool canOverridePrice, int precision, CancellationToken ct)
+    // A tax row as the reversal helper reads it.
+    private static TaxRowResult ToRow(LineTaxBase t) => new(
+        t.TaxComponentId, t.ComponentCode, t.Kind, t.Method, t.RatePercent, t.AmountPerBaseUnit, t.BaseAmount, t.TaxAmount);
+
+    // The rows of a sales line to reverse. A line without rows reverses as the one legacy row it would have had (named after its tax).
+    private static IReadOnlyList<TaxRowResult> OriginalRows(SalesInvoiceLine line) =>
+        line.Taxes.Count > 0
+            ? line.Taxes.Select(ToRow).ToList()
+            : [new TaxRowResult(null, line.Tax.Name.Length > 60 ? line.Tax.Name[..60] : line.Tax.Name, TaxComponentKind.Other, TaxCalculationMethod.Percent, line.TaxRatePercent, null, line.TaxableValue, line.TaxAmount)];
+
+    // The rows already returned against a line. When the original has no rows, an earlier return has none either (or only a legacy one), so each is read as the
+    // legacy row under the original's synthetic key from its own figures.
+    private static IReadOnlyList<TaxRowResult> PriorRows(IEnumerable<SalesReturnLine> prior, IReadOnlyList<TaxRowResult> originalRows, bool syntheticOriginal) =>
+        prior.SelectMany(r => syntheticOriginal
+                ? [originalRows[0] with { BaseAmount = r.TaxableValue, TaxAmount = r.TaxAmount }]
+                : r.Taxes.Select(ToRow))
+            .ToList();
+
+    /// <summary>A line whose product, unit, quantity and price were checked (nothing calculated yet).</summary>
+    private sealed record PreparedLine(SaleLineInput Input, Product Product, ProductUnit Unit, decimal BaseQty, decimal ListPrice);
+
+    // The product, unit, quantity and price rules of a sale line. Errors are keyed lines[i].field so the POS can map them to the row.
+    private async Task<PreparedLine> PrepareLineAsync(int index, SaleLineInput input, bool canOverridePrice, int precision, CancellationToken ct)
     {
-        if (input.Qty <= 0)
-        {
-            throw new DomainValidationException("Lines", "Quantity must be greater than zero.");
-        }
-        if (input.UnitPrice < 0)
-        {
-            throw new DomainValidationException("Lines", "Unit price cannot be negative.");
-        }
-        if (input.Discount < 0)
-        {
-            throw new DomainValidationException("Lines", "Discount cannot be negative.");
-        }
+        string Key(string field) => $"lines[{index}].{field}";
+        var errors = new List<FieldError>();
+        void Fail(string field, string message) => errors.Add(new FieldError(Key(field), message));
+
+        if (input.Qty <= 0) Fail("qty", "Quantity must be greater than zero.");
+        if (input.UnitPrice < 0) Fail("unitPrice", "Unit price cannot be negative.");
+        if (input.Discount < 0) Fail("discount", "Discount cannot be negative.");
         // The column is numeric(18,4): a finer discount would be rounded on save while the line and header totals were
         // computed from the unrounded value, so it is refused instead.
         // FI-D24: a discount is a money amount, so it has at most the base currency's decimals. It then never needs rounding, which keeps
         // CK_SalesInvoiceLines_Discount_WithinGross (Discount <= Qty * UnitPrice) true for a discount equal to an unrounded gross.
-        if (Math.Round(input.Discount, precision, MidpointRounding.AwayFromZero) != input.Discount)
+        else if (Math.Round(input.Discount, precision, MidpointRounding.AwayFromZero) != input.Discount)
         {
-            throw new DomainValidationException("Lines", $"Discount can have at most {precision} decimal places.");
+            Fail("discount", $"Discount can have at most {precision} decimal places.");
+        }
+        if (input.UnitPrice >= 0 && Math.Round(input.UnitPrice, 4, MidpointRounding.AwayFromZero) != input.UnitPrice)
+        {
+            Fail("unitPrice", "Unit price has too many decimals (at most 4).");
         }
 
-        var product = await db.Products.Include(p => p.BaseUnit).SingleOrDefaultAsync(p => p.Id == input.ProductId, ct)
-            ?? throw new DomainValidationException("Lines", "Select a valid product.");
-        if (!product.IsActive)
+        var product = await db.Products.Include(p => p.BaseUnit).SingleOrDefaultAsync(p => p.Id == input.ProductId, ct);
+        if (product is null)
         {
-            throw new DomainValidationException("Lines", $"{product.Name} is inactive.");
+            Fail("productId", "Select a valid product.");
+            throw new DomainValidationException(errors);
         }
+        if (!product.IsActive) Fail("productId", $"{product.Name} is inactive.");
 
-        var productUnit = await db.ProductUnits
-            .Include(u => u.Unit)
-            .SingleOrDefaultAsync(u => u.Id == input.ProductUnitId, ct)
-            ?? throw new DomainValidationException("Lines", "Select a valid unit.");
+        var productUnit = await db.ProductUnits.Include(u => u.Unit).SingleOrDefaultAsync(u => u.Id == input.ProductUnitId, ct);
+        if (productUnit is null)
+        {
+            Fail("productUnitId", "Select a valid unit.");
+            throw new DomainValidationException(errors);
+        }
         if (productUnit.ProductId != product.Id)
         {
-            throw new DomainValidationException("Lines", "The selected unit does not belong to this product.");
+            Fail("productUnitId", "The selected unit does not belong to this product.");
+            throw new DomainValidationException(errors);
         }
         var unitDisplay = productUnit.Label ?? productUnit.Unit.Name;
-        if (!productUnit.IsActive)
-        {
-            throw new DomainValidationException("Lines", $"{unitDisplay} is no longer active.");
-        }
-        if (!productUnit.IsSellable)
-        {
-            throw new DomainValidationException("Lines", $"{unitDisplay} cannot be sold for {product.Name}.");
-        }
-
-        StockQuantity.EnsureEnteredDecimals(input.Qty, productUnit.Unit.DecimalPlaces, unitDisplay, "Lines");
+        if (!productUnit.IsActive) Fail("productUnitId", $"{unitDisplay} is no longer active.");
+        else if (!productUnit.IsSellable) Fail("productUnitId", $"{unitDisplay} cannot be sold for {product.Name}.");
+        if (errors.Count > 0) throw new DomainValidationException(errors);
 
         // The stored factor is snapshotted onto the line; history is never recomputed from configuration.
+        StockQuantity.EnsureEnteredDecimals(input.Qty, productUnit.Unit.DecimalPlaces, unitDisplay, Key("qty"));
         var baseQty = input.Qty * productUnit.ConversionFactorToBase;
-        StockQuantity.EnsureStorable(baseQty, "Lines");
-        StockQuantity.EnsureWithinBaseDecimals(input.Qty, productUnit.Unit.ShortCode, baseQty, product.BaseUnit, "Lines");
+        StockQuantity.EnsureStorable(baseQty, Key("qty"));
+        StockQuantity.EnsureWithinBaseDecimals(input.Qty, productUnit.Unit.ShortCode, baseQty, product.BaseUnit, Key("qty"));
 
-        // The open list price is stable here: the product KEY SHARE lock blocks PricingService.SetPriceAsync (FOR UPDATE).
+        // The open list price is stable here: the product KEY SHARE lock blocks PricingService.SetPriceAsync (FOR UPDATE). The list price is the shelf
+        // price in the product's own basis (T16), so the entered price is compared and stored as it is.
         var listPrice = await db.SellingPrices
             .Where(p => p.ProductUnitId == productUnit.Id && p.EffectiveTo == null)
             .Select(p => (decimal?)p.Price)
             .SingleOrDefaultAsync(ct);
         if (listPrice is not { } list)
         {
-            throw new DomainValidationException("Lines", $"{unitDisplay} of {product.Name} has no price. Set a price before selling it.");
+            Fail("productUnitId", $"{unitDisplay} of {product.Name} has no price. Set a price before selling it.");
+            throw new DomainValidationException(errors);
         }
 
-        if (Math.Round(input.UnitPrice, 4, MidpointRounding.AwayFromZero) != input.UnitPrice)
-        {
-            throw new DomainValidationException("Lines", "Unit price has too many decimals (at most 4).");
-        }
         var priceDiffers = input.UnitPrice != list;
         if (priceDiffers && !input.OverridePrice)
         {
-            throw new DomainValidationException("Lines", $"The price of {product.Name} ({unitDisplay}) is now {list:F2}. Refresh the item and try again.");
+            Fail("unitPrice", $"The price of {product.Name} ({unitDisplay}) is now {list:F2}. Refresh the item and try again.");
+            throw new DomainValidationException(errors);
         }
         if ((priceDiffers || input.OverridePrice || input.Discount > 0) && !canOverridePrice)
         {
-            throw new DomainValidationException("Lines", priceDiffers || input.OverridePrice
-                ? $"You are not allowed to change the price of {product.Name}."
-                : $"You are not allowed to give a discount on {product.Name}.");
+            if (priceDiffers || input.OverridePrice) Fail("unitPrice", $"You are not allowed to change the price of {product.Name}.");
+            else Fail("discount", $"You are not allowed to give a discount on {product.Name}.");
+            throw new DomainValidationException(errors);
         }
 
         var gross = input.Qty * input.UnitPrice;
         if (input.Discount > gross)
         {
-            throw new DomainValidationException("Lines", $"Discount on {product.Name} cannot exceed the line amount of {gross:F2}.");
+            Fail("discount", $"Discount on {product.Name} cannot exceed the line amount of {gross:F2}.");
+            throw new DomainValidationException(errors);
         }
+        return new PreparedLine(input, product, productUnit, baseQty, list);
+    }
 
-        var tax = await db.Taxes.SingleAsync(t => t.Id == product.TaxId, ct);
-        var amounts = SaleMoney.Line(input.Qty, input.UnitPrice, input.Discount, tax.RatePercent, precision);
-        var taxableValue = amounts.Taxable;
-        var taxAmount = amounts.Tax;
-        var lineTotal = amounts.LineTotal;
+    // The tax calculator on the cart as entered (base currency precision). Its field names are mapped to the request's: the bill discount is whichever of
+    // percent/amount the caller sent; lines[i].unitPrice, discount and qty are the request's own names.
+    private static TaxDocumentResult Calculate(
+        CreateSaleInput input, string discountField, PlaceOfSupplyResolution place, IReadOnlyDictionary<Guid, ResolvedLineRates> rates,
+        IReadOnlyList<PreparedLine> lines, BusinessSettings settings, int precision)
+    {
+        var calcLines = lines.Select(l => new TaxCalcLine(
+            l.Input.Qty, l.BaseQty, l.Input.UnitPrice, l.Input.Discount, 0m, SalesTaxRules.PriceIncludesTax(l.Product, settings), rates[l.Product.Id].Rates)).ToList();
+        try
+        {
+            return TaxCalculator.Calculate(new TaxCalcDocument(
+                precision, place.Place, PartyTaxStatus.Unspecified, input.BillDiscountPercent, input.BillDiscountAmount, input.BillCharges, calcLines));
+        }
+        catch (DomainValidationException ex)
+        {
+            throw new DomainValidationException(ex.Errors.Select(e => e with { Field = e.Field == "billDiscount" ? discountField : e.Field }).ToList());
+        }
+    }
 
+    private static SalesInvoiceLine BuildLine(
+        SalesInvoice invoice, PreparedLine prepared, TaxLineResult calc, ResolvedLineRates rates, BusinessSettings settings, PlaceOfSupply place)
+    {
+        var lineId = Guid.NewGuid();
         var line = new SalesInvoiceLine
         {
-            Id = Guid.NewGuid(),
+            Id = lineId,
             SalesInvoiceId = invoice.Id,
-            ProductId = product.Id,
-            ProductUnitId = productUnit.Id,
-            UnitId = productUnit.UnitId,
-            UnitCode = productUnit.Unit.ShortCode,
-            Qty = input.Qty,
-            ConversionFactorToBase = productUnit.ConversionFactorToBase,
-            BaseQty = baseQty,
-            UnitPrice = input.UnitPrice,
-            ListUnitPrice = list,
-            PriceOverridden = priceDiffers,
-            TaxId = tax.Id,
-            TaxRatePercent = tax.RatePercent,
-            Discount = amounts.Discount, // FI-D24: rounded like the invoice DiscountTotal, so Taxable = Gross - Discount on every line
-            TaxableValue = taxableValue,
-            TaxAmount = taxAmount,
-            LineTotal = lineTotal,
+            ProductId = prepared.Product.Id,
+            ProductUnitId = prepared.Unit.Id,
+            UnitId = prepared.Unit.UnitId,
+            UnitCode = prepared.Unit.Unit.ShortCode,
+            Qty = prepared.Input.Qty,
+            ConversionFactorToBase = prepared.Unit.ConversionFactorToBase,
+            BaseQty = prepared.BaseQty,
+            UnitPrice = prepared.Input.UnitPrice,
+            ListUnitPrice = prepared.ListPrice,
+            PriceOverridden = prepared.Input.UnitPrice != prepared.ListPrice,
+            TaxId = rates.MirrorTaxId, // the sales profile's mirror tax: keeps the older builds and the T25 "used version" check working
+            TaxRatePercent = calc.TaxRatePercent,
+            Discount = calc.LineDiscount, // FI-D24: rounded like the invoice DiscountTotal
+            TaxableValue = calc.Taxable,
+            TaxAmount = calc.TaxTotal,
+            LineTotal = calc.LineTotal,
+            TaxProfileId = rates.Rates.ProfileId,
+            TaxProfileVersionId = rates.Rates.VersionId,
+            PlaceOfSupply = place,
+            HsnCode = rates.HsnCode,
+            PriceIncludesTax = calc.PriceIncludesTax,
+            BillDiscountShare = calc.BillDiscountShare,
+            BillChargeShare = calc.BillChargeShare,
         };
-        line.Taxes.Add(LegacyLineTax.ForSale(line, tax.Name)); // TP-1 D2: one legacy tax row per line until the calculator (TP-4)
+        foreach (var r in calc.Rows)
+        {
+            line.Taxes.Add(new SalesInvoiceLineTax
+            {
+                Id = Guid.NewGuid(),
+                SalesInvoiceLineId = lineId,
+                TaxComponentId = r.ComponentId,
+                ComponentCode = r.Code,
+                Kind = r.Kind,
+                Method = r.Method,
+                RatePercent = r.RatePercent,
+                AmountPerBaseUnit = r.AmountPerBaseUnit,
+                BaseAmount = r.BaseAmount, // a per-unit row's base amount is the base quantity, not money (DQ-TP2-6)
+                TaxAmount = r.TaxAmount,
+                Treatment = rates.Rates.Treatment,
+            });
+        }
         return line;
     }
 
@@ -669,7 +829,7 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
         // Stock on hand and batch remainders are kept in step, so the shortage error is a safety net: never record a
         // sale whose cost (and batch trail) covers only part of the quantity.
         var allocations = await StockPosting.IssueFifoAsync(db, stockItem, line.BaseQty,
-            shortBy => new DomainValidationException("Lines", $"Batch stock is short by {StockQuantity.Format(shortBy)} for this item — cannot complete the sale."), ct);
+            shortBy => new DomainValidationException("lines", $"Batch stock is short by {StockQuantity.Format(shortBy)} for this item — cannot complete the sale."), ct);
 
         var costConsumed = 0m;
         foreach (var allocation in allocations)
@@ -699,25 +859,4 @@ public class SalesService(SelloraDbContext db, IEffectivePermissionService? perm
             UserId = userId,
         }, line.ProductUnitId, line.UnitCode, line.ConversionFactorToBase, line.Qty));
     }
-}
-
-/// <summary>FI-D24 Q1a: the one place a sale line's money is rounded (base currency precision, AwayFromZero). Taxable is the
-/// difference of the rounded gross and rounded discount, so it is already at precision, and the invoice identity
-/// GrandTotal = Subtotal - DiscountTotal + TaxTotal = sum of line totals holds exactly.</summary>
-public static class SaleMoney
-{
-    public readonly record struct LineAmounts(decimal Gross, decimal Discount, decimal Taxable, decimal Tax, decimal LineTotal);
-
-    public static decimal Round(decimal value, int precision) => Math.Round(value, precision, MidpointRounding.AwayFromZero);
-
-    public static LineAmounts Line(decimal qty, decimal unitPrice, decimal discount, decimal ratePercent, int precision)
-    {
-        var gross = Round(qty * unitPrice, precision);
-        var disc = Round(discount, precision);
-        var taxable = gross - disc;
-        var tax = Round(taxable * ratePercent / 100, precision);
-        return new LineAmounts(gross, disc, taxable, tax, taxable + tax);
-    }
-
-    public static decimal GrandTotal(decimal subtotal, decimal discountTotal, decimal taxTotal) => subtotal - discountTotal + taxTotal;
 }

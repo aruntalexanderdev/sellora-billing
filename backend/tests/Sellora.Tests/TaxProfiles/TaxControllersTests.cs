@@ -97,9 +97,9 @@ public class TaxControllersTests
         Assert.Equal(new DateOnly(2025, 9, 21), detail.Versions[1].EffectiveTo);
         Assert.Equal(5m, detail.CurrentVersion!.TotalPercent);
 
-        var future = Problem(await Fresh().AddVersion(created.Id, new AddTaxVersionRequest(TaxWorld.Today.AddDays(1), Set(18m)), default));
-        Assert.Equal(["effectiveFrom"], future.Fields);
-        var incomplete = Problem(await Fresh().AddVersion(created.Id, new AddTaxVersionRequest(new DateOnly(2026, 1, 1), Set(18m)[..2]), default));
+        var future = Ok(await Fresh().AddVersion(created.Id, new AddTaxVersionRequest(TaxWorld.Today.AddDays(1), Set(18m)), default)); // T19 lifted (TP-4): a future start is allowed
+        Assert.Equal((TaxWorld.Today.AddDays(1), 18m, false), (future.EffectiveFrom, future.TotalPercent, future.IsCurrent));
+        var incomplete = Problem(await Fresh().AddVersion(created.Id, new AddTaxVersionRequest(TaxWorld.Today.AddDays(2), Set(18m)[..2]), default));
         Assert.Equal(["components"], incomplete.Fields);
         Assert.IsType<NotFoundResult>((await c.AddVersion(Guid.NewGuid(), new AddTaxVersionRequest(new DateOnly(2026, 1, 1), Set(5m)), default)).Result);
 

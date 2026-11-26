@@ -30,8 +30,16 @@ public sealed record CreateSaleInput(
     Guid? AccountId = null,
     string? IdempotencyKey = null,
     bool CanOverridePrice = false,
-    Guid? StockLocationId = null
+    Guid? StockLocationId = null,
+    // ---- TP-4 (all optional: an old client keeps today's behaviour). At most one of the bill discount percent and amount.
+    decimal? BillDiscountPercent = null,
+    decimal? BillDiscountAmount = null,
+    decimal BillCharges = 0m,
+    decimal? ExpectedGrandTotal = null
 );
+
+/// <summary>A soft finding of the save (field <c>lines[i].hsnCode</c>). Only the create response carries them; not stored.</summary>
+public sealed record SaleWarning(string Field, string Message);
 
 /// <summary><see cref="Qty"/> is in <see cref="ProductUnitId"/> (default: the unit the invoice line was sold in).</summary>
 public sealed record SaleReturnLineInput(Guid SalesInvoiceLineId, Guid? ProductUnitId, decimal Qty);
