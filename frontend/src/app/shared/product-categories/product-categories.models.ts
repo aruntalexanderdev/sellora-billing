@@ -1,3 +1,5 @@
+import type { FieldWarning } from '../tax/save-warnings';
+
 /** Mirrors backend `ProductSubcategoryDto`. */
 export interface ProductSubcategory {
   id: string;
@@ -9,6 +11,8 @@ export interface ProductSubcategory {
   productCount: number;
   /** Default HSN/SAC code of the subcategory's products (BR9). */
   hsnCode?: string | null;
+  /** Update response only (T11): GST-taxable products left without an HSN. The save is never blocked. */
+  warnings?: FieldWarning[] | null;
 }
 
 /** Mirrors backend `ProductCategoryDto`. */

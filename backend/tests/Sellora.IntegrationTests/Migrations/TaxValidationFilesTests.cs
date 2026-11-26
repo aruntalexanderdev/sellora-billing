@@ -8,7 +8,7 @@ using static Sellora.IntegrationTests.TestData.TaxProfileWorld;
 namespace Sellora.IntegrationTests.Migrations;
 
 /// <summary>
-/// The nine backend/db/validation/V__tax-*.sql files (six of TP-1, two of TP-3, one of TP-4: see TaxPurchaseValidationFilesTests and TaxSalesValidationFilesTests for their probes) (docs/features/tax-profiles.md, "Validation SQL"): zero rows on a clean database and on the migrated legacy world, then one probe per check
+/// The ten backend/db/validation/V__tax-*.sql files (six of TP-1, two of TP-3, one of TP-4, the WARN history-profile check of TP-5a (TaxHistoryBackfillScriptTests probes it): see TaxPurchaseValidationFilesTests and TaxSalesValidationFilesTests for their probes) (docs/features/tax-profiles.md, "Validation SQL"): zero rows on a clean database and on the migrated legacy world, then one probe per check
 /// (a violation written inside a transaction that is always rolled back) proving the check fires with the expected label, and the block / warn header of each file through the real migrator.
 /// </summary>
 [Collection(PostgresCollection.Name)]
@@ -21,7 +21,8 @@ public class TaxValidationFilesTests(PostgresFixture postgres)
 
     private const string Integrity = "tax-profiles-integrity.sql", GstRules = "tax-gst-rules.sql", Resolve = "tax-products-resolve.sql",
         Consistency = "tax-line-rows-consistency.sql", Missing = "tax-line-rows-missing.sql", Drift = "tax-mirror-drift.sql",
-        MissingPurchases = "tax-line-rows-missing-purchases.sql", PurchaseSnapshotFile = "tax-purchase-snapshot.sql", SalesSnapshotFile = "tax-sales-snapshot.sql";
+        MissingPurchases = "tax-line-rows-missing-purchases.sql", PurchaseSnapshotFile = "tax-purchase-snapshot.sql", SalesSnapshotFile = "tax-sales-snapshot.sql",
+        HistoryProfile = HistoryProfileFile;
 
     /// <summary>Applies <paramref name="mutate"/> in a rolled-back transaction, then runs the file; the rows must be empty before and contain the expected text after.</summary>
     private async Task<List<string>> ProbeAsync(string file, Func<Probe, Task> mutate, params string[] expected)
@@ -46,7 +47,7 @@ public class TaxValidationFilesTests(PostgresFixture postgres)
     {
         await using var d = await postgres.CreateDatabaseAsync(migrate: true);
 
-        foreach (var file in ValidationFiles) await ValidationScripts.AssertZeroRowsAsync(d, file, minimumStatements: 1, "clean migrated database");
+        foreach (var file in ValidationFiles.Append(HistoryProfileFile)) await ValidationScripts.AssertZeroRowsAsync(d, file, minimumStatements: 1, "clean migrated database");
     }
 
     [Fact]
@@ -335,6 +336,8 @@ public class TaxValidationFilesTests(PostgresFixture postgres)
         await using var d = await MigratedCopyAsync(postgres);
 
         foreach (var file in ValidationFiles) Assert.Equal("Passed", await RunFileAsync(d, file));
+        // TP-5a: the history check WARNS until the backfill script has run (the world's history lines have no profile yet) ...
+        Assert.Equal("Warning", await RunFileAsync(d, HistoryProfile));
         // the whole backend/db folder as a release runs it. The legacy fixture's own raw rows legitimately trip the unrelated stock and unit checks, so those are not asserted here:
         // what must hold is that the tax files are discovered, run and pass.
         var log = new StringWriter();
@@ -342,7 +345,9 @@ public class TaxValidationFilesTests(PostgresFixture postgres)
             ViolationMode.Warn, TimeSpan.FromSeconds(60), EfBundlePath: null, PlanOnly: false), log);
         await runner.RunAsync(CancellationToken.None);
         var tax = runner.Outcomes.Where(o => o.Name.Contains("V__tax-", StringComparison.Ordinal)).ToList();
-        Assert.True(tax.Count == ValidationFiles.Length, $"expected {ValidationFiles.Length} tax files, got {tax.Count}\n{log}");
+        Assert.True(tax.Count == ValidationFiles.Length + 1, $"expected {ValidationFiles.Length + 1} tax files, got {tax.Count}\n{log}");
+        // ... and the same run applies the data scripts of the real folder first (the backfill script is one of them): afterwards every tax file passes, the history check included
+        Assert.Contains(runner.Outcomes, o => o.Kind == ScriptKind.Data && o.Name.Contains("tax-history-profile-backfill", StringComparison.Ordinal) && o.Status == "Succeeded");
         Assert.All(tax, o => Assert.Equal("Passed", o.Status));
     }
 
@@ -356,6 +361,7 @@ public class TaxValidationFilesTests(PostgresFixture postgres)
     [InlineData(MissingPurchases, "block")]
     [InlineData(PurchaseSnapshotFile, "block")]
     [InlineData(SalesSnapshotFile, "block")]
+    [InlineData(HistoryProfile, "warn")]
     public async Task Migrator_ABlockFileFailsAndAWarnFileWarns_WhenItsCheckFindsARow(string file, string mode)
     {
         await using var d = await MigratedCopyAsync(postgres);
@@ -365,6 +371,7 @@ public class TaxValidationFilesTests(PostgresFixture postgres)
             GstRules => $"""UPDATE "TaxProfileVersions" SET "TotalPercent" = 7 WHERE "Id" = '{VersionA}'""",
             Resolve => $"""UPDATE "Products" SET "TaxId" = '{TaxA18}' WHERE "Id" = '{Fx(20)}'""",
             Consistency => """UPDATE "SalesInvoiceLineTaxes" SET "TaxAmount" = "TaxAmount" + 1 WHERE "Id" = (SELECT "Id" FROM "SalesInvoiceLineTaxes" LIMIT 1)""",
+            HistoryProfile => $"""UPDATE "SalesInvoiceLines" SET "TaxProfileId" = '{TaxSeedData.LegacyProfileId(TaxB5)}' WHERE "Id" = '{Fx(90)}'""",   // a profile of another company whose mirror is not the line's TaxId
             Missing => """DELETE FROM "SalesInvoiceLineTaxes" WHERE "Id" = (SELECT "Id" FROM "SalesInvoiceLineTaxes" LIMIT 1)""",
             SalesSnapshotFile => $"""UPDATE "SalesInvoiceLines" SET "TaxProfileId" = '{ProfileA}', "TaxProfileVersionId" = '{VersionA}', "LineTotal" = "LineTotal" + 1 WHERE "Id" = '{Fx(90)}'""",
             MissingPurchases => """DELETE FROM "PurchaseOrderLineTaxes" WHERE "Id" = (SELECT "Id" FROM "PurchaseOrderLineTaxes" LIMIT 1)""",
@@ -381,7 +388,7 @@ public class TaxValidationFilesTests(PostgresFixture postgres)
         var expected = new Dictionary<string, string>
         {
             [Integrity] = "block", [GstRules] = "block", [Resolve] = "block", [Consistency] = "block", [Missing] = "block", [Drift] = "warn",
-            [MissingPurchases] = "block", [PurchaseSnapshotFile] = "block", [SalesSnapshotFile] = "block",
+            [MissingPurchases] = "block", [PurchaseSnapshotFile] = "block", [SalesSnapshotFile] = "block", [HistoryProfile] = "warn",
         };
 
         foreach (var (file, mode) in expected)

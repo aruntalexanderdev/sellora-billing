@@ -9,8 +9,9 @@ internal static class PurchaseTaxValues
 {
     public const string PlaceOfSupplyOrNull = "\"PlaceOfSupply\" IS NULL OR \"PlaceOfSupply\" IN ('IntraState','InterState','NotApplicable')";
 
-    /// <summary>Profile and version are written together (both NULL on history).</summary>
-    public const string ProfilePair = "(\"TaxProfileId\" IS NULL) = (\"TaxProfileVersionId\" IS NULL)";
+    /// <summary>TP-5a (PrepareTaxHistoryBackfill): a version never exists without its profile. History lines carry the backfilled profile with NO version (BR24: a version is never invented),
+    /// so the TP-3/TP-4 "both or neither" pair constraint was relaxed to this one.</summary>
+    public const string VersionNeedsProfile = "\"TaxProfileVersionId\" IS NULL OR \"TaxProfileId\" IS NOT NULL";
 
     /// <summary>Navigation-less FKs from a line to the profile and the version it was calculated with. The lines have no CompanyId, so these are simple FKs; "the version
     /// belongs to the profile and the company" is checked by V__tax-purchase-snapshot.sql. The migrations add them NOT VALID and validate in the next migration.</summary>
@@ -197,7 +198,7 @@ public class PurchaseReturnLineConfiguration : IEntityTypeConfiguration<Purchase
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("CK_PurchaseReturnLines_PlaceOfSupply", PurchaseTaxValues.PlaceOfSupplyOrNull);
-            t.HasCheckConstraint("CK_PurchaseReturnLines_TaxProfile_Pair", PurchaseTaxValues.ProfilePair);
+            t.HasCheckConstraint("CK_PurchaseReturnLines_TaxProfile_VersionNeedsProfile", PurchaseTaxValues.VersionNeedsProfile);
             t.HasCheckConstraint("CK_PurchaseReturnLines_Qty_Positive", "\"Qty\" > 0");
             t.HasCheckConstraint("CK_PurchaseReturnLines_Factor_Positive", "\"ConversionFactorToBase\" > 0");
             t.HasCheckConstraint("CK_PurchaseReturnLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
@@ -255,7 +256,7 @@ public class PurchaseOrderLineConfiguration : IEntityTypeConfiguration<PurchaseO
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("CK_PurchaseOrderLines_PlaceOfSupply", PurchaseTaxValues.PlaceOfSupplyOrNull);
-            t.HasCheckConstraint("CK_PurchaseOrderLines_TaxProfile_Pair", PurchaseTaxValues.ProfilePair);
+            t.HasCheckConstraint("CK_PurchaseOrderLines_TaxProfile_VersionNeedsProfile", PurchaseTaxValues.VersionNeedsProfile);
             t.HasCheckConstraint("CK_PurchaseOrderLines_HsnCode_Format", TaxValues.HsnFormat);
             t.HasCheckConstraint("CK_PurchaseOrderLines_BillShares_NonNegative", "\"BillDiscountShare\" >= 0 AND \"BillChargeShare\" >= 0");
             t.HasCheckConstraint("CK_PurchaseOrderLines_Qty_Positive", "\"Qty\" > 0");

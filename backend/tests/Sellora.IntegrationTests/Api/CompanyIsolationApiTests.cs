@@ -82,6 +82,80 @@ public class CompanyIsolationApiTests(PostgresFixture postgres)
         Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
     }
 
+    private static readonly string[] TaxReportRoutes = ["gst-summary", "hsn-summary?direction=Sales", "hsn-summary?direction=Purchases", "vat-summary"];
+
+    private static string TaxReportUrl(string route, DateOnly from, DateOnly to, Guid? branchId = null) =>
+        $"/api/v1/reports/tax/{route}{(route.Contains('?') ? "&" : "?")}dateFrom={from:yyyy-MM-dd}&dateTo={to:yyyy-MM-dd}{(branchId is { } b ? $"&branchId={b}" : "")}";
+
+    [Fact]
+    public async Task TaxReports_NamingTheOtherCompanysBranch_IsForbidden_AndOwnBranchStillWorks()
+    {
+        var w = await WorldAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var failures = new List<string>();
+
+        foreach (var (self, other) in new[] { (w.A, w.B), (w.B, w.A) })
+        {
+            using var client = w.Host.NewClient(Own(self));
+            foreach (var route in TaxReportRoutes)
+            {
+                var foreign = await client.GetAsync(TaxReportUrl(route, today.AddDays(-30), today, other.BranchId));
+                if (foreign.StatusCode != HttpStatusCode.Forbidden) failures.Add($"{route}: other company's branch answered {(int)foreign.StatusCode}, expected 403");
+                var own = await client.GetAsync(TaxReportUrl(route, today.AddDays(-30), today, self.BranchId));
+                if (own.StatusCode != HttpStatusCode.OK) failures.Add($"{route}: own branch answered {(int)own.StatusCode}, expected 200");
+            }
+        }
+
+        Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
+    }
+
+    [Fact]
+    public async Task TaxReports_APeriodWithOnlyCompanyAsDocuments_ShowsNothingToCompanyB_AndAFindsThem()
+    {
+        var w = await WorldAsync();
+        var day = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-100);
+        await using (var db = w.Host.Database.CreateDbContext(w.A.Company))
+        {
+            var unit = w.A.ProductUnitId;
+            await new Sellora.Infrastructure.Services.SalesService(db).CreateSaleAsync(new Sellora.Domain.Sales.CreateSaleInput(w.A.CustomerId, day, Sellora.Domain.Entities.PaymentMethod.Cash, 0m,
+                [new Sellora.Domain.Sales.SaleLineInput(w.A.ProductId, unit, 1m, 10m, 0)]), w.A.UserId);
+            await new Sellora.Infrastructure.Services.PurchaseService(db, new Sellora.Infrastructure.Services.ExchangeRateService(db)).CreatePurchaseAsync(new Sellora.Domain.Purchasing.CreatePurchaseInput(
+                w.A.SupplierId, day, null, null, Sellora.Domain.Entities.PaymentMethod.Cash, 5m, [new Sellora.Domain.Purchasing.PurchaseLineInput(w.A.ProductId, unit, 1m, 5m, 0, 0)], w.A.AccountId), w.A.UserId);
+        }
+        var (from, to) = (day.AddDays(-5), day.AddDays(5));
+        using var a = w.Host.NewClient(Own(w.A));
+        using var b = w.Host.NewClient(Own(w.B));
+        var failures = new List<string>();
+
+        foreach (var route in TaxReportRoutes)
+        {
+            var asB = await b.GetAsync(TaxReportUrl(route, from, to));
+            var bodyB = await asB.Content.ReadAsStringAsync();
+            if (asB.StatusCode != HttpStatusCode.OK) { failures.Add($"B {route}: {(int)asB.StatusCode}"); continue; }
+            var jsonB = JsonDocument.Parse(bodyB).RootElement;
+            if (jsonB.GetProperty("rows").GetArrayLength() != 0) failures.Add($"B {route}: rows of the other company: {bodyB[..Math.Min(300, bodyB.Length)]}");
+            if (bodyB.Contains(w.A.BranchId.ToString(), StringComparison.OrdinalIgnoreCase)) failures.Add($"B {route}: names company A's branch");
+            foreach (var amount in AmountsOf(jsonB)) if (amount != 0m) failures.Add($"B {route}: non-zero amount {amount}");
+
+            if (route.StartsWith("vat", StringComparison.Ordinal)) continue;   // company A is a GST country: its documents appear in the GST and HSN reports
+            var asA = await a.GetAsync(TaxReportUrl(route, from, to));
+            var jsonA = JsonDocument.Parse(await asA.Content.ReadAsStringAsync()).RootElement;
+            if (asA.StatusCode != HttpStatusCode.OK || jsonA.GetProperty("rows").GetArrayLength() == 0) failures.Add($"A {route}: own documents not found (vacuous probe): {(int)asA.StatusCode}");
+        }
+
+        Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
+    }
+
+    private static IEnumerable<decimal> AmountsOf(JsonElement e)
+    {
+        switch (e.ValueKind)
+        {
+            case JsonValueKind.Number: yield return e.GetDecimal(); break;
+            case JsonValueKind.Object: foreach (var p in e.EnumerateObject()) foreach (var x in AmountsOf(p.Value)) yield return x; break;
+            case JsonValueKind.Array: foreach (var i in e.EnumerateArray()) foreach (var x in AmountsOf(i)) yield return x; break;
+        }
+    }
+
     /// <summary>Defect probe: <c>GET financial-transactions</c> reports <c>total</c> &gt; 0 but returns no <c>items</c> — the list projection
     /// walks required navigations to company-filtered entities (PurchasePayment → PurchaseOrder, Expense → Category, …) from optional ones,
     /// which EF turns into inner joins once the "Company" filter applies.</summary>

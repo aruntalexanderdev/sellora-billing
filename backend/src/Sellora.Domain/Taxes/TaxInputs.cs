@@ -60,3 +60,6 @@ public sealed record TaxPreviewInput(
 
 /// <summary>The version of a profile valid on a document date (BR5), with its component lines.</summary>
 public sealed record TaxVersionResolution(TaxProfile Profile, TaxProfileVersion Version);
+
+/// <summary>A product's sales profile for display (F7): the profile id and name, and the total percent of the version valid on the requested date (null when none is valid).</summary>
+public sealed record CurrentSalesTax(Guid ProfileId, string ProfileName, decimal? Percent);

@@ -72,7 +72,8 @@ export interface TaxProfile {
   regime: TaxRegime;
   treatment: TaxTreatment;
   isActive: boolean;
-  mirrorTaxId: string;
+  /** Deprecated (TP-5b drops it); not read by the UI. */
+  mirrorTaxId?: string;
   isAssigned: boolean;
   versionCount: number;
   currentVersion: TaxVersion | null;
@@ -136,6 +137,8 @@ export interface TaxAssignment {
   salesProfile: TaxProfileRef;
   /** Null = same as sales (BR7). */
   purchaseProfile: TaxProfileRef | null;
+  /** Save response only (T11): GST-taxable products left without an HSN. The save is never blocked. */
+  warnings?: FieldWarning[] | null;
 }
 
 export interface UpsertTaxAssignmentRequest {

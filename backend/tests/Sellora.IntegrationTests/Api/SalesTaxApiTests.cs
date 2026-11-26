@@ -105,7 +105,7 @@ public class SalesTaxApiTests(PostgresFixture postgres)
     private static async Task AssertConsistentAsync(BranchApiWorld w, string when, params string[] skip)
     {
         await using (var db = w.Host.Database.CreateDbContext(w.CompanyId)) await StockInvariants.AssertHoldAsync(db);
-        foreach (var file in TaxProfileWorld.ValidationFiles.Except(skip)) await ValidationScripts.AssertZeroRowsAsync(w.Host.Database, file, minimumStatements: 1, when);
+        foreach (var file in TaxProfileWorld.ValidationFiles.Append(TaxProfileWorld.HistoryProfileFile).Except(skip)) await ValidationScripts.AssertZeroRowsAsync(w.Host.Database, file, minimumStatements: 1, when);
     }
 
     private static async Task<int> InvoiceCountAsync(BranchApiWorld w)

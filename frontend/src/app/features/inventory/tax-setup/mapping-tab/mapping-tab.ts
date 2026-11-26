@@ -5,6 +5,7 @@ import type { ApiProblem } from '../../../../core/auth/auth.models';
 import type { CountryLookupDto } from '../../../../shared/geo/geo.models';
 import { UiButton } from '../../../../shared/ui/button/button';
 import { ConfirmDialogService } from '../../../../shared/ui/confirm-dialog/confirm-dialog.service';
+import { savedToast } from '../../../../shared/tax/save-warnings';
 import { ToastService } from '../../../../shared/ui/toast/toast.service';
 import { problemFields, problemTitle } from '../problem-fields';
 import type {
@@ -264,9 +265,10 @@ export class MappingTab {
   private save(r: RowContext, request: Parameters<TaxSetupService['upsertAssignment']>[0]): void {
     this.busy.set(true);
     this.service.upsertAssignment(request).subscribe({
-      next: () => {
+      next: (saved) => {
         this.busy.set(false);
-        this.toast.show(`${r.name}: tax profile saved.`);
+        const t = savedToast(`${r.name}: tax profile saved.`, saved?.warnings);
+        this.toast.show(t.text, t.durationMs);
         this.load(true);
       },
       error: (err: HttpErrorResponse) => this.fail(err),

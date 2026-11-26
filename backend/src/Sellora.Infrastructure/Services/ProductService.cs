@@ -3,6 +3,7 @@ using Npgsql;
 using Sellora.Domain.Abstractions;
 using Sellora.Domain.Entities;
 using Sellora.Domain.Inventory;
+using Sellora.Domain.Taxes;
 using Sellora.Infrastructure.Data;
 
 namespace Sellora.Infrastructure.Services;
@@ -42,6 +43,7 @@ public class ProductService(SelloraDbContext db) : IProductService
         var plan = BuildDrafts(input.Units, [], NoLocks, units);
         var result = await ValidateOrThrowAsync(productId, input.BaseUnitId, units, storedBaseUnitId: null, hasStockHistory: false, plan, ct);
         var hsnCode = TaxRules.NormaliseHsn(input.HsnCode);
+        await EnsureHsnAsync(input, hsnCode, ct);
         var mirrorTaxId = await ApplyTaxAssignmentAsync(productId, input, isNew: true, ct);
 
         var product = new Product
@@ -101,6 +103,7 @@ public class ProductService(SelloraDbContext db) : IProductService
         var plan = BuildDrafts(input.Units, product.Units.ToList(), locks, units);
         var result = await ValidateOrThrowAsync(productId, input.BaseUnitId, units, product.BaseUnitId, hasStockHistory, plan, ct);
         var hsnCode = TaxRules.NormaliseHsn(input.HsnCode);
+        await EnsureHsnAsync(input, hsnCode, ct);
         var mirrorTaxId = await ApplyTaxAssignmentAsync(productId, input, isNew: false, ct);
 
         product.Sku = input.Sku.Trim();
@@ -534,7 +537,6 @@ public class ProductService(SelloraDbContext db) : IProductService
     private async Task LoadForReturnAsync(Product product, CancellationToken ct)
     {
         await db.Entry(product).Reference(p => p.BaseUnit).LoadAsync(ct);
-        await db.Entry(product).Reference(p => p.Tax).LoadAsync(ct);
         await db.Entry(product).Collection(p => p.Units).Query().Include(u => u.Unit).LoadAsync(ct);
     }
 
@@ -569,6 +571,24 @@ public class ProductService(SelloraDbContext db) : IProductService
         if (!baseUnit.IsActive && input.BaseUnitId != currentBaseUnitId)
         {
             throw new DomainValidationException(nameof(input.BaseUnitId), ProductUnitConfigurationValidator.InactiveBaseUnitMessage);
+        }
+    }
+
+    /// <summary>
+    /// TP-5a (T11, TP5-Q4): once the company has an <c>HsnRequiredFrom</c> date, a product whose resolved profile is GST + Taxable needs an HSN/SAC code of its own or of its
+    /// subcategory (400 <c>hsnCode</c>). Without a date the save is allowed and the detail shows the warning. Runs before the assignment is written so a refusal leaves nothing tracked.
+    /// </summary>
+    private async Task EnsureHsnAsync(UpsertProductInput input, string? hsnCode, CancellationToken ct)
+    {
+        var settings = await db.BusinessSettings.AsNoTracking().Select(s => new { s.CountryId, s.HsnRequiredFrom }).FirstOrDefaultAsync(ct);
+        if (settings is not { HsnRequiredFrom: not null, CountryId: { } countryId }) return;
+        if (input.PurchaseTaxProfileId is not null && input.SalesTaxProfileId is null) return; // ApplyTaxAssignmentAsync reports it on its own field
+
+        var resolution = await new TaxResolver(db).PreviewAsync(
+            new TaxPreviewInput(countryId, null, input.Name, input.CategoryId, input.SubcategoryId, hsnCode, input.SalesTaxProfileId, input.PurchaseTaxProfileId), ct);
+        if (resolution is { HsnWarning: true, HsnWarningMessage: { } message })
+        {
+            throw new DomainValidationException("hsnCode", message + " Enter an HSN/SAC code on the product or its subcategory.");
         }
     }
 

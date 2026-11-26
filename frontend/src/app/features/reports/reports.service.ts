@@ -6,6 +6,10 @@ import { ContextService } from '../../core/context/context.service';
 import type { PagedResult } from '../../core/api.models';
 import type {
   CurrentStockReportRow,
+  GstSummary,
+  HsnDirection,
+  HsnSummary,
+  VatSummary,
   PaymentMethod,
   ProfitSummary,
   PurchaseReportRow,
@@ -89,5 +93,24 @@ export class ReportsService {
     if (query.dateTo) params['dateTo'] = query.dateTo;
     if (query.branchId) params['branchId'] = query.branchId;
     return this.http.get<ProfitSummary>(`${BASE_URL}/profit-summary`, { params: this.withScope(params, 'Reports.Profit') });
+  }
+
+  /** TP-5a tax reports: `dateFrom` and `dateTo` are required (at most 366 days apart). */
+  gstSummary(query: BranchQuery & { dateFrom: string; dateTo: string }): Observable<GstSummary> {
+    return this.http.get<GstSummary>(`${BASE_URL}/tax/gst-summary`, { params: this.taxParams(query) });
+  }
+
+  hsnSummary(query: BranchQuery & { dateFrom: string; dateTo: string; direction: HsnDirection }): Observable<HsnSummary> {
+    return this.http.get<HsnSummary>(`${BASE_URL}/tax/hsn-summary`, { params: { ...this.taxParams(query), direction: query.direction } });
+  }
+
+  vatSummary(query: BranchQuery & { dateFrom: string; dateTo: string }): Observable<VatSummary> {
+    return this.http.get<VatSummary>(`${BASE_URL}/tax/vat-summary`, { params: this.taxParams(query) });
+  }
+
+  private taxParams(query: BranchQuery & { dateFrom: string; dateTo: string }): Record<string, string> {
+    const params: Record<string, string> = { dateFrom: query.dateFrom, dateTo: query.dateTo };
+    if (query.branchId) params['branchId'] = query.branchId;
+    return this.withScope(params, 'Reports.Tax');
   }
 }

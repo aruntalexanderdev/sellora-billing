@@ -14,7 +14,7 @@ public class PermissionScopeCatalogueTests
         "Shipments.View", "Shipments.Plan", "Shipments.Load",
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
         "Customers.View",
-        "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",
+        "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement", "Reports.Tax",
         "Branch.Roles.View", "Branch.Roles.Manage", "Branch.Users.AssignRoles",
         // Phase 01b (FI-D44): branch user administration
         "Branch.Users.View", "Branch.Users.Create", "Branch.Users.Edit", "Branch.Users.Disable", "Branch.Users.ResetPassword",

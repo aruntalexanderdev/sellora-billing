@@ -25,7 +25,7 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var query = db.Products.Include(p => p.BaseUnit).Include(p => p.Tax).AsQueryable();
+        var query = db.Products.Include(p => p.BaseUnit).AsQueryable();
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim().ToLower();
@@ -42,12 +42,15 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
             .Select(p => new ProductListItemDto(p.Id, p.Sku, p.Name, p.Category,
                 p.CategoryId, p.Category, p.SubcategoryId,
                 db.ProductSubcategories.Where(s => s.Id == p.SubcategoryId).Select(s => s.Name).FirstOrDefault(),
-                p.BaseUnit.ShortCode, p.Tax.Name, p.ReorderLevel, p.IsActive))
+                p.BaseUnit.ShortCode, string.Empty, p.ReorderLevel, p.IsActive))
             .ToListAsync(ct);
+
+        // F7: the tax label is the resolved sales profile's name (one batched call for the page), not the legacy mirror.
+        var taxes = await SalesTaxLookup.ForCompanyAsync(db, taxResolver, items.Select(i => i.Id).ToList(), ct);
 
         // One query per history source for the whole page (not per row).
         var history = await ProductUnitUsage.GetProductHistoryAsync(db, items.Select(i => i.Id).ToList(), ct);
-        items = items.Select(i => i with { CanDelete = !history.ContainsKey(i.Id) }).ToList();
+        items = items.Select(i => i with { CanDelete = !history.ContainsKey(i.Id), TaxLabel = SalesTaxLookup.Label(taxes, i.Id) }).ToList();
 
         return Ok(new PagedResult<ProductListItemDto>(items, total, page, pageSize));
     }
@@ -163,7 +166,7 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
     private async Task<ProductDetailDto?> LoadDetailAsync(Guid id, CancellationToken ct)
     {
         var product = await db.Products.AsNoTracking()
-            .Include(p => p.BaseUnit).Include(p => p.Tax).Include(p => p.Units).ThenInclude(u => u.Unit)
+            .Include(p => p.BaseUnit).Include(p => p.Units).ThenInclude(u => u.Unit)
             .SingleOrDefaultAsync(p => p.Id == id, ct);
         if (product is null) return null;
 
@@ -191,7 +194,7 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
         var detail = new ProductDetailDto(
             product.Id, product.Sku, product.Name, product.Category,
             product.CategoryId, product.Category, product.SubcategoryId, subcategoryName, product.BaseUnitId, product.BaseUnit.ShortCode,
-            product.TaxId, product.Tax.Name, product.Tax.RatePercent, product.ReorderLevel, product.IsActive,
+            product.TaxId, string.Empty, 0m, product.ReorderLevel, product.IsActive,
             isBaseUnitLocked, dtos, product.HsnCode, PriceIncludesTax: product.PriceIncludesTax);
         return await WithTaxAsync(detail, product, ct);
     }
@@ -210,11 +213,12 @@ public class ProductsController(SelloraDbContext db, IProductService productServ
         if (resolution is null) return detail;
 
         // T31a: the rate shown is the sales profile's version valid today, not the mirror tax (which stays for rollback).
-        var current = (await taxResolver.ResolveCurrentSalesPercentsAsync(country, DateOnly.FromDateTime(DateTime.UtcNow), [product.Id], ct)).GetValueOrDefault(product.Id, detail.TaxRatePercent);
+        var current = (await taxResolver.ResolveCurrentSalesProfilesAsync(country, DateOnly.FromDateTime(DateTime.UtcNow), [product.Id], ct)).GetValueOrDefault(product.Id);
 
         return detail with
         {
-            TaxRatePercent = current,
+            TaxLabel = current?.ProfileName ?? resolution.SalesProfile.Name,
+            TaxRatePercent = current?.Percent ?? 0m,
             EffectiveHsnCode = resolution.HsnCode,
             HsnSource = resolution.HsnSource.ToString(),
             SalesTaxProfile = ToRef(resolution.SalesProfile),

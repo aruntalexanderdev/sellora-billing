@@ -22,7 +22,7 @@ public static class PermissionCatalog
         "Shipments.View", "Shipments.Plan", "Shipments.Load", // FI-D31 (Reservations.Release stays company-only)
         "Expenses.View", "Expenses.Create", "Expenses.Edit", "Expenses.Cancel",
         "Customers.View", // Phase 11 D15: branch cashiers pick named customers at POS (customers stay company master data)
-        "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement",
+        "Reports.Sales", "Reports.Purchase", "Reports.Stock", "Reports.Movement", "Reports.Tax",
         BranchRolesView, BranchRolesManage, BranchUsersAssignRoles,
         BranchUsersView, BranchUsersCreate, BranchUsersEdit, BranchUsersDisable, BranchUsersResetPassword, // Phase 01b, FI-D44
     };
@@ -188,6 +188,7 @@ public static class PermissionCatalog
         new("Reports.Movement", "Reports", "View", "View the stock movement report."),
         new("Reports.Purchase", "Reports", "View", "View the purchase report."),
         new("Reports.Sales", "Reports", "View", "View the sales report."),
+        new("Reports.Tax", "Reports", "View", "View the tax reports: GST or VAT summary and the HSN summary."),
         new("Reports.Accounts", "Reports", "View", "View the Accounts reports: payments, outstanding balances, expenses, cash flow, cash & bank and payment methods."),
         new("Reports.Profit", "Reports", "View", "View the profit/margin summary report."),
     };

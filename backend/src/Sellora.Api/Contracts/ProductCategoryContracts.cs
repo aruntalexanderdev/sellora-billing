@@ -3,7 +3,9 @@ using System.ComponentModel.DataAnnotations;
 namespace Sellora.Api.Contracts;
 
 /// <summary><see cref="ProductCount"/> = products referencing the subcategory, any status. <see cref="HsnCode"/>: the default HSN/SAC code of its products (BR9).</summary>
-public record ProductSubcategoryDto(Guid Id, Guid CategoryId, string Code, string Name, int SortOrder, bool IsActive, int ProductCount, string? HsnCode = null);
+public record ProductSubcategoryDto(Guid Id, Guid CategoryId, string Code, string Name, int SortOrder, bool IsActive, int ProductCount, string? HsnCode = null,
+    // TP-5a (T11): set on the subcategory update response only: count of GST-taxable products left without an HSN (field hsnCode). The save is never blocked.
+    IReadOnlyList<FieldErrorDto>? Warnings = null);
 
 /// <summary><see cref="Subcategories"/> ordered SortOrder, Name; filtered by includeInactive like the category itself.</summary>
 public record ProductCategoryDto(

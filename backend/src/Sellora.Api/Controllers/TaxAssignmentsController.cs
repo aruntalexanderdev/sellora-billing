@@ -138,7 +138,7 @@ public class TaxAssignmentsController(SelloraDbContext db, ITaxAssignmentService
         try
         {
             var a = await service.UpsertAsync(new UpsertTaxAssignmentInput(request.ScopeType!.Value, request.ScopeId, request.CountryId!.Value, request.SalesProfileId!.Value, request.PurchaseProfileId), ct);
-            return Ok(await LoadDtoAsync(a, ct));
+            return Ok((await LoadDtoAsync(a, ct)) with { Warnings = await SalesTaxLookup.MissingHsnWarningsAsync(db, request.CountryId, ct) });
         }
         catch (DomainValidationException ex)
         {

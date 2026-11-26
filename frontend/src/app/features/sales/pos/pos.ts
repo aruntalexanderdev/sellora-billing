@@ -25,6 +25,7 @@ import { quantityStep, quantityValidators } from '../../../shared/forms/quantity
 import { AuthService } from '../../../core/auth/auth.service';
 import { LineTaxBreakdown } from '../../../shared/tax/line-tax-breakdown/line-tax-breakdown';
 import { billDiscountFields, type BillDiscountMode } from '../../../shared/tax/bill-discount';
+import { hsnLineMessage, problemMessagesLabelled } from '../../../shared/tax/hsn';
 import { taxByComponent, placeOfSupplyLabel } from '../../../shared/tax/tax-breakdown';
 import { TaxPreviewService, planKey, previewStates, type PreviewPlan, type PreviewState } from '../../../shared/tax/tax-preview.service';
 import type { TaxPreviewLine, TaxRowView } from '../../../shared/tax/tax-preview.models';
@@ -264,7 +265,7 @@ export class Pos implements OnInit, HasUnsavedChanges {
   readonly previewError = computed(() => {
     const s = this.previewState();
     if (s.kind !== 'error' || this.previewPending()) return null;
-    const fields = Object.values(s.problem?.errors ?? {}).flat();
+    const fields = problemMessagesLabelled(s.problem?.errors, s.plan.rows);
     return fields.length > 0 ? fields.join(' ') : problemMessage(s.problem, 'Tax could not be calculated.');
   });
   /** Server message of a bill field from the preview (cap exceeded, both given...). */
@@ -594,6 +595,11 @@ export class Pos implements OnInit, HasUnsavedChanges {
     return this.catalog().find((p) => p.productId === productId)?.name ?? '';
   }
 
+  /** TP-5a: why this product has no real tax rate today (no sales profile / valid version), or null. */
+  taxWarningOf(productId: string): string | null {
+    return this.catalog().find((p) => p.productId === productId)?.taxWarning ?? null;
+  }
+
   private unitPriceOf(productId: string, productUnitId: string): number | null {
     return this.unitsFor(productId).find((u) => u.productUnitId === productUnitId)?.currentPrice ?? null;
   }
@@ -722,10 +728,7 @@ export class Pos implements OnInit, HasUnsavedChanges {
 }
 
 /** Warning text for a `lines[i].hsnCode` field of the create response, prefixed with the item number. */
-export function saleWarningLabel(field: string, message: string, rows?: readonly number[]): string {
-  const m = /^lines\[(\d+)\]\.hsncode$/i.exec(field);
-  return m ? `Item ${(rows?.[Number(m[1])] ?? Number(m[1])) + 1}: ${message}` : message;
-}
+export const saleWarningLabel = hsnLineMessage;
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);

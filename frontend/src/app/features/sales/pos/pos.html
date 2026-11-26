@@ -27,7 +27,9 @@
           <div class="search-results">
             @for (p of searchResults(); track p.productId) {
               <button type="button" class="search-result-row" (click)="addToCart(p)">
-                <span class="sr-name">{{ p.name }} <span class="sr-sku">{{ p.sku }}</span></span>
+                <span class="sr-name">{{ p.name }} <span class="sr-sku">{{ p.sku }}</span>
+                  @if (p.taxWarning; as w) { <span class="sr-tax-warn" data-testid="tax-warning" [title]="w">No tax profile</span> }
+                </span>
                 <span class="sr-stock" [class.sr-stock-low]="p.quantityOnHand <= 0">
                   {{ formatQuantity(p.quantityOnHand, 0) }} {{ p.baseUnitLabel }} available
                 </span>
@@ -152,6 +154,7 @@
                     <div class="tax-detail-head">
                       {{ view.profileName ?? 'Tax' }}{{ view.hsnCode ? ' · HSN ' + view.hsnCode : '' }}{{ view.priceIncludesTax ? ' · price includes tax' : '' }}
                     </div>
+                    @if (taxWarningOf(row.controls.productId.value); as w) { <div class="sr-tax-warn" data-testid="line-tax-warning">{{ w }}</div> }
                     <app-line-tax-breakdown [rows]="view.rows" symbol="₹" [precision]="precision()" [baseUnitLabel]="previews()[i]?.baseUnitLabel ?? ''" />
                   </div>
                 }

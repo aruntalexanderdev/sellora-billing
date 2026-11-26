@@ -55,6 +55,8 @@ export interface SaleCatalogProduct {
   priceIncludesTax?: boolean;
   /** TP-4: effective HSN/SAC (product, else subcategory). */
   hsnCode?: string | null;
+  /** TP-5a: set when the product has no sales tax profile or valid version today, so its tax is not a real rate. */
+  taxWarning?: string | null;
 }
 
 export interface SalesInvoiceListItem extends BranchFields, LocationFields {

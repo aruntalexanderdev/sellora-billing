@@ -43,4 +43,11 @@ public interface ITaxResolver
     /// for a product without a profile or version (it is simply absent from the result), so a catalog page never fails on one product.
     /// </summary>
     Task<IReadOnlyDictionary<Guid, decimal>> ResolveCurrentSalesPercentsAsync(Guid countryId, DateOnly date, IReadOnlyCollection<Guid> productIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// F7 (TP-5a): the sales profile of each product with its name and the total percent of its version valid on <paramref name="date"/> (null when no version is valid). Screens that
+    /// used to read <c>Product.Tax</c> (product list/detail, pricing, stock, catalog) read this. Batched (a fixed number of queries), never throws; a product with no profile for the
+    /// country is simply absent from the result.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, CurrentSalesTax>> ResolveCurrentSalesProfilesAsync(Guid countryId, DateOnly date, IReadOnlyCollection<Guid> productIds, CancellationToken ct = default);
 }

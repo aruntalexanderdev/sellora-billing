@@ -32,4 +32,22 @@ export const REPORTS_ROUTES: Routes = [
     canActivate: [permissionGuard('Reports.Profit')],
     data: { group: 'Reports', page: 'Profit / Margin Summary' },
   },
+  {
+    path: 'tax/gst-summary',
+    loadComponent: () => import('./gst-summary-report/gst-summary-report').then((m) => m.GstSummaryReport),
+    canActivate: [permissionGuard('Reports.Tax')],
+    data: { group: 'Reports', page: 'GST Summary' },
+  },
+  {
+    path: 'tax/hsn-summary',
+    loadComponent: () => import('./hsn-summary-report/hsn-summary-report').then((m) => m.HsnSummaryReport),
+    canActivate: [permissionGuard('Reports.Tax')],
+    data: { group: 'Reports', page: 'HSN Summary' },
+  },
+  {
+    path: 'tax/vat-summary',
+    loadComponent: () => import('./vat-summary-report/vat-summary-report').then((m) => m.VatSummaryReport),
+    canActivate: [permissionGuard('Reports.Tax')],
+    data: { group: 'Reports', page: 'VAT Summary' },
+  },
 ];

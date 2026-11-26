@@ -16,7 +16,9 @@ public record SaleCatalogProductDto(
     Guid? StockLocationId = null,
     Guid? CategoryId = null, string? SubcategoryName = null,
     // ---- TP-4: the price basis the unit prices are in (product setting, else the company's) and the effective HSN/SAC (product, else subcategory).
-    bool PriceIncludesTax = false, string? HsnCode = null
+    bool PriceIncludesTax = false, string? HsnCode = null,
+    // ---- TP-5a (F7): set when the product has no sales profile or valid version today, so TaxRatePercent (0) is not a real rate.
+    string? TaxWarning = null
 );
 
 public record SalesInvoiceListItemDto(

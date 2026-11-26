@@ -1,6 +1,8 @@
 import type { BranchFields, LocationFields } from '../../shared/scope/scope.models';
 import type { TaxComponentKind } from '../inventory/tax-setup/tax-setup.models';
 export type StockStatus = 'Normal' | 'Low' | 'OutOfStock';
+import type { PlaceOfSupply } from '../../shared/tax/tax-preview.models';
+import type { TaxTreatment } from '../inventory/tax-setup/tax-setup.models';
 import type { BreakdownUnit } from '../../shared/units/unit.models';
 import type { StockMovementType, StockReasonCode } from '../../shared/units/stock-movement';
 
@@ -108,4 +110,132 @@ export interface ProfitSummary {
   grossProfit: number;
   grossMarginPercent: number | null;
   branchId?: string | null;
+}
+
+// ---- TP-5a tax reports (Api/Contracts/TaxReportContracts.cs)
+export type GstReportSection = 'Outward' | 'OutwardReturn' | 'Inward' | 'InwardReturn';
+export type VatReportSection = 'Output' | 'OutputReturn' | 'Input' | 'InputReturn';
+export type VatCategory = 'StandardRated' | 'ZeroRated' | 'Exempt' | 'OutOfScope' | 'Legacy';
+export type HsnDirection = 'Sales' | 'Purchases';
+export type TaxLimitationCode = 'NoPartyGstin' | 'InputTaxAsInvoiced' | 'NoPartyTaxRegistration' | 'HsnNotRecorded';
+
+export interface TaxReportLimitation {
+  code: TaxLimitationCode | string;
+  message: string;
+}
+
+export interface TaxReportAmounts {
+  taxableValue: number;
+  cgst: number;
+  sgstUtgst: number;
+  igst: number;
+  cess: number;
+  legacyTax: number;
+  totalTax: number;
+}
+
+export interface GstSummaryRow {
+  section: GstReportSection;
+  gstin: string | null;
+  placeOfSupplyStateId: string | null;
+  placeOfSupplyStateName: string | null;
+  placeOfSupplyStateCode: string | null;
+  supplyType: PlaceOfSupply | null;
+  treatment: TaxTreatment | null;
+  ratePercent: number;
+  isLegacy: boolean;
+  taxableValue: number;
+  cgst: number;
+  sgstUtgst: number;
+  igst: number;
+  cess: number;
+  legacyTax: number;
+  documentCount: number;
+}
+
+export interface GstSectionTotal {
+  section: GstReportSection;
+  amounts: TaxReportAmounts;
+  documentCount: number;
+}
+
+export interface GstGstinBlock {
+  gstin: string | null;
+  sections: GstSectionTotal[];
+  outwardNet: TaxReportAmounts;
+  inwardNet: TaxReportAmounts;
+}
+
+export interface GstSummary {
+  dateFrom: string;
+  dateTo: string;
+  branchId: string | null;
+  currencyCode: string;
+  rows: GstSummaryRow[];
+  blocks: GstGstinBlock[];
+  limitations: TaxReportLimitation[];
+}
+
+export interface HsnSummaryRow {
+  /** Null = HSN not recorded (lines predating HSN snapshots). */
+  hsnCode: string | null;
+  unitId: string;
+  unitCode: string;
+  uqc: string;
+  decimalPlaces: number;
+  ratePercent: number;
+  baseQty: number;
+  taxableValue: number;
+  cgst: number;
+  sgstUtgst: number;
+  igst: number;
+  cess: number;
+  legacyTax: number;
+  totalValue: number;
+}
+
+export interface HsnSummary {
+  dateFrom: string;
+  dateTo: string;
+  branchId: string | null;
+  direction: HsnDirection;
+  currencyCode: string;
+  rows: HsnSummaryRow[];
+  totals: { taxableValue: number; totalTax: number; totalValue: number };
+  limitations: TaxReportLimitation[];
+}
+
+export interface VatSummaryRow {
+  section: VatReportSection;
+  category: VatCategory;
+  regionStateId: string | null;
+  regionName: string | null;
+  ratePercent: number;
+  taxableValue: number;
+  vatAmount: number;
+  documentCount: number;
+}
+
+export interface VatSectionTotal {
+  section: VatReportSection;
+  taxableValue: number;
+  vatAmount: number;
+  documentCount: number;
+}
+
+export interface VatNet {
+  taxableValue: number;
+  vatAmount: number;
+}
+
+export interface VatSummary {
+  dateFrom: string;
+  dateTo: string;
+  branchId: string | null;
+  currencyCode: string;
+  rows: VatSummaryRow[];
+  sections: VatSectionTotal[];
+  outputVat: VatNet;
+  inputVat: VatNet;
+  limitations: TaxReportLimitation[];
 }

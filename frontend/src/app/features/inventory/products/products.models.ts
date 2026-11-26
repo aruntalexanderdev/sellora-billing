@@ -84,7 +84,8 @@ export interface ProductDetail {
   subcategoryName: string | null;
   baseUnitId: string;
   baseUnitLabel: string;
-  taxId: string;
+  /** Deprecated (TP-5b drops it); never read. */
+  taxId?: string;
   taxLabel: string;
   taxRatePercent: number;
   reorderLevel: number;

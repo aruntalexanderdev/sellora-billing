@@ -169,7 +169,7 @@ public class TaxProfileService(SelloraDbContext db, TimeProvider? time = null) :
             }
         }
         if (latest is not null && !errors.Any(e => e.Field == "effectiveFrom")
-            && await TaxVersionUsage.LatestDocumentDateAsync(db, profile.LegacyTaxId, ct) is { } lastUsed && input.EffectiveFrom <= lastUsed)
+            && await TaxVersionUsage.LatestDocumentDateAsync(db, profile.Id, profile.LegacyTaxId, ct) is { } lastUsed && input.EffectiveFrom <= lastUsed)
         {
             // T25 / BR4: a used version's dates are immutable, so the one that replaces it must start after the last document that used the profile.
             errors.Add(new FieldError("effectiveFrom", $"Documents dated up to {lastUsed:yyyy-MM-dd} already use this profile. The new version must start after {lastUsed:yyyy-MM-dd}."));
@@ -233,7 +233,7 @@ public class TaxProfileService(SelloraDbContext db, TimeProvider? time = null) :
     }
 
     internal Task<bool> IsVersionUsedAsync(TaxProfile profile, TaxProfileVersion version, CancellationToken ct) =>
-        TaxVersionUsage.IsUsedAsync(db, profile.LegacyTaxId, version.EffectiveFrom, version.EffectiveTo, ct);
+        TaxVersionUsage.IsUsedAsync(db, profile.Id, profile.LegacyTaxId, version.EffectiveFrom, version.EffectiveTo, ct);
 
     // ------------------------------------------------------------------ validation of a version's component set (BR3)
 

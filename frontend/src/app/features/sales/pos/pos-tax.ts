@@ -1,6 +1,7 @@
 import type { FormGroup } from '@angular/forms';
 import { applyProblem } from '../../../core/http/api-errors';
 import type { ApiProblem } from '../../../core/auth/auth.models';
+import { hsnLineIndex, hsnLineMessage } from '../../../shared/tax/hsn';
 import { billDiscountFields, type BillDiscountMode } from '../../../shared/tax/bill-discount';
 import type { PreviewPlan } from '../../../shared/tax/tax-preview.service';
 
@@ -53,7 +54,13 @@ export function applySaleProblem(form: FormGroup, problem: ApiProblem | null | u
   const banner: string[] = [];
   const forControls: Record<string, string[]> = {};
   for (const [field, messages] of errors) {
-    if (BANNER_KEYS.has(field.toLowerCase())) banner.push(messages.join(' '));
+    if (hsnLineIndex(field) != null) {
+      // T11: a GST taxable product without HSN. Names the cart row and marks its product control.
+      banner.push(hsnLineMessage(field, messages.join(' ')));
+      const control = form.get(['lines', String(hsnLineIndex(field)), 'productId']);
+      control?.setErrors({ ...(control.errors ?? {}), server: messages.join(' ') });
+      control?.markAsTouched();
+    } else if (BANNER_KEYS.has(field.toLowerCase())) banner.push(messages.join(' '));
     else forControls[field] = messages;
   }
   if (Object.keys(forControls).length > 0) {

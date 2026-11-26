@@ -251,6 +251,9 @@ namespace Sellora.Infrastructure.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<DateOnly?>("HsnRequiredFrom")
+                        .HasColumnType("date");
+
                     b.Property<string>("InvoicePrefix")
                         .IsRequired()
                         .HasMaxLength(10)
@@ -2385,7 +2388,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_PurchaseOrderLines_Qty_Positive", "\"Qty\" > 0");
 
-                            t.HasCheckConstraint("CK_PurchaseOrderLines_TaxProfile_Pair", "(\"TaxProfileId\" IS NULL) = (\"TaxProfileVersionId\" IS NULL)");
+                            t.HasCheckConstraint("CK_PurchaseOrderLines_TaxProfile_VersionNeedsProfile", "\"TaxProfileVersionId\" IS NULL OR \"TaxProfileId\" IS NOT NULL");
 
                             t.HasCheckConstraint("CK_PurchaseOrderLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
                         });
@@ -2683,7 +2686,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_PurchaseReturnLines_Qty_Positive", "\"Qty\" > 0");
 
-                            t.HasCheckConstraint("CK_PurchaseReturnLines_TaxProfile_Pair", "(\"TaxProfileId\" IS NULL) = (\"TaxProfileVersionId\" IS NULL)");
+                            t.HasCheckConstraint("CK_PurchaseReturnLines_TaxProfile_VersionNeedsProfile", "\"TaxProfileVersionId\" IS NULL OR \"TaxProfileId\" IS NOT NULL");
 
                             t.HasCheckConstraint("CK_PurchaseReturnLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
                         });
@@ -3147,7 +3150,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_SalesInvoiceLines_Qty_Positive", "\"Qty\" > 0");
 
-                            t.HasCheckConstraint("CK_SalesInvoiceLines_TaxProfile_Pair", "(\"TaxProfileId\" IS NULL) = (\"TaxProfileVersionId\" IS NULL)");
+                            t.HasCheckConstraint("CK_SalesInvoiceLines_TaxProfile_VersionNeedsProfile", "\"TaxProfileVersionId\" IS NULL OR \"TaxProfileId\" IS NOT NULL");
 
                             t.HasCheckConstraint("CK_SalesInvoiceLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
                         });
@@ -3463,7 +3466,7 @@ namespace Sellora.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("CK_SalesReturnLines_Qty_Positive", "\"Qty\" > 0");
 
-                            t.HasCheckConstraint("CK_SalesReturnLines_TaxProfile_Pair", "(\"TaxProfileId\" IS NULL) = (\"TaxProfileVersionId\" IS NULL)");
+                            t.HasCheckConstraint("CK_SalesReturnLines_TaxProfile_VersionNeedsProfile", "\"TaxProfileVersionId\" IS NULL OR \"TaxProfileId\" IS NOT NULL");
 
                             t.HasCheckConstraint("CK_SalesReturnLines_UnitCode_NotEmpty", "char_length(\"UnitCode\") > 0");
                         });
@@ -5098,6 +5101,10 @@ namespace Sellora.Infrastructure.Data.Migrations
                     b.Property<decimal?>("StandardFactor")
                         .HasColumnType("numeric(28,10)");
 
+                    b.Property<string>("Uqc")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Name")
@@ -5115,6 +5122,8 @@ namespace Sellora.Infrastructure.Data.Migrations
                             t.HasCheckConstraint("CK_Units_MeasurementCategory_Domain", "\"MeasurementCategory\" IN ('Count','Weight','Volume','Length','Packaging')");
 
                             t.HasCheckConstraint("CK_Units_StandardFactor_Category", "\"StandardFactor\" IS NULL OR (\"MeasurementCategory\" IN ('Weight','Volume','Length') AND \"StandardFactor\" > 0)");
+
+                            t.HasCheckConstraint("CK_Units_Uqc_Format", "\"Uqc\" IS NULL OR \"Uqc\" ~ '^[A-Z]{3}$'");
                         });
                 });
 

@@ -147,6 +147,8 @@ public static class DbSeeder
         await GrantNewPermissionToExistingHoldersAsync(db, "Tax.View", ["Masters.View", "Inventory.Create", "Inventory.Edit"], ct);
         await GrantNewPermissionToExistingHoldersAsync(db, "Tax.Manage", "Masters.Edit", ct);
         await GrantNewPermissionToExistingHoldersAsync(db, "Sales.BillDiscount", "Sales.PriceOverride", ct);
+        // TP-5a: the tax reports go to whoever may see the sales report (the migration does the same).
+        await GrantNewPermissionToExistingHoldersAsync(db, "Reports.Tax", "Reports.Sales", ct);
     }
 
     // Recording payments used to be covered by an edit permission, so every role holding that permission keeps
@@ -396,17 +398,18 @@ public static class DbSeeder
         return settings;
     }
 
-    private static readonly (string Name, string ShortCode, MeasurementCategory Category, short DecimalPlaces, decimal? StandardFactor)[] UnitSeed =
+    // Uqc: GST Unit Quantity Code (TP-5a). The same mapping is applied to existing rows by migration PrepareTaxHistoryBackfill.
+    private static readonly (string Name, string ShortCode, MeasurementCategory Category, short DecimalPlaces, decimal? StandardFactor, string? Uqc)[] UnitSeed =
     [
-        ("Kilogram", "kg", MeasurementCategory.Weight, 3, 1m),
-        ("Litre", "litre", MeasurementCategory.Volume, 3, 1m),
-        ("Piece", "pc", MeasurementCategory.Count, 0, null),
-        ("Box", "box", MeasurementCategory.Packaging, 0, null),
-        ("Half Carton", "hctn", MeasurementCategory.Packaging, 0, null),
-        ("Full Carton", "fctn", MeasurementCategory.Packaging, 0, null),
-        ("Gram", "g", MeasurementCategory.Weight, 0, 0.001m),
-        ("Millilitre", "ml", MeasurementCategory.Volume, 0, 0.001m),
-        ("Bag", "bag", MeasurementCategory.Packaging, 0, null),
+        ("Kilogram", "kg", MeasurementCategory.Weight, 3, 1m, "KGS"),
+        ("Litre", "litre", MeasurementCategory.Volume, 3, 1m, "LTR"),
+        ("Piece", "pc", MeasurementCategory.Count, 0, null, "PCS"),
+        ("Box", "box", MeasurementCategory.Packaging, 0, null, "BOX"),
+        ("Half Carton", "hctn", MeasurementCategory.Packaging, 0, null, "CTN"),
+        ("Full Carton", "fctn", MeasurementCategory.Packaging, 0, null, "CTN"),
+        ("Gram", "g", MeasurementCategory.Weight, 0, 0.001m, "GMS"),
+        ("Millilitre", "ml", MeasurementCategory.Volume, 0, 0.001m, "MLT"),
+        ("Bag", "bag", MeasurementCategory.Packaging, 0, null, "BAG"),
     ];
 
     private static async Task<Dictionary<string, Unit>> SeedUnitsAsync(SelloraDbContext db, CancellationToken ct)
@@ -415,7 +418,7 @@ public static class DbSeeder
         // Keyed by the seed short code so product seeds resolve even when an existing unit
         // matched on name (different code) or differs only in case.
         var bySeedCode = new Dictionary<string, Unit>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, shortCode, category, decimalPlaces, standardFactor) in UnitSeed)
+        foreach (var (name, shortCode, category, decimalPlaces, standardFactor, uqc) in UnitSeed)
         {
             // Never update existing rows; skip when the code or name is already taken (case-insensitive).
             var match = existing.FirstOrDefault(u => string.Equals(u.ShortCode, shortCode, StringComparison.OrdinalIgnoreCase))
@@ -425,7 +428,7 @@ public static class DbSeeder
                 match = new Unit
                 {
                     Id = Guid.NewGuid(), Name = name, ShortCode = shortCode,
-                    MeasurementCategory = category, DecimalPlaces = decimalPlaces, StandardFactor = standardFactor,
+                    MeasurementCategory = category, DecimalPlaces = decimalPlaces, StandardFactor = standardFactor, Uqc = uqc,
                 };
                 db.Units.Add(match);
                 existing.Add(match);

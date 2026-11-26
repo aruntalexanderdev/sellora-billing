@@ -121,6 +121,9 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
         // Tax profiles (TP-1): the price basis of stored selling prices (omitted = unchanged) and the whole-bill discount cap (null = no limit).
         if (request.SellingPricesIncludeTax is { } includeTax) settings.SellingPricesIncludeTax = includeTax;
         settings.MaxBillDiscountPercent = request.MaxBillDiscountPercent is { } cap ? Math.Round(cap, 2, MidpointRounding.AwayFromZero) : null;
+        // TP-5a (T11): the date from which a missing HSN is an error. Omitted = unchanged; clearHsnRequiredFrom removes it.
+        if (request.ClearHsnRequiredFrom == true) settings.HsnRequiredFrom = null;
+        else if (request.HsnRequiredFrom is { } hsnFrom) settings.HsnRequiredFrom = hsnFrom;
         var afterPolicy = new { mode = settings.ReceiptPostingMode.ToString(), separation = settings.ReceiptSeparationOfDuties };
         if (!beforePolicy.Equals(afterPolicy))
         {
@@ -153,11 +156,12 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
     private async Task<BusinessSettingsDto> ToDtoAsync(Domain.Entities.BusinessSettings s, CancellationToken ct)
     {
         var geo = await GeoNames.LoadAsync(db, [s.CountryId], [s.StateId], ct);
-        return ToDto(s, geo);
+        int? missingHsn = s.CountryId is { } country ? await HsnRules.CountProductsWithoutHsnAsync(db, country, ct) : null;
+        return ToDto(s, geo) with { ProductsWithoutHsnCount = missingHsn };
     }
 
     private static BusinessSettingsDto ToDto(Domain.Entities.BusinessSettings s, GeoNames geo) =>
         new(s.Id, s.BusinessName, s.AddressLine, s.City, s.State, s.Gstin, s.Phone, s.Email, s.InvoicePrefix, s.BaseCurrencyId, s.BaseCurrency.Code, s.BaseCurrency.Symbol, s.CompanyId, s.ReceiptPostingMode, s.ReceiptSeparationOfDuties,
             s.CountryId, geo.Country(s.CountryId), s.StateId, geo.State(s.StateId),
-            s.SellingPricesIncludeTax, s.MaxBillDiscountPercent);
+            s.SellingPricesIncludeTax, s.MaxBillDiscountPercent, s.HsnRequiredFrom);
 }

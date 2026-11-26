@@ -16,5 +16,8 @@ public class Unit
     /// </summary>
     public decimal? StandardFactor { get; set; }
 
+    /// <summary>GST Unit Quantity Code (three upper-case letters, e.g. PCS, KGS, LTR) used by the HSN summary (TP-5a); null = report the unit's short code instead.</summary>
+    public string? Uqc { get; set; }
+
     public bool IsActive { get; set; } = true;
 }

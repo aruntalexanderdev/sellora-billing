@@ -377,6 +377,7 @@ public class PlatformServiceTests
         var assignment = w.Db.TaxAssignments.IgnoreQueryFilters().Single(a => a.CompanyId == created.Id);
         Assert.Equal((TaxScope.Company, profiles.Single(p => p.Code == "GST-18").Id), (assignment.Scope, assignment.SalesTaxProfileId));
         Assert.True(w.Db.BusinessSettings.IgnoreQueryFilters().Single(b => b.CompanyId == created.Id).SellingPricesIncludeTax); // T18
+        Assert.Equal(DateOnly.FromDateTime(DateTime.UtcNow), w.Db.BusinessSettings.IgnoreQueryFilters().Single(b => b.CompanyId == created.Id).HsnRequiredFrom); // TP-5a (T11): a missing HSN is an error from the creation date
     }
 
     [Fact]

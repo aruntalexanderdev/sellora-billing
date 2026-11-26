@@ -33,12 +33,12 @@ public record TaxVersionDto(
     Guid Id, DateOnly EffectiveFrom, DateOnly? EffectiveTo, decimal TotalPercent, bool IsCurrent, bool IsUsed, DateTime CreatedAt,
     IReadOnlyList<TaxVersionComponentDto> Components);
 
-/// <summary>List item: the version valid today (<see cref="CurrentVersion"/>, null when none). <see cref="MirrorTaxId"/> is the legacy tax row kept in step (D3).</summary>
+/// <summary>List item: the version valid today (<see cref="CurrentVersion"/>, null when none). <see cref="MirrorTaxId"/> is <b>deprecated</b> (TP-5a): the legacy tax row kept in step (D3) for the TP-4 build; removed in TP-5b, do not use it.</summary>
 public record TaxProfileDto(
     Guid Id, Guid CountryId, string CountryCode, string CountryName, string Code, string Name, TaxRegime Regime, TaxTreatment Treatment,
     bool IsActive, Guid MirrorTaxId, bool IsAssigned, int VersionCount, TaxVersionDto? CurrentVersion);
 
-/// <summary>Detail: every version, newest first.</summary>
+/// <summary>Detail: every version, newest first. <see cref="MirrorTaxId"/> is deprecated (see <see cref="TaxProfileDto"/>).</summary>
 public record TaxProfileDetailDto(
     Guid Id, Guid CountryId, string CountryCode, string CountryName, string Code, string Name, TaxRegime Regime, TaxTreatment Treatment,
     bool IsActive, Guid MirrorTaxId, bool IsAssigned, int VersionCount, TaxVersionDto? CurrentVersion, IReadOnlyList<TaxVersionDto> Versions);
@@ -75,7 +75,9 @@ public record TaxProfileRefDto(Guid Id, string Code, string Name, TaxRegime Regi
 /// <summary><see cref="ScopeId"/> is null for the company default. <see cref="PurchaseProfile"/> null = same as sales (BR7).</summary>
 public record TaxAssignmentDto(
     Guid Id, TaxScope ScopeType, Guid? ScopeId, string ScopeName, Guid CountryId,
-    TaxProfileRefDto SalesProfile, TaxProfileRefDto? PurchaseProfile);
+    TaxProfileRefDto SalesProfile, TaxProfileRefDto? PurchaseProfile,
+    // TP-5a (T11): set on the save response only: the count of GST-taxable products left without an HSN (field hsnCode). The save is never blocked.
+    IReadOnlyList<FieldErrorDto>? Warnings = null);
 
 public record UpsertTaxAssignmentRequest(
     [Required] TaxScope? ScopeType,

@@ -187,20 +187,39 @@ public class TaxResolver(SelloraDbContext db) : ITaxResolver
     }
 
     public async Task<IReadOnlyDictionary<Guid, decimal>> ResolveCurrentSalesPercentsAsync(
+        Guid countryId, DateOnly date, IReadOnlyCollection<Guid> productIds, CancellationToken ct = default) =>
+        (await ResolveCurrentSalesProfilesAsync(countryId, date, productIds, ct))
+            .Where(kv => kv.Value.Percent is not null).ToDictionary(kv => kv.Key, kv => kv.Value.Percent!.Value);
+
+    public async Task<IReadOnlyDictionary<Guid, CurrentSalesTax>> ResolveCurrentSalesProfilesAsync(
         Guid countryId, DateOnly date, IReadOnlyCollection<Guid> productIds, CancellationToken ct = default)
     {
         var ids = productIds.Distinct().ToArray();
-        if (ids.Length == 0) return new Dictionary<Guid, decimal>();
-        var products = await db.Products.AsNoTracking().Where(p => ids.Contains(p.Id))
-            .Select(p => new Facts(p.Id, p.Name, p.CategoryId, p.SubcategoryId, p.HsnCode, null, null, true)).ToListAsync(ct);
-        var resolved = await ResolveCoreAsync(products, countryId, ct);
-        var profileByProduct = products.Zip(resolved).Where(x => x.Second is not null).ToDictionary(x => x.First.ProductId!.Value, x => x.Second!.SalesProfile.Id);
+        if (ids.Length == 0) return new Dictionary<Guid, CurrentSalesTax>();
+        var index = await TaxAssignmentIndex.LoadAsync(db, countryId, ct);
+
+        var products = new List<(Guid Id, Guid? CategoryId, Guid? SubcategoryId)>();
+        foreach (var chunk in ids.Chunk(2000))
+        {
+            products.AddRange((await db.Products.AsNoTracking().Where(p => chunk.Contains(p.Id)).Select(p => new { p.Id, p.CategoryId, p.SubcategoryId }).ToListAsync(ct))
+                .Select(p => (p.Id, p.CategoryId, p.SubcategoryId)));
+        }
+        var profileByProduct = new Dictionary<Guid, Guid>();
+        foreach (var p in products)
+        {
+            if (index.Find(p.Id, p.CategoryId, p.SubcategoryId) is { } a) profileByProduct[p.Id] = a.SalesTaxProfileId;
+        }
+
         var profileIds = profileByProduct.Values.Distinct().ToArray();
-        var totals = await db.TaxProfileVersions.AsNoTracking()
+        var names = await db.TaxProfiles.AsNoTracking().Where(p => profileIds.Contains(p.Id)).Select(p => new { p.Id, p.Name }).ToDictionaryAsync(p => p.Id, p => p.Name, ct);
+        var versions = await db.TaxProfileVersions.AsNoTracking()
             .Where(v => profileIds.Contains(v.TaxProfileId) && v.EffectiveFrom <= date && (v.EffectiveTo == null || v.EffectiveTo >= date))
             .Select(v => new { v.TaxProfileId, v.EffectiveFrom, v.TotalPercent }).ToListAsync(ct);
-        var byProfile = totals.GroupBy(v => v.TaxProfileId).ToDictionary(g => g.Key, g => g.OrderByDescending(v => v.EffectiveFrom).First().TotalPercent);
-        return profileByProduct.Where(kv => byProfile.ContainsKey(kv.Value)).ToDictionary(kv => kv.Key, kv => byProfile[kv.Value]);
+        var percentByProfile = versions.GroupBy(v => v.TaxProfileId).ToDictionary(g => g.Key, g => g.OrderByDescending(v => v.EffectiveFrom).First().TotalPercent);
+
+        return profileByProduct.Where(kv => names.ContainsKey(kv.Value)).ToDictionary(
+            kv => kv.Key,
+            kv => new CurrentSalesTax(kv.Value, names[kv.Value], percentByProfile.TryGetValue(kv.Value, out var percent) ? percent : null));
     }
 
     private static int LineIndex(string key)

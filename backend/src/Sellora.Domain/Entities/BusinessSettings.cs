@@ -37,4 +37,7 @@ public class BusinessSettings : ICompanyOwned
 
     /// <summary>T15: cap on a whole-bill discount as a percent of the bill (0-100); NULL = no cap.</summary>
     public decimal? MaxBillDiscountPercent { get; set; }
+
+    /// <summary>TP-5a (T11): documents dated on/after this date are refused for GST-taxable products without an HSN; NULL = warning only (existing companies).</summary>
+    public DateOnly? HsnRequiredFrom { get; set; }
 }

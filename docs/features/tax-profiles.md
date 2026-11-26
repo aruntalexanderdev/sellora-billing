@@ -389,6 +389,18 @@ Each phase is approved, built, verified and reviewed before the next.
   customer in another country, the place-of-supply state is left empty. (d) `AddSalesTaxSnapshot` locks the referenced
   tables (States, TaxProfiles, TaxProfileVersions) before the sales tables. (e) Accepted: numeric(18,2) header columns
   and numeric(6,3) line `TaxRatePercent` (display only), noted in the release notes.
+- T32 TP-5 design approved; TP5-Q1 to TP5-Q11 as recommended. TP-5 ships as 5a (additive) then 5b (destructive, only after
+  a separate owner sign-off, CI green and one filed return period from the new reports). HSN quantity sums across
+  products are allowed only within one HSN and identical base unit (bounded exception to the no-cross-product-sum rule).
+- T33 TP-5a API contract (section "TP-5 design › API / frontend") approved; TP-5a WP1 done (commit 7880953).
+  `Reports.Tax` is branch-scopable like `Reports.Sales`.
+- T34 (TP-5a WP2, lead decision) Settings PUT: `hsnRequiredFrom` omitted or null leaves the date unchanged; clearing it needs
+  `clearHsnRequiredFrom: true`, so an older settings form that never sends the field cannot silently lift the HSN
+  control. Product tax labels show empty (not the mirror name) when the company has no country.
+- T35 (TP-5a review, lead decisions) Deactivating a product is never blocked by the HSN rule. `PrepareTaxHistoryBackfill` is
+  split so the small-table changes (UQC, HSN date, `Reports.Tax`) run in an earlier migration and only the line-table
+  constraint swap holds the exclusive lock; runbook: retry on 55P03/40P01 and VACUUM (ANALYZE) the line tables after the
+  backfill. CSV export neutralises formulas behind leading spaces. GST row document counts are per row.
 - T16 (Q6) A stored selling price is in the product's price basis: what the shelf label says (tax included when the
   product's prices include tax). Changing a product's basis does not convert existing prices; the UI warns.
 
@@ -883,6 +895,115 @@ percent with 4 decimals would round silently (reject in the version validator or
 build is safe for reads, but a return made by the old build on a TP-4 line writes one legacy row next to the component
 rows (totals stay right, per-component split approximate); Indian companies without a state, or products without a
 valid version, cannot sell at all — P1 and P2 must be clean before release.
+
+## TP-5 design (tax reports and clean-up)
+
+Status: **TP-5a implemented and reviewed** (TP5-Q1..Q11 as recommended, T32; T33–T35) on `feature/tax-reports`; TP-5b needs
+a separate owner sign-off.
+
+### Findings that shape the design
+- F1 Only `SalesInvoiceLines`, `PurchaseOrderLines` and `Products` have `TaxId` (return lines never had one).
+- F2 The `CK_*_TaxProfile_Pair` constraints require profile and version both null or both set.
+- F3 The snapshot validation files recognise new lines by `TaxProfileId IS NOT NULL`; backfilling history would make
+  them fail on legacy lines.
+- F4 No reliable version exists for a legacy line (rates were editable before TP-1; TP-1..TP-3 builds wrote today's mirror
+  rate even on back-dated documents). Attaching one would invent a snapshot (BR24).
+- F5 The HSN summary (GSTR-1 Table 12) must add quantities across products within one HSN — an exception to "no
+  cross-product quantity sums", bounded to identical base units.
+- F6 Units have no UQC; customers have no GSTIN (no B2B split possible yet).
+- F7 Several read paths still use `Product.Tax` (products, pricing, stock, catalog fallback, return fallbacks).
+
+### Two releases (D10: destructive last)
+- **TP-5a (additive, app rollback possible):** three tax reports and `Reports.Tax`; HSN warning → error behind a
+  per-company date; history `TaxProfileId` backfill; "used version" check moved to profiles; every read path off
+  `Product.Tax`/`TaxId`. Mirrors are still written, so the TP-4 build can be redeployed.
+- **TP-5b (destructive, after owner sign-off and a soak):** drop the `TaxId` columns, `TaxProfiles.LegacyTaxId`, `Taxes`,
+  `/api/v1/taxes` and the mirror code. M3b-1 makes columns nullable before the app swap; M3b-2 drops them after the
+  smoke test.
+
+### Reports (read-only; `GET api/v1/reports/tax/...`; new permission `Reports.Tax`)
+Common rules: period `dateFrom`–`dateTo` (≤ 366 days), optional branch (branch access enforced), company filter;
+document date from the header (returns by return date); cancelled documents excluded; base-currency amounts; taxable
+counted once per line; legacy rows in a "Legacy (unsplit)" bucket by rate (never split, T10); zero-treatment rows in
+their treatment bucket; GST rate = Σ CGST+SGST/UTGST+IGST rates, cess as an amount; return lines use the original's
+place of supply and HSN; bounded groups, no paging, CSV export on the client.
+- **GST summary:** section (Outward, OutwardReturn, Inward, InwardReturn) × seller GSTIN (current branch, else company) ×
+  place-of-supply state × supply type × treatment × rate × legacy; taxable, CGST, SGST/UTGST, IGST, cess, legacy tax,
+  document count; net blocks per GSTIN. Shaped for GSTR-1 B2CS and GSTR-3B 3.1/4(A)(5). Limitations shown: all outward
+  supplies are B2C until party GSTIN exists; input tax is "as invoiced", not "eligible ITC".
+- **HSN summary** (sales or purchases): HSN (line snapshot; null = "HSN not recorded" for pre-TP-3/TP-4 lines) × base unit
+  × rate; UQC (new `Units.Uqc`) or unit code, base quantity net of returns, taxable, tax by component, total value.
+- **VAT summary:** standard-rated by rate and region (UAE emirate box), zero-rated, exempt, out-of-scope, legacy; output
+  VAT (sales − returns) and input VAT (purchases − returns); no B2B/B2C split (banner).
+- Performance: existing header date indexes and row indexes cover it; EXPLAIN on ~1M lines in tests, add an index only
+  if needed. Frontend: three report pages (GST or VAT shown by company regime), limitation banners, CSV export.
+
+### HSN missing becomes an error (T11)
+For products whose resolved profile is GST + Taxable and with no HSN (product, else subcategory): product save → 400
+`hsnCode`; sale/purchase create and preview → 400 `lines[i].hsnCode`. Returns, cancels and non-tax edits never block.
+Grace: new `BusinessSettings.HsnRequiredFrom` (date) — documents dated on/after it are blocked; null = warning only
+(existing companies); new companies get their creation date; product saves are blocked once a date is set. Release-notes
+query lists products without HSN per company first.
+
+### History backfill (M3a, additive)
+- Migration `PrepareTaxHistoryBackfill`: replace the pair constraints with "version needs profile" (profile may be set
+  without a version), add `Units.Uqc` (seeded for standard units), `BusinessSettings.HsnRequiredFrom`, `Reports.Tax` and
+  grants.
+- Script `backend/db/scripts/tax-history-backfill.sql` (outside a transaction, batches of 5,000 with a commit each,
+  `SKIP LOCKED`, resumable and idempotent): set `TaxProfileId` on historic sales and purchase lines from their `TaxId`
+  through the 1:1 mirror mapping, then on return lines from their original line. **The version stays NULL on history.**
+  Applied after the migration.
+- Validation: the snapshot files switch to `TaxProfileVersionId IS NOT NULL` as the "new line" test; new
+  `V__tax-history-profile.sql` (warn in 5a, block in 5b) flags lines without a profile or with a mismatching `TaxId`.
+- "Used version" check: profile id, or (not yet backfilled) the mirror `TaxId`, over the same date range; 5b drops the
+  fallback.
+- Release notes `scripts/sql/tax-reports-release-notes.sql`: products without HSN, backfill progress and counts, history
+  lines whose version rate differs from the stored rate (information).
+
+### Destructive M3b (TP-5b)
+Preflight (fails the release): no line without a profile, no line without tax rows, every `V__tax-*` clean, owner sign-off
+recorded, backup taken. M3b-1 `RelaxLegacyTaxColumns` (metadata only): drop NOT NULL and FKs to `Taxes`. M3b-2
+`DropLegacyTaxes`: drop the three `TaxId` columns, `LegacyTaxId`, `Taxes`. No rollback after M3b-2 (restore backup + 5a
+build); archive `Taxes` as CSV. Kept forever: line `TaxRatePercent` (display), legacy tax rows, line amounts. Code removed:
+`Tax` entity, `TaxesController`, mirror sync and creation, line `TaxId` writes, `Product.Tax` fallbacks, seeder/reset
+references, `V__tax-mirror-drift.sql` and the mirror checks in other validation files.
+
+### API / frontend
+5a (append-only): three report endpoints; `hsnRequiredFrom` in business settings; product/pricing/stock tax labels and
+rates from the resolver; catalog fallback no longer reads the mirror; deprecation of `ProductDetailDto.taxId`,
+`TaxProfileDto.mirrorTaxId`, `GET /api/v1/taxes`; new errors `hsnCode`, `lines[i].hsnCode`, `dateTo`. 5b: those removed.
+Frontend: report pages, settings field, HSN error on the product form and POS/purchase entry.
+
+### Tests
+xUnit report fixtures (intra, inter, cess, inclusive, exempt/nil, VAT zero/exempt, legacy, partial and full returns across
+periods, cancelled excluded, foreign-currency purchases, return in a later period), HSN error matrix, "used version"
+with backfilled/unbackfilled/new lines, read paths without `Product.Tax`, permission and branch isolation. Postgres:
+constraint swap, backfill on ~500k lines (batching, kill and resume, re-run no-op, concurrent sale), every edited
+validation file, report SQL + EXPLAIN, M3b preflight and the 5a build after M3b-1. Vitest: report pages, CSV, banners,
+HSN error mapping, settings.
+
+### Work packages
+5a: (1) database-engineer — M3a, backfill script, validation files, release notes, UQC seed, permission; (2)
+backend-engineer + test-engineer (Postgres backfill/validation tests), gate: API contract approved; (3)
+frontend-engineer + test-engineer (xUnit report fixtures, Vitest); (4) code review, `verify.sh all`. 5b after sign-off:
+(5) database-engineer M3b; (6) backend/frontend removal + fixture updates; (7) code review, `verify.sh all`.
+
+### Design questions (decided as recommended, T32)
+- TP5-Q1 Split into 5a (additive) and 5b (destructive)? [Yes.]
+- TP5-Q2 New permission `Reports.Tax`, granted to current `Reports.Sales` holders? [Yes.]
+- TP5-Q3 Add `Units.Uqc` with a seeded mapping? [Yes.]
+- TP5-Q4 HSN errors from a per-company `HsnRequiredFrom` date (null for existing companies)? [Yes.]
+- TP5-Q5 HSN error for Taxable products only? [Yes, per T11; revisit nil/exempt with the GSTR export.]
+- TP5-Q6 History lines get the profile only; the version stays NULL; pair constraint relaxed? [Yes.]
+- TP5-Q7 Soak before 5b: one filed return period from the new reports + CI green? [Yes.]
+- TP5-Q8 Reports use the branch's current GSTIN? [Accept; snapshot with the party-status phase.]
+- TP5-Q9 CSV export built in the browser? [Yes.]
+- TP5-Q10 Returns reported in the period of the return date? [Yes.]
+- TP5-Q11 HSN quantity sums across products within one HSN and identical base unit (F5)? [Yes.]
+
+Risks: POS stops for products without HSN once a company sets the date (check the release-notes query first); backfill
+duration on large tenants (resumable); legacy periods cannot be split by component or HSN (shown as Legacy / "Not
+recorded"); no app rollback after 5b; large integration-fixture churn in 5b.
 
 ## Deployment notes
 

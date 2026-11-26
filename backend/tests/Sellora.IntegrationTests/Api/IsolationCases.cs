@@ -96,6 +96,12 @@ public static class IsolationCases
         new("RolesController.Get", i => $"/api/v1/roles/{i.RoleId}", Detail: true),
         new("RoleAssignmentsController.Get", i => $"/api/v1/users/{i.UserId}/roles", Detail: true),
         new("RoleAssignmentsController.Members", i => $"/api/v1/branches/{i.BranchId}/members", Detail: true, ShowsRowIds: false),
+        // TP-5a tax reports: company-scoped aggregates over the caller's branches (no row ids in the payload); a foreign branchId and a period holding only the other company's documents are
+        // probed by CompanyIsolationApiTests.TaxReports_*.
+        new("TaxReportsController.GstSummary", _ => $"/api/v1/reports/tax/gst-summary?dateFrom={Today.AddDays(-30):yyyy-MM-dd}&dateTo={Today:yyyy-MM-dd}", ShowsRowIds: false),
+        new("TaxReportsController.HsnSummary", _ => $"/api/v1/reports/tax/hsn-summary?direction=Sales&dateFrom={Today.AddDays(-30):yyyy-MM-dd}&dateTo={Today:yyyy-MM-dd}", ShowsRowIds: false),
+        new("TaxReportsController.HsnSummary", _ => $"/api/v1/reports/tax/hsn-summary?direction=Purchases&dateFrom={Today.AddDays(-30):yyyy-MM-dd}&dateTo={Today:yyyy-MM-dd}", ShowsRowIds: false),
+        new("TaxReportsController.VatSummary", _ => $"/api/v1/reports/tax/vat-summary?dateFrom={Today.AddDays(-30):yyyy-MM-dd}&dateTo={Today:yyyy-MM-dd}", ShowsRowIds: false),
         new("ExchangeRatesController.Resolve", i => $"/api/v1/exchange-rates/resolve?currencyId={i.CurrencyId}&date={Today:yyyy-MM-dd}", ShowsRowIds: false),
     ];
 

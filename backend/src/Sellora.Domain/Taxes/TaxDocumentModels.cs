@@ -16,7 +16,12 @@ public sealed record PlaceOfSupplyResolution(
 public sealed record ResolvedLineRates(
     Guid ProductId, TaxRateSet Rates, string ProfileCode, string ProfileName, DateOnly VersionEffectiveFrom,
     TaxScope Source, string SourceName, string? HsnCode, TaxHsnSource HsnSource, bool HsnWarning, string? HsnWarningMessage,
-    Guid MirrorTaxId = default);
+    Guid MirrorTaxId = default)
+{
+    /// <summary>TP-5a (T11): the document's own profile (sales for a sale, purchase for a purchase) is GST + Taxable and the product has no effective HSN/SAC.
+    /// Only then can the document be refused once the company's HsnRequiredFrom date is reached.</summary>
+    public bool HsnMissingForDocument => Rates.Regime == TaxRegime.Gst && Rates.Treatment == TaxTreatment.Taxable && string.IsNullOrEmpty(HsnCode);
+}
 
 /// <summary>One line of a preview. <see cref="Discount"/> and <see cref="OtherCharges"/> are money in the document currency; <see cref="OtherCharges"/> only counts on purchases.</summary>
 public sealed record TaxPreviewLineInput(Guid ProductId, Guid ProductUnitId, decimal Qty, decimal UnitPrice, decimal Discount, decimal OtherCharges = 0m);
