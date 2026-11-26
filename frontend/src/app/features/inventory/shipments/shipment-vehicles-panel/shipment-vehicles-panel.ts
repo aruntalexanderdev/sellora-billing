@@ -4,7 +4,7 @@ import { AuthService } from '../../../../core/auth/auth.service';
 import { applyProblem, toProblem } from '../../../../core/http/api-errors';
 import { problemText } from '../../../../shared/scope/problem-text';
 import { UiButton } from '../../../../shared/ui/button/button';
-import { eligibleVehicles, vehicleLabel } from '../shipment-rules';
+import { eligibleVehicles, noVehiclesHint, vehicleLabel } from '../shipment-rules';
 import type { AddShipmentVehicleRequest, Shipment, ShipmentEligibleVehicle } from '../shipments.models';
 import { ShipmentsService } from '../shipments.service';
 
@@ -28,6 +28,8 @@ export class ShipmentVehiclesPanel {
 
   readonly master = signal<ShipmentEligibleVehicle[]>([]);
   readonly masterError = signal<string | null>(null);
+  /** Null until the list has loaded, so the hint never flashes before the answer. */
+  readonly masterLoaded = signal(false);
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
   readonly label = vehicleLabel;
@@ -35,6 +37,10 @@ export class ShipmentVehiclesPanel {
   readonly external = computed(() => this.shipment().transportVia === 'ExternalProvider');
   readonly eligible = computed(() =>
     eligibleVehicles(this.master(), this.shipment().branch.id, this.shipment().vehicles.map((v) => v.vehicleId)),
+  );
+
+  readonly emptyHint = computed(() =>
+    this.masterLoaded() ? noVehiclesHint(this.shipment(), this.eligible().length, this.master().length) : null,
   );
 
   readonly form = this.fb.nonNullable.group({
@@ -53,7 +59,10 @@ export class ShipmentVehiclesPanel {
       if (shipment.transportVia !== 'OwnFleet' || !this.editable()) return;
       this.masterError.set(null);
       this.service.eligibleVehicles(shipment.id).subscribe({
-        next: (all) => this.master.set(all),
+        next: (all) => {
+          this.master.set(all);
+          this.masterLoaded.set(true);
+        },
         error: (err) => this.masterError.set(problemText(err, 'Could not load the vehicles.')),
       });
     });

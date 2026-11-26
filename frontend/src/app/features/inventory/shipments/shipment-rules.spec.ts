@@ -1,5 +1,5 @@
 import {
-  baseOf, buildLoadRequest, eligibleVehicles, floorUnitQty, limitsView, mapLoadProblem, maxAllocatableBase, missingLegs, plannerProblemMessage,
+  baseOf, buildLoadRequest, eligibleVehicles, noVehiclesHint, floorUnitQty, limitsView, mapLoadProblem, maxAllocatableBase, missingLegs, plannerProblemMessage,
   referenceLabel, referenceRequired, requestRemainingBase, shipmentCapabilities, validateAllocation, validateAllocationTotal, validateHeader,
   validateLoad, validateReference, buildReceiptRequest, canReceive, mapReceiptProblem, remainingToAccountBase, validateReceipt, type ReceiptRow,
 } from './shipment-rules';
@@ -216,5 +216,29 @@ describe('receipt validation', () => {
     expect(canReceive('Received', has)).toBe(false);
     expect(canReceive('Loaded', has)).toBe(false);
     expect(canReceive('InTransit', () => false)).toBe(false);
+  });
+});
+
+describe('noVehiclesHint', () => {
+  const companySource = { branch: { id: null, name: null, code: null }, source: { name: 'Company warehouse', code: 'COMPANY-WH' } };
+  const branchSource = { branch: { id: 'b1', name: 'Main', code: 'MAIN' }, source: { name: 'Main store', code: 'MAIN-ST' } };
+
+  it('is null while there is something to pick', () => {
+    expect(noVehiclesHint(companySource, 1, 1)).toBeNull();
+  });
+
+  it('says every vehicle is already used when the shipment holds them all', () => {
+    expect(noVehiclesHint(branchSource, 0, 2)).toBe('Every available vehicle is already on this shipment.');
+  });
+
+  it('explains the central-only rule for a company-level source', () => {
+    const hint = noVehiclesHint(companySource, 0, 0)!;
+    expect(hint).toContain('Only central vehicles');
+    expect(hint).toContain('Company warehouse');
+    expect(hint).toContain('external carrier');
+  });
+
+  it('names the branch for a branch source', () => {
+    expect(noVehiclesHint(branchSource, 0, 0)).toContain('assigned to Main');
   });
 });

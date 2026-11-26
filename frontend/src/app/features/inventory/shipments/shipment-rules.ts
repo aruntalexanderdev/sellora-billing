@@ -297,6 +297,26 @@ export function eligibleVehicles<T extends VehicleLike>(vehicles: readonly T[], 
   return vehicles.filter((v) => v.isActive && (v.assignedBranchId === null || v.assignedBranchId === sourceBranchId) && !onShipment.includes(v.id));
 }
 
+/**
+ * Why the own-fleet picker is empty (null when it is not). The rule itself (FI-D29) stays: a shipment uses central vehicles or vehicles
+ * assigned to its source branch, so a company-level source (central warehouse) can only use central vehicles.
+ */
+export function noVehiclesHint(
+  shipment: { branch: { id: string | null; name: string | null; code: string | null }; source: { name: string | null; code: string | null } },
+  eligibleCount: number,
+  availableCount: number,
+): string | null {
+  if (eligibleCount > 0) return null;
+  if (availableCount > 0) return 'Every available vehicle is already on this shipment.';
+  const fix = 'make a vehicle central in Company → Vehicles, or edit the header to use an external carrier.';
+  if (!shipment.branch.id) {
+    const source = shipment.source.name || shipment.source.code || 'this company-level location';
+    return `Only central vehicles (not assigned to a branch) can carry shipments from ${source}. No active central vehicle is available: ${fix}`;
+  }
+  const branch = shipment.branch.name || shipment.branch.code || 'this branch';
+  return `No active vehicle is central or assigned to ${branch}. Assign one to ${branch}, or ${fix}`;
+}
+
 export function vehicleLabel(v: { vehicleId: string | null; vehicleNumber: string | null; vehicleName: string | null; externalVehicleNumber: string | null; externalDescription: string | null }): string {
   if (v.vehicleId) return [v.vehicleNumber, v.vehicleName].filter(Boolean).join(' – ') || 'Vehicle';
   return [v.externalVehicleNumber, v.externalDescription].filter(Boolean).join(' – ') || 'External vehicle';
