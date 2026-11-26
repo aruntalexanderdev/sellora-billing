@@ -23,11 +23,18 @@ public static class TaxProfileWorld
     /// <summary>TP-4: the additive sales tax snapshot (one short ACCESS EXCLUSIVE window, constraints NOT VALID) and the migration that validates them and creates the indexes. The latest migration of the tax programme.</summary>
     public const string SalesSnapshot = "20261125092815_AddSalesTaxSnapshot";
     public const string ValidateSales = "20261125092833_ValidateSalesTaxConstraints";
+    /// <summary>TP-5a (M3a, three migrations, T35): AddReportSettings (Reports.Tax + grants, Units.Uqc + CK + UQC seed, BusinessSettings.HsnRequiredFrom; no line table); PrepareHistory (ONLY the lock on the four line tables and the pair to "version needs profile" swap, NOT VALID); ValidateHistory (validates it). The latest migrations of the tax programme.</summary>
+    public const string AddReportSettings = "20261125113000_AddTaxReportSettings";
+    public const string PrepareHistory = "20261125113341_PrepareTaxHistoryBackfill";
+    public const string ValidateHistory = "20261125113403_ValidateTaxHistoryBackfill";
     public const string SeedResource = "20261124120429_AddTaxProfiles.seed.sql";
     public const string BackfillResource = "20261124120429_AddTaxProfiles.backfill.sql";
     public const string LegacyRowsResource = "20261124120429_AddTaxProfiles.legacy-rows.sql";
 
-    /// <summary>The nine V__ files of the tax profiles design (six of TP-1, two added by TP-3, one by TP-4) (name without the V__ prefix).</summary>
+    /// <summary>TP-5a: the history profile check (WARN in 5a, block in 5b). Not in <see cref="ValidationFiles"/>: it reports every history line until the backfill script has run, so each test chooses when it applies.</summary>
+    public const string HistoryProfileFile = "tax-history-profile.sql";
+
+    /// <summary>The nine V__ files of the tax profiles design (six of TP-1, two added by TP-3, one by TP-4) that are zero on a migrated world before the backfill (name without the V__ prefix). Add <see cref="HistoryProfileFile"/> after the backfill.</summary>
     public static readonly string[] ValidationFiles =
     [
         "tax-profiles-integrity.sql", "tax-gst-rules.sql", "tax-products-resolve.sql", "tax-line-rows-consistency.sql", "tax-line-rows-missing.sql", "tax-mirror-drift.sql",
@@ -183,7 +190,7 @@ public static class TaxProfileWorld
         return await CloneAsync(postgres, template);
     }
 
-    /// <summary>The legacy world migrated up to <see cref="ValidateSales"/> (the head of the tax programme), shared by read-only tests (probes must roll back). Not disposed by tests.</summary>
+    /// <summary>The legacy world migrated up to <see cref="ValidateHistory"/> (the head of the tax programme, history NOT backfilled), shared by read-only tests (probes must roll back). Not disposed by tests.</summary>
     public static async Task<TestDatabase> MigratedAsync(PostgresFixture postgres)
     {
         var template = await PreviousTemplateAsync(postgres);
@@ -192,7 +199,7 @@ public static class TaxProfileWorld
         {
             if (migrated is not null) return migrated;
             var d = await CloneAsync(postgres, template);
-            await MigrateExactlyAsync(d, ValidateSales);
+            await MigrateExactlyAsync(d, ValidateHistory);
             migrated = d;
             return d;
         }

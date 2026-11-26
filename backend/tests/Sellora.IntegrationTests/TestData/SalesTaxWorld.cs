@@ -105,7 +105,7 @@ public static class SalesTaxWorld
 
     private static TestDatabase? head;
 
-    /// <summary>The TP-3 shaped world migrated to the head (<see cref="ValidateSales"/>), shared by read-only probes (they must roll back). Not disposed by tests.</summary>
+    /// <summary>The TP-3 shaped world migrated to the head (<see cref="ValidateHistory"/>, history not backfilled), shared by read-only probes (they must roll back). Not disposed by tests.</summary>
     public static async Task<TestDatabase> HeadAsync(PostgresFixture postgres)
     {
         var copy = await Tp3ShapedCopyAsync(postgres);   // takes and releases the gate itself
@@ -113,7 +113,7 @@ public static class SalesTaxWorld
         try
         {
             if (head is not null) { await copy.DisposeAsync(); return head; }
-            await MigrateExactlyAsync(copy, ValidateSales);
+            await MigrateExactlyAsync(copy, ValidateHistory);
             NpgsqlConnection.ClearAllPools();
             head = copy;
             return copy;
@@ -121,7 +121,7 @@ public static class SalesTaxWorld
         finally { Gate.Release(); }
     }
 
-    private static async Task<TestDatabase> CloneAsync(PostgresFixture postgres, TestDatabase source)
+    public static async Task<TestDatabase> CloneAsync(PostgresFixture postgres, TestDatabase source)
     {
         var name = "sellora_test_" + Guid.NewGuid().ToString("N");
         postgres.Track(name);
