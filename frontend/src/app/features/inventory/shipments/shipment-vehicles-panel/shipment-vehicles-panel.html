@@ -40,6 +40,8 @@
           </select>
           @if (masterError(); as e) {
             <div class="field-error">{{ e }}</div>
+          } @else if (emptyHint(); as hint) {
+            <div class="field-hint" data-testid="no-vehicles-hint">{{ hint }}</div>
           }
           @if (serverOf('vehicleId'); as e) {
             <div class="field-error" data-testid="vehicle-id-error">{{ e }}</div>
