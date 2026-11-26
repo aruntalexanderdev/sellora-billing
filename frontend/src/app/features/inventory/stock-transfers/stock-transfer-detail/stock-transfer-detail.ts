@@ -11,11 +11,12 @@ import { ReasonPrompt } from '../../../administration/access-ui/reason-prompt';
 import { loadErrorText, problemText } from '../../../../shared/scope/problem-text';
 import { TransferReceiveDialog } from '../transfer-dialogs/transfer-receive-dialog';
 import { TransferResolveDialog } from '../transfer-dialogs/transfer-resolve-dialog';
+import { TransferApproveDialog } from '../transfer-dialogs/transfer-approve-dialog';
 import { IdempotentSubmission, availableActions, baseToUnitQty, closeProblemMessage, endpointLabel, formatBase, statusLabel, statusTone, type TransferAction } from '../stock-transfer-rules';
 import { StockTransfersService } from '../stock-transfers.service';
 import type { StockTransfer, StockTransferActor, StockTransferHistoryEntry, StockTransferLine } from '../stock-transfers.models';
 
-type Panel = 'reject' | 'cancel' | 'close' | 'receive' | 'resolve';
+type Panel = 'approve' | 'reject' | 'cancel' | 'close' | 'receive' | 'resolve';
 
 /** Converted display of a base quantity in the line's request unit; '' when not exactly representable. */
 function lineUnitDisplay(l: StockTransferLine, baseQty: number): string {
@@ -33,7 +34,7 @@ interface TimelineEntry {
 @Component({
   selector: 'app-stock-transfer-detail',
   standalone: true,
-  imports: [RouterLink, DatePipe, UiBadge, UiButton, ReasonPrompt, TransferReceiveDialog, TransferResolveDialog],
+  imports: [RouterLink, DatePipe, UiBadge, UiButton, ReasonPrompt, TransferReceiveDialog, TransferResolveDialog, TransferApproveDialog],
   templateUrl: './stock-transfer-detail.html',
   styleUrl: './stock-transfer-detail.scss',
 })
@@ -58,7 +59,9 @@ export class StockTransferDetail implements OnInit {
   readonly awaitingApprovalBy = computed<string | null>(() => {
     const t = this.transfer();
     if (!t || t.status !== 'Requested' || this.can('approve')) return null;
-    return t.sourceBranch.name || t.sourceBranch.code || 'a company-level approver';
+    const by = t.sourceBranch.name || t.sourceBranch.code || 'a company-level approver';
+    // Maker-checker: say why the approver cannot be you, rather than only who decides.
+    return t.approvalBlockedForYou ? `another approver of ${by} (you created or submitted it)` : by;
   });
   readonly busy = signal(false);
   readonly actionError = signal<string | null>(null);
@@ -75,7 +78,7 @@ export class StockTransferDetail implements OnInit {
     const entries: (TimelineEntry | null)[] = [
       { label: 'Created', actor: t.created },
       t.submitted ? { label: 'Submitted', actor: t.submitted } : null,
-      t.approved ? { label: 'Approved', actor: t.approved } : null,
+      t.approved ? { label: 'Approved', actor: t.approved, note: t.approvalAdjustmentReason ?? null } : null,
       t.rejected ? { label: 'Rejected', actor: t.rejected, note: t.rejectionReason } : null,
       t.dispatched ? { label: 'Dispatched', actor: t.dispatched } : null,
       t.completed ? { label: 'Completed', actor: t.completed } : null,
@@ -173,7 +176,7 @@ export class StockTransferDetail implements OnInit {
   }
 
   approve(): void {
-    this.run('approve', (id, key) => this.service.approve(id, key), 'Transfer approved.');
+    this.open('approve');
   }
 
   confirmReason(kind: 'reject' | 'cancel', reason: string | null): void {

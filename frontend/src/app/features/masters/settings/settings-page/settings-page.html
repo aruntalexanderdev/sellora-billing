@@ -104,6 +104,15 @@
       </div>
       <div class="field-hint" data-testid="receipt-policy-help">A change applies only to receipts recorded afterwards. Receipts already recorded keep the policy they were created under.</div>
 
+      <div>
+        <label class="field-label" for="transferApprovalSeparation">Stock transfer approval</label>
+        <label class="check">
+          <input id="transferApprovalSeparation" type="checkbox" formControlName="transferApprovalSeparationOfDuties" data-testid="transfer-approval-separation" />
+          The person who created or submitted a transfer request cannot approve it
+        </label>
+        <div class="field-hint">Applies to requests submitted afterwards; pending requests keep the rule they were submitted under.</div>
+      </div>
+
       @if (canEdit()) {
         <div class="actions">
           <ui-button type="submit" variant="primary" [disabled]="saving()">{{ saving() ? 'Saving…' : 'Save settings' }}</ui-button>

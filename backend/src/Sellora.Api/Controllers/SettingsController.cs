@@ -85,7 +85,7 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
         settings.BaseCurrency = baseCurrency;
 
         // Phase 06 (FI-D39): the receipt policy. Omitted = unchanged. Existing receipts keep the policy snapshotted at their creation.
-        var beforePolicy = new { mode = settings.ReceiptPostingMode.ToString(), separation = settings.ReceiptSeparationOfDuties };
+        var beforePolicy = new { mode = settings.ReceiptPostingMode.ToString(), separation = settings.ReceiptSeparationOfDuties, transferApprovalSeparation = settings.TransferApprovalSeparationOfDuties };
         if (request.ReceiptPostingMode is { } postingMode)
         {
             if (!Enum.IsDefined(postingMode))
@@ -96,7 +96,8 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
             settings.ReceiptPostingMode = postingMode;
         }
         if (request.ReceiptSeparationOfDuties is { } separation) settings.ReceiptSeparationOfDuties = separation;
-        var afterPolicy = new { mode = settings.ReceiptPostingMode.ToString(), separation = settings.ReceiptSeparationOfDuties };
+        if (request.TransferApprovalSeparationOfDuties is { } transferSeparation) settings.TransferApprovalSeparationOfDuties = transferSeparation;
+        var afterPolicy = new { mode = settings.ReceiptPostingMode.ToString(), separation = settings.ReceiptSeparationOfDuties, transferApprovalSeparation = settings.TransferApprovalSeparationOfDuties };
         if (!beforePolicy.Equals(afterPolicy))
         {
             var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -132,5 +133,5 @@ public class SettingsController(SelloraDbContext db, IBranchService branchServic
 
     private static BusinessSettingsDto ToDto(Domain.Entities.BusinessSettings s, GeoNames geo) =>
         new(s.Id, s.BusinessName, s.AddressLine, s.City, s.State, s.Gstin, s.Phone, s.Email, s.InvoicePrefix, s.BaseCurrencyId, s.BaseCurrency.Code, s.BaseCurrency.Symbol, s.CompanyId, s.ReceiptPostingMode, s.ReceiptSeparationOfDuties,
-            s.CountryId, geo.Country(s.CountryId), s.StateId, geo.State(s.StateId));
+            s.CountryId, geo.Country(s.CountryId), s.StateId, geo.State(s.StateId), s.TransferApprovalSeparationOfDuties);
 }

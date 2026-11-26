@@ -24,6 +24,12 @@ public class BusinessSettings : ICompanyOwned
     /// <summary>FI-D39: when true the poster/approver of a receipt must differ from its recorder.</summary>
     public bool ReceiptSeparationOfDuties { get; set; }
 
+    /// <summary>
+    /// Transfer approval maker-checker: when true, neither the creator nor the submitter of a transfer request may approve it. Snapshotted on
+    /// the request at submit. New companies start with it on; the column default (true) turns it on for existing companies too.
+    /// </summary>
+    public bool TransferApprovalSeparationOfDuties { get; set; } = true;
+
     public Guid BaseCurrencyId { get; set; }
     public Currency BaseCurrency { get; set; } = null!;
 

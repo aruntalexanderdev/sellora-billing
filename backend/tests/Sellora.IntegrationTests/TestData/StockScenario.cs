@@ -38,7 +38,7 @@ public sealed record StockScenario(Guid UserId, Guid SupplierId, Guid CustomerId
         var tax = new Tax { Id = Guid.NewGuid(), Name = "GST 5%", RatePercent = 5m };
         var supplier = new Supplier { Id = Guid.NewGuid(), Name = "Annapoorna Traders", CurrencyId = inr.Id };
         var customer = new Customer { Id = Guid.NewGuid(), Name = "Walk-in Customer", IsWalkIn = true };
-        var settings = new BusinessSettings { Id = Guid.NewGuid(), BusinessName = "Sellora Mart", InvoicePrefix = "INV", BaseCurrencyId = inr.Id };
+        var settings = new BusinessSettings { Id = Guid.NewGuid(), BusinessName = "Sellora Mart", InvoicePrefix = "INV", BaseCurrencyId = inr.Id, TransferApprovalSeparationOfDuties = false }; // one user plays every role
         var product = new Product
         {
             Id = Guid.NewGuid(), Sku = "RICE-BP10", Name = "Ponni Rice", BaseUnitId = unit.Id, BaseUnit = unit,

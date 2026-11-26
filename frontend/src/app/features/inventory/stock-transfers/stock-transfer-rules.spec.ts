@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import {
-  IdempotentSubmission, availableActions, closeProblemMessage, statusFromLabel, statusLabel, validateCloseReason, buildReceiveRequest, buildResolveRequest, mapRowProblem,
+  IdempotentSubmission, availableActions, buildApproveRequest, validateApprove, closeProblemMessage, statusFromLabel, statusLabel, validateCloseReason, buildReceiveRequest, buildResolveRequest, mapRowProblem,
   validateReceive, validateResolve, type ReceiveRow, type UnitRef,
 } from './stock-transfer-rules';
 import { STOCK_TRANSFER_STATUSES } from './stock-transfers.models';
@@ -201,5 +201,41 @@ describe('Phase 03 status labels and close rule', () => {
   it('closeProblemMessage joins reason and status errors', () => {
     expect(closeProblemMessage({ errors: { reason: ['a'], status: ['b'] } } as never)).toBe('a b');
     expect(closeProblemMessage({} as never)).toBeNull();
+  });
+});
+
+describe('approve controls', () => {
+  const has = (codes: string[]) => (c: string) => codes.includes(c);
+  const lines = [{ outstandingBaseQty: 0, dispatchedBaseQty: 0 }];
+
+  it('hides approve (not reject) from the maker under approval separation', () => {
+    const approver = has(['StockTransfers.Approve']);
+    expect(availableActions({ status: 'Requested', canApprove: true, approvalBlockedForYou: true, lines }, approver)).toEqual(['reject']);
+    expect(availableActions({ status: 'Requested', canApprove: true, approvalBlockedForYou: false, lines }, approver)).toEqual(['approve', 'reject']);
+  });
+
+  const row = (quantity: string, requestedQty = 3, lineId = 'l1') => ({ lineId, requestedQty, quantity });
+
+  it('accepts approving as requested without a reason', () => {
+    expect(validateApprove([row('3')], '')).toEqual({ rows: {}, form: null });
+    expect(buildApproveRequest([row('3')], 'ignored')).toEqual({ lines: [{ lineId: 'l1', quantity: 3 }], reason: null });
+  });
+
+  it('flags row quantities that are empty, negative, non-numeric or above the request', () => {
+    expect(validateApprove([row(''), row('-1'), row('abc'), row('4')], 'r').rows).toEqual({
+      0: 'Enter a quantity of 0 or more.', 1: 'Enter a quantity of 0 or more.', 2: 'Enter a quantity of 0 or more.', 3: 'At most the requested 3.',
+    });
+  });
+
+  it('needs a reason when reduced, and refuses every line at 0', () => {
+    expect(validateApprove([row('1')], ' ').form).toBe('Give a reason for approving less than requested.');
+    expect(validateApprove([row('0'), row('0', 2, 'l2')], 'r').form).toBe('Every line is at 0 — reject the request instead.');
+    expect(validateApprove([row('0'), row('2', 2, 'l2')], 'out of stock').form).toBeNull();
+  });
+
+  it('sends every line in row order with the trimmed reason when something is reduced', () => {
+    expect(buildApproveRequest([row('1'), row('2', 2, 'l2')], '  only one  ')).toEqual({
+      lines: [{ lineId: 'l1', quantity: 1 }, { lineId: 'l2', quantity: 2 }], reason: 'only one',
+    });
   });
 });

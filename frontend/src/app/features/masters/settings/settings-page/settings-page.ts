@@ -42,6 +42,7 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
     baseCurrencyId: ['', Validators.required],
     receiptPostingMode: ['Direct' as ReceiptPostingMode],
     receiptSeparationOfDuties: [false],
+    transferApprovalSeparationOfDuties: [true],
   });
 
   readonly postingModes: { value: ReceiptPostingMode; label: string }[] = [
@@ -82,6 +83,7 @@ export class SettingsPage implements OnInit, HasUnsavedChanges {
           baseCurrencyId: s.baseCurrencyId,
           receiptPostingMode: s.receiptPostingMode ?? 'Direct',
           receiptSeparationOfDuties: s.receiptSeparationOfDuties ?? false,
+          transferApprovalSeparationOfDuties: s.transferApprovalSeparationOfDuties ?? true,
         });
         this.storedCountry.set(s.countryId ? { id: s.countryId, name: s.countryName ?? '' } : null);
         this.storedState.set(s.stateId ? { id: s.stateId, name: s.stateName ?? '' } : null);

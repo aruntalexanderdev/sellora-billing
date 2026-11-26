@@ -21,6 +21,8 @@ public class StockTransferConfiguration : IEntityTypeConfiguration<StockTransfer
         builder.Property(t => t.RejectionReason).HasMaxLength(300);
         builder.Property(t => t.CancellationReason).HasMaxLength(300);
         builder.Property(t => t.ClosureReason).HasMaxLength(500);
+        builder.Property(t => t.ApprovalAdjustmentReason).HasMaxLength(500);
+        builder.Property(t => t.RequireApprovalSeparation).HasDefaultValue(false);
 
         builder.HasIndex(t => new { t.CompanyId, t.TransferNo }, "IX_StockTransfers_CompanyId_TransferNo").IsUnique();
         builder.HasIndex(t => new { t.CompanyId, t.Status }, "IX_StockTransfers_CompanyId_Status");
@@ -106,7 +108,8 @@ public class StockTransferLineConfiguration : IEntityTypeConfiguration<StockTran
         builder.Property(l => l.DispatchFactor).HasColumnType("numeric(28,10)");
         foreach (var p in new[] { nameof(StockTransferLine.RequestedQty), nameof(StockTransferLine.RequestedBaseQty), nameof(StockTransferLine.DispatchedQty),
                      nameof(StockTransferLine.DispatchedBaseQty), nameof(StockTransferLine.AllocatedBaseQty), nameof(StockTransferLine.ClosedBaseQty), nameof(StockTransferLine.ReceivedBaseQty), nameof(StockTransferLine.DamagedBaseQty),
-                     nameof(StockTransferLine.WrittenOffBaseQty), nameof(StockTransferLine.ReturnedBaseQty) })
+                     nameof(StockTransferLine.WrittenOffBaseQty), nameof(StockTransferLine.ReturnedBaseQty),
+                     nameof(StockTransferLine.ApprovedQty), nameof(StockTransferLine.ApprovedBaseQty) })
         {
             builder.Property(p).HasColumnType("numeric(18,3)");
         }
@@ -141,6 +144,9 @@ public class StockTransferLineConfiguration : IEntityTypeConfiguration<StockTran
             t.HasCheckConstraint("CK_StockTransferLines_LineNo_Positive", "\"LineNo\" > 0");
             t.HasCheckConstraint("CK_StockTransferLines_Requested_Positive", "\"RequestedQty\" > 0 AND \"ConversionFactorToBase\" > 0 AND \"RequestedBaseQty\" > 0");
             t.HasCheckConstraint("CK_StockTransferLines_Requested_Arithmetic", "\"RequestedQty\" * \"ConversionFactorToBase\" = \"RequestedBaseQty\"");
+            // Approval snapshot: all-or-none, in the requested unit, never above the request.
+            t.HasCheckConstraint("CK_StockTransferLines_Approved_Valid",
+                "(\"ApprovedQty\" IS NULL AND \"ApprovedBaseQty\" IS NULL) OR (\"ApprovedQty\" >= 0 AND \"ApprovedBaseQty\" >= 0 AND \"ApprovedBaseQty\" <= \"RequestedBaseQty\" AND \"ApprovedQty\" * \"ConversionFactorToBase\" = \"ApprovedBaseQty\")");
             // Dispatch snapshot is all-or-none; a line with no snapshot has nothing dispatched or settled.
             t.HasCheckConstraint("CK_StockTransferLines_Dispatch_AllOrNone",
                 "(\"DispatchProductUnitId\" IS NULL) = (\"DispatchUnitId\" IS NULL) AND (\"DispatchProductUnitId\" IS NULL) = (\"DispatchUnitCode\" IS NULL)"

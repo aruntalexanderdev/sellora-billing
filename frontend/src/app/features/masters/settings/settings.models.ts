@@ -17,6 +17,8 @@ export interface BusinessSettings {
   companyId: string;
   receiptPostingMode: ReceiptPostingMode;
   receiptSeparationOfDuties: boolean;
+  /** Maker-checker for stock transfer requests: the creator / submitter cannot approve. Applies to requests submitted afterwards. */
+  transferApprovalSeparationOfDuties: boolean;
   /** `state` above is the read-only legacy hint, shown only while stateId is null (D6). */
   countryId: string | null;
   countryName: string | null;
@@ -36,6 +38,8 @@ export interface UpdateBusinessSettingsRequest {
   /** Omitted = unchanged. Applies only to receipts recorded afterwards. */
   receiptPostingMode?: ReceiptPostingMode;
   receiptSeparationOfDuties?: boolean;
+  /** Omitted = unchanged. Applies only to transfer requests submitted afterwards. */
+  transferApprovalSeparationOfDuties?: boolean;
   /** Always post the current values: null clears the link (D17/D22). */
   countryId: string | null;
   stateId: string | null;
